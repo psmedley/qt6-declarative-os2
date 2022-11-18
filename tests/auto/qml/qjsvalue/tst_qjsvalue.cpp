@@ -2809,7 +2809,7 @@ void tst_QJSValue::jsvalueArrayToSequenceType()
 struct QJSValuePrivateAccess : public QJSValuePrivate { using QJSValuePrivate::setRawValue; };
 void tst_QJSValue::deleteFromDifferentThread()
 {
-#if !QT_CONFIG(thread)
+#if !QT_CONFIG(thread) || !QT_CONFIG(cxx11_future)
     QSKIP("Need thread support to destroy QJSValues from different threads");
 #elif !QT_CONFIG(cxx11_future)
     QSKIP("This test requires QThread::create");

@@ -99,7 +99,7 @@ void TestQmllint::initTestCase()
             + QLatin1String("/qmljsrootgen");
     m_qmltyperegistrarPath = QLibraryInfo::path(QLibraryInfo::LibraryExecutablesPath)
             + QLatin1String("/qmltyperegistrar");
-#ifdef Q_OS_WIN
+#ifdef Q_OS_DOSLIKE
     m_qmllintPath += QLatin1String(".exe");
     m_qmljsrootgenPath += QLatin1String(".exe");
     m_qmltyperegistrarPath += QLatin1String(".exe");

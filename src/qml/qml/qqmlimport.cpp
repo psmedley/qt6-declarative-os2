@@ -815,7 +815,7 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
         for (const QString &urlToTry : urlsToTry) {
             exists = typeLoader->fileExists(localDirectoryPath, urlToTry);
             if (exists) {
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_OS2)
                 // don't let function.qml confuse the use of "new Function(...)" for example.
                 if (!QQml_isFileCaseCorrect(localDirectoryPath + urlToTry)) {
                     exists = false;

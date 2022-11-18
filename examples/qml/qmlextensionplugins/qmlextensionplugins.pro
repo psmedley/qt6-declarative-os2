@@ -7,6 +7,8 @@ QML_IMPORT_MAJOR_VERSION = 1
 
 DESTDIR = imports/$$QML_IMPORT_NAME
 TARGET  = qmlqtimeexampleplugin
+os2:TARGET_SHORT = qmlqtep
+os2:CONFIG += target_short_symlink
 QMLTYPES_FILENAME = $$DESTDIR/plugins.qmltypes
 
 SOURCES += \

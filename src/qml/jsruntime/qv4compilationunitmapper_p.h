@@ -75,7 +75,7 @@ private:
             const QString &cacheFilePath, const QDateTime &sourceTimeStamp, QString *errorString);
     void close();
 
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIXLIKE)
     size_t length = 0;
 #endif
     void *dataPtr = nullptr;
