@@ -530,7 +530,7 @@ qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_sequence_object
         jsruntime/qv4sequenceobject.cpp jsruntime/qv4sequenceobject_p.h
 )
 
-qt_internal_extend_target(Qml CONDITION UNIX
+qt_internal_extend_target(Qml CONDITION (UNIX OR OS2)
     SOURCES
         jsruntime/qv4compilationunitmapper_unix.cpp
         jsruntime/qv4functiontable_unix.cpp
@@ -627,6 +627,11 @@ qt_internal_extend_target(Qml CONDITION INTEGRITY
 qt_internal_extend_target(Qml CONDITION UNIX AND NOT INTEGRITY
     SOURCES
         ../3rdparty/masm/wtf/OSAllocatorPosix.cpp
+)
+
+qt_internal_extend_target(Qml CONDITION OS2
+    SOURCES
+        ../3rdparty/masm/wtf/OSAllocatorOS2.cpp
 )
 
 qt_internal_extend_target(Qml CONDITION DEFINES___contains___WTF_USE_UDIS86=1

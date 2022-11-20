@@ -2221,9 +2221,9 @@ bool QQml_isFileCaseCorrect(const QString &fileName, int lengthIn /* = -1 */)
     QFileInfo info(fileName);
     const QString absolute = info.absoluteFilePath();
 
-#if defined(Q_OS_DARWIN)
+#if defined(Q_OS_DARWIN) || defined(Q_OS_OS2)
     const QString canonical = info.canonicalFilePath();
-#elif defined(Q_OS_WIN) || defined(Q_OS_OS2)
+#elif defined(Q_OS_WIN)
     // No difference if the path is qrc based
     if (absolute[0] == QLatin1Char(':'))
         return true;
