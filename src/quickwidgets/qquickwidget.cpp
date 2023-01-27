@@ -219,8 +219,10 @@ void QQuickWidgetPrivate::init(QQmlEngine* e)
             qWarning("QQuickWidget is not supported on this platform.");
     }
 
+#ifndef Q_OS_OS2 // OS/2 doesn't have OpenGL so suppress this warning
     if (QSGRhiSupport::instance()->rhiBackend() != QRhi::OpenGLES2)
         qWarning("QQuickWidget is only supported on OpenGL. Use QQuickWindow::setGraphicsApi() to override the default.");
+#endif
 
     engine = e;
 
