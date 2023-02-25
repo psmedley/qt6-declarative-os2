@@ -66,6 +66,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_DECLARE_LOGGING_CATEGORY(lcVP)
+
 /*!
     \qmltype TextEdit
     \instantiates QQuickTextEdit
@@ -123,6 +125,12 @@ TextEdit {
 // This is a pretty arbitrary figure. The idea is that we don't want to break down the document
 // into text nodes corresponding to a text block each so that the glyph node grouping doesn't become pointless.
 static const int nodeBreakingSize = 300;
+
+#if !defined(QQUICKTEXT_LARGETEXT_THRESHOLD)
+  #define QQUICKTEXT_LARGETEXT_THRESHOLD 10000
+#endif
+// if QString::size() > largeTextSizeThreshold, we render more often, but only visible lines
+const int QQuickTextEditPrivate::largeTextSizeThreshold = QQUICKTEXT_LARGETEXT_THRESHOLD;
 
 namespace {
     class ProtectedLayoutAccessor: public QAbstractTextDocumentLayout
@@ -424,6 +432,7 @@ void QQuickTextEdit::setText(const QString &text)
     } else {
         d->control->setPlainText(text);
     }
+    setFlag(QQuickItem::ItemObservesViewport, text.size() > QQuickTextEditPrivate::largeTextSizeThreshold);
 }
 
 /*!
@@ -802,6 +811,31 @@ void QQuickTextEditPrivate::mirrorChange()
             emit q->effectiveHorizontalAlignmentChanged();
         }
     }
+}
+
+bool QQuickTextEditPrivate::transformChanged(QQuickItem *transformedItem)
+{
+    Q_Q(QQuickTextEdit);
+    qCDebug(lcVP) << q << "sees that" << transformedItem << "moved in VP" << q->clipRect();
+
+    // If there's a lot of text, and the TextEdit has been scrolled so that the viewport
+    // no longer completely covers the rendered region, we need QQuickTextEdit::updatePaintNode()
+    // to re-iterate blocks and populate a different range.
+    if (flags & QQuickItem::ItemObservesViewport) {
+        if (QQuickItem *viewport = q->viewportItem()) {
+            QRectF vp = q->mapRectFromItem(viewport, viewport->clipRect());
+            if (!(vp.top() > renderedRegion.top() && vp.bottom() < renderedRegion.bottom())) {
+                qCDebug(lcVP) << "viewport" << vp << "now goes beyond rendered region" << renderedRegion << "; updating";
+                q->updateWholeDocument();
+            }
+            const bool textCursorVisible = cursorVisible && q->cursorRectangle().intersects(vp);
+            if (cursorItem)
+                cursorItem->setVisible(textCursorVisible);
+            else
+                control->setCursorVisible(textCursorVisible);
+        }
+    }
+    return QQuickImplicitSizeItemPrivate::transformChanged(transformedItem);
 }
 
 #if QT_CONFIG(im)
@@ -1203,7 +1237,15 @@ void QQuickTextEdit::setCursorVisible(bool on)
 
 /*!
     \qmlproperty int QtQuick::TextEdit::cursorPosition
-    The position of the cursor in the TextEdit.
+    The position of the cursor in the TextEdit.  The cursor is positioned between
+    characters.
+
+    \note The \e characters in this case refer to the string of \l QChar objects,
+    therefore 16-bit Unicode characters, and the position is considered an index
+    into this string. This does not necessarily correspond to individual graphemes
+    in the writing system, as a single grapheme may be represented by multiple
+    Unicode characters, such as in the case of surrogate pairs, linguistic
+    ligatures or diacritics.
 */
 int QQuickTextEdit::cursorPosition() const
 {
@@ -1550,15 +1592,20 @@ bool QQuickTextEdit::selectByMouse() const
 void QQuickTextEdit::setSelectByMouse(bool on)
 {
     Q_D(QQuickTextEdit);
-    if (d->selectByMouse != on) {
-        d->selectByMouse = on;
-        setKeepMouseGrab(on);
-        if (on)
-            d->control->setTextInteractionFlags(d->control->textInteractionFlags() | Qt::TextSelectableByMouse);
-        else
-            d->control->setTextInteractionFlags(d->control->textInteractionFlags() & ~Qt::TextSelectableByMouse);
-        emit selectByMouseChanged(on);
-    }
+    if (d->selectByMouse == on)
+        return;
+
+    d->selectByMouse = on;
+    setKeepMouseGrab(on);
+    if (on)
+        d->control->setTextInteractionFlags(d->control->textInteractionFlags() | Qt::TextSelectableByMouse);
+    else
+        d->control->setTextInteractionFlags(d->control->textInteractionFlags() & ~Qt::TextSelectableByMouse);
+
+#if QT_CONFIG(cursor)
+    d->updateMouseCursorShape();
+#endif
+    emit selectByMouseChanged(on);
 }
 
 /*!
@@ -1620,6 +1667,9 @@ void QQuickTextEdit::setReadOnly(bool r)
 
 #if QT_CONFIG(im)
     updateInputMethod(Qt::ImEnabled);
+#endif
+#if QT_CONFIG(cursor)
+    d->updateMouseCursorShape();
 #endif
     q_canPasteChanged();
     emit readOnlyChanged(r);
@@ -2058,7 +2108,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
     QQuickTextNodeEngine engine;
     QQuickTextNodeEngine frameDecorationsEngine;
 
-    if (!oldNode || nodeIterator < d->textNodeMap.end()) {
+    if (!oldNode || nodeIterator < d->textNodeMap.end() || d->textNodeMap.isEmpty()) {
 
         if (!oldNode)
             rootNode = new RootNode;
@@ -2083,6 +2133,13 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
             } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->textNode() != firstCleanNode);
         }
 
+        // If there's a lot of text, insert only the range of blocks that can possibly be visible within the viewport.
+        QRectF viewport;
+        if (flags().testFlag(QQuickItem::ItemObservesViewport)) {
+            viewport = clipRect();
+            qCDebug(lcVP) << "text viewport" << viewport;
+        }
+
         // FIXME: the text decorations could probably be handled separately (only updated for affected textFrames)
         rootNode->resetFrameDecorations(d->createTextNode());
         resetEngine(&frameDecorationsEngine, d->color, d->selectedTextColor, d->selectionColor);
@@ -2103,6 +2160,9 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
         QList<QTextFrame *> frames;
         frames.append(d->document->rootFrame());
 
+
+        d->firstBlockInViewport = -1;
+        d->firstBlockPastViewport = -1;
         while (!frames.isEmpty()) {
             QTextFrame *textFrame = frames.takeFirst();
             frames.append(textFrame->childFrames());
@@ -2111,19 +2171,28 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
             if (textFrame->lastPosition() < firstDirtyPos
                     || textFrame->firstPosition() >= firstCleanNode.startPos())
                 continue;
-            node = d->createTextNode();
             resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor);
 
             if (textFrame->firstPosition() > textFrame->lastPosition()
                     && textFrame->frameFormat().position() != QTextFrameFormat::InFlow) {
+                node = d->createTextNode();
                 updateNodeTransform(node, d->document->documentLayout()->frameBoundingRect(textFrame).topLeft());
                 const int pos = textFrame->firstPosition() - 1;
                 ProtectedLayoutAccessor *a = static_cast<ProtectedLayoutAccessor *>(d->document->documentLayout());
                 QTextCharFormat format = a->formatAccessor(pos);
                 QTextBlock block = textFrame->firstCursorPosition().block();
-                engine.setCurrentLine(block.layout()->lineForTextPosition(pos - block.position()));
-                engine.addTextObject(block, QPointF(0, 0), format, QQuickTextNodeEngine::Unselected, d->document,
-                                              pos, textFrame->frameFormat().position());
+                nodeOffset = d->document->documentLayout()->blockBoundingRect(block).topLeft();
+                bool inView = true;
+                if (!viewport.isNull() && block.layout()) {
+                    QRectF coveredRegion = block.layout()->boundingRect().adjusted(nodeOffset.x(), nodeOffset.y(), nodeOffset.x(), nodeOffset.y());
+                    inView = coveredRegion.bottom() >= viewport.top() && coveredRegion.top() <= viewport.bottom();
+                    qCDebug(lcVP) << "non-flow frame" << coveredRegion << "in viewport?" << inView;
+                }
+                if (inView) {
+                    engine.setCurrentLine(block.layout()->lineForTextPosition(pos - block.position()));
+                    engine.addTextObject(block, QPointF(0, 0), format, QQuickTextNodeEngine::Unselected, d->document,
+                                                  pos, textFrame->frameFormat().position());
+                }
                 nodeStart = pos;
             } else {
                 // Having nodes spanning across frame boundaries will break the current bookkeeping mechanism. We need to prevent that.
@@ -2136,33 +2205,87 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                 QTextFrame::iterator it = textFrame->begin();
                 while (!it.atEnd()) {
                     QTextBlock block = it.currentBlock();
-                    ++it;
-                    if (block.position() < firstDirtyPos)
+                    if (block.position() < firstDirtyPos) {
+                        ++it;
                         continue;
-
-                    if (!engine.hasContents()) {
-                        nodeOffset = d->document->documentLayout()->blockBoundingRect(block).topLeft();
-                        updateNodeTransform(node, nodeOffset);
-                        nodeStart = block.position();
                     }
 
-                    engine.addTextBlock(d->document, block, -nodeOffset, d->color, QColor(), selectionStart(), selectionEnd() - 1);
-                    currentNodeSize += block.length();
+                    if (!engine.hasContents())
+                        nodeOffset = d->document->documentLayout()->blockBoundingRect(block).topLeft();
+
+                    bool inView = true;
+                    if (!viewport.isNull()) {
+                        QRectF coveredRegion;
+                        if (block.layout()) {
+                            coveredRegion = block.layout()->boundingRect().adjusted(nodeOffset.x(), nodeOffset.y(), nodeOffset.x(), nodeOffset.y());
+                            inView = coveredRegion.bottom() > viewport.top();
+                        }
+                        if (d->firstBlockInViewport < 0 && inView) {
+                            // During backward scrolling, we need to iterate backwards from textNodeMap.begin() to fill the top of the viewport.
+                            if (coveredRegion.top() > viewport.top() + 1) {
+                                qCDebug(lcVP) << "checking backwards from block" << block.blockNumber() << "@" << nodeOffset.y() << coveredRegion;
+                                while (it != textFrame->begin() && it.currentBlock().layout() &&
+                                       it.currentBlock().layout()->boundingRect().top() + nodeOffset.y() > viewport.top())
+                                    --it;
+                                if (!it.currentBlock().layout())
+                                    ++it;
+                                if (Q_LIKELY(it.currentBlock().layout())) {
+                                    block = it.currentBlock();
+                                    coveredRegion = block.layout()->boundingRect().adjusted(nodeOffset.x(), nodeOffset.y(), nodeOffset.x(), nodeOffset.y());
+                                } else {
+                                    qCWarning(lcVP) << "failed to find a text block with layout during back-scrolling";
+                                }
+                            }
+                            qCDebug(lcVP) << "first block in viewport" << block.blockNumber() << "@" << nodeOffset.y() << coveredRegion;
+                            d->firstBlockInViewport = block.blockNumber();
+                            if (block.layout())
+                                d->renderedRegion = coveredRegion;
+                        } else {
+                            if (nodeOffset.y() > viewport.bottom()) {
+                                inView = false;
+                                if (d->firstBlockInViewport >= 0 && d->firstBlockPastViewport < 0) {
+                                    qCDebug(lcVP) << "first block past viewport" << viewport << block.blockNumber()
+                                                  << "@" << nodeOffset.y() << "total region rendered" << d->renderedRegion;
+                                    d->firstBlockPastViewport = block.blockNumber();
+                                }
+                                break; // skip rest of blocks in this frame
+                            }
+                            if (inView && !block.text().isEmpty() && coveredRegion.isValid())
+                                d->renderedRegion = d->renderedRegion.united(coveredRegion);
+                        }
+                    }
+
+                    bool createdNodeInView = false;
+                    if (inView) {
+                        if (!engine.hasContents()) {
+                            if (node && !node->parent())
+                                d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
+                            node = d->createTextNode();
+                            createdNodeInView = true;
+                            updateNodeTransform(node, nodeOffset);
+                            nodeStart = block.position();
+                        }
+                        engine.addTextBlock(d->document, block, -nodeOffset, d->color, QColor(), selectionStart(), selectionEnd() - 1);
+                        currentNodeSize += block.length();
+                    }
 
                     if ((it.atEnd()) || block.next().position() >= firstCleanNode.startPos())
                         break; // last node that needed replacing or last block of the frame
-
                     QList<int>::const_iterator lowerBound = std::lower_bound(frameBoundaries.constBegin(), frameBoundaries.constEnd(), block.next().position());
-                    if (currentNodeSize > nodeBreakingSize || lowerBound == frameBoundaries.constEnd() || *lowerBound > nodeStart) {
+                    if (node && (currentNodeSize > nodeBreakingSize || lowerBound == frameBoundaries.constEnd() || *lowerBound > nodeStart)) {
                         currentNodeSize = 0;
-                        d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
-                        node = d->createTextNode();
+                        if (!node->parent())
+                            d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
+                        if (!createdNodeInView)
+                            node = d->createTextNode();
                         resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor);
                         nodeStart = block.next().position();
                     }
+                    ++it;
                 }
             }
-            d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
+            if (Q_LIKELY(node && !node->parent()))
+                d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
         }
         frameDecorationsEngine.addToSceneGraph(rootNode->frameDecorationsNode, QQuickText::Normal, QColor());
         // Now prepend the frame decorations since we want them rendered first, with the text nodes and cursor in front.
@@ -2193,7 +2316,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
 
     if (d->cursorComponent == nullptr) {
         QSGInternalRectangleNode* cursor = nullptr;
-        if (!isReadOnly() && d->cursorVisible && d->control->cursorOn())
+        if (!isReadOnly() && d->cursorVisible && d->control->cursorOn() && d->control->cursorVisible())
             cursor = d->sceneGraphContext()->createInternalRectangleNode(d->control->cursorRect(), d->color);
         rootNode->resetCursorNode(cursor);
     }
@@ -2339,7 +2462,7 @@ void QQuickTextEditPrivate::init()
     updateDefaultTextOption();
     q->updateSize();
 #if QT_CONFIG(cursor)
-    q->setCursor(Qt::IBeamCursor);
+    updateMouseCursorShape();
 #endif
 }
 
@@ -2623,9 +2746,8 @@ void QQuickTextEdit::q_linkHovered(const QString &link)
     emit linkHovered(link);
 #if QT_CONFIG(cursor)
     if (link.isEmpty()) {
-        setCursor(d->cursorToRestoreAfterHover);
+        d->updateMouseCursorShape();
     } else if (cursor().shape() != Qt::PointingHandCursor) {
-        d->cursorToRestoreAfterHover = cursor().shape();
         setCursor(Qt::PointingHandCursor);
     }
 #endif
@@ -2636,9 +2758,8 @@ void QQuickTextEdit::q_markerHovered(bool hovered)
     Q_D(QQuickTextEdit);
 #if QT_CONFIG(cursor)
     if (!hovered) {
-        setCursor(d->cursorToRestoreAfterHover);
+        d->updateMouseCursorShape();
     } else if (cursor().shape() != Qt::PointingHandCursor) {
-        d->cursorToRestoreAfterHover = cursor().shape();
         setCursor(Qt::PointingHandCursor);
     }
 #endif
@@ -2909,6 +3030,14 @@ bool QQuickTextEditPrivate::isLinkHoveredConnected()
     IS_SIGNAL_CONNECTED(q, QQuickTextEdit, linkHovered, (const QString &));
 }
 
+#if QT_CONFIG(cursor)
+void QQuickTextEditPrivate::updateMouseCursorShape()
+{
+    Q_Q(QQuickTextEdit);
+    q->setCursor(q->isReadOnly() && !q->selectByMouse() ? Qt::ArrowCursor : Qt::IBeamCursor);
+}
+#endif
+
 /*!
     \qmlsignal QtQuick::TextEdit::linkHovered(string link)
     \since 5.2
@@ -2959,6 +3088,7 @@ void QQuickTextEdit::hoverEnterEvent(QHoverEvent *event)
     Q_D(QQuickTextEdit);
     if (d->isLinkHoveredConnected())
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
+    event->ignore();
 }
 
 void QQuickTextEdit::hoverMoveEvent(QHoverEvent *event)
@@ -2966,6 +3096,7 @@ void QQuickTextEdit::hoverMoveEvent(QHoverEvent *event)
     Q_D(QQuickTextEdit);
     if (d->isLinkHoveredConnected())
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
+    event->ignore();
 }
 
 void QQuickTextEdit::hoverLeaveEvent(QHoverEvent *event)
@@ -2973,6 +3104,7 @@ void QQuickTextEdit::hoverLeaveEvent(QHoverEvent *event)
     Q_D(QQuickTextEdit);
     if (d->isLinkHoveredConnected())
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
+    event->ignore();
 }
 
 /*!
@@ -3191,6 +3323,16 @@ void QQuickTextEdit::clear()
     d->resetInputMethod();
     d->control->clear();
 }
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug debug, const QQuickTextEditPrivate::Node &n)
+{
+    QDebugStateSaver saver(debug);
+    debug.space();
+    debug << "Node(startPos:" << n.m_startPos << "dirty:" << n.m_dirty << n.m_node << ')';
+    return debug;
+}
+#endif
 
 QT_END_NAMESPACE
 

@@ -58,18 +58,24 @@ void QQmlIRLoader::load()
     for (quint32 i = 0; i < qmlUnit->nImports; ++i)
         output->imports << qmlUnit->importAt(i);
 
-    const auto createPragma = [&](QmlIR::Pragma::PragmaType type) {
+    const auto createPragma = [&](
+            QmlIR::Pragma::PragmaType type,
+            QmlIR::Pragma::ListPropertyAssignBehaviorValue value = QmlIR::Pragma::Append) {
         QmlIR::Pragma *p = New<QmlIR::Pragma>();
         p->location = QV4::CompiledData::Location();
         p->type = type;
+        p->listPropertyAssignBehavior = value;
         output->pragmas << p;
     };
 
     if (unit->flags & QV4::CompiledData::Unit::IsSingleton)
-        createPragma(QmlIR::Pragma::PragmaSingleton);
+        createPragma(QmlIR::Pragma::Singleton);
     if (unit->flags & QV4::CompiledData::Unit::IsStrict)
-        createPragma(QmlIR::Pragma::PragmaStrict);
-
+        createPragma(QmlIR::Pragma::Strict);
+    if (unit->flags & QV4::CompiledData::Unit::ListPropertyAssignReplace)
+        createPragma(QmlIR::Pragma::ListPropertyAssignBehavior, QmlIR::Pragma::Replace);
+    else if (unit->flags & QV4::CompiledData::Unit::ListPropertyAssignReplaceIfNotDefault)
+        createPragma(QmlIR::Pragma::ListPropertyAssignBehavior, QmlIR::Pragma::ReplaceIfNotDefault);
 
     for (uint i = 0; i < qmlUnit->nObjects; ++i) {
         const QV4::CompiledData::Object *serializedObject = qmlUnit->objectAt(i);
@@ -101,10 +107,9 @@ QmlIR::Object *QQmlIRLoader::loadObject(const QV4::CompiledData::Object *seriali
                  serializedObject->location);
 
     object->indexOfDefaultPropertyOrAlias = serializedObject->indexOfDefaultPropertyOrAlias;
-    object->defaultPropertyIsAlias = serializedObject->defaultPropertyIsAlias;
-    object->isInlineComponent = serializedObject->flags & QV4::CompiledData::Object::IsInlineComponentRoot;
-    object->flags = serializedObject->flags;
-    object->id = serializedObject->id;
+    object->defaultPropertyIsAlias = serializedObject->hasAliasAsDefaultProperty();
+    object->flags = serializedObject->flags();
+    object->id = serializedObject->objectId();
     object->locationOfIdProperty = serializedObject->locationOfIdProperty;
 
     QVector<int> functionIndices;
@@ -114,7 +119,7 @@ QmlIR::Object *QQmlIRLoader::loadObject(const QV4::CompiledData::Object *seriali
         QmlIR::Binding *b = pool->New<QmlIR::Binding>();
         *static_cast<QV4::CompiledData::Binding*>(b) = serializedObject->bindingTable()[i];
         object->bindings->append(b);
-        if (b->type == QV4::CompiledData::Binding::Type_Script) {
+        if (b->type() == QV4::CompiledData::Binding::Type_Script) {
             functionIndices.append(b->value.compiledScriptIndex);
             b->value.compiledScriptIndex = functionIndices.count() - 1;
 

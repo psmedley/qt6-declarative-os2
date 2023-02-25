@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Quick Templates 2 module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -321,7 +324,8 @@ bool QQuickPopupPrivate::tryClose(const QPointF &pos, QQuickPopup::ClosePolicy f
 
     const bool onOutside = closePolicy & (flags & outsideFlags);
     const bool onOutsideParent = closePolicy & (flags & outsideParentFlags);
-    if (onOutside || onOutsideParent) {
+
+    if ((onOutside && outsidePressed) || (onOutsideParent && outsideParentPressed)) {
         if (!contains(pos) && (!dimmer || dimmer->contains(dimmer->mapFromScene(pos)))) {
             if (!onOutsideParent || !parentItem || !parentItem->contains(parentItem->mapFromScene(pos))) {
                 closeOrReject();
@@ -365,6 +369,8 @@ bool QQuickPopupPrivate::handlePress(QQuickItem *item, const QPointF &point, ulo
 {
     Q_UNUSED(timestamp);
     pressPoint = point;
+    outsidePressed = !contains(point);
+    outsideParentPressed = outsidePressed && parentItem && !parentItem->contains(parentItem->mapFromScene(point));
     tryClose(point, QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
     return blockInput(item, point);
 }
@@ -381,6 +387,8 @@ bool QQuickPopupPrivate::handleRelease(QQuickItem *item, const QPointF &point, u
     if (item != popupItem && !contains(pressPoint))
         tryClose(point, QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
     pressPoint = QPointF();
+    outsidePressed = false;
+    outsideParentPressed = false;
     touchId = -1;
     return blockInput(item, point);
 }
@@ -637,7 +645,7 @@ void QQuickPopupPrivate::setBottomMargin(qreal value, bool reset)
 
 /*!
     \since QtQuick.Controls 2.5 (Qt 5.12)
-    \qmlproperty Object QtQuick.Controls::Popup::anchors.centerIn
+    \qmlproperty Item QtQuick.Controls::Popup::anchors.centerIn
 
     Anchors provide a way to position an item by specifying its
     relationship with other items.
@@ -1736,7 +1744,7 @@ void QQuickPopup::setContentItem(QQuickItem *item)
 }
 
 /*!
-    \qmlproperty list<Object> QtQuick.Controls::Popup::contentData
+    \qmlproperty list<QtObject> QtQuick.Controls::Popup::contentData
     \qmldefault
 
     This property holds the list of content data.
@@ -2051,6 +2059,11 @@ void QQuickPopup::setScale(qreal scale)
     \value Popup.CloseOnReleaseOutsideParent The popup will close when the mouse is released outside of its parent.
     \value Popup.CloseOnEscape The popup will close when the escape key is pressed while the popup
         has active focus.
+
+    The \c {CloseOnPress*} and \c {CloseOnRelease*} policies only apply for events
+    outside of popups. That is, if there are two popups open and the first has
+    \c Popup.CloseOnPressOutside as its policy, clicking on the second popup will
+    not result in the first closing.
 
     The default value is \c {Popup.CloseOnEscape | Popup.CloseOnPressOutside}.
     This default value may interfere with existing shortcuts in the application
@@ -2479,7 +2492,7 @@ void QQuickPopup::classBegin()
 void QQuickPopup::componentComplete()
 {
     Q_D(QQuickPopup);
-    qCDebug(lcPopup) << "componentComplete";
+    qCDebug(lcPopup) << "componentComplete" << this;
     if (!parentItem())
         resetParentItem();
 
@@ -2537,22 +2550,19 @@ void QQuickPopup::keyReleaseEvent(QKeyEvent *event)
 void QQuickPopup::mousePressEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseMoveEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseDoubleClickEvent(QMouseEvent *event)
@@ -2627,6 +2637,7 @@ void QQuickPopup::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
 
 void QQuickPopup::contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize)
 {
+    qCDebug(lcPopup) << "contentSizeChange called on" << this << "with newSize" << newSize << "oldSize" << oldSize;
     if (!qFuzzyCompare(newSize.width(), oldSize.width()))
         emit contentWidthChanged();
     if (!qFuzzyCompare(newSize.height(), oldSize.height()))
@@ -2643,6 +2654,7 @@ void QQuickPopup::fontChange(const QFont &newFont, const QFont &oldFont)
 void QQuickPopup::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickPopup);
+    qCDebug(lcPopup) << "geometryChange called on" << this << "with newGeometry" << newGeometry << "oldGeometry" << oldGeometry;
     d->reposition();
     if (!qFuzzyCompare(newGeometry.width(), oldGeometry.width())) {
         emit widthChanged();

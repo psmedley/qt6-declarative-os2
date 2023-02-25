@@ -30,6 +30,7 @@
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <math.h>
 #include <QFile>
+#include <QtQuick/QQuickTextDocument>
 #include <QTextDocument>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
@@ -100,6 +101,8 @@ public:
     tst_qquicktextedit();
 
 private slots:
+    void initTestCase() override;
+
     void cleanup();
     void text();
     void width();
@@ -179,6 +182,9 @@ private slots:
     void clipRect();
     void implicitSizeBinding_data();
     void implicitSizeBinding();
+    void largeTextObservesViewport_data();
+    void largeTextObservesViewport();
+    void renderingAroundSelection();
 
     void signal_editingfinished();
 
@@ -364,6 +370,56 @@ tst_qquicktextedit::tst_qquicktextedit()
                  // << "#AA0011DD"
                  // << "#00F16B11";
                  //
+}
+
+class NodeCheckerTextEdit : public QQuickTextEdit
+{
+public:
+    NodeCheckerTextEdit(QQuickItem *parent = nullptr) : QQuickTextEdit(parent) {}
+
+    void populateLinePositions(QSGNode *node)
+    {
+        linePositions.clear();
+        lastLinePosition = 0;
+        QSGNode *ch = node->firstChild();
+        while (ch != node->lastChild()) {
+            QCOMPARE(ch->type(), QSGNode::TransformNodeType);
+            QSGTransformNode *tn = static_cast<QSGTransformNode *>(ch);
+            int y = 0;
+            if (!tn->matrix().isIdentity())
+                y = tn->matrix().column(3).y();
+            if (tn->childCount() == 0) {
+                // A TransformNode with no children is a waste of memory.
+                // So far, QQuickTextEdit still creates a couple of extras.
+                qCDebug(lcTests) << "ignoring leaf TransformNode" << tn << "@ y" << y;
+            } else {
+                qCDebug(lcTests) << "child" << tn << "@ y" << y << "has children" << tn->childCount();
+                if (!linePositions.contains(y)) {
+                    linePositions.append(y);
+                    lastLinePosition = qMax(lastLinePosition, y);
+                }
+            }
+            ch = ch->nextSibling();
+        }
+        std::sort(linePositions.begin(), linePositions.end());
+    }
+
+    QSGNode *updatePaintNode(QSGNode *node, UpdatePaintNodeData *data) override
+    {
+       QSGNode *ret = QQuickTextEdit::updatePaintNode(node, data);
+       qCDebug(lcTests) << "updated root node" << ret;
+       populateLinePositions(ret);
+       return ret;
+    }
+
+    QList<int> linePositions;
+    int lastLinePosition;
+};
+
+void tst_qquicktextedit::initTestCase()
+{
+    QQmlDataTest::initTestCase();
+    qmlRegisterType<NodeCheckerTextEdit>("Qt.test", 1, 0, "NodeCheckerTextEdit");
 }
 
 void tst_qquicktextedit::cleanup()
@@ -932,7 +988,7 @@ void tst_qquicktextedit::hAlignVisual()
 
     // Try to check whether alignment works by checking the number of black
     // pixels in the thirds of the grabbed image.
-    const int windowWidth = 200;
+    const int windowWidth = view.width();
     const int textWidth = qCeil(text->implicitWidth());
     QVERIFY2(textWidth < windowWidth, "System font too large.");
     const int sectionWidth = textWidth / 3;
@@ -944,7 +1000,7 @@ void tst_qquicktextedit::hAlignVisual()
     {
         if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
             || (QGuiApplication::platformName() == QLatin1String("minimal")))
-            QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimal platforms", Abort);
+            QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
 
         // Left Align
         QImage image = view.grabWindow();
@@ -980,7 +1036,7 @@ void tst_qquicktextedit::hAlignVisual()
     {
         // Left Align
         QImage image = view.grabWindow();
-        int x = qCeil(text->implicitWidth());
+        int x = qCeil(text->implicitWidth() * view.devicePixelRatio());
         int left = numberOfNonWhitePixels(0, x, image);
         int right = numberOfNonWhitePixels(x, image.width() - x, image);
         QVERIFY2(left > 0, msgNotGreaterThan(left, 0).constData());
@@ -990,7 +1046,7 @@ void tst_qquicktextedit::hAlignVisual()
         // HCenter Align
         text->setHAlign(QQuickText::AlignHCenter);
         QImage image = view.grabWindow();
-        int x1 = qFloor(image.width() - text->implicitWidth()) / 2;
+        int x1 = qFloor(image.width() - text->implicitWidth() * view.devicePixelRatio()) / 2;
         int x2 = image.width() - x1;
         int left = numberOfNonWhitePixels(0, x1, image);
         int mid = numberOfNonWhitePixels(x1, x2 - x1, image);
@@ -1003,7 +1059,7 @@ void tst_qquicktextedit::hAlignVisual()
         // Right Align
         text->setHAlign(QQuickText::AlignRight);
         QImage image = view.grabWindow();
-        int x = image.width() - qCeil(text->implicitWidth());
+        int x = image.width() - qCeil(text->implicitWidth() * view.devicePixelRatio());
         int left = numberOfNonWhitePixels(0, x, image);
         int right = numberOfNonWhitePixels(x, image.width() - x, image);
         QCOMPARE(left, 0);
@@ -1486,7 +1542,7 @@ void tst_qquicktextedit::selection()
     QCOMPARE(textEditObject->selectionEnd(), 0);
     QVERIFY(textEditObject->selectedText().isNull());
 
-    textEditObject->setCursorPosition(textEditObject->text().count()+1);
+    textEditObject->setCursorPosition(textEditObject->text().length()+1);
     QCOMPARE(textEditObject->cursorPosition(), 0);
     QCOMPARE(textEditObject->selectionStart(), 0);
     QCOMPARE(textEditObject->selectionEnd(), 0);
@@ -1643,24 +1699,24 @@ void tst_qquicktextedit::isRightToLeft()
     // first test that the right string is delivered to the QString::isRightToLeft()
     QCOMPARE(textEdit.isRightToLeft(0,0), text.mid(0,0).isRightToLeft());
     QCOMPARE(textEdit.isRightToLeft(0,1), text.mid(0,1).isRightToLeft());
-    QCOMPARE(textEdit.isRightToLeft(text.count()-2, text.count()-1), text.mid(text.count()-2, text.count()-1).isRightToLeft());
-    QCOMPARE(textEdit.isRightToLeft(text.count()/2, text.count()/2 + 1), text.mid(text.count()/2, text.count()/2 + 1).isRightToLeft());
-    QCOMPARE(textEdit.isRightToLeft(0,text.count()/4), text.mid(0,text.count()/4).isRightToLeft());
-    QCOMPARE(textEdit.isRightToLeft(text.count()/4,3*text.count()/4), text.mid(text.count()/4,3*text.count()/4).isRightToLeft());
+    QCOMPARE(textEdit.isRightToLeft(text.length()-2, text.length()-1), text.mid(text.length()-2, text.length()-1).isRightToLeft());
+    QCOMPARE(textEdit.isRightToLeft(text.length()/2, text.length()/2 + 1), text.mid(text.length()/2, text.length()/2 + 1).isRightToLeft());
+    QCOMPARE(textEdit.isRightToLeft(0,text.length()/4), text.mid(0,text.length()/4).isRightToLeft());
+    QCOMPARE(textEdit.isRightToLeft(text.length()/4,3*text.length()/4), text.mid(text.length()/4,3*text.length()/4).isRightToLeft());
     if (text.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, "<Unknown File>: QML TextEdit: isRightToLeft(start, end) called with the end property being smaller than the start.");
-    QCOMPARE(textEdit.isRightToLeft(3*text.count()/4,text.count()-1), text.mid(3*text.count()/4,text.count()-1).isRightToLeft());
+    QCOMPARE(textEdit.isRightToLeft(3*text.length()/4,text.length()-1), text.mid(3*text.length()/4,text.length()-1).isRightToLeft());
 
     // then test that the feature actually works
     QCOMPARE(textEdit.isRightToLeft(0,0), emptyString);
     QCOMPARE(textEdit.isRightToLeft(0,1), firstCharacter);
-    QCOMPARE(textEdit.isRightToLeft(text.count()-2, text.count()-1), lastCharacter);
-    QCOMPARE(textEdit.isRightToLeft(text.count()/2, text.count()/2 + 1), middleCharacter);
-    QCOMPARE(textEdit.isRightToLeft(0,text.count()/4), startString);
-    QCOMPARE(textEdit.isRightToLeft(text.count()/4,3*text.count()/4), midString);
+    QCOMPARE(textEdit.isRightToLeft(text.length()-2, text.length()-1), lastCharacter);
+    QCOMPARE(textEdit.isRightToLeft(text.length()/2, text.length()/2 + 1), middleCharacter);
+    QCOMPARE(textEdit.isRightToLeft(0,text.length()/4), startString);
+    QCOMPARE(textEdit.isRightToLeft(text.length()/4,3*text.length()/4), midString);
     if (text.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, "<Unknown File>: QML TextEdit: isRightToLeft(start, end) called with the end property being smaller than the start.");
-    QCOMPARE(textEdit.isRightToLeft(3*text.count()/4,text.count()-1), endString);
+    QCOMPARE(textEdit.isRightToLeft(3*text.length()/4,text.length()-1), endString);
 }
 
 void tst_qquicktextedit::keySelection()
@@ -2609,8 +2665,6 @@ void tst_qquicktextedit::linkHover()
     QCOMPARE(window.cursor().shape(), Qt::IBeamCursor);
     QCOMPARE(hover.last()[0].toString(), QString());
 
-    texteditObject->setCursor(Qt::OpenHandCursor);
-
     QCursor::setPos(linkPos);
     QTRY_COMPARE(hover.count(), 3);
     QCOMPARE(window.cursor().shape(), Qt::PointingHandCursor);
@@ -2618,7 +2672,7 @@ void tst_qquicktextedit::linkHover()
 
     QCursor::setPos(textPos);
     QTRY_COMPARE(hover.count(), 4);
-    QCOMPARE(window.cursor().shape(), Qt::OpenHandCursor);
+    QCOMPARE(window.cursor().shape(), Qt::IBeamCursor);
     QCOMPARE(hover.last()[0].toString(), QString());
 }
 #endif
@@ -3682,6 +3736,179 @@ void tst_qquicktextedit::implicitSizeBinding()
     textObject->resetHeight();
     QCOMPARE(textObject->width(), textObject->implicitWidth());
     QCOMPARE(textObject->height(), textObject->implicitHeight());
+}
+
+void tst_qquicktextedit::largeTextObservesViewport_data()
+{
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QQuickTextEdit::TextFormat>("textFormat");
+    QTest::addColumn<bool>("parentIsViewport");
+    QTest::addColumn<int>("cursorPos");
+    QTest::addColumn<int>("scrollDelta");   // non-zero to move TextEdit in viewport
+
+    QTest::addColumn<int>("expectedBlockTolerance");
+    QTest::addColumn<int>("expectedBlocksAboveViewport");
+    QTest::addColumn<int>("expectedBlocksPastViewport");
+    QTest::addColumn<int>("expectedRenderedRegionMin");
+    QTest::addColumn<int>("expectedRenderedRegionMax");
+
+    QString text;
+    {
+        QStringList lines;
+        // "line 100" is 8 characters; many lines are longer, some are shorter
+        // so we populate 1250 lines, 11389 characters
+        const int lineCount = QQuickTextEditPrivate::largeTextSizeThreshold / 8;
+        lines.reserve(lineCount);
+        for (int i = 0; i < lineCount; ++i)
+            lines << QLatin1String("line ") + QString::number(i);
+        text = lines.join('\n');
+    }
+    Q_ASSERT(text.size() > QQuickTextEditPrivate::largeTextSizeThreshold);
+
+    // by default, the root item acts as the viewport:
+    // QQuickTextEdit doesn't populate lines of text beyond the bottom of the window
+    // cursor position 1000 is on line 121
+    QTest::newRow("default plain text") << text << QQuickTextEdit::PlainText << false << 1000 << 0
+                                        << 5 << 114 << 155 << 1200 << 2200;
+    // make the rectangle into a viewport item, and move the text upwards:
+    // QQuickTextEdit doesn't populate lines of text beyond the bottom of the viewport rectangle
+    QTest::newRow("clipped plain text") << text << QQuickTextEdit::PlainText << true << 1000 << 0
+                                        << 5 << 123 << 147 << 1200 << 2100;
+
+    {
+        QStringList lines;
+        // "line 100" is 8 characters; many lines are longer, some are shorter
+        // so we populate 1250 lines, 11389 characters
+        const int lineCount = QQuickTextEditPrivate::largeTextSizeThreshold / 8;
+        lines.reserve(lineCount);
+        // add a table (of contents, perhaps): ensure that doesn't get included in renderedRegion after we've scrolled past it
+        lines << QLatin1String("<table border='1'><tr><td>Chapter 1<td></tr><tr><td>Chapter 2</td></tr><tr><td>etc</td></tr></table>");
+        for (int i = 0; i < lineCount; ++i) {
+            if (i > 0 && i % 50 == 0)
+                // chapter heading with floating image: ensure that doesn't get included in renderedRegion after we've scrolled past it
+                lines << QLatin1String("<img style='float:left;' src='http/exists.png' height='32'/><h1>chapter ") +
+                         QString::number(i / 50) + QLatin1String("</h1>");
+            lines << QLatin1String("<p>line ") + QString::number(i) + QLatin1String("</p>");
+        }
+        text = lines.join('\n');
+    }
+    Q_ASSERT(text.size() > QQuickTextEditPrivate::largeTextSizeThreshold);
+
+    // by default, the root item acts as the viewport:
+    // QQuickTextEdit doesn't populate blocks beyond the bottom of the window
+    QTest::newRow("default styled text") << text << QQuickTextEdit::RichText << false << 1000 << 0
+                                         << 120 << 7 << 143 << 2700 << 3700;
+    // make the rectangle into a viewport item, and move the text upwards:
+    // QQuickTextEdit doesn't populate blocks that don't intersect the viewport rectangle
+    QTest::newRow("clipped styled text") << text << QQuickTextEdit::RichText << true << 1000 << 0
+                                         << 3 << 127 << 139 << 2800 << 3600;
+    // get the "chapter 2" heading into the viewport
+    QTest::newRow("heading visible") << text << QQuickTextEdit::RichText << true << 800 << 0
+                                     << 3 << 105 << 116 << 2300 << 3000;
+    // get the "chapter 2" heading into the viewport, and then scroll backwards
+    QTest::newRow("scroll backwards") << text << QQuickTextEdit::RichText << true << 800 << 20
+                                     << 3 << 104 << 116 << 2200 << 3000;
+    // get the "chapter 2" heading into the viewport, and then scroll forwards
+    QTest::newRow("scroll forwards") << text << QQuickTextEdit::RichText << true << 800 << -50
+                                     << 3 << 107 << 119 << 2300 << 3100;
+}
+
+void tst_qquicktextedit::largeTextObservesViewport()
+{
+    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
+        || (QGuiApplication::platformName() == QLatin1String("minimal")))
+        QSKIP("Skipping due to few fonts installed on offscreen/minimal platforms");
+
+    QFETCH(QString, text);
+    QFETCH(QQuickTextEdit::TextFormat, textFormat);
+    QFETCH(bool, parentIsViewport);
+    QFETCH(int, cursorPos);
+    QFETCH(int, scrollDelta);
+    QFETCH(int, expectedBlockTolerance);
+    QFETCH(int, expectedBlocksAboveViewport);
+    QFETCH(int, expectedBlocksPastViewport);
+    QFETCH(int, expectedRenderedRegionMin);
+    QFETCH(int, expectedRenderedRegionMax);
+
+    QQuickView window;
+    QByteArray errorMessage;
+    QVERIFY2(QQuickTest::initView(window, testFileUrl("viewport.qml"), true, &errorMessage), errorMessage.constData());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QQuickTextEdit *textItem = window.rootObject()->findChild<QQuickTextEdit*>();
+    QVERIFY(textItem);
+    QQuickItem *viewportItem = textItem->parentItem();
+    QQuickTextEditPrivate *textPriv = QQuickTextEditPrivate::get(textItem);
+
+    viewportItem->setFlag(QQuickItem::ItemIsViewport, parentIsViewport);
+    textItem->setTextFormat(textFormat);
+    textItem->setText(text);
+    textItem->setFocus(true);
+    if (lcTests().isDebugEnabled())
+        QTest::qWait(1000);
+    textItem->setCursorPosition(cursorPos);
+    auto cursorRect = textItem->cursorRectangle();
+    textItem->setY(-cursorRect.top());
+    if (lcTests().isDebugEnabled())
+        QTest::qWait(500);
+    if (scrollDelta) {
+        textItem->setY(textItem->y() + scrollDelta);
+        if (lcTests().isDebugEnabled())
+            QTest::qWait(500);
+    }
+    qCDebug(lcTests) << "text size" << textItem->text().size() << "lines" << textItem->lineCount() << "font" << textItem->font();
+    Q_ASSERT(textItem->text().size() > QQuickTextEditPrivate::largeTextSizeThreshold);
+    QVERIFY(textItem->flags().testFlag(QQuickItem::ItemObservesViewport)); // large text sets this flag automatically
+    QCOMPARE(textItem->viewportItem(), parentIsViewport ? viewportItem : viewportItem->parentItem());
+    QTRY_VERIFY(textPriv->firstBlockInViewport > 0); // wait for rendering
+    qCDebug(lcTests) << "first block rendered" << textPriv->firstBlockInViewport
+                     << "expected" << expectedBlocksAboveViewport
+                     << "first block past viewport" << textPriv->firstBlockPastViewport
+                     << "expected" << expectedBlocksPastViewport
+                     << "region" << textPriv->renderedRegion << "bottom" << textPriv->renderedRegion.bottom()
+                     << "expected range" << expectedRenderedRegionMin << expectedRenderedRegionMax;
+    if (scrollDelta >= 0) // unfortunately firstBlockInViewport isn't always reliable after scrolling
+        QTRY_VERIFY(qAbs(textPriv->firstBlockInViewport - expectedBlocksAboveViewport) < expectedBlockTolerance);
+    QVERIFY(qAbs(textPriv->firstBlockPastViewport - expectedBlocksPastViewport) < expectedBlockTolerance);
+    QVERIFY(textPriv->renderedRegion.top() > expectedRenderedRegionMin);
+    QVERIFY(textPriv->renderedRegion.bottom() < expectedRenderedRegionMax);
+    QVERIFY(textPriv->cursorItem);
+    qCDebug(lcTests) << "cursor rect" << textItem->cursorRectangle() << "visible?" << textPriv->cursorItem->isVisible();
+    QCOMPARE(textPriv->cursorItem->isVisible(), textPriv->renderedRegion.intersects(textItem->cursorRectangle()));
+}
+
+void tst_qquicktextedit::renderingAroundSelection()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("threeLines.qml")));
+    NodeCheckerTextEdit *textItem = qmlobject_cast<NodeCheckerTextEdit*>(window.rootObject());
+    QVERIFY(textItem);
+    QTRY_VERIFY(textItem->linePositions.count() > 0);
+    const auto linePositions = textItem->linePositions;
+    const int lastLinePosition = textItem->lastLinePosition;
+    QQuickTextEditPrivate *textPriv = QQuickTextEditPrivate::get(textItem);
+    QSignalSpy renderSpy(&window, &QQuickWindow::afterRendering);
+
+    if (lcTests().isDebugEnabled())
+        QTest::qWait(500); // for visual check; not needed in CI
+
+    const int renderCount = renderSpy.count();
+    QPoint p1 = textItem->mapToScene(textItem->positionToRectangle(8).center()).toPoint();
+    QPoint p2 = textItem->mapToScene(textItem->positionToRectangle(10).center()).toPoint();
+    qCDebug(lcTests) << "drag from" << p1 << "to" << p2;
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p1);
+    QTest::mouseMove(&window, p2);
+    QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p2);
+    // ensure that QQuickTextEdit::updatePaintNode() has a chance to run
+    QTRY_VERIFY(renderSpy.count() > renderCount);
+
+    if (lcTests().isDebugEnabled())
+        QTest::qWait(500); // for visual check; not needed in CI
+
+    qCDebug(lcTests) << "TextEdit's nodes" << textPriv->textNodeMap;
+    qCDebug(lcTests) << "font" << textItem->font() << "line positions" << textItem->linePositions << "should be" << linePositions;
+    QCOMPARE(textItem->lastLinePosition, lastLinePosition);
+    QTRY_COMPARE(textItem->linePositions, linePositions);
 }
 
 void tst_qquicktextedit::signal_editingfinished()

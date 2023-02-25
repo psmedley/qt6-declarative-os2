@@ -67,7 +67,7 @@ public:
     tst_QQuickGridView();
 
 private slots:
-    void init();
+    void init() override;
     void cleanupTestCase();
     void items();
     void changed();
@@ -212,8 +212,10 @@ private slots:
 
     void QTBUG_45640();
     void QTBUG_49218();
+    void positionViewAtBeginningAfterResizingCells();
     void QTBUG_48870_fastModelUpdates();
     void QTBUG_86255();
+    void resizeDynamicCellWidthRtL();
 
     void keyNavigationEnabled();
     void releaseItems();
@@ -326,6 +328,8 @@ tst_QQuickGridView::tst_QQuickGridView()
 
 void tst_QQuickGridView::init()
 {
+    QQmlDataTest::init();
+
 #ifdef SHARE_VIEWS
     if (m_view && QString(QTest::currentTestFunction()) != testForView) {
         testForView = QString();
@@ -6697,6 +6701,34 @@ void tst_QQuickGridView::QTBUG_49218()
     delete window;
 }
 
+void tst_QQuickGridView::positionViewAtBeginningAfterResizingCells()
+{
+    // Check that positionViewAtBeginning() ends up showing row 0, even
+    // if the cells are resized while the viewport is deep down in the list (QTBUG-91461).
+    std::unique_ptr<QQuickView> window(createView());
+    window->setSource(testFileUrl("qtbug91461.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.get()));
+
+    QQuickItem *rootItem = qobject_cast<QQuickItem*>(window->rootObject());
+    QQuickGridView *gridview = qobject_cast<QQuickGridView *>(rootItem->childItems().first());
+    QVERIFY(gridview != nullptr);
+
+    gridview->positionViewAtEnd();
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+    rootItem->setProperty("cellSize", 200);
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+    gridview->positionViewAtBeginning();
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+
+    const QPointF topLeftCorner = window->contentItem()->mapToItem(gridview->contentItem(), QPointF(20, 20));
+    const auto item0 = gridview->itemAt(topLeftCorner.x(), topLeftCorner.y());
+    QVERIFY(item0);
+
+    const int index = qmlContext(item0)->contextProperty("index").toInt();
+    QCOMPARE(index, 0);
+}
+
 void tst_QQuickGridView::keyNavigationEnabled()
 {
     QScopedPointer<QQuickView> window(createView());
@@ -6808,6 +6840,25 @@ void tst_QQuickGridView::QTBUG_86255()
     QVERIFY(view != nullptr);
     QTRY_COMPARE(view->isFlicking(), true);
     QTRY_COMPARE(view->isFlicking(), false);
+}
+
+void tst_QQuickGridView::resizeDynamicCellWidthRtL()
+{
+    QScopedPointer<QQuickView> window(createView());
+    QTRY_VERIFY(window);
+    window->setSource(testFileUrl("qtbug92998.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickGridView *gridview = findItem<QQuickGridView>(window->rootObject(), "gridview");
+    QTRY_VERIFY(gridview != nullptr);
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+    gridview->setWidth(460);
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+    QTRY_COMPARE(gridview->contentX(), 0.f);
+    gridview->setWidth(360);
+    QVERIFY(QQuickTest::qWaitForItemPolished(gridview));
+    QTRY_COMPARE(gridview->contentX(), 0.f);
 }
 
 void tst_QQuickGridView::releaseItems()

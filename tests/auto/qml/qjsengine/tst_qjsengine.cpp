@@ -32,7 +32,6 @@
 #include <private/qqmldata_p.h>
 #include <qjsengine.h>
 #include <qjsvalueiterator.h>
-#include <qgraphicsitem.h>
 #include <qstandarditemmodel.h>
 #include <QtCore/qnumeric.h>
 #include <qqmlengine.h>
@@ -281,6 +280,7 @@ private slots:
     void uiLanguage();
     void urlObject();
     void thisInConstructor();
+    void forOfAndGc();
 
 public:
     Q_INVOKABLE QJSValue throwingCppMethod1();
@@ -1800,20 +1800,16 @@ void tst_QJSEngine::valueConversion_RegularExpression()
     }
 }
 
-Q_DECLARE_METATYPE(QGradient)
-Q_DECLARE_METATYPE(QGradient*)
-Q_DECLARE_METATYPE(QLinearGradient)
-
-class Klazz : public QWidget,
+class Klazz : public QObject,
               public QStandardItem,
-              public QGraphicsItem
+              public QQmlParserStatus
 {
-    Q_INTERFACES(QGraphicsItem)
+    Q_INTERFACES(QQmlParserStatus)
     Q_OBJECT
 public:
-    Klazz(QWidget *parent = nullptr) : QWidget(parent) { }
-    QRectF boundingRect() const override { return QRectF(); }
-    void paint(QPainter*, const QStyleOptionGraphicsItem*, QWidget*) override { }
+    Klazz(QObject *parent = nullptr) : QObject(parent) { }
+    void classBegin() override {}
+    void componentComplete() override {}
 };
 
 Q_DECLARE_METATYPE(Klazz*)
@@ -1826,11 +1822,11 @@ void tst_QJSEngine::castWithMultipleInheritance()
     QJSValue v = eng.newQObject(&klz);
 
     QCOMPARE(qjsvalue_cast<Klazz*>(v), &klz);
-    QCOMPARE(qjsvalue_cast<QWidget*>(v), (QWidget *)&klz);
+    QCOMPARE(qjsvalue_cast<QQmlParserStatus*>(v), (QQmlParserStatus *)&klz);
     QCOMPARE(qjsvalue_cast<QObject*>(v), (QObject *)&klz);
     QCOMPARE(qjsvalue_cast<QStandardItem*>(v), (QStandardItem *)&klz);
-    QCOMPARE(qjsvalue_cast<QGraphicsItem*>(v), (QGraphicsItem *)&klz);
 }
+
 
 void tst_QJSEngine::collectGarbage()
 {
@@ -5331,7 +5327,7 @@ void tst_QJSEngine::typedArraySet()
     QJSEngine engine;
     const auto value = engine.evaluate(
         "(function() {"
-        "   var length = 0xffffffe;"
+        "   var length = 0xfffffe0;"
         "   var offset = 0xfffffff0;"
         "   var e1;"
         "   var e2;"
@@ -5499,6 +5495,76 @@ void tst_QJSEngine::thisInConstructor()
     })())");
     QVERIFY(!result.isUndefined());
     QVERIFY(result.isObject());
+}
+
+void tst_QJSEngine::forOfAndGc()
+{
+    // We want to guard against the iterator of a for..of loop leaving the result unprotected from
+    // garbage collection. It should be possible to construct a pure JS test case, but due to the
+    // vaguaries of garbage collection it's hard to reliably trigger the crash. This test is the
+    // best I could come up with.
+
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData(R"(
+        import QtQml
+
+        QtObject {
+            id: counter
+            property int count: 0
+
+            property DelegateModel model: DelegateModel {
+                id: filesModel
+
+                model: ListModel {
+                    Component.onCompleted: {
+                        for (let idx = 0; idx < 50; idx++)
+                            append({"i" : idx})
+                    }
+                }
+
+                groups: [
+                    DelegateModelGroup {
+                        name: "selected"
+                    }
+                ]
+
+                function getSelected() {
+                    for (let i = 0; i < items.count; ++i) {
+                        var item = items.get(i)
+                        for (let el of item.groups) {
+                            if (el === "selected")
+                                ++counter.count
+                        }
+                    }
+                }
+
+                property bool bSelect: true
+                function selectAll() {
+                    for (let i = 0; i < items.count; ++i) {
+                        if (bSelect && !items.get(i).inSelected)
+                            items.addGroups(i, 1, ["selected"])
+                        else
+                            items.removeGroups(i, 1, ["selected"])
+                        getSelected()
+                    }
+                    bSelect = !bSelect
+                }
+            }
+
+            property Timer timer: Timer {
+                running: true
+                interval: 1
+                repeat: true
+                onTriggered: filesModel.selectAll()
+            }
+        }
+    )", QUrl());
+
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+
+    QTRY_VERIFY(o->property("count").toInt() > 32768);
 }
 
 QTEST_MAIN(tst_QJSEngine)

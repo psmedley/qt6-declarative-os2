@@ -36,7 +36,9 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
 #include "qv4stackframe_p.h"
+#include <private/qv4qobjectwrapper_p.h>
 #include <QtCore/qstring.h>
 
 using namespace  QV4;
@@ -53,7 +55,7 @@ QString CppStackFrame::function() const
 
 int CppStackFrame::lineNumber() const
 {
-    if (!v4Function)
+    if (!v4Function || instructionPointer <= 0)
         return -1;
 
     auto findLine = [](const CompiledData::CodeOffsetToLine &entry, uint offset) {
@@ -61,14 +63,19 @@ int CppStackFrame::lineNumber() const
     };
 
     const QV4::CompiledData::Function *cf = v4Function->compiledFunction;
-    uint offset = instructionPointer;
+    const uint offset = instructionPointer;
     const CompiledData::CodeOffsetToLine *lineNumbers = cf->lineNumberTable();
-    uint nLineNumbers = cf->nLineNumbers;
+    const uint nLineNumbers = cf->nLineNumbers;
     const CompiledData::CodeOffsetToLine *line = std::lower_bound(lineNumbers, lineNumbers + nLineNumbers, offset, findLine) - 1;
     return line->line;
 }
 
-ReturnedValue CppStackFrame::thisObject() const {
-    return jsFrame->thisObject.asReturnedValue();
-}
+ReturnedValue QV4::CppStackFrame::thisObject() const
+{
+    if (isJSTypesFrame())
+        return static_cast<const JSTypesStackFrame *>(this)->thisObject();
 
+    Q_ASSERT(isMetaTypesFrame());
+    const auto metaTypesFrame = static_cast<const MetaTypesStackFrame *>(this);
+    return QObjectWrapper::wrap(metaTypesFrame->context()->engine(), metaTypesFrame->thisObject());
+}

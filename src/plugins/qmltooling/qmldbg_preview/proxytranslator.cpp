@@ -75,9 +75,10 @@ QString ProxyTranslator::originStringFromInformation(const TranslationBindingInf
 
 QQmlSourceLocation ProxyTranslator::sourceLocationFromInformation(const TranslationBindingInformation &translationBindingInformation)
 {
-    return QQmlSourceLocation(translationBindingInformation.compilationUnit->fileName(),
-                              translationBindingInformation.compiledBinding->valueLocation.line,
-                              translationBindingInformation.compiledBinding->valueLocation.column);
+    return QQmlSourceLocation(
+            translationBindingInformation.compilationUnit->fileName(),
+            translationBindingInformation.compiledBinding->valueLocation.line(),
+            translationBindingInformation.compiledBinding->valueLocation.column());
 }
 
 
@@ -154,3 +155,5 @@ QString ProxyTranslator::currentUILanguages() const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_proxytranslator.cpp"

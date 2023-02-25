@@ -109,8 +109,13 @@ public:
                                                  const QUntypedPropertyBinding &binding)
     {
         auto This = static_cast<UntypedProxyProperty *>(d);
-        if (binding.valueMetaType() != This->type())
+        const QMetaType type = This->type();
+        if (binding.valueMetaType() != type)
             return {};
+
+        // We want to notify in any case here because the target property should be set
+        // even if our proxy binding results in the default value.
+        QPropertyBindingPrivate::get(binding)->scheduleNotify();
         return This->m_bindingData.setBinding(binding,
                                               reinterpret_cast<QUntypedPropertyData *>(
                                                   This->m_storage.data()));
@@ -311,7 +316,7 @@ QVariant QQuickBehavior::targetValue() const
     \readonly
     \qmlpropertygroup QtQuick::Behavior::targetProperty
     \qmlproperty string QtQuick::Behavior::targetProperty.name
-    \qmlproperty Object QtQuick::Behavior::targetProperty.object
+    \qmlproperty QtObject QtQuick::Behavior::targetProperty.object
 
     \table
     \header
@@ -379,6 +384,12 @@ QQmlProperty QQuickBehavior::targetProperty() const
 {
     Q_D(const QQuickBehavior);
     return d->property;
+}
+
+void QQuickBehavior::componentFinalized()
+{
+    Q_D(QQuickBehavior);
+    d->finalized = true;
 }
 
 void QQuickBehavior::write(const QVariant &value)
@@ -473,19 +484,7 @@ void QQuickBehavior::setTarget(const QQmlProperty &property)
         }
     }
 
-    QQmlEnginePrivate *engPriv = QQmlEnginePrivate::get(qmlEngine(this));
-    static int finalizedIdx = -1;
-    if (finalizedIdx < 0)
-        finalizedIdx = metaObject()->indexOfSlot("componentFinalized()");
-    engPriv->registerFinalizeCallback(this, finalizedIdx);
-
     Q_EMIT targetPropertyChanged();
-}
-
-void QQuickBehavior::componentFinalized()
-{
-    Q_D(QQuickBehavior);
-    d->finalized = true;
 }
 
 QT_END_NAMESPACE

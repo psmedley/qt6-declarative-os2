@@ -129,8 +129,28 @@ const ListLayout::Role &ListLayout::getRoleOrCreate(QV4::String *key, Role::Data
 
 const ListLayout::Role &ListLayout::createRole(const QString &key, ListLayout::Role::DataType type)
 {
-    const int dataSizes[] = { sizeof(StringOrTranslation), sizeof(double), sizeof(bool), sizeof(ListModel *), sizeof(ListElement::GuardedQObjectPointer), sizeof(QVariantMap), sizeof(QDateTime), sizeof(QUrl), sizeof(QJSValue) };
-    const int dataAlignments[] = { alignof(StringOrTranslation), alignof(double), alignof(bool), alignof(ListModel *), alignof(QObject *), alignof(QVariantMap), alignof(QDateTime), alignof(QUrl), alignof(QJSValue) };
+    const int dataSizes[] = {
+        sizeof(StringOrTranslation),
+        sizeof(double),
+        sizeof(bool),
+        sizeof(ListModel *),
+        sizeof(ListElement::GuardedQObjectPointer),
+        sizeof(QVariantMap),
+        sizeof(QDateTime),
+        sizeof(QUrl),
+        sizeof(QJSValue)
+    };
+    const int dataAlignments[] = {
+        alignof(StringOrTranslation),
+        alignof(double),
+        alignof(bool),
+        alignof(ListModel *),
+        alignof(QObject *),
+        alignof(QVariantMap),
+        alignof(QDateTime),
+        alignof(QUrl),
+        alignof(QJSValue)
+    };
 
     Role *r = new Role;
     r->name = key;
@@ -224,10 +244,10 @@ const ListLayout::Role *ListLayout::getRoleOrCreate(const QString &key, const QV
         case QMetaType::Double:      type = Role::Number;      break;
         case QMetaType::Int:         type = Role::Number;      break;
         case QMetaType::Bool:        type = Role::Bool;        break;
-        case QMetaType::QString:      type = Role::String;      break;
-        case QMetaType::QVariantMap:         type = Role::VariantMap;  break;
-        case QMetaType::QDateTime:    type = Role::DateTime;    break;
-    case QMetaType::QUrl:            type = Role::Url;         break;
+        case QMetaType::QString:     type = Role::String;      break;
+        case QMetaType::QVariantMap: type = Role::VariantMap;  break;
+        case QMetaType::QDateTime:   type = Role::DateTime;    break;
+        case QMetaType::QUrl:        type = Role::Url;         break;
         default:    {
             if (data.userType() == qMetaTypeId<QJSValue>() &&
                 data.value<QJSValue>().isCallable()) {
@@ -1649,7 +1669,7 @@ ModelNodeMetaObject::~ModelNodeMetaObject()
 {
 }
 
-QAbstractDynamicMetaObject *ModelNodeMetaObject::toDynamicMetaObject(QObject *object)
+QMetaObject *ModelNodeMetaObject::toDynamicMetaObject(QObject *object)
 {
     if (!m_initialized) {
         m_initialized = true;
@@ -2866,7 +2886,7 @@ void QQmlListModel::sync()
 
 bool QQmlListModelParser::verifyProperty(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
 {
-    if (binding->type >= QV4::CompiledData::Binding::Type_Object) {
+    if (binding->type() >= QV4::CompiledData::Binding::Type_Object) {
         const quint32 targetObjectIndex = binding->value.objectIndex;
         const QV4::CompiledData::Object *target = compilationUnit->objectAt(targetObjectIndex);
         QString objName = compilationUnit->stringAt(target->inheritedTypeNameIndex);
@@ -2894,7 +2914,7 @@ bool QQmlListModelParser::verifyProperty(const QQmlRefPointer<QV4::ExecutableCom
             if (!verifyProperty(compilationUnit, binding))
                 return false;
         }
-    } else if (binding->type == QV4::CompiledData::Binding::Type_Script) {
+    } else if (binding->type() == QV4::CompiledData::Binding::Type_Script) {
         QString scriptStr = compilationUnit->bindingValueAsScriptString(binding);
         if (!binding->isFunctionExpression() && !definesEmptyList(scriptStr)) {
             QByteArray script = scriptStr.toUtf8();
@@ -2917,7 +2937,8 @@ bool QQmlListModelParser::applyProperty(
     const QString elementName = compilationUnit->stringAt(binding->propertyNameIndex);
 
     bool roleSet = false;
-    if (binding->type >= QV4::CompiledData::Binding::Type_Object) {
+    const QV4::CompiledData::Binding::Type bindingType = binding->type();
+    if (bindingType >= QV4::CompiledData::Binding::Type_Object) {
         const quint32 targetObjectIndex = binding->value.objectIndex;
         const QV4::CompiledData::Object *target = compilationUnit->objectAt(targetObjectIndex);
 
@@ -2951,13 +2972,13 @@ bool QQmlListModelParser::applyProperty(
             value = QVariant::fromValue<const QV4::CompiledData::Binding*>(binding);
         } else if (binding->evaluatesToString()) {
             value = compilationUnit->bindingValueAsString(binding);
-        } else if (binding->type == QV4::CompiledData::Binding::Type_Number) {
+        } else if (bindingType == QV4::CompiledData::Binding::Type_Number) {
             value = compilationUnit->bindingValueAsNumber(binding);
-        } else if (binding->type == QV4::CompiledData::Binding::Type_Boolean) {
+        } else if (bindingType == QV4::CompiledData::Binding::Type_Boolean) {
             value = binding->valueAsBoolean();
-        } else if (binding->type == QV4::CompiledData::Binding::Type_Null) {
+        } else if (bindingType == QV4::CompiledData::Binding::Type_Null) {
             value = QVariant::fromValue(nullptr);
-        } else if (binding->type == QV4::CompiledData::Binding::Type_Script) {
+        } else if (bindingType == QV4::CompiledData::Binding::Type_Script) {
             QString scriptStr = compilationUnit->bindingValueAsScriptString(binding);
             if (definesEmptyList(scriptStr)) {
                 const ListLayout::Role &role = model->getOrCreateListRole(elementName);
@@ -3030,7 +3051,7 @@ void QQmlListModelParser::applyBindings(QObject *obj, const QQmlRefPointer<QV4::
     bool setRoles = false;
 
     for (const QV4::CompiledData::Binding *binding : bindings) {
-        if (binding->type != QV4::CompiledData::Binding::Type_Object)
+        if (binding->type() != QV4::CompiledData::Binding::Type_Object)
             continue;
         setRoles |= applyProperty(compilationUnit, binding, rv->m_listModel, /*outter element index*/-1);
     }
@@ -3099,5 +3120,7 @@ bool QQmlListModelParser::definesEmptyList(const QString &s)
 */
 
 QT_END_NAMESPACE
+
+#include "moc_qqmllistmodel_p_p.cpp"
 
 #include "moc_qqmllistmodel_p.cpp"

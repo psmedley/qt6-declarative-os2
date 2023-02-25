@@ -549,7 +549,8 @@ public:
 
         metaObject.reset(builder.toMetaObject());
         *static_cast<QMetaObject *>(this) = *metaObject;
-        propertyCache.adopt(new QQmlPropertyCache(metaObject.data(), model.modelItemRevision));
+        propertyCache = QQmlPropertyCache::createStandalone(
+                    metaObject.data(), model.modelItemRevision);
     }
 };
 
@@ -671,9 +672,33 @@ public:
 
     QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
-        return role == QLatin1String("modelData")
-                ? model.list.at(index)
-                : QVariant();
+        const QVariant entry = model.list.at(index);
+        if (role == QLatin1String("modelData"))
+            return entry;
+
+        const QMetaType type = entry.metaType();
+        if (type == QMetaType::fromType<QVariantMap>())
+            return entry.toMap().value(role);
+
+        if (type == QMetaType::fromType<QVariantHash>())
+            return entry.toHash().value(role);
+
+        const QMetaType::TypeFlags typeFlags = type.flags();
+        if (typeFlags & QMetaType::PointerToQObject)
+            return entry.value<QObject *>()->property(role.toUtf8());
+
+        const QMetaObject *metaObject = type.metaObject();
+        if (!metaObject) {
+            // NB: This acquires the lock on QQmlMetaTypeData. If we had a QQmlEngine here,
+            //     we could use QQmlGadgetPtrWrapper::instance() to avoid this.
+            if (const QQmlValueType *valueType = QQmlMetaType::valueType(type))
+                metaObject = valueType->metaObject();
+            else
+                return QVariant();
+        }
+
+        const int propertyIndex = metaObject->indexOfProperty(role.toUtf8());
+        return metaObject->property(propertyIndex).readOnGadget(entry.constData());
     }
 
     QQmlDelegateModelItem *createItem(
@@ -683,8 +708,8 @@ public:
     {
         VDMListDelegateDataType *dataType = const_cast<VDMListDelegateDataType *>(this);
         if (!propertyCache) {
-            dataType->propertyCache.adopt(new QQmlPropertyCache(
-                        &QQmlDMListAccessorData::staticMetaObject, model.modelItemRevision));
+            dataType->propertyCache = QQmlPropertyCache::createStandalone(
+                        &QQmlDMListAccessorData::staticMetaObject, model.modelItemRevision);
         }
 
         return new QQmlDMListAccessorData(
@@ -966,7 +991,9 @@ void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *)
 {
     accessors->cleanup(*this);
 
+    // Don't use variant anymore after this. list may transform it.
     list.setList(variant);
+
     modelStrongReference.clear();
 
     if (QObject *object = qvariant_cast<QObject *>(list.list())) {
@@ -978,7 +1005,7 @@ void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *)
         else
             accessors = new VDMObjectDelegateDataType;
     } else if (list.type() == QQmlListAccessor::ListProperty) {
-        auto object = static_cast<const QQmlListReference *>(variant.constData())->object();
+        auto object = static_cast<const QQmlListReference *>(list.list().constData())->object();
         if (QQmlData *ddata = QQmlData::get(object))
             modelStrongReference = ddata->jsWrapper;
         setObject(object);

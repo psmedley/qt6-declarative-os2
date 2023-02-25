@@ -677,7 +677,7 @@ void tst_qquicktextinput::selection()
     QCOMPARE(textinputObject->selectionEnd(), 0);
     QVERIFY(textinputObject->selectedText().isNull());
 
-    textinputObject->setCursorPosition(textinputObject->text().count()+1);
+    textinputObject->setCursorPosition(textinputObject->text().length() + 1);
     QCOMPARE(textinputObject->cursorPosition(), 0);
     QCOMPARE(textinputObject->selectionStart(), 0);
     QCOMPARE(textinputObject->selectionEnd(), 0);
@@ -865,24 +865,24 @@ void tst_qquicktextinput::isRightToLeft()
     // first test that the right string is delivered to the QString::isRightToLeft()
     QCOMPARE(textInput.isRightToLeft(0,0), text.mid(0,0).isRightToLeft());
     QCOMPARE(textInput.isRightToLeft(0,1), text.mid(0,1).isRightToLeft());
-    QCOMPARE(textInput.isRightToLeft(text.count()-2, text.count()-1), text.mid(text.count()-2, text.count()-1).isRightToLeft());
-    QCOMPARE(textInput.isRightToLeft(text.count()/2, text.count()/2 + 1), text.mid(text.count()/2, text.count()/2 + 1).isRightToLeft());
-    QCOMPARE(textInput.isRightToLeft(0,text.count()/4), text.mid(0,text.count()/4).isRightToLeft());
-    QCOMPARE(textInput.isRightToLeft(text.count()/4,3*text.count()/4), text.mid(text.count()/4,3*text.count()/4).isRightToLeft());
+    QCOMPARE(textInput.isRightToLeft(text.length()-2, text.length()-1), text.mid(text.length()-2, text.length()-1).isRightToLeft());
+    QCOMPARE(textInput.isRightToLeft(text.length()/2, text.length()/2 + 1), text.mid(text.length()/2, text.length()/2 + 1).isRightToLeft());
+    QCOMPARE(textInput.isRightToLeft(0,text.length()/4), text.mid(0,text.length()/4).isRightToLeft());
+    QCOMPARE(textInput.isRightToLeft(text.length()/4,3*text.length()/4), text.mid(text.length()/4,3*text.length()/4).isRightToLeft());
     if (text.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, "<Unknown File>: QML TextInput: isRightToLeft(start, end) called with the end property being smaller than the start.");
-    QCOMPARE(textInput.isRightToLeft(3*text.count()/4,text.count()-1), text.mid(3*text.count()/4,text.count()-1).isRightToLeft());
+    QCOMPARE(textInput.isRightToLeft(3*text.length()/4,text.length()-1), text.mid(3*text.length()/4,text.length()-1).isRightToLeft());
 
     // then test that the feature actually works
     QCOMPARE(textInput.isRightToLeft(0,0), emptyString);
     QCOMPARE(textInput.isRightToLeft(0,1), firstCharacter);
-    QCOMPARE(textInput.isRightToLeft(text.count()-2, text.count()-1), lastCharacter);
-    QCOMPARE(textInput.isRightToLeft(text.count()/2, text.count()/2 + 1), middleCharacter);
-    QCOMPARE(textInput.isRightToLeft(0,text.count()/4), startString);
-    QCOMPARE(textInput.isRightToLeft(text.count()/4,3*text.count()/4), midString);
+    QCOMPARE(textInput.isRightToLeft(text.length()-2, text.length()-1), lastCharacter);
+    QCOMPARE(textInput.isRightToLeft(text.length()/2, text.length()/2 + 1), middleCharacter);
+    QCOMPARE(textInput.isRightToLeft(0,text.length()/4), startString);
+    QCOMPARE(textInput.isRightToLeft(text.length()/4,3*text.length()/4), midString);
     if (text.isEmpty())
         QTest::ignoreMessage(QtWarningMsg, "<Unknown File>: QML TextInput: isRightToLeft(start, end) called with the end property being smaller than the start.");
-    QCOMPARE(textInput.isRightToLeft(3*text.count()/4,text.count()-1), endString);
+    QCOMPARE(textInput.isRightToLeft(3*text.length()/4,text.length()-1), endString);
 }
 
 void tst_qquicktextinput::moveCursorSelection_data()
@@ -2883,7 +2883,7 @@ void tst_qquicktextinput::cursorDelegate()
     // Test delegate gets moved on mouse press.
     textInputObject->setSelectByMouse(true);
     textInputObject->setCursorPosition(0);
-    const QPoint point1 = textInputObject->positionToRectangle(5).center().toPoint();
+    const QPoint point1 = textInputObject->positionToRectangle(10).center().toPoint();
     QTest::qWait(400);  //ensure this isn't treated as a double-click
     QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, point1);
     QTest::qWait(50);
@@ -2893,7 +2893,7 @@ void tst_qquicktextinput::cursorDelegate()
 
     // Test delegate gets moved on mouse drag
     textInputObject->setCursorPosition(0);
-    const QPoint point2 = textInputObject->positionToRectangle(10).center().toPoint();
+    const QPoint point2 = textInputObject->positionToRectangle(15).center().toPoint();
     QTest::qWait(400);  //ensure this isn't treated as a double-click
     QTest::mousePress(&view, Qt::LeftButton, Qt::NoModifier, point1);
     QMouseEvent mv(QEvent::MouseMove, point2, Qt::LeftButton, Qt::LeftButton,Qt::NoModifier);
@@ -2906,7 +2906,7 @@ void tst_qquicktextinput::cursorDelegate()
     textInputObject->setReadOnly(true);
     textInputObject->setCursorPosition(0);
     QTest::qWait(400);  //ensure this isn't treated as a double-click
-    QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, textInputObject->positionToRectangle(5).center().toPoint());
+    QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, textInputObject->positionToRectangle(10).center().toPoint());
     QTest::qWait(50);
     QTRY_VERIFY(textInputObject->cursorPosition() != 0);
     QCOMPARE(textInputObject->cursorRectangle().x(), delegateObject->x());
@@ -2914,7 +2914,7 @@ void tst_qquicktextinput::cursorDelegate()
 
     textInputObject->setCursorPosition(0);
     QTest::qWait(400);  //ensure this isn't treated as a double-click
-    QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, textInputObject->positionToRectangle(5).center().toPoint());
+    QTest::mouseClick(&view, Qt::LeftButton, Qt::NoModifier, textInputObject->positionToRectangle(10).center().toPoint());
     QTest::qWait(50);
     QTRY_VERIFY(textInputObject->cursorPosition() != 0);
     QCOMPARE(textInputObject->cursorRectangle().x(), delegateObject->x());
@@ -7081,7 +7081,7 @@ void tst_qquicktextinput::focusReason()
 
         QHash<QObject*, Qt::FocusReason> lastFocusReason;
     protected:
-        bool eventFilter(QObject *o, QEvent *e)
+        bool eventFilter(QObject *o, QEvent *e) override
         {
             if (e->type() == QEvent::FocusIn || e->type() == QEvent::FocusOut) {
                 QFocusEvent *fe = static_cast<QFocusEvent*>(e);

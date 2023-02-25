@@ -10,7 +10,7 @@ qt_internal_add_qml_module(QmlModels
     CLASS_NAME QtQmlModelsPlugin
     SOURCES
         qqmlchangeset.cpp qqmlchangeset_p.h
-        qqmlmodelsmodule_p.h
+        qqmlmodelsmodule.cpp qqmlmodelsmodule_p.h
         qtqmlmodelsglobal.h qtqmlmodelsglobal_p.h
     DEFINES
         QT_NO_FOREACH
@@ -25,6 +25,13 @@ qt_internal_add_qml_module(QmlModels
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::QmlPrivate
+    GENERATE_CPP_EXPORTS
+    GENERATE_PRIVATE_CPP_EXPORTS
+)
+
+qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_itemmodel
+    SOURCES
+        qqmlmodelindexvaluetype.cpp qqmlmodelindexvaluetype_p.h
 )
 
 qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_object_model
@@ -37,6 +44,7 @@ qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_object_model
 qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_table_model
     SOURCES
         qqmltableinstancemodel.cpp qqmltableinstancemodel_p.h
+        qqmltreemodeltotablemodel.cpp qqmltreemodeltotablemodel_p_p.h
 )
 
 qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_list_model

@@ -54,20 +54,18 @@ QT_BEGIN_NAMESPACE
 class QQmlJSTypeReader
 {
 public:
-    QQmlJSTypeReader(QQmlJSImporter *importer, const QString &file,
-                     const QStringList &qmltypesFiles = QStringList())
+    QQmlJSTypeReader(QQmlJSImporter *importer, const QString &file)
         : m_importer(importer)
         , m_file(file)
-        , m_qmltypesFiles(qmltypesFiles)
     {}
 
-    QQmlJSScope::Ptr operator()();
+    bool operator()(const QSharedPointer<QQmlJSScope> &scope);
     QList<QQmlJS::DiagnosticMessage> errors() const { return m_errors; }
 
 private:
     QQmlJSImporter *m_importer;
     QString m_file;
-    QStringList m_qmltypesFiles;
+    QStringList m_qmldirFiles;
     QList<QQmlJS::DiagnosticMessage> m_errors;
 };
 

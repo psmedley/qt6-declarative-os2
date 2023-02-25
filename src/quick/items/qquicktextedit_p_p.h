@@ -89,6 +89,10 @@ public:
         int m_startPos;
         QQuickTextNode* m_node;
         bool m_dirty;
+
+#ifndef QT_NO_DEBUG_STREAM
+        friend QDebug Q_QUICK_PRIVATE_EXPORT operator<<(QDebug, const Node &);
+#endif
     };
     typedef QList<Node>::iterator TextNodeIterator;
 
@@ -142,9 +146,14 @@ public:
     bool determineHorizontalAlignment();
     bool setHAlign(QQuickTextEdit::HAlignment, bool forceAlign = false);
     void mirrorChange() override;
+    bool transformChanged(QQuickItem *transformedItem) override;
     qreal getImplicitWidth() const override;
     Qt::LayoutDirection textDirection(const QString &text) const;
     bool isLinkHoveredConnected();
+
+#if QT_CONFIG(cursor)
+    void updateMouseCursorShape();
+#endif
 
     void setNativeCursorEnabled(bool) {}
     void handleFocusEvent(QFocusEvent *event);
@@ -189,6 +198,9 @@ public:
     int lastSelectionStart;
     int lastSelectionEnd;
     int lineCount;
+    int firstBlockInViewport = -1;   // only for the autotest; can be wrong after scrolling sometimes
+    int firstBlockPastViewport = -1; // only for the autotest
+    QRectF renderedRegion;
 
     enum UpdateType {
         UpdateNone,
@@ -207,7 +219,6 @@ public:
     Qt::InputMethodHints inputMethodHints;
 #endif
     UpdateType updateType;
-    Qt::CursorShape cursorToRestoreAfterHover = Qt::IBeamCursor;
 
     bool dirty : 1;
     bool richText : 1;
@@ -226,7 +237,13 @@ public:
     bool selectByKeyboardSet:1;
     bool hadSelection : 1;
     bool markdownText : 1;
+
+    static const int largeTextSizeThreshold;
 };
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug Q_QUICK_PRIVATE_EXPORT operator<<(QDebug debug, const QQuickTextEditPrivate::Node &);
+#endif
 
 QT_END_NAMESPACE
 

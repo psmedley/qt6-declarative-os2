@@ -203,8 +203,8 @@ bool QQmlTypeData::tryLoadFromDiskCache()
             Q_ASSERT(errors.size());
             QQmlError error(errors.takeFirst());
             error.setUrl(m_importCache.baseUrl());
-            error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line));
-            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column));
+            error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line()));
+            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column()));
             errors.prepend(error); // put it back on the list after filling out information.
             setError(errors);
             return false;
@@ -252,7 +252,10 @@ void QQmlTypeData::createTypeAndPropertyCaches(
     pendingGroupPropertyBindings.resolveMissingPropertyCaches(engine, &m_compiledData->propertyCaches);
 }
 
-static bool addTypeReferenceChecksumsToHash(const QList<QQmlTypeData::TypeReference> &typeRefs, QCryptographicHash *hash, QQmlEngine *engine)
+static bool addTypeReferenceChecksumsToHash(
+        const QList<QQmlTypeData::TypeReference> &typeRefs,
+        QCryptographicHash *hash, QQmlEngine *engine,
+        QHash<quintptr, QByteArray> *checksums)
 {
     for (const auto &typeRef: typeRefs) {
         if (typeRef.typeData) {
@@ -261,7 +264,7 @@ static bool addTypeReferenceChecksumsToHash(const QList<QQmlTypeData::TypeRefere
         } else if (typeRef.type.isValid()) {
             const auto propertyCache = QQmlEnginePrivate::get(engine)->cache(typeRef.type.metaObject());
             bool ok = false;
-            hash->addData(propertyCache->checksum(&ok));
+            hash->addData(propertyCache->checksum(checksums, &ok));
             if (!ok)
                 return false;
         }
@@ -328,8 +331,8 @@ void QQmlTypeData::done()
             QList<QQmlError> errors = script.script->errors();
             QQmlError error;
             error.setUrl(url());
-            error.setLine(qmlConvertSourceCoordinate<quint32, int>(script.location.line));
-            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(script.location.column));
+            error.setLine(qmlConvertSourceCoordinate<quint32, int>(script.location.line()));
+            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(script.location.column()));
             error.setDescription(QQmlTypeLoader::tr("Script %1 unavailable").arg(script.script->urlString()));
             errors.prepend(error);
             setError(errors);
@@ -352,8 +355,8 @@ void QQmlTypeData::done()
                 QList<QQmlError> errors = type.typeData ? type.typeData->errors() : QList<QQmlError>{};
                 QQmlError error;
                 error.setUrl(url());
-                error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line));
-                error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column));
+                error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line()));
+                error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column()));
                 error.setDescription(QQmlTypeLoader::tr("Type %1 has no inline component type called %2").arg(QStringView{typeName}.left(lastDot), type.type.pendingResolutionName()));
                 errors.prepend(error);
                 setError(errors);
@@ -368,8 +371,8 @@ void QQmlTypeData::done()
             QList<QQmlError> errors = type.typeData->errors();
             QQmlError error;
             error.setUrl(url());
-            error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line));
-            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column));
+            error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line()));
+            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column()));
             error.setDescription(QQmlTypeLoader::tr("Type %1 unavailable").arg(typeName));
             errors.prepend(error);
             setError(errors);
@@ -387,8 +390,8 @@ void QQmlTypeData::done()
             QList<QQmlError> errors = type.typeData->errors();
             QQmlError error;
             error.setUrl(url());
-            error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line));
-            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column));
+            error.setLine(qmlConvertSourceCoordinate<quint32, int>(type.location.line()));
+            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(type.location.column()));
             error.setDescription(QQmlTypeLoader::tr("Type %1 unavailable").arg(typeName));
             errors.prepend(error);
             setError(errors);
@@ -421,8 +424,9 @@ void QQmlTypeData::done()
 
     const auto dependencyHasher = [engine, &resolvedTypeCache, this]() {
         QCryptographicHash hash(QCryptographicHash::Md5);
-        return (resolvedTypeCache.addToHash(&hash, engine)
-                && ::addTypeReferenceChecksumsToHash(m_compositeSingletons, &hash, engine))
+        return (resolvedTypeCache.addToHash(&hash, engine, typeLoader()->checksumCache())
+                && ::addTypeReferenceChecksumsToHash(m_compositeSingletons, &hash, engine,
+                                                     typeLoader()->checksumCache()))
                 ? hash.result()
                 : QByteArray();
     };
@@ -501,7 +505,7 @@ void QQmlTypeData::done()
             auto type = QQmlMetaType::typeForUrl(finalUrlString(), hashedStringRef, false, &errors);
             Q_ASSERT(errors.empty());
             if (type.isValid()) {
-                for (auto const &icDatum : m_inlineComponentData) {
+                for (auto const &icDatum : qAsConst(m_inlineComponentData)) {
                     Q_ASSERT(icDatum.typeIds.isValid());
                     QQmlType existingType = type.lookupInlineComponentById(type.lookupInlineComponentIdByName(m_compiledData->stringAt(icDatum.nameIndex)));
                     type.associateInlineComponent(m_compiledData->stringAt(icDatum.nameIndex),
@@ -652,7 +656,6 @@ void QQmlTypeData::continueLoadFromIR()
     for (auto const& object: m_document->objects) {
         for (auto it = object->inlineComponentsBegin(); it != object->inlineComponentsEnd(); ++it) {
             QString const nameString = m_document->stringAt(it->nameIndex);
-            QByteArray const name = nameString.toUtf8();
             auto importUrl = finalUrl();
             importUrl.setFragment(QString::number(it->objectIndex));
             auto import = new QQmlImportInstance(); // Note: The cache takes ownership of the QQmlImportInstance
@@ -695,8 +698,8 @@ void QQmlTypeData::continueLoadFromIR()
             // resource file system.
             QQmlError error = errors.first();
             error.setUrl(m_importCache.baseUrl());
-            error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line));
-            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column));
+            error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line()));
+            error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column()));
             setError(error);
             return;
         }
@@ -721,8 +724,10 @@ void QQmlTypeData::allDependenciesDone()
                     QQmlError error;
                     error.setDescription(QQmlTypeLoader::tr("module \"%1\" is not installed").arg(import->uri));
                     error.setUrl(m_importCache.baseUrl());
-                    error.setLine(qmlConvertSourceCoordinate<quint32, int>(import->location.line));
-                    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(import->location.column));
+                    error.setLine(qmlConvertSourceCoordinate<quint32, int>(
+                            import->location.line()));
+                    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(
+                            import->location.column()));
                     errors.prepend(error);
                 }
             }
@@ -852,8 +857,8 @@ void QQmlTypeData::resolveTypes()
 
         bool *selfReferenceDetection = unresolvedRef->needsCreation ? nullptr : &ref.selfReference;
 
-        if (!resolveType(name, version, ref, unresolvedRef->location.line,
-                         unresolvedRef->location.column, reportErrors,
+        if (!resolveType(name, version, ref, unresolvedRef->location.line(),
+                         unresolvedRef->location.column(), reportErrors,
                          QQmlType::AnyRegistrationType, selfReferenceDetection) && reportErrors)
             return;
 
@@ -872,11 +877,9 @@ void QQmlTypeData::resolveTypes()
                 }
             }
         }
+
         ref.version = version;
-
-        ref.location.line = unresolvedRef->location.line;
-        ref.location.column = unresolvedRef->location.column;
-
+        ref.location = unresolvedRef->location;
         ref.needsCreation = unresolvedRef->needsCreation;
         m_resolvedTypes.insert(unresolvedRef.key(), ref);
     }
@@ -888,8 +891,7 @@ void QQmlTypeData::resolveTypes()
 
 QQmlError QQmlTypeData::buildTypeResolutionCaches(
         QQmlRefPointer<QQmlTypeNameCache> *typeNameCache,
-        QV4::ResolvedTypeReferenceMap *resolvedTypeCache
-        ) const
+        QV4::ResolvedTypeReferenceMap *resolvedTypeCache) const
 {
     typeNameCache->adopt(new QQmlTypeNameCache(m_importCache));
 
@@ -933,11 +935,11 @@ QQmlError QQmlTypeData::buildTypeResolutionCaches(
                 if (qmlType.isValid()) {
                     // this is required for inline components in singletons
                     auto type = qmlType.lookupInlineComponentById(qmlType.inlineComponentId()).typeId();
-                    auto typeID = type.isValid() ? type.id() : -1;
-                    auto exUnit = engine->obtainExecutableCompilationUnit(typeID);
+                    auto exUnit = engine->obtainExecutableCompilationUnit(
+                                type.isValid() ? type.id() : -1);
                     if (exUnit) {
                         ref->setCompilationUnit(exUnit);
-                        ref->setTypePropertyCache(engine->propertyCacheForType(typeID));
+                        ref->setTypePropertyCache(engine->propertyCacheForType(type));
                     }
                 }
             } else {

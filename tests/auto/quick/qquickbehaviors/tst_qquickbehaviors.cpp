@@ -46,7 +46,7 @@ public:
     tst_qquickbehaviors() : QQmlDataTest(QT_QMLTEST_DATADIR) {}
 
 private slots:
-    void init() { qApp->processEvents(); }  //work around animation timer bug (QTBUG-22865)
+    void init() override;
     void simpleBehavior();
     void scriptTriggered();
     void cppTriggered();
@@ -78,7 +78,15 @@ private slots:
     void safeToDelete();
     void targetProperty();
     void bindableProperty();
+    void defaultQProperty();
 };
+
+void tst_qquickbehaviors::init()
+{
+    QQmlDataTest::init();
+    //work around animation timer bug (QTBUG-22865)
+    qApp->processEvents();
+}
 
 void tst_qquickbehaviors::simpleBehavior()
 {
@@ -703,6 +711,23 @@ void tst_qquickbehaviors::bindableProperty()
     QTRY_COMPARE(testBindable->prop(), 300);
 }
 
+void tst_qquickbehaviors::defaultQProperty()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("defaultQProperty.qml"));
+    QScopedPointer<QObject> root(c.create());
+    QVERIFY2(root, qPrintable(c.errorString()));
+
+    QQuickItem *item = qobject_cast<QQuickItem *>(root.data());
+    QVERIFY(item);
+
+    QCOMPARE(item->height(), 0.0);
+    QCOMPARE(item->width(), 10.0);
+
+    // Both change only once: No intermediate change to 0 on width.
+    QCOMPARE(root->property("heightChanges").toInt(), 1);
+    QCOMPARE(root->property("widthChanges").toInt(), 1);
+}
 
 
 QTEST_MAIN(tst_qquickbehaviors)

@@ -84,7 +84,6 @@ class QPointingDevice;
 class QQuickRenderControl;
 class QQuickWindowIncubationController;
 class QQuickWindowPrivate;
-class QQuickWindowRenderLoop;
 class QSGRenderLoop;
 class QTouchEvent;
 class QRhi;
@@ -161,6 +160,8 @@ public:
     QPair<QQuickItem*, QQuickPointerHandler*> findCursorItemAndHandler(QQuickItem *item, const QPointF &scenePos) const;
 #endif
 
+    void clearFocusObject() override;
+
     void dirtyItem(QQuickItem *);
     void cleanup(QSGNode *);
 
@@ -229,6 +230,7 @@ public:
     struct Redirect {
         QRhiCommandBuffer *commandBuffer = nullptr;
         QQuickWindowRenderTarget rt;
+        qreal devicePixelRatio = 1.0;
         bool renderTargetDirty = false;
     } redirect;
 

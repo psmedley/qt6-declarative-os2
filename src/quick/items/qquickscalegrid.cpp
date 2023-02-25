@@ -53,10 +53,6 @@ QQuickScaleGrid::QQuickScaleGrid(QObject *parent) : QObject(parent), _left(0), _
 {
 }
 
-QQuickScaleGrid::~QQuickScaleGrid()
-{
-}
-
 bool QQuickScaleGrid::isNull() const
 {
     return !_left && !_top && !_right && !_bottom;
@@ -217,3 +213,5 @@ QString QQuickGridScaledImage::pixmapUrl() const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickscalegrid_p_p.cpp"

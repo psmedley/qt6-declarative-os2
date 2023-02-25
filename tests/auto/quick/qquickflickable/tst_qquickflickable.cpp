@@ -36,6 +36,7 @@
 #include <private/qquickmousearea_p.h>
 #include <private/qquicktransition_p.h>
 #include <private/qqmlvaluetype_p.h>
+#include <private/qquicktaphandler_p.h>
 #include <math.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/geometrytestutils_p.h>
@@ -142,6 +143,32 @@ private:
     bool m_active;
 };
 
+class FlickableWithExtents : public QQuickFlickable
+{
+public:
+    qreal extent = 10;
+
+    qreal minXExtent() const override
+    {
+        return QQuickFlickable::minXExtent() + extent;
+    }
+
+    qreal maxXExtent() const override
+    {
+        return QQuickFlickable::maxXExtent() + extent;
+    }
+
+    qreal minYExtent() const override
+    {
+        return QQuickFlickable::minYExtent() + extent;
+    }
+
+    qreal maxYExtent() const override
+    {
+        return QQuickFlickable::maxYExtent() + extent;
+    }
+};
+
 class tst_qquickflickable : public QQmlDataTest
 {
     Q_OBJECT
@@ -190,6 +217,7 @@ private slots:
     void stopAtBounds();
     void stopAtBounds_data();
     void nestedMouseAreaUsingTouch();
+    void nestedMouseAreaPropagateComposedEvents();
     void nestedSliderUsingTouch();
     void nestedSliderUsingTouch_data();
     void pressDelayWithLoader();
@@ -208,6 +236,11 @@ private slots:
     void parallelTouch();
     void ignoreNonLeftMouseButtons();
     void ignoreNonLeftMouseButtons_data();
+    void receiveTapOutsideContentItem();
+    void flickWhenRotated_data();
+    void flickWhenRotated();
+    void scrollingWithFractionalExtentSize_data();
+    void scrollingWithFractionalExtentSize();
 
 private:
     void flickWithTouch(QQuickWindow *window, const QPoint &from, const QPoint &to);
@@ -2093,6 +2126,27 @@ void tst_qquickflickable::nestedMouseAreaUsingTouch()
     QVERIFY(nested->y() < 100.0);
 }
 
+void tst_qquickflickable::nestedMouseAreaPropagateComposedEvents()
+{
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("nestedmouseareapce.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+    QQuickViewTestUtils::centerOnScreen(window.data());
+    QQuickViewTestUtils::moveMouseAway(window.data());
+    window->show();
+    QVERIFY(window->rootObject() != nullptr);
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+
+    QQuickFlickable *flickable = qobject_cast<QQuickFlickable*>(window->rootObject());
+    QVERIFY(flickable != nullptr);
+
+    QCOMPARE(flickable->contentY(), 50.0f);
+    flickWithTouch(window.data(), QPoint(100, 300), QPoint(100, 200));
+
+    // flickable should have moved
+    QVERIFY(!qFuzzyCompare(flickable->contentY(), 50.0));
+}
+
 void tst_qquickflickable::nestedSliderUsingTouch_data()
 {
     QTest::addColumn<bool>("keepMouseGrab");
@@ -2321,6 +2375,7 @@ void tst_qquickflickable::overshoot()
 {
     QFETCH(QQuickFlickable::BoundsBehavior, boundsBehavior);
     QFETCH(int, boundsMovement);
+    QFETCH(bool, pixelAligned);
 
     QScopedPointer<QQuickView> window(new QQuickView);
     window->setSource(testFileUrl("overshoot.qml"));
@@ -2330,6 +2385,7 @@ void tst_qquickflickable::overshoot()
 
     QQuickFlickable *flickable = qobject_cast<QQuickFlickable*>(window->rootObject());
     QVERIFY(flickable);
+    flickable->setPixelAligned(pixelAligned);
 
     QCOMPARE(flickable->width(), 200.0);
     QCOMPARE(flickable->height(), 200.0);
@@ -2376,7 +2432,7 @@ void tst_qquickflickable::overshoot()
     QMetaObject::invokeMethod(flickable, "reset");
 
     // flick past the beginning
-    flick(window.data(), QPoint(10, 10), QPoint(50, 50), 100);
+    flick(window.data(), QPoint(10, 10), QPoint(50, 50), 50);
     QTRY_VERIFY(!flickable->property("flicking").toBool());
 
     if ((boundsMovement == QQuickFlickable::FollowBoundsBehavior) && (boundsBehavior & QQuickFlickable::OvershootBounds)) {
@@ -2445,7 +2501,7 @@ void tst_qquickflickable::overshoot()
     QMetaObject::invokeMethod(flickable, "reset");
 
     // flick past the end
-    flick(window.data(), QPoint(50, 50), QPoint(10, 10), 100);
+    flick(window.data(), QPoint(50, 50), QPoint(10, 10), 50);
     QTRY_VERIFY(!flickable->property("flicking").toBool());
 
     if ((boundsMovement == QQuickFlickable::FollowBoundsBehavior) && (boundsBehavior & QQuickFlickable::OvershootBounds)) {
@@ -2478,29 +2534,53 @@ void tst_qquickflickable::overshoot_data()
 {
     QTest::addColumn<QQuickFlickable::BoundsBehavior>("boundsBehavior");
     QTest::addColumn<int>("boundsMovement");
+    QTest::addColumn<bool>("pixelAligned");
 
     QTest::newRow("StopAtBounds,FollowBoundsBehavior")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::StopAtBounds)
-            << int(QQuickFlickable::FollowBoundsBehavior);
+            << int(QQuickFlickable::FollowBoundsBehavior) << false;
     QTest::newRow("DragOverBounds,FollowBoundsBehavior")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragOverBounds)
-            << int(QQuickFlickable::FollowBoundsBehavior);
+            << int(QQuickFlickable::FollowBoundsBehavior) << false;
     QTest::newRow("OvershootBounds,FollowBoundsBehavior")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::OvershootBounds)
-            << int(QQuickFlickable::FollowBoundsBehavior);
+            << int(QQuickFlickable::FollowBoundsBehavior) << false;
     QTest::newRow("DragAndOvershootBounds,FollowBoundsBehavior")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragAndOvershootBounds)
-            << int(QQuickFlickable::FollowBoundsBehavior);
+            << int(QQuickFlickable::FollowBoundsBehavior) << false;
 
     QTest::newRow("DragOverBounds,StopAtBounds")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragOverBounds)
-            << int(QQuickFlickable::StopAtBounds);
+            << int(QQuickFlickable::StopAtBounds) << false;
     QTest::newRow("OvershootBounds,StopAtBounds")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::OvershootBounds)
-            << int(QQuickFlickable::StopAtBounds);
+            << int(QQuickFlickable::StopAtBounds) << false;
     QTest::newRow("DragAndOvershootBounds,StopAtBounds")
             << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragAndOvershootBounds)
-            << int(QQuickFlickable::StopAtBounds);
+            << int(QQuickFlickable::StopAtBounds) << false;
+
+    QTest::newRow("StopAtBounds,FollowBoundsBehavior,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::StopAtBounds)
+            << int(QQuickFlickable::FollowBoundsBehavior) << true;
+    QTest::newRow("DragOverBounds,FollowBoundsBehavior,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragOverBounds)
+            << int(QQuickFlickable::FollowBoundsBehavior) << true;
+    QTest::newRow("OvershootBounds,FollowBoundsBehavior,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::OvershootBounds)
+            << int(QQuickFlickable::FollowBoundsBehavior) << true;
+    QTest::newRow("DragAndOvershootBounds,FollowBoundsBehavior,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragAndOvershootBounds)
+            << int(QQuickFlickable::FollowBoundsBehavior) << true;
+
+    QTest::newRow("DragOverBounds,StopAtBounds,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragOverBounds)
+            << int(QQuickFlickable::StopAtBounds) << true;
+    QTest::newRow("OvershootBounds,StopAtBounds,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::OvershootBounds)
+            << int(QQuickFlickable::StopAtBounds) << true;
+    QTest::newRow("DragAndOvershootBounds,StopAtBounds,pixelAligned")
+            << QQuickFlickable::BoundsBehavior(QQuickFlickable::DragAndOvershootBounds)
+            << int(QQuickFlickable::StopAtBounds) << true;
 }
 
 void tst_qquickflickable::overshoot_reentrant()
@@ -2714,6 +2794,172 @@ void tst_qquickflickable::ignoreNonLeftMouseButtons_data()
 
     QTest::newRow("right") << Qt::RightButton;
     QTest::newRow("middle") << Qt::MiddleButton;
+}
+
+void tst_qquickflickable::receiveTapOutsideContentItem()
+{
+    // Check that if we add a TapHandler handler to a flickable, we
+    // can tap on the whole flickable area inside it, which includes
+    // the extents in addition to the content item.
+    QQuickView window;
+    window.resize(200, 200);
+    FlickableWithExtents flickable;
+    flickable.setParentItem(window.contentItem());
+    flickable.setWidth(200);
+    flickable.setHeight(200);
+    flickable.setContentWidth(100);
+    flickable.setContentHeight(100);
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+
+    QQuickTapHandler tapHandler(&flickable);
+    QSignalSpy clickedSpy(&tapHandler, SIGNAL(tapped(QEventPoint, Qt::MouseButton)));
+
+    // Tap outside the content item in the top-left corner
+    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(5, 5));
+    QCOMPARE(clickedSpy.count(), 1);
+
+    // Tap outside the content item in the bottom-right corner
+    const QPoint bottomRight(flickable.contentItem()->width() + 5, flickable.contentItem()->height() + 5);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, bottomRight);
+    QCOMPARE(clickedSpy.count(), 2);
+}
+
+void tst_qquickflickable::flickWhenRotated_data()
+{
+    QTest::addColumn<qreal>("rootRotation");
+    QTest::addColumn<qreal>("flickableRotation");
+    QTest::addColumn<qreal>("scale");
+
+    static constexpr qreal rotations[] = { 0, 30, 90, 180, 270 };
+    static constexpr qreal scales[] = { 0.3, 1, 1.5 };
+
+    for (const auto pr : rotations) {
+        for (const auto fr : rotations) {
+            if (pr <= 90) {
+                for (const auto s : scales)
+                    QTest::addRow("parent: %g, flickable: %g, scale: %g", pr, fr, s) << pr << fr << s;
+            } else {
+                // don't bother trying every scale with every set of rotations, to save time
+                QTest::addRow("parent: %g, flickable: %g, scale: 1", pr, fr) << pr << fr << qreal(1);
+            }
+        }
+    }
+}
+
+void tst_qquickflickable::flickWhenRotated() // QTBUG-99639
+{
+    QFETCH(qreal, rootRotation);
+    QFETCH(qreal, flickableRotation);
+    QFETCH(qreal, scale);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("rotatedFlickable.qml")));
+    QQuickItem *rootItem = window.rootObject();
+    QVERIFY(rootItem);
+    QQuickFlickable *flickable = rootItem->findChild<QQuickFlickable*>();
+    QVERIFY(flickable);
+
+    rootItem->setRotation(rootRotation);
+    flickable->setRotation(flickableRotation);
+    rootItem->setScale(scale);
+    QVERIFY(flickable->isAtYBeginning());
+
+    // Flick in Y direction in Flickable's coordinate system and check how much it moved
+    const QPointF startPoint = flickable->mapToGlobal(QPoint(20, 180));
+    const QPointF endPoint = flickable->mapToGlobal(QPoint(20, 40));
+    flick(&window, window.mapFromGlobal(startPoint).toPoint(), window.mapFromGlobal(endPoint).toPoint(), 100);
+    QTRY_VERIFY(flickable->isMoving());
+    QTRY_VERIFY(!flickable->isMoving());
+    qCDebug(lcTests) << "flicking from" << startPoint << "to" << endPoint << ": ended at contentY" << flickable->contentY();
+    // usually flickable->contentY() is at 275 or very close
+    QVERIFY(!flickable->isAtYBeginning());
+}
+
+
+void tst_qquickflickable::scrollingWithFractionalExtentSize_data()
+{
+    QTest::addColumn<QByteArray>("property");
+    QTest::addColumn<bool>("isYAxis");
+    QTest::addColumn<bool>("atBeginning");
+    QTest::addColumn<QQuickFlickable::BoundsBehaviorFlag>("boundsBehaviour");
+
+    QTest::newRow("minyextent") << QByteArray("topMargin") << true << true << QQuickFlickable::StopAtBounds;
+    QTest::newRow("maxyextent") << QByteArray("bottomMargin") << true << false << QQuickFlickable::StopAtBounds;
+    QTest::newRow("minxextent") << QByteArray("leftMargin") << false << true << QQuickFlickable::StopAtBounds;
+    QTest::newRow("maxxextent") << QByteArray("rightMargin") << false << false << QQuickFlickable::StopAtBounds;
+
+    QTest::newRow("minyextent") << QByteArray("topMargin") << true << true << QQuickFlickable::DragAndOvershootBounds;
+    QTest::newRow("maxyextent") << QByteArray("bottomMargin") << true << false << QQuickFlickable::DragAndOvershootBounds;
+    QTest::newRow("minxextent") << QByteArray("leftMargin") << false << true << QQuickFlickable::DragAndOvershootBounds;
+    QTest::newRow("maxxextent") << QByteArray("rightMargin") << false << false << QQuickFlickable::DragAndOvershootBounds;
+}
+
+void tst_qquickflickable::scrollingWithFractionalExtentSize() // QTBUG-101268
+{
+    QFETCH(QByteArray, property);
+    QFETCH(bool, isYAxis);
+    QFETCH(bool, atBeginning);
+    QFETCH(QQuickFlickable::BoundsBehaviorFlag, boundsBehaviour);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("fractionalExtent.qml")));
+    QQuickItem *rootItem = window.rootObject();
+    QVERIFY(rootItem);
+    QQuickFlickable *flickable = qobject_cast<QQuickFlickable *>(rootItem);
+    QVERIFY(flickable);
+    flickable->setBoundsBehavior(boundsBehaviour);
+
+    qreal value = 100.5;
+    flickable->setProperty(property.constData(), 100.5);
+    if (isYAxis)
+        flickable->setContentY(atBeginning ? -value : value + qAbs(flickable->height() - flickable->contentHeight()));
+    else
+        flickable->setContentX(atBeginning ? -value : value + qAbs(flickable->width() - flickable->contentWidth()));
+
+    if (isYAxis) {
+        QVERIFY(atBeginning ? flickable->isAtYBeginning() : flickable->isAtYEnd());
+        QVERIFY(!flickable->isMovingVertically());
+    } else {
+        QVERIFY(atBeginning ? flickable->isAtXBeginning() : flickable->isAtXEnd());
+        QVERIFY(!flickable->isMovingHorizontally());
+    }
+
+    QPointF pos(flickable->x() + flickable->width() / 2, flickable->y() + flickable->height() / 2);
+    QPoint angleDelta(isYAxis ? 0 : (atBeginning ? -50 : 50), isYAxis ? (atBeginning ? -50 : 50) : 0);
+
+    QWheelEvent wheelEvent1(pos, window.mapToGlobal(pos), QPoint(), angleDelta,
+                               Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+
+    QGuiApplication::sendEvent(&window, &wheelEvent1);
+    qApp->processEvents();
+    if (isYAxis) {
+        QVERIFY(flickable->isMovingVertically());
+        QTRY_VERIFY(!flickable->isMovingVertically());
+        QVERIFY(!(atBeginning ? flickable->isAtYBeginning() : flickable->isAtYEnd()));
+    } else {
+        QVERIFY(flickable->isMovingHorizontally());
+        QTRY_VERIFY(!flickable->isMovingHorizontally());
+        QVERIFY(!(atBeginning ? flickable->isAtXBeginning() : flickable->isAtXEnd()));
+    }
+
+    QWheelEvent wheelEvent2(pos, window.mapToGlobal(pos), QPoint(), -angleDelta,
+                               Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    wheelEvent2.setTimestamp(wheelEvent1.timestamp() + 10);
+
+    QGuiApplication::sendEvent(&window, &wheelEvent2);
+    qApp->processEvents();
+
+    if (isYAxis) {
+        QVERIFY(flickable->isMovingVertically());
+        QTRY_VERIFY(!flickable->isMovingVertically());
+        QVERIFY(atBeginning ? flickable->isAtYBeginning() : flickable->isAtYEnd());
+    } else {
+        QVERIFY(flickable->isMovingHorizontally());
+        QTRY_VERIFY(!flickable->isMovingHorizontally());
+        QVERIFY(atBeginning ? flickable->isAtXBeginning() : flickable->isAtXEnd());
+    }
 }
 
 QTEST_MAIN(tst_qquickflickable)

@@ -1146,7 +1146,7 @@ void tst_QJSValue::toVariant()
         QVERIFY(func2.isCallable());
         QCOMPARE(func2.call().toInt(), 10);
 
-        QCOMPARE(func.toVariant(), QVariant());
+        QCOMPARE(func.toVariant().metaType(), QMetaType::fromType<QJSValue>());
     }
 }
 
@@ -2871,6 +2871,10 @@ void tst_QJSValue::jsFunctionInVariant()
         QTest::ignoreMessage(QtDebugMsg, "direct call");
         log.callWithInstance(console, {"direct call"});
     }
+
+    const QVariant var = log.toVariant();
+    QCOMPARE(var.metaType(), QMetaType::fromType<QJSValue>());
+    QCOMPARE(var.value<QVariantMap>(), QVariantMap()); // Does not recurse infinitely
 }
 
 void tst_QJSValue::integerToEnum()

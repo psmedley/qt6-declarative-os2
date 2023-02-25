@@ -110,8 +110,10 @@ QQmlBindingInstantiationContext::QQmlBindingInstantiationContext(int referencing
 
 bool QQmlBindingInstantiationContext::resolveInstantiatingProperty()
 {
-    if (!instantiatingBinding || instantiatingBinding->type != QV4::CompiledData::Binding::Type_GroupProperty)
+    if (!instantiatingBinding
+           || instantiatingBinding->type() != QV4::CompiledData::Binding::Type_GroupProperty) {
         return true;
+    }
 
     Q_ASSERT(referencingObjectIndex >= 0);
     Q_ASSERT(referencingObjectPropertyCache);
@@ -130,7 +132,7 @@ QQmlRefPointer<QQmlPropertyCache> QQmlBindingInstantiationContext::instantiating
         if (instantiatingProperty->isQObject()) {
             // rawPropertyCacheForType assumes a given unspecified version means "any version".
             // There is another overload that takes no version, which we shall not use here.
-            return enginePrivate->rawPropertyCacheForType(instantiatingProperty->propType().id(),
+            return enginePrivate->rawPropertyCacheForType(instantiatingProperty->propType(),
                                                           instantiatingProperty->typeVersion());
         } else if (const QMetaObject *vtmo = QQmlMetaType::metaObjectForValueType(instantiatingProperty->propType())) {
             return enginePrivate->cache(vtmo, instantiatingProperty->typeVersion());
@@ -147,9 +149,20 @@ void QQmlPendingGroupPropertyBindings::resolveMissingPropertyCaches(QQmlEnginePr
         if (propertyCaches->at(groupPropertyObjectIndex))
             continue;
 
+        if (pendingBinding.instantiatingPropertyName.isEmpty()) {
+            // Generalized group property.
+            auto cache = propertyCaches->at(pendingBinding.referencingObjectIndex);
+            propertyCaches->set(groupPropertyObjectIndex, cache);
+            continue;
+        }
+
+        if (!pendingBinding.referencingObjectPropertyCache) {
+            pendingBinding.referencingObjectPropertyCache
+                    = propertyCaches->at(pendingBinding.referencingObjectIndex);
+        }
+
         if (!pendingBinding.resolveInstantiatingProperty())
             continue;
-
         auto cache = pendingBinding.instantiatingPropertyCache(enginePrivate);
         propertyCaches->set(groupPropertyObjectIndex, cache);
     }

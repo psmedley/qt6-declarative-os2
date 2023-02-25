@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Quick Dialogs module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -100,14 +103,9 @@ QQuickPlatformFileDialog::QQuickPlatformFileDialog(QObject *parent)
 //            urls += QUrl::fromLocalFile(file);
 //        emit filesSelected(urls);
 //    });
-    connect(m_dialog, &QQuickFileDialogImpl::currentFileChanged, this, &QQuickPlatformFileDialog::currentChanged);
+    connect(m_dialog, &QQuickFileDialogImpl::selectedFileChanged, this, &QQuickPlatformFileDialog::currentChanged);
     connect(m_dialog, &QQuickFileDialogImpl::currentFolderChanged, this, &QQuickPlatformFileDialog::directoryEntered);
     connect(m_dialog, &QQuickFileDialogImpl::filterSelected, this, &QQuickPlatformFileDialog::filterSelected);
-
-    // We would do this in QQuickFileDialogImpl, but we need to ensure that folderChanged()
-    // is connected to directoryEntered() before setting it to ensure that the QQuickFileDialog is notified.
-    if (m_dialog->currentFolder().isEmpty())
-        m_dialog->setCurrentFolder(QUrl::fromLocalFile(QDir().absolutePath()));
 }
 
 bool QQuickPlatformFileDialog::isValid() const
@@ -141,13 +139,26 @@ void QQuickPlatformFileDialog::selectFile(const QUrl &file)
     if (!m_dialog)
         return;
 
-    m_dialog->setSelectedFile(file);
+    if (m_dialog->isVisible()) {
+        qWarning() << "Cannot set an initial selectedFile while FileDialog is open";
+        return;
+    }
+
+    // Since we're only called once each time the FileDialog is shown,
+    // we call setInitialCurrentFolderAndSelectedFile here, which will ensure that
+    // the first currentIndex change (to 0, as a result of the ListView's model changing
+    // as a result of the FolderListModel directory change) is effectively
+    // ignored and the correct index for the initial selectedFile is maintained.
+    m_dialog->setInitialCurrentFolderAndSelectedFile(file);
 }
 
+// TODO: support for multiple selected files
 QList<QUrl> QQuickPlatformFileDialog::selectedFiles() const
 {
-    // TODO: support for multiple selected files
-    return { m_dialog->currentFile() };
+    if (m_dialog->selectedFile().isEmpty())
+        return {};
+
+    return { m_dialog->selectedFile() };
 }
 
 void QQuickPlatformFileDialog::setFilter()
@@ -175,6 +186,12 @@ void QQuickPlatformFileDialog::exec()
     qCWarning(lcQuickPlatformFileDialog) << "exec() is not supported for the Qt Quick FileDialog fallback";
 }
 
+/*!
+    \internal
+
+    This is called after QQuickFileDialog::onShow().
+    Both are called in QQuickAbstractDialog::open().
+*/
 bool QQuickPlatformFileDialog::show(Qt::WindowFlags flags, Qt::WindowModality modality, QWindow *parent)
 {
     qCDebug(lcQuickPlatformFileDialog) << "show called with flags" << flags <<
@@ -206,6 +223,14 @@ bool QQuickPlatformFileDialog::show(Qt::WindowFlags flags, Qt::WindowModality mo
     m_dialog->setRejectLabel(options->isLabelExplicitlySet(QFileDialogOptions::Reject)
         ? options->labelText(QFileDialogOptions::Reject) : QString());
 
+    if (options->initiallySelectedFiles().isEmpty()) {
+        if (m_dialog->currentFolder().isEmpty()) {
+            // The user didn't set an initial selectedFile nor currentFolder, so we'll set it to the working directory.
+            qCDebug(lcQuickPlatformFileDialog) << "- calling setCurrentFolder(QDir()) on quick dialog" << parent;
+            m_dialog->setCurrentFolder(QUrl::fromLocalFile(QDir().absolutePath()));
+        }
+    }
+
     m_dialog->open();
     return true;
 }
@@ -224,3 +249,5 @@ QQuickFileDialogImpl *QQuickPlatformFileDialog::dialog() const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickplatformfiledialog_p.cpp"

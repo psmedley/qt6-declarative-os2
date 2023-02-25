@@ -55,6 +55,7 @@ private slots:
     void dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch_data();
     void dragHandlerInSiblingStealingGrabFromMouseAreaViaTouch();
     void hoverHandlerDoesntHoverOnPress();
+    void doubleClickInMouseAreaWithDragHandlerInGrandparent();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
@@ -194,20 +195,37 @@ void tst_MouseAreaInterop::hoverHandlerDoesntHoverOnPress() // QTBUG-72843
     QTRY_COMPARE(handler->isHovered(), true);
     // move the mouse into the "button"
     QTest::mouseMove(&window, p);
-    // current behavior: the mouse is still within the HoverHandler's region of interest, but MouseArea is obstructing.
-    QTRY_COMPARE(handler->isHovered(), false);
+    // both the hoverhandler and the mouse area should now be hovered!
+    QTRY_COMPARE(handler->isHovered(), true);
     QCOMPARE(ma->hovered(), true);
 
-    // So HoverHandler is no longer hovered (unfortunately).  Clicking should not change it.
     QSignalSpy hoveredChangedSpy(handler, SIGNAL(hoveredChanged()));
     QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p);
     QTRY_COMPARE(ma->pressed(), true);
-    QCOMPARE(handler->isHovered(), false);
+    QCOMPARE(handler->isHovered(), true);
     QCOMPARE(hoveredChangedSpy.count(), 0);
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p);
     QTRY_COMPARE(ma->pressed(), false);
-    QCOMPARE(handler->isHovered(), false);
+    QCOMPARE(handler->isHovered(), true);
     QCOMPARE(hoveredChangedSpy.count(), 0);
+}
+
+void tst_MouseAreaInterop::doubleClickInMouseAreaWithDragHandlerInGrandparent()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("dragHandlerInMouseAreaGrandparent.qml")));
+
+    QQuickDragHandler *handler = window.rootObject()->findChild<QQuickDragHandler*>();
+    QVERIFY(handler);
+    QSignalSpy dragActiveSpy(handler, &QQuickDragHandler::activeChanged);
+    QQuickMouseArea *ma = window.rootObject()->findChild<QQuickMouseArea*>();
+    QVERIFY(ma);
+    QSignalSpy dClickSpy(ma, &QQuickMouseArea::doubleClicked);
+    QPoint p = ma->mapToScene(ma->boundingRect().center()).toPoint();
+
+    QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p);
+    QCOMPARE(dClickSpy.count(), 1);
+    QCOMPARE(dragActiveSpy.count(), 0);
 }
 
 QTEST_MAIN(tst_MouseAreaInterop)

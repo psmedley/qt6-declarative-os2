@@ -645,10 +645,21 @@ void QuickTestResult::ignoreWarning(const QJSValue &message)
 {
     if (message.isRegExp()) {
 #if QT_CONFIG(regularexpression)
-        QTestLog::ignoreMessage(QtWarningMsg, message.toVariant().toRegularExpression());
+        QTestLog::ignoreMessage(QtWarningMsg, qjsvalue_cast<QRegularExpression>(message));
 #endif
     } else {
         QTestLog::ignoreMessage(QtWarningMsg, message.toString().toUtf8());
+    }
+}
+
+void QuickTestResult::failOnWarning(const QJSValue &message)
+{
+    if (message.isRegExp()) {
+#if QT_CONFIG(regularexpression)
+        QTestLog::failOnWarning(qjsvalue_cast<QRegularExpression>(message));
+#endif
+    } else {
+        QTestLog::failOnWarning(message.toString().toUtf8());
     }
 }
 
@@ -775,7 +786,8 @@ QObject *QuickTestResult::grabImage(QQuickItem *item)
     if (item && item->window()) {
         QQuickWindow *window = item->window();
         QImage grabbed = window->grabWindow();
-        QRectF rf(item->x(), item->y(), item->width(), item->height());
+        const auto dpi = grabbed.devicePixelRatio();
+        QRectF rf(item->x() * dpi, item->y() * dpi, item->width() * dpi, item->height() * dpi);
         rf = rf.intersected(QRectF(0, 0, grabbed.width(), grabbed.height()));
         QObject *o = new QuickTestImageObject(grabbed.copy(rf.toAlignedRect()));
         QQmlEngine::setContextForObject(o, qmlContext(this));

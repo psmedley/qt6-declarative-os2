@@ -16,7 +16,7 @@ qt_internal_add_module(QmlDomPrivate
         qqmldomattachedinfo.cpp qqmldomattachedinfo_p.h
         qqmldomcomments.cpp qqmldomcomments_p.h
         qqmldomcompare.cpp qqmldomcompare_p.h
-        qqmldomconstants_p.h
+        qqmldomconstants.cpp qqmldomconstants_p.h
         qqmldomelements.cpp qqmldomelements_p.h
         qqmldomerrormessage.cpp qqmldomerrormessage_p.h
         qqmldomexternalitems.cpp qqmldomexternalitems_p.h
@@ -32,11 +32,12 @@ qt_internal_add_module(QmlDomPrivate
         qqmldomstringdumper.cpp qqmldomstringdumper_p.h
         qqmldomreformatter.cpp qqmldomreformatter_p.h
         qqmldomtop.cpp qqmldomtop_p.h
+        qqmldomtypesreader.cpp qqmldomtypesreader_p.h
     DEFINES
         QMLDOM_LIBRARY
     PUBLIC_LIBRARIES
-        Qt::CorePrivate
-        Qt::QmlDevToolsPrivate
+        Qt::QmlPrivate
+        Qt::QmlCompilerPrivate
 )
 
 #### Keys ignored in scope 1:.:.:qmldom.pro:<TRUE>:

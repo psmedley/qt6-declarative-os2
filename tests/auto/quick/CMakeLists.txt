@@ -2,8 +2,13 @@
 
 add_subdirectory(geometry)
 add_subdirectory(nodes)
-add_subdirectory(drawingmodes)
 add_subdirectory(qquickpixmapcache)
+
+# Limit set of tests to run for static Qt builds.
+if(QT_BUILD_MINIMAL_STATIC_TESTS)
+    return()
+endif()
+add_subdirectory(drawingmodes)
 
 if(QT_FEATURE_private_tests)
     add_subdirectory(examples)
@@ -49,6 +54,7 @@ if(QT_FEATURE_private_tests)
     add_subdirectory(qquicklistview)
     add_subdirectory(qquicklistview2)
     add_subdirectory(qquicktableview)
+    add_subdirectory(qquicktreeview)
     add_subdirectory(qquickloader)
     add_subdirectory(qquickmousearea)
     add_subdirectory(qquickmultipointtoucharea)
@@ -67,7 +73,9 @@ if(QT_FEATURE_private_tests)
     add_subdirectory(qquickvisualdatamodel)
     add_subdirectory(qquickview)
     add_subdirectory(qquickview_extra)
-    add_subdirectory(qquickcanvasitem)
+    if(NOT ANDROID) # QTBUG-103099
+        add_subdirectory(qquickcanvasitem)
+    endif()
     add_subdirectory(qquickdesignersupport)
     add_subdirectory(qquickscreen)
     add_subdirectory(touchmouse)

@@ -45,11 +45,11 @@ QT_BEGIN_NAMESPACE
 QQmlProxyMetaObject::QQmlProxyMetaObject(QObject *obj, QList<ProxyData> *mList)
 : metaObjects(mList), proxies(nullptr), parent(nullptr), object(obj)
 {
-    *static_cast<QMetaObject *>(this) = *metaObjects->constFirst().metaObject;
+    metaObject = metaObjects->constFirst().metaObject;
 
     QObjectPrivate *op = QObjectPrivate::get(obj);
     if (op->metaObject)
-        parent = static_cast<QAbstractDynamicMetaObject*>(op->metaObject);
+        parent = op->metaObject;
 
     op->metaObject = this;
 }
@@ -68,11 +68,8 @@ QQmlProxyMetaObject::~QQmlProxyMetaObject()
 QObject *QQmlProxyMetaObject::getProxy(int index)
 {
     if (!proxies) {
-        if (!proxies) {
-            proxies = new QObject*[metaObjects->count()];
-            ::memset(proxies, 0,
-                     sizeof(QObject *) * metaObjects->count());
-        }
+        proxies = new QObject *[metaObjects->count()];
+        ::memset(proxies, 0, sizeof(QObject *) * metaObjects->count());
     }
 
     if (!proxies[index]) {
@@ -112,6 +109,7 @@ int QQmlProxyMetaObject::metaCall(QObject *o, QMetaObject::Call c, int id, void 
             const int globalPropertyOffset = metaObjects->at(ii).propertyOffset;
             if (id >= globalPropertyOffset) {
                 QObject *proxy = getProxy(ii);
+                Q_ASSERT(proxy);
                 const int localProxyOffset = proxy->metaObject()->propertyOffset();
                 const int localProxyId = id - globalPropertyOffset + localProxyOffset;
 
@@ -129,7 +127,7 @@ int QQmlProxyMetaObject::metaCall(QObject *o, QMetaObject::Call c, int id, void 
                 const int globalMethodOffset = metaObjects->at(ii).methodOffset;
                 if (id >= globalMethodOffset) {
                     QObject *proxy = getProxy(ii);
-
+                    Q_ASSERT(proxy);
                     const int localMethodOffset = proxy->metaObject()->methodOffset();
                     const int localMethodId = id - globalMethodOffset + localMethodOffset;
 
@@ -143,6 +141,11 @@ int QQmlProxyMetaObject::metaCall(QObject *o, QMetaObject::Call c, int id, void 
         return parent->metaCall(o, c, id, a);
     else
         return object->qt_metacall(c, id, a);
+}
+
+QMetaObject *QQmlProxyMetaObject::toDynamicMetaObject(QObject *)
+{
+    return metaObject;
 }
 
 QT_END_NAMESPACE

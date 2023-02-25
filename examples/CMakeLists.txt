@@ -1,5 +1,3 @@
-find_package(Qt6 COMPONENTS Sql) # special case
-
 qt_examples_build_begin(EXTERNAL_BUILD)
 
 add_subdirectory(qml)

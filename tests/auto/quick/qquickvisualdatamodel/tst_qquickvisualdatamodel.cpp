@@ -424,6 +424,7 @@ private slots:
     void warnings_data();
     void warnings();
     void invalidAttachment();
+    void declarativeAssignViaAttached();
     void asynchronousInsert_data();
     void asynchronousInsert();
     void asynchronousRemove_data();
@@ -434,6 +435,7 @@ private slots:
     void invalidContext();
     void externalManagedModel();
     void delegateModelChangeDelegate();
+    void noDoubleDelegateUpdate();
     void checkFilterGroupForDelegate();
     void readFromProxyObject();
 
@@ -3976,7 +3978,19 @@ void tst_qquickvisualdatamodel::invalidAttachment()
 
     property = item->property("invalidVdm");
     QCOMPARE(property.userType(), qMetaTypeId<QQmlDelegateModel *>());
-    QVERIFY(!property.value<QQmlDelegateModel *>());
+    // has been explicitly requested by specifying the attached property
+    QVERIFY(property.value<QQmlDelegateModel *>());
+}
+
+void tst_qquickvisualdatamodel::declarativeAssignViaAttached()
+{
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("attachedDeclarativelySet.qml"));
+
+    QScopedPointer<QObject> root(component.create());
+    QCOMPARE(root->property("count").toInt(), 6); // 1 (from instantiator + 5 from model)
+    root->setProperty("includeAll", true);
+    QCOMPARE(root->property("count").toInt(), 11); // 1 (from instantiator + 10 from model)
 }
 
 void tst_qquickvisualdatamodel::asynchronousInsert_data()
@@ -4348,6 +4362,20 @@ void tst_qquickvisualdatamodel::delegateModelChangeDelegate()
     // After changing the delegate, expect the existing item to have the new delegate
     QCOMPARE(visualModel->object(0, QQmlIncubator::Synchronous)->objectName(), QStringLiteral("new"));
     QCOMPARE(visualModel->count(), 3);
+}
+
+void tst_qquickvisualdatamodel::noDoubleDelegateUpdate()
+{
+    // changing a delegate only refreshes its instances once
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("setDelegateNoDoubleChange.qml"));
+
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(root);
+
+    bool ok = root->setProperty("testStarted", true);
+    QVERIFY(ok);
+    QCOMPARE(root->property("creationCount").toInt(), 1);
 }
 
 void tst_qquickvisualdatamodel::checkFilterGroupForDelegate()

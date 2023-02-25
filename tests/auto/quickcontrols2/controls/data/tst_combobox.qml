@@ -52,6 +52,7 @@ import QtQuick
 import QtQuick.Window
 import QtTest
 import QtQuick.Controls
+import QtQuick.NativeStyle as NativeStyle
 
 TestCase {
     id: testCase
@@ -939,13 +940,14 @@ TestCase {
             verify(popupYSpy.count === 1)
         }
 
+        var leftLayoutMargin = control.background.layoutMargins === undefined ? 0 : control.popup.layoutMargins.left
         // follow the control outside the horizontal window bounds
         control.x = -control.width / 2
         compare(control.x, -control.width / 2)
-        compare(control.popup.contentItem.parent.x, -control.width / 2)
+        compare(control.popup.contentItem.parent.x, -control.width / 2 + leftLayoutMargin)
         control.x = testCase.width - control.width / 2
         compare(control.x, testCase.width - control.width / 2)
-        compare(control.popup.contentItem.parent.x, testCase.width - control.width / 2)
+        compare(control.popup.contentItem.parent.x, testCase.width - control.width / 2 + leftLayoutMargin)
 
         // close the popup when hidden (QTBUG-67684)
         control.popup.open()
@@ -1255,9 +1257,14 @@ TestCase {
         verify(control.button)
         verify(control.combobox)
 
+        var macOSStyle = Qt.platform.pluginName === "cocoa"
+                       && control.combobox.background instanceof NativeStyle.StyleItem
+        var expectedComboBoxFontPixelSize = macOSStyle
+                                  ? control.combobox.background.styleFont(control.combobox).pixelSize
+                                  : 30
         compare(control.font.pixelSize, 30)
         compare(control.button.font.pixelSize, 20)
-        compare(control.combobox.font.pixelSize, 30)
+        compare(control.combobox.font.pixelSize, expectedComboBoxFontPixelSize)
 
 //        verify(control.combobox.popup)
 //        var popup = control.combobox.popup
@@ -1278,13 +1285,21 @@ TestCase {
 //        compare(listview.contentItem.children[idx2].font.pixelSize, 25)
 
         control.font.pixelSize = control.font.pixelSize + 10
-        compare(control.combobox.font.pixelSize, 40)
+        if (!macOSStyle) expectedComboBoxFontPixelSize += 10
+        compare(control.combobox.font.pixelSize, expectedComboBoxFontPixelSize)
 //        waitForRendering(listview)
 //        compare(listview.contentItem.children[idx1].font.pixelSize, 25)
 //        compare(listview.contentItem.children[idx2].font.pixelSize, 25)
 
         control.combobox.font.pixelSize = control.combobox.font.pixelSize + 5
-        compare(control.combobox.font.pixelSize, 45)
+        if (!macOSStyle) {
+            // We only support the default system font (and font size) on MacOS style.
+            // Therefore, adjusting the font is not supported on MacOS style.
+            // Current behavior is that the font property *is* changed, but it is not
+            // guaranteed that the drawing will be correct.
+            // However, this might change in the future, so we don't test it.
+            compare(control.combobox.font.pixelSize, 45)
+        }
 //        waitForRendering(listview)
 
 //        idx1 = getChild(listview.contentItem, "delegate", -1)
@@ -2283,5 +2298,61 @@ TestCase {
         compare(acceptableInputSpy.count, 2)
         compare(control.displayText, "2")
         compare(control.acceptableInput, true)
+    }
+
+    function test_selectionCleared() {
+        const model = [
+            { text: "Apple" },
+            { text: "Banana" },
+            { text: "Coconut" }
+        ]
+        let control = createTemporaryObject(comboBox, testCase, { model: model, editable: true })
+        verify(control)
+
+        compare(control.displayText, "Apple")
+        compare(control.editText, "Apple")
+        compare(control.currentIndex, 0)
+
+        // Give the TextField focus and select the text.
+        let textField = control.contentItem
+        textField.forceActiveFocus()
+        textField.selectAll()
+        compare(textField.selectedText, "Apple")
+
+        // Type "B" so that Banana is selected.
+        keyPress(Qt.Key_Shift)
+        keyClick(Qt.Key_B)
+        keyRelease(Qt.Key_Shift)
+        compare(control.displayText, "Apple")
+        expectFail("", "QTBUG-102950")
+        compare(control.editText, "Banana")
+        compare(textField.selectedText, "anana")
+        compare(control.currentIndex, 0)
+
+        // Select Banana by pressing enter.
+        keyClick(Qt.Key_Return)
+        compare(control.displayText, "Banana")
+        compare(control.editText, "Banana")
+        compare(textField.selectedText, "")
+        compare(control.currentIndex, 1)
+    }
+
+    Component {
+        id: listOfGadgets
+        QtObject {
+            property var rects: [Qt.rect(1, 2, 3, 4), Qt.rect(5, 6, 7, 8)]
+        }
+    }
+
+    function test_listOfGadgetsWithRole() {
+        let model = listOfGadgets.createObject(testCase);
+        let control = createTemporaryObject(
+                comboBox, testCase, {model: model.rects, textRole: "width"});
+        verify(control);
+        compare(control.currentIndex, 0);
+        compare(control.displayText, "3");
+
+        control.currentIndex = 1;
+        compare(control.displayText, "7");
     }
 }

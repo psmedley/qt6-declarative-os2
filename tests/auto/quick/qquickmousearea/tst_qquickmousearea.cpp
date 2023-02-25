@@ -42,6 +42,7 @@
 #include <QtGui/QCursor>
 #include <QtGui/QScreen>
 #include <qpa/qwindowsysteminterface.h>
+#include <qpa/qwindowsysteminterface_p.h>
 
 Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
 
@@ -123,6 +124,7 @@ private slots:
     void invalidClick();
     void pressedOrdering();
     void preventStealing();
+    void preventStealingListViewChild();
     void clickThrough();
     void hoverPosition();
     void hoverPropagation();
@@ -156,6 +158,11 @@ private slots:
     void settingHiddenInPressUngrabs();
     void negativeZStackingOrder();
     void containsMouseAndVisibility();
+    void doubleClickToHide();
+    void releaseFirstTouchAfterSecond();
+#if QT_CONFIG(tabletevent)
+    void tabletStylusTap();
+#endif
 
 private:
     int startDragDistance() const {
@@ -1089,6 +1096,36 @@ void tst_QQuickMouseArea::preventStealing()
     QCOMPARE(flickable->contentY(), 20.);
 
     QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p);
+}
+
+// QTBUG-103522
+void tst_QQuickMouseArea::preventStealingListViewChild()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("preventStealingListViewChild.qml")));
+    QQuickFlickable *flickable = qobject_cast<QQuickFlickable*>(window.rootObject());
+    QVERIFY(flickable);
+    QQuickMouseArea *mouseArea = flickable->findChild<QQuickMouseArea*>();
+    QVERIFY(mouseArea);
+    QPoint p = mouseArea->mapToScene(mouseArea->boundingRect().center()).toPoint();
+    const int threshold = qApp->styleHints()->startDragDistance();
+
+    flickable->flick(0, -10000);
+    for (int i = 0; i < 2; ++i) {
+        QVERIFY(flickable->isMovingVertically());
+        QTest::touchEvent(&window, device).press(0, p);
+        QQuickTouchUtils::flush(&window);
+        for (int j = 0; j < 4 && !mouseArea->drag()->active(); ++j) {
+            p += QPoint(0, threshold);
+            QTest::touchEvent(&window, device).move(0, p);
+            QQuickTouchUtils::flush(&window);
+        }
+        // MouseArea should be dragged because of preventStealing; ListView does not steal the grab.
+        QVERIFY(mouseArea->drag()->active());
+        QCOMPARE(flickable->isDragging(), false);
+        QTest::touchEvent(&window, device).release(0, p);
+        QCOMPARE(mouseArea->drag()->active(), false);
+    }
 }
 
 void tst_QQuickMouseArea::clickThrough()
@@ -2344,6 +2381,79 @@ void tst_QQuickMouseArea::containsMouseAndVisibility()
     QVERIFY(mouseArea->isVisible());
     QVERIFY(!mouseArea->hovered());
 }
+
+// QTBUG-35995 and QTBUG-102158
+void tst_QQuickMouseArea::doubleClickToHide()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("doubleClickToHide.qml")));
+
+    QQuickMouseArea *mouseArea = window.rootObject()->findChild<QQuickMouseArea *>();
+    QVERIFY(mouseArea);
+
+    QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
+
+    QCOMPARE(window.rootObject()->property("clicked").toInt(), 1);
+    QCOMPARE(window.rootObject()->property("doubleClicked").toInt(), 1);
+    QCOMPARE(mouseArea->isVisible(), false);
+    QCOMPARE(mouseArea->pressed(), false);
+    QCOMPARE(mouseArea->pressedButtons(), Qt::NoButton);
+
+    mouseArea->setVisible(true);
+
+    QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
+    QCOMPARE(window.rootObject()->property("clicked").toInt(), 2);
+}
+
+void tst_QQuickMouseArea::releaseFirstTouchAfterSecond() // QTBUG-103766
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("simple.qml")));
+    QQuickMouseArea *mouseArea = window.rootObject()->findChild<QQuickMouseArea *>();
+    QVERIFY(mouseArea);
+    QSignalSpy pressSpy(mouseArea, SIGNAL(pressed(QQuickMouseEvent*)));
+    QSignalSpy releaseSpy(mouseArea, &QQuickMouseArea::released);
+
+    QTest::touchEvent(&window, device).press(0, {20, 20});
+    QTRY_COMPARE(pressSpy.count(), 1);
+    QTest::touchEvent(&window, device).stationary(0).press(1, {100, 20});
+    QCOMPARE(pressSpy.count(), 1);   // touchpoint 0 is the touchmouse, touchpoint 1 is ignored
+    QTest::touchEvent(&window, device).stationary(0).release(1, {100, 20});
+    QCOMPARE(releaseSpy.count(), 0); // touchpoint 0 is the touchmouse, and remains pressed
+    QTest::touchEvent(&window, device).release(0, {20, 20});
+    QTRY_COMPARE(releaseSpy.count(), 1);
+}
+
+#if QT_CONFIG(tabletevent)
+void tst_QQuickMouseArea::tabletStylusTap()
+{
+    QVERIFY(qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents)); // MouseArea depends on it
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("simple.qml")));
+    QQuickMouseArea *mouseArea = window.rootObject()->findChild<QQuickMouseArea *>();
+    QVERIFY(mouseArea);
+    QSignalSpy pressSpy(mouseArea, SIGNAL(pressed(QQuickMouseEvent*)));
+    QSignalSpy releaseSpy(mouseArea, &QQuickMouseArea::released);
+    QSignalSpy clickSpy(mouseArea, &QQuickMouseArea::clicked);
+    const qint64 stylusId = 1234567890;
+
+    const QPoint point(100,100);
+    QWindowSystemInterface::handleTabletEvent(&window, point, window.mapToGlobal(point),
+            int(QInputDevice::DeviceType::Stylus), int(QPointingDevice::PointerType::Pen),
+            Qt::LeftButton, 0.5, 0, 0, 0, 0, 0, stylusId, Qt::NoModifier);
+    if (QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse)
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, point); // simulate what the platform does
+    QTRY_COMPARE(pressSpy.count(), 1);
+    QWindowSystemInterface::handleTabletEvent(&window, point, window.mapToGlobal(point),
+            int(QInputDevice::DeviceType::Stylus), int(QPointingDevice::PointerType::Pen),
+            Qt::NoButton, 0.5, 0, 0, 0, 0, 0, stylusId, Qt::NoModifier);
+    if (QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse)
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, point);
+    QTRY_COMPARE(releaseSpy.count(), 1);
+    QCOMPARE(clickSpy.count(), 1);
+    QCOMPARE(pressSpy.count(), 1);
+}
+#endif
 
 QTEST_MAIN(tst_QQuickMouseArea)
 

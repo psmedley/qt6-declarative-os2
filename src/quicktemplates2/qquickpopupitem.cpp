@@ -1,34 +1,37 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Quick Templates 2 module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
 ** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
 ** packaging of this file. Please review the following information to
 ** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -42,6 +45,7 @@
 #include "qquickpopup_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
 
+#include <QtCore/qloggingcategory.h>
 #if QT_CONFIG(shortcut)
 #  include <QtGui/private/qshortcutmap_p.h>
 #endif
@@ -53,6 +57,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcPopupItem, "qt.quick.controls.popupitem")
+
 QQuickPopupItemPrivate::QQuickPopupItemPrivate(QQuickPopup *popup)
     : popup(popup)
 {
@@ -61,12 +67,14 @@ QQuickPopupItemPrivate::QQuickPopupItemPrivate(QQuickPopup *popup)
 
 void QQuickPopupItemPrivate::implicitWidthChanged()
 {
+    qCDebug(lcPopupItem).nospace() << "implicitWidthChanged called on " << q_func() << "; new implicitWidth is " << implicitWidth;
     QQuickPagePrivate::implicitWidthChanged();
     emit popup->implicitWidthChanged();
 }
 
 void QQuickPopupItemPrivate::implicitHeightChanged()
 {
+    qCDebug(lcPopupItem).nospace() << "implicitHeightChanged called on " << q_func() << "; new implicitHeight is " << implicitHeight;
     QQuickPagePrivate::implicitHeightChanged();
     emit popup->implicitHeightChanged();
 }
@@ -322,6 +330,7 @@ void QQuickPopupItem::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem
 void QQuickPopupItem::contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize)
 {
     Q_D(QQuickPopupItem);
+    qCDebug(lcPopupItem) << "contentSizeChange called on" << this << "newSize" << newSize << "oldSize" << oldSize;
     QQuickPage::contentSizeChange(newSize, oldSize);
     d->popup->contentSizeChange(newSize, oldSize);
 }
@@ -336,6 +345,7 @@ void QQuickPopupItem::fontChange(const QFont &newFont, const QFont &oldFont)
 void QQuickPopupItem::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickPopupItem);
+    qCDebug(lcPopupItem) << "geometryChange called on" << this << "newGeometry" << newGeometry << "oldGeometry" << oldGeometry;
     QQuickPage::geometryChange(newGeometry, oldGeometry);
     d->popup->geometryChange(newGeometry, oldGeometry);
 }
@@ -422,3 +432,5 @@ void QQuickPopupItem::accessibilityActiveChanged(bool active)
 #endif
 
 QT_END_NAMESPACE
+
+#include "moc_qquickpopupitem_p_p.cpp"

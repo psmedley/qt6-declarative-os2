@@ -27,7 +27,9 @@
 ****************************************************************************/
 
 #include <QtTest/QtTest>
+#if QT_CONFIG(process)
 #include <QtCore/qprocess.h>
+#endif
 #include <QtCore/qtemporaryfile.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlapplicationengine.h>
@@ -36,7 +38,7 @@
 #include <private/qv4global_p.h>
 
 #ifdef Q_OS_WIN
-#include <windows.h>
+#include <qt_windows.h>
 #endif
 
 class tst_QV4Assembler : public QQmlDataTest
@@ -66,7 +68,9 @@ void tst_QV4Assembler::initTestCase()
 
 void tst_QV4Assembler::perfMapFile()
 {
-#if !defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+#if !QT_CONFIG(process)
+    QSKIP("Depends on QProcess");
+#elif !defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
     QSKIP("perf map files are only generated on linux");
 #else
     const QString qmljs = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmljs";
@@ -151,6 +155,9 @@ void tst_QV4Assembler::jitEnabled()
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_TVOS)
     /* JIT should be disabled on iOS and tvOS. */
+    QVERIFY(!QT_CONFIG(qml_jit));
+#elif defined(Q_OS_ANDROID) && defined(Q_PROCESSOR_ARM)
+    /* JIT is disabled for Android on ARM/ARM64 before Qt 6.4, see QTBUG-102776. */
     QVERIFY(!QT_CONFIG(qml_jit));
 #elif defined(Q_OS_WIN) && defined(Q_PROCESSOR_ARM)
     /* JIT should be disabled Windows on ARM/ARM64 for now. */

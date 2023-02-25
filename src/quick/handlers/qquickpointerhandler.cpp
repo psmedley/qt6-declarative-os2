@@ -49,6 +49,7 @@ QT_BEGIN_NAMESPACE
 Q_LOGGING_CATEGORY(lcPointerHandlerDispatch, "qt.quick.handler.dispatch")
 Q_LOGGING_CATEGORY(lcPointerHandlerGrab, "qt.quick.handler.grab")
 Q_LOGGING_CATEGORY(lcPointerHandlerActive, "qt.quick.handler.active")
+Q_DECLARE_LOGGING_CATEGORY(lcHandlerParent)
 
 /*!
     \qmltype PointerHandler
@@ -626,6 +627,20 @@ QQuickItem *QQuickPointerHandler::parentItem() const
     return qmlobject_cast<QQuickItem *>(QObject::parent());
 }
 
+void QQuickPointerHandler::setParentItem(QQuickItem *p)
+{
+    if (QObject::parent() == p)
+        return;
+
+    qCDebug(lcHandlerParent) << "reparenting handler" << this << ":" << parent() << "->" << p;
+    if (auto *oldParent = static_cast<QQuickItem *>(QObject::parent()))
+        QQuickItemPrivate::get(oldParent)->removePointerHandler(this);
+    setParent(p);
+    if (p)
+        QQuickItemPrivate::get(p)->addPointerHandler(this);
+    emit parentChanged();
+}
+
 QQuickItem *QQuickPointerHandler::target() const
 {
     Q_D(const QQuickPointerHandler);
@@ -658,10 +673,12 @@ bool QQuickPointerHandler::event(QEvent *e)
 
 void QQuickPointerHandler::handlePointerEvent(QPointerEvent *event)
 {
+    Q_D(QQuickPointerHandler);
     bool wants = wantsPointerEvent(event);
     qCDebug(lcPointerHandlerDispatch) << metaObject()->className() << objectName()
                                       << "on" << parent()->metaObject()->className() << parent()->objectName()
                                       << (wants ? "WANTS" : "DECLINES") << event;
+    d->currentEvent = event;
     if (wants) {
         handlePointerEventImpl(event);
     } else {
@@ -677,6 +694,7 @@ void QQuickPointerHandler::handlePointerEvent(QPointerEvent *event)
             }
         }
     }
+    d->currentEvent = nullptr;
     QQuickPointerHandlerPrivate::deviceDeliveryTargets(event->device()).append(this);
 }
 
@@ -718,14 +736,11 @@ void QQuickPointerHandler::setActive(bool active)
     }
 }
 
-void QQuickPointerHandler::handlePointerEventImpl(QPointerEvent *event)
+void QQuickPointerHandler::handlePointerEventImpl(QPointerEvent *)
 {
-    Q_D(QQuickPointerHandler);
-    d->currentEvent = event;
 }
 
 /*!
-    \readonly
     \qmlproperty Item QtQuick::PointerHandler::parent
 
     The \l Item which is the scope of the handler; the Item in which it was declared.
@@ -805,3 +820,5 @@ QVector<QObject *> &QQuickPointerHandlerPrivate::deviceDeliveryTargets(const QIn
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickpointerhandler_p.cpp"

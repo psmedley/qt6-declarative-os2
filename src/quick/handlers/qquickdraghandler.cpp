@@ -127,7 +127,7 @@ void QQuickDragHandler::onGrabChanged(QQuickPointerHandler *grabber, QPointingDe
 }
 
 /*!
-    \qmlproperty enumeration QtQuick.DragHandler::snapMode
+    \qmlproperty enumeration QtQuick::DragHandler::snapMode
 
     This property holds the snap mode.
 
@@ -395,3 +395,5 @@ void QQuickDragHandler::setActiveTranslation(const QVector2D &trans)
 */
 
 QT_END_NAMESPACE
+
+#include "moc_qquickdraghandler_p.cpp"

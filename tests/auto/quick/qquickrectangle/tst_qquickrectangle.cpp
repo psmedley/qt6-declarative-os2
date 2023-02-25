@@ -63,6 +63,10 @@ tst_qquickrectangle::tst_qquickrectangle()
 
 void tst_qquickrectangle::color()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Test does not work on Android because of QTBUG-102345");
+#endif
+
     if (QGuiApplication::primaryScreen()->depth() < 24)
         QSKIP("This test does not work at display depths < 24");
 
@@ -74,7 +78,7 @@ void tst_qquickrectangle::color()
 
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QEXPECT_FAIL("", "Failure due to grabWindow not functional on offscreen/minimal platforms", Abort);
+        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
 
     QImage image = view.grabWindow();
     QVERIFY(image.pixel(0,0) == QColor("#020202").rgba());

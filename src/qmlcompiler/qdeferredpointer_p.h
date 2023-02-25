@@ -45,15 +45,24 @@
 QT_BEGIN_NAMESPACE
 
 template<typename T>
-class QDeferredFactory
-{
-public:
-    T create() const;
-    bool isValid() const;
-};
+class QDeferredSharedPointer;
 
 template<typename T>
 class QDeferredWeakPointer;
+
+template<typename T>
+class QDeferredFactory
+{
+public:
+    bool isValid() const;
+
+private:
+    friend class QDeferredSharedPointer<const T>;
+    friend class QDeferredWeakPointer<const T>;
+    friend class QDeferredSharedPointer<T>;
+    friend class QDeferredWeakPointer<T>;
+    void populate(const QSharedPointer<T> &) const;
+};
 
 template<typename T>
 class QDeferredSharedPointer
@@ -73,7 +82,12 @@ public:
 
     QDeferredSharedPointer(QSharedPointer<T> data, QSharedPointer<Factory> factory)
         : m_data(data), m_factory(factory)
-    {}
+    {
+        // You have to provide a valid pointer if you provide a factory. We cannot allocate the
+        // pointer for you because then two copies of the same QDeferredSharedPointer will diverge
+        // and lazy-load two separate data objects.
+        Q_ASSERT(!m_data.isNull() || m_factory.isNull());
+    }
 
     operator QSharedPointer<T>() const
     {
@@ -88,7 +102,6 @@ public:
 
     bool isNull() const
     {
-        lazyLoad();
         return m_data.isNull();
     }
 
@@ -100,14 +113,14 @@ public:
 
     friend size_t qHash(const QDeferredSharedPointer &ptr, size_t seed = 0)
     {
-        ptr.lazyLoad();
-        return qHashMulti(seed, ptr.m_data);
+        // This is a hash of the pointer, not the data.
+        return qHash(ptr.m_data, seed);
     }
 
     friend bool operator==(const QDeferredSharedPointer &a, const QDeferredSharedPointer &b)
     {
-        a.lazyLoad();
-        b.lazyLoad();
+        // This is a comparison of the pointers, not their data. As we require the pointers to
+        // be given in the ctor, we can do this.
         return a.m_data == b.m_data;
     }
 
@@ -119,7 +132,6 @@ public:
     template <typename U>
     friend bool operator==(const QDeferredSharedPointer &a, const QSharedPointer<U> &b)
     {
-        a.lazyLoad();
         return a.m_data == b;
     }
 
@@ -141,15 +153,20 @@ public:
         return b != a;
     }
 
+    Factory *factory() const
+    {
+        return (m_factory && m_factory->isValid()) ? m_factory.data() : nullptr;
+    }
+
 private:
     friend class QDeferredWeakPointer<T>;
 
     void lazyLoad() const
     {
-        if (m_factory && m_factory->isValid()) {
+        if (Factory *f = factory()) {
             Factory localFactory;
-            std::swap(localFactory, *m_factory); // Swap before executing, to avoid recursion
-            const_cast<std::remove_const_t<T> &>(*m_data) = localFactory.create();
+            std::swap(localFactory, *f); // Swap before executing, to avoid recursion
+            localFactory.populate(m_data.template constCast<std::remove_const_t<T>>());
         }
     }
 
@@ -201,14 +218,6 @@ public:
     explicit operator bool() const noexcept { return !isNull(); }
     bool operator !() const noexcept { return isNull(); }
 
-    T *data() const { return QWeakPointer<T>(*this).data(); }
-
-    friend size_t qHash(const QDeferredWeakPointer &ptr, size_t seed = 0)
-    {
-        ptr.lazyLoad();
-        return qHashMulti(seed, ptr.m_data);
-    }
-
     friend bool operator==(const QDeferredWeakPointer &a, const QDeferredWeakPointer &b)
     {
         a.lazyLoad();
@@ -229,8 +238,8 @@ private:
             if (factory->isValid()) {
                 Factory localFactory;
                 std::swap(localFactory, *factory); // Swap before executing, to avoid recursion
-                const_cast<std::remove_const_t<T> &>(*(m_data.toStrongRef()))
-                        = localFactory.create();
+                localFactory.populate(
+                        m_data.toStrongRef().template constCast<std::remove_const_t<T>>());
             }
         }
     }

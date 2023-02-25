@@ -204,8 +204,12 @@ private slots:
     void dontRemoveQPropertyBinding();
     void compatResolveUrls();
 
-    void bindToNonQObjectTarget();
+    void initFlags_data();
+    void initFlags();
 
+    void constructFromPlainMetaObject();
+
+    void bindToNonQObjectTarget();
 private:
     QQmlEngine engine;
 };
@@ -362,9 +366,9 @@ void tst_qqmlproperty::registeredCompositeTypeProperty()
         QVERIFY(thirdList.isValid());
 
         // check that the value returned by QQmlProperty::read() is equivalent to the list reference.
-        QQmlListReference r1(obj, "fclist", &engine);
-        QQmlListReference r2(obj, "sclistOne", &engine);
-        QQmlListReference r3(obj, "sclistTwo", &engine);
+        QQmlListReference r1(obj, "fclist");
+        QQmlListReference r2(obj, "sclistOne");
+        QQmlListReference r3(obj, "sclistTwo");
         QCOMPARE(compareVariantAndListReference(lp1e.read(), r1), 1);
         QCOMPARE(compareVariantAndListReference(lp2e.read(), r2), 1);
         QCOMPARE(compareVariantAndListReference(lp3e.read(), r3), 1);
@@ -1727,6 +1731,55 @@ void tst_qqmlproperty::listOverrideBehavior()
     QVERIFY(alwaysReplaceContainer != nullptr);
     QQmlListReference alwaysReplaceChildrenList(alwaysReplaceContainer, "children");
     QCOMPARE(alwaysReplaceChildrenList.count(), 2);
+
+    {
+        QQmlComponent appendQml(&engine, testFileUrl("listBehaviorAppendPragma.qml"));
+        QVERIFY2(appendQml.isReady(), qPrintable(appendQml.errorString()));
+        QScopedPointer<QObject> o(appendQml.create());
+        QVERIFY(o);
+        QCOMPARE(o->property("length1").toInt(), 2);
+        QCOMPARE(o->property("length2").toInt(), 1);
+        QCOMPARE(o->property("default1").toInt(), 2);
+        QCOMPARE(o->property("default2").toInt(), 1);
+    }
+
+    {
+        QQmlComponent replaceQml(&engine, testFileUrl("listBehaviorReplacePragma.qml"));
+        QVERIFY2(replaceQml.isReady(), qPrintable(replaceQml.errorString()));
+        QScopedPointer<QObject> o(replaceQml.create());
+        QVERIFY(o);
+        QCOMPARE(o->property("length1").toInt(), 1);
+        QCOMPARE(o->property("length2").toInt(), 1);
+        QCOMPARE(o->property("default1").toInt(), 1);
+        QCOMPARE(o->property("default2").toInt(), 1);
+    }
+
+    {
+        QQmlComponent replaceIfNotDefaultQml(
+                    &engine, testFileUrl("listBehaviorReplaceIfNotDefaultPragma.qml"));
+        QVERIFY2(replaceIfNotDefaultQml.isReady(),
+                 qPrintable(replaceIfNotDefaultQml.errorString()));
+        QScopedPointer<QObject> o(replaceIfNotDefaultQml.create());
+        QVERIFY(o);
+        QCOMPARE(o->property("length1").toInt(), 1);
+        QCOMPARE(o->property("length2").toInt(), 1);
+        QCOMPARE(o->property("default1").toInt(), 2);
+        QCOMPARE(o->property("default2").toInt(), 1);
+    }
+
+    {
+        QQmlComponent fail1(&engine, testFileUrl("listBehaviorFail1.qml"));
+        QVERIFY(fail1.isError());
+        QVERIFY(fail1.errorString().contains(
+                 QStringLiteral("Unknown list property assign behavior 'Foo' in pragma")));
+    }
+
+    {
+        QQmlComponent fail2(&engine, testFileUrl("listBehaviorFail2.qml"));
+        QVERIFY(fail2.isError());
+        QVERIFY(fail2.errorString().contains(
+                 QStringLiteral("Multiple list property assign behavior pragmas found")));
+    }
 }
 
 void tst_qqmlproperty::urlHandling_data()
@@ -1890,8 +1943,8 @@ void tst_qqmlproperty::variantMapHandling()
 
 void tst_qqmlproperty::crashOnValueProperty()
 {
-    QQmlEngine *engine = new QQmlEngine;
-    QQmlComponent component(engine);
+    QScopedPointer<QQmlEngine> engine(new QQmlEngine);
+    QQmlComponent component(engine.data());
 
     component.setData("import Test 1.0\nPropertyObject { wrectProperty.x: 10 }", QUrl());
     QScopedPointer<QObject> object(component.create());
@@ -1904,8 +1957,7 @@ void tst_qqmlproperty::crashOnValueProperty()
     QCOMPARE(p.read(), QVariant(10));
 
     //don't crash once the engine is deleted
-    delete engine;
-    engine = nullptr;
+    engine.reset();
 
     QCOMPARE(p.propertyTypeName(), "int");
     QCOMPARE(p.read(), QVariant(10));
@@ -2340,6 +2392,10 @@ void tst_qqmlproperty::compatResolveUrls()
 
     QCOMPARE(qvariant_cast<QUrl>(o->property("a")), QUrl(QStringLiteral("relative/url.png")));
 
+#ifdef Q_OS_ANDROID
+    QSKIP("Can't start QProcess to run a custom user binary on Android");
+#endif
+
 #if QT_CONFIG(process)
     QProcess process;
     process.setProgram(QCoreApplication::applicationFilePath());
@@ -2354,6 +2410,114 @@ void tst_qqmlproperty::compatResolveUrls()
     QSKIP("Testing the QML_COMPAT_RESOLVE_URLS_ON_ASSIGNMENT "
           "environment variable requires QProcess.");
 #endif
+}
+
+void tst_qqmlproperty::initFlags_data()
+{
+    QTest::addColumn<bool>("passObject");
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QQmlPropertyPrivate::InitFlags>("flags");
+
+    const QString names[] = {
+        QStringLiteral("foo"),
+        QStringLiteral("self.foo"),
+        QStringLiteral("onFoo"),
+        QStringLiteral("self.onFoo"),
+        QStringLiteral("bar"),
+        QStringLiteral("self.bar"),
+        QStringLiteral("abar"),
+        QStringLiteral("self.abar"),
+    };
+
+    const QQmlPropertyPrivate::InitFlags flagSets[] = {
+        QQmlPropertyPrivate::InitFlag::None,
+        QQmlPropertyPrivate::InitFlag::AllowId,
+        QQmlPropertyPrivate::InitFlag::AllowSignal,
+        QQmlPropertyPrivate::InitFlag::AllowId | QQmlPropertyPrivate::InitFlag::AllowSignal,
+    };
+
+    for (int i = 0; i < 2; ++i) {
+        const bool passObject = (i != 0);
+        for (const QString &name : names) {
+            for (const auto &flagSet : flagSets) {
+                const QString rowName = QStringLiteral("%1,%2,%3")
+                        .arg(passObject).arg(name).arg(flagSet.toInt());
+                QTest::addRow("%s", qPrintable(rowName)) << passObject << name << flagSet;
+            }
+        }
+    }
+}
+
+void tst_qqmlproperty::initFlags()
+{
+    QFETCH(bool, passObject);
+    QFETCH(QString, name);
+    QFETCH(QQmlPropertyPrivate::InitFlags, flags);
+
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData(R"(
+        import QtQml
+        QtObject {
+            id: self
+            signal foo()
+            property int bar: 12
+            property alias abar: self.bar
+        }
+    )", QUrl());
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    QQmlRefPointer<QQmlContextData> context = QQmlContextData::get(qmlContext(o.data()));
+
+    const QQmlProperty property = QQmlPropertyPrivate::create(
+                    passObject ? o.data() : nullptr, name, context, flags);
+
+    const bool usesId = name.startsWith(QStringLiteral("self."));
+    const bool hasSignal = name.endsWith(QStringLiteral("foo"));
+    if (!passObject && !usesId) {
+        QVERIFY(!property.isValid());
+    } else if (passObject && usesId) {
+        QVERIFY(!property.isValid());
+    } else if (usesId && !(flags & QQmlPropertyPrivate::InitFlag::AllowId)) {
+        QVERIFY(!property.isValid());
+    } else if (hasSignal && !(flags & QQmlPropertyPrivate::InitFlag::AllowSignal)) {
+        QVERIFY(!property.isValid());
+    } else {
+        QVERIFY(property.isValid());
+        if (name.endsWith(QStringLiteral("bar"))) {
+            QVERIFY(property.isProperty());
+            QCOMPARE(property.name(), usesId ? name.mid(strlen("self.")) : name);
+            QCOMPARE(property.propertyMetaType(), QMetaType::fromType<int>());
+        } else {
+            QVERIFY(property.isSignalProperty());
+            QCOMPARE(property.name(), QStringLiteral("onFoo"));
+            QVERIFY(!property.propertyMetaType().isValid());
+        }
+    }
+
+}
+
+void tst_qqmlproperty::constructFromPlainMetaObject()
+{
+    QScopedPointer<PropertyObject> obj(new PropertyObject);
+
+    QQmlData *data = QQmlData::get(obj.data());
+    QVERIFY(data == nullptr);
+
+    QQmlProperty prop(obj.data(), "rectProperty");
+    QVERIFY(prop.isValid());
+    QVERIFY(prop.isProperty());
+    QCOMPARE(prop.propertyMetaType(), QMetaType::fromType<QRect>());
+
+    QQmlProperty sig(obj.data(), "onOddlyNamedNotifySignal");
+    QVERIFY(sig.isValid());
+    QVERIFY(sig.isSignalProperty());
+    QVERIFY(!sig.propertyMetaType().isValid());
+
+    data = QQmlData::get(obj.data());
+    QVERIFY(data == nullptr);
 }
 
 void tst_qqmlproperty::bindToNonQObjectTarget()

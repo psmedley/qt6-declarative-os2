@@ -106,9 +106,9 @@ void addToNewProperty(QObject *object, QObject *newParent, const QByteArray &new
     Q_ASSERT(objectToVariant(object).isValid());
 }
 
-static void removeObjectFromList(const QQmlProperty &property, QObject *objectToBeRemoved, QQmlEngine * engine)
+static void removeObjectFromList(const QQmlProperty &property, QObject *objectToBeRemoved)
 {
-    QQmlListReference listReference(property.object(), property.name().toUtf8(), engine);
+    QQmlListReference listReference(property.object(), property.name().toUtf8());
 
     int count = listReference.count();
 
@@ -344,10 +344,13 @@ void tst_qquickdesignersupport::createComponent()
 
     QVERIFY(rootItem);
 
-    QObject *testComponentObject = QQuickDesignerSupportItems::createComponent(testFileUrl("TestComponent.qml"), view->rootContext());
+    QScopedPointer<QObject> testComponentObject(
+                QQuickDesignerSupportItems::createComponent(
+                    testFileUrl("TestComponent.qml"), view->rootContext()));
     QVERIFY(testComponentObject);
 
-    QVERIFY(QQuickDesignerSupportMetaInfo::isSubclassOf(testComponentObject, "QtQuick/Item"));
+    QVERIFY(QQuickDesignerSupportMetaInfo::isSubclassOf(
+                testComponentObject.data(), "QtQuick/Item"));
 }
 
 void tst_qquickdesignersupport::basicStates()
@@ -758,7 +761,7 @@ void  tst_qquickdesignersupport::testItemReparenting()
 
     QCOMPARE(text->parentItem(), rootItem);
     QQmlProperty childrenProperty(rootItem, "children");
-    removeObjectFromList(childrenProperty, text, view->engine());
+    removeObjectFromList(childrenProperty, text);
     addToNewProperty(text, item, "children");
     QCOMPARE(text->parentItem(), item);
 }

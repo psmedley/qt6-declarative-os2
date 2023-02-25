@@ -343,7 +343,7 @@ static struct InstrCount {
     }
 #endif
 
-static inline QV4::Value &stackValue(QV4::Value *stack, size_t slot, const CppStackFrame *frame)
+static inline QV4::Value &stackValue(QV4::Value *stack, size_t slot, const JSTypesStackFrame *frame)
 {
     Q_ASSERT(slot < CallData::HeaderSize() / sizeof(QV4::StaticValue)
                     + frame->jsFrame->argc()
@@ -442,8 +442,8 @@ void VME::exec(MetaTypesStackFrame *frame, ExecutionEngine *engine)
     Q_ASSERT(function->aotFunction);
     Q_TRACE_SCOPE(QQmlV4_function_call, engine, function->name()->toQString(),
                   function->executableCompilationUnit()->fileName(),
-                  function->compiledFunction->location.line,
-                  function->compiledFunction->location.column);
+                  function->compiledFunction->location.line(),
+                  function->compiledFunction->location.column());
     Profiling::FunctionCallProfiler profiler(engine, function); // start execution profiling
 
     const qsizetype numFunctionArguments = function->aotFunction->argumentTypes.size();
@@ -461,9 +461,17 @@ void VME::exec(MetaTypesStackFrame *frame, ExecutionEngine *engine)
 
         Q_ASSERT(argumentType.sizeOf() > 0);
         Q_ALLOCA_VAR(void, arg, argumentType.sizeOf());
-        argumentType.construct(arg);
-        if (frame->argc() > i)
-            QMetaType::convert(frame->argTypes()[i], frame->argv()[i], argumentType, arg);
+
+        if (argumentType == QMetaType::fromType<QVariant>()) {
+            if (frame->argc() > i)
+                new (arg) QVariant(frame->argTypes()[i], frame->argv()[i]);
+            else
+                new (arg) QVariant();
+        } else {
+            argumentType.construct(arg);
+            if (frame->argc() > i)
+                QMetaType::convert(frame->argTypes()[i], frame->argv()[i], argumentType, arg);
+        }
 
         transformedArguments[i] = arg;
     }
@@ -525,8 +533,8 @@ ReturnedValue VME::exec(JSTypesStackFrame *frame, ExecutionEngine *engine)
     Function *function = frame->v4Function;
     Q_TRACE_SCOPE(QQmlV4_function_call, engine, function->name()->toQString(),
                   function->executableCompilationUnit()->fileName(),
-                  function->compiledFunction->location.line,
-                  function->compiledFunction->location.column);
+                  function->compiledFunction->location.line(),
+                  function->compiledFunction->location.column());
     Profiling::FunctionCallProfiler profiler(engine, function); // start execution profiling
     QV4::Debugging::Debugger *debugger = engine->debugger();
 

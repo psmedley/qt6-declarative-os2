@@ -88,6 +88,8 @@ public:
     inline QQmlRefPointer(QQmlRefPointer<T> &&);
     inline ~QQmlRefPointer();
 
+    void swap(QQmlRefPointer &other) noexcept { qt_ptr_swap(o, other.o); }
+
     inline QQmlRefPointer<T> &operator=(const QQmlRefPointer<T> &o);
     inline QQmlRefPointer<T> &operator=(QQmlRefPointer<T> &&o);
 
@@ -103,6 +105,8 @@ public:
     inline T* take() { T *res = o; o = nullptr; return res; }
 
     friend bool operator==(const QQmlRefPointer &a, const QQmlRefPointer &b) { return a.o == b.o; }
+    friend bool operator!=(const QQmlRefPointer &a, const QQmlRefPointer &b) { return !(a == b); }
+
 private:
     T *o;
 };
@@ -181,7 +185,7 @@ template <class T>
 QQmlRefPointer<T> &QQmlRefPointer<T>::operator=(QQmlRefPointer<T> &&other)
 {
     QQmlRefPointer<T> m(std::move(other));
-    qSwap(o, m.o);
+    swap(m);
     return *this;
 }
 

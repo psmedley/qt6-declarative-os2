@@ -14,10 +14,15 @@ qt_internal_add_qml_module(QuickDialogs2
         qquickabstractdialog_p.h
         qquickfiledialog.cpp
         qquickfiledialog_p.h
+        qquickfolderdialog.cpp
+        qquickfolderdialog_p.h
         qquickfontdialog.cpp
         qquickfontdialog_p.h
+        qtquickdialogs2foreign.cpp
         qtquickdialogs2foreign_p.h
         qtquickdialogs2global_p.h
+        qquickmessagedialog_p.h
+        qquickmessagedialog.cpp
     DEFINES
         QT_BUILD_QUICKDIALOGS2_LIB
         QT_NO_CAST_FROM_ASCII
@@ -29,6 +34,7 @@ qt_internal_add_qml_module(QuickDialogs2
         Qt::GuiPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+        Qt::QuickControls2Impl
         Qt::QuickDialogs2Utils
         Qt::QuickDialogs2UtilsPrivate
         Qt::QuickDialogs2QuickImpl
@@ -37,6 +43,8 @@ qt_internal_add_qml_module(QuickDialogs2
         Qt::Core
         Qt::Gui
         Qt::Quick
+    GENERATE_CPP_EXPORTS
+    GENERATE_PRIVATE_CPP_EXPORTS
 )
 
 qt_internal_add_docs(QuickDialogs2

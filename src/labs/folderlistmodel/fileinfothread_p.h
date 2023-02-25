@@ -63,6 +63,8 @@
 #include "fileproperty_p.h"
 #include "qquickfolderlistmodel_p.h"
 
+QT_BEGIN_NAMESPACE
+
 class FileInfoThread : public QThread
 {
     Q_OBJECT
@@ -74,7 +76,7 @@ Q_SIGNALS:
     void statusChanged(QQuickFolderListModel::Status status) const;
 
 public:
-    FileInfoThread(QObject *parent = 0);
+    FileInfoThread(QObject *parent = nullptr);
     ~FileInfoThread();
 
     void clear();
@@ -129,5 +131,7 @@ private:
     bool showOnlyReadable;
     bool caseSensitive;
 };
+
+QT_END_NAMESPACE
 
 #endif // FILEINFOTHREAD_P_H

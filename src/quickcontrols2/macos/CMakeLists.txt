@@ -18,7 +18,15 @@ set(qml_files
     "ScrollBar.qml"
     "ProgressBar.qml"
     "Dial.qml"
+    "Dialog.qml"
+    "DialogButtonBox.qml"
 )
+
+if (QT_FEATURE_quick_treeview)
+    list(APPEND qml_files
+        "TreeViewDelegate.qml"
+    )
+endif()
 
 qt_internal_add_qml_module(qtquickcontrols2macosstyleplugin
     URI "QtQuick.Controls.macOS"

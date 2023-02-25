@@ -64,6 +64,8 @@ private slots:
     void mouseGesturePolicyWithinBounds();
     void touchGesturePolicyReleaseWithinBounds();
     void mouseGesturePolicyReleaseWithinBounds();
+    void gesturePolicyDragWithinBounds_data();
+    void gesturePolicyDragWithinBounds();
     void touchMultiTap();
     void mouseMultiTap();
     void touchLongPress();
@@ -73,6 +75,8 @@ private slots:
     void rightLongPressIgnoreWheel();
     void negativeZStackingOrder();
     void nonTopLevelParentWindow();
+    void nestedDoubleTap_data();
+    void nestedDoubleTap();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName,
@@ -431,6 +435,68 @@ void tst_TapHandler::mouseGesturePolicyReleaseWithinBounds()
     QCOMPARE(releaseWithinBoundsTappedSpy.count(), 0);
 }
 
+void tst_TapHandler::gesturePolicyDragWithinBounds_data()
+{
+    QTest::addColumn<QPointingDevice::DeviceType>("deviceType");
+    QTest::addColumn<QPoint>("dragStart");
+    QTest::addColumn<QPoint>("dragDistance");
+    QTest::addColumn<QString>("expectedFeedback");
+
+    QTest::newRow("mouse: click") << QPointingDevice::DeviceType::Mouse << QPoint(200, 200) << QPoint(0, 0) << "middle";
+    QTest::newRow("touch: tap") << QPointingDevice::DeviceType::TouchScreen << QPoint(200, 200) << QPoint(0, 0) << "middle";
+    QTest::newRow("mouse: drag up") << QPointingDevice::DeviceType::Mouse << QPoint(200, 200) << QPoint(0, -20) << "top";
+    QTest::newRow("touch: drag up") << QPointingDevice::DeviceType::TouchScreen << QPoint(200, 200) << QPoint(0, -20) << "top";
+    QTest::newRow("mouse: drag out to cancel") << QPointingDevice::DeviceType::Mouse << QPoint(435, 200) << QPoint(10, 0) << "canceled";
+    QTest::newRow("touch: drag out to cancel") << QPointingDevice::DeviceType::TouchScreen << QPoint(435, 200) << QPoint(10, 0) << "canceled";
+}
+
+void tst_TapHandler::gesturePolicyDragWithinBounds()
+{
+    QFETCH(QPointingDevice::DeviceType, deviceType);
+    QFETCH(QPoint, dragStart);
+    QFETCH(QPoint, dragDistance);
+    QFETCH(QString, expectedFeedback);
+    const bool expectedCanceled = expectedFeedback == "canceled";
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("dragReleaseMenu.qml")));
+    QQuickTapHandler *tapHandler = window.rootObject()->findChild<QQuickTapHandler*>();
+    QVERIFY(tapHandler);
+    QSignalSpy canceledSpy(tapHandler, &QQuickTapHandler::canceled);
+
+    switch (static_cast<QPointingDevice::DeviceType>(deviceType)) {
+    case QPointingDevice::DeviceType::Mouse:
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, dragStart);
+        QTRY_VERIFY(tapHandler->isPressed());
+        QTest::mouseMove(&window, dragStart + dragDistance);
+        if (expectedCanceled)
+            QTRY_COMPARE(tapHandler->timeHeld(), -1);
+        else
+            QTRY_VERIFY(tapHandler->timeHeld() > 0.1);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, dragStart + dragDistance);
+        break;
+    case QPointingDevice::DeviceType::TouchScreen:
+        QTest::touchEvent(&window, touchDevice).press(0, dragStart, &window);
+        QQuickTouchUtils::flush(&window);
+        QTRY_VERIFY(tapHandler->isPressed());
+        QTest::touchEvent(&window, touchDevice).move(0, dragStart + dragDistance, &window);
+        QQuickTouchUtils::flush(&window);
+        if (expectedCanceled)
+            QTRY_COMPARE(tapHandler->timeHeld(), -1);
+        else
+            QTRY_VERIFY(tapHandler->timeHeld() > 0.1);
+        QTest::touchEvent(&window, touchDevice).release(0, dragStart + dragDistance, &window);
+        QQuickTouchUtils::flush(&window);
+        break;
+    default:
+        break;
+    }
+
+    QCOMPARE(window.rootObject()->property("feedbackText"), expectedFeedback);
+    if (expectedCanceled)
+        QCOMPARE(canceledSpy.count(), 1);
+}
+
 void tst_TapHandler::touchMultiTap()
 {
     const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
@@ -773,7 +839,7 @@ void tst_TapHandler::rightLongPressIgnoreWheel()
 void tst_TapHandler::negativeZStackingOrder() // QTBUG-83114
 {
     QScopedPointer<QQuickView> windowPtr;
-    createView(windowPtr, "tapHandlersOverlapped.qml");
+    createView(windowPtr, "nested.qml");
     QQuickView *window = windowPtr.data();
     QQuickItem *root = window->rootObject();
 
@@ -825,6 +891,42 @@ void tst_TapHandler::nonTopLevelParentWindow() // QTBUG-91716
     QTest::touchEvent(window, touchDevice).release(0, p1, parentWindow).commit();
 
     QCOMPARE(root->property("tapCount").toInt(), 2);
+}
+
+void tst_TapHandler::nestedDoubleTap_data()
+{
+    QTest::addColumn<QQuickTapHandler::GesturePolicy>("childGesturePolicy");
+
+    QTest::newRow("DragThreshold") << QQuickTapHandler::GesturePolicy::DragThreshold;
+    QTest::newRow("WithinBounds") << QQuickTapHandler::GesturePolicy::WithinBounds;
+    QTest::newRow("ReleaseWithinBounds") << QQuickTapHandler::GesturePolicy::ReleaseWithinBounds;
+    QTest::newRow("DragWithinBounds") << QQuickTapHandler::GesturePolicy::DragWithinBounds;
+}
+
+void tst_TapHandler::nestedDoubleTap() // QTBUG-102625
+{
+    QFETCH(QQuickTapHandler::GesturePolicy, childGesturePolicy);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("nested.qml")));
+    QQuickItem *root = window.rootObject();
+    QQuickTapHandler *parentTapHandler = root->findChild<QQuickTapHandler*>("parentTapHandler");
+    QVERIFY(parentTapHandler);
+    QSignalSpy parentSpy(parentTapHandler, &QQuickTapHandler::doubleTapped);
+    QQuickTapHandler *childTapHandler = root->findChild<QQuickTapHandler*>("childTapHandler");
+    QVERIFY(childTapHandler);
+    QSignalSpy childSpy(childTapHandler, &QQuickTapHandler::doubleTapped);
+    childTapHandler->setGesturePolicy(childGesturePolicy);
+
+    QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, QPoint(150, 100));
+
+    QCOMPARE(childSpy.count(), 1);
+    // If the child gets by with a passive grab, both handlers see tap and double-tap.
+    // If the child takes an exclusive grab and stops event propagation, the parent doesn't see them.
+    QCOMPARE(parentSpy.count(),
+             childGesturePolicy == QQuickTapHandler::GesturePolicy::DragThreshold ? 1 : 0);
+    QCOMPARE(root->property("taps").toList().count(),
+             childGesturePolicy == QQuickTapHandler::GesturePolicy::DragThreshold ? 4 : 2);
 }
 
 QTEST_MAIN(tst_TapHandler)

@@ -57,8 +57,6 @@ FxViewItem::FxViewItem(QQuickItem *i, QQuickItemView *v, bool own, QQuickItemVie
     , view(v)
     , attached(attached)
 {
-    if (attached) // can be null for default components (see createComponentItem)
-        attached->setView(view);
 }
 
 QQuickItemViewChangeSet::QQuickItemViewChangeSet()
@@ -290,8 +288,6 @@ void QQuickItemView::setDelegate(QQmlComponent *delegate)
     if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
         int oldCount = dataModel->count();
         dataModel->setDelegate(delegate);
-        if (isComponentComplete())
-            d->applyDelegateChange();
         if (oldCount != dataModel->count())
             emit countChanged();
     }
@@ -1989,7 +1985,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
     updateUnrequestedIndexes();
 
-    FxViewItem *prevVisibleItemsFirst = visibleItems.count() ? *visibleItems.constBegin() : 0;
+    FxViewItem *prevVisibleItemsFirst = visibleItems.count() ? *visibleItems.constBegin() : nullptr;
     int prevItemCount = itemCount;
     int prevVisibleItemsCount = visibleItems.count();
     bool visibleAffected = false;
@@ -2504,10 +2500,27 @@ QQuickItem *QQuickItemViewPrivate::createComponentItem(QQmlComponent *component,
             item->setZ(zValue);
         QQml_setParent_noEvent(item, q->contentItem());
         item->setParentItem(q->contentItem());
+
+        initializeComponentItem(item);
     }
     if (component)
         component->completeCreate();
     return item;
+}
+
+/*!
+    \internal
+
+    Allows derived classes to do any initialization required for \a item
+    before completeCreate() is called on it. For example, any attached
+    properties required by the item can be set.
+
+    This is similar to initItem(), but as that has logic specific to
+    delegate items, we use a separate function for non-delegates.
+*/
+void QQuickItemViewPrivate::initializeComponentItem(QQuickItem *item) const
+{
+    Q_UNUSED(item);
 }
 
 void QQuickItemViewPrivate::updateTrackedItem()
@@ -2515,7 +2528,7 @@ void QQuickItemViewPrivate::updateTrackedItem()
     Q_Q(QQuickItemView);
     FxViewItem *item = currentItem;
     if (highlight)
-        item = highlight;
+        item = highlight.get();
     trackedItem = item;
 
     if (trackedItem)

@@ -201,6 +201,9 @@ have a scope focused item), and the other items will have their focus cleared.
 
 QQuickRootItem::QQuickRootItem()
 {
+    // child items with ItemObservesViewport can treat the window's content item
+    // as the ultimate viewport: avoid populating SG nodes that fall outside
+    setFlag(ItemIsViewport);
 }
 
 /*! \reimp */
@@ -511,6 +514,7 @@ void QQuickWindowPrivate::ensureCustomRenderTarget()
     redirect.renderTargetDirty = false;
 
     redirect.rt.reset(rhi);
+    redirect.devicePixelRatio = customRenderTarget.devicePixelRatio();
 
     // a default constructed QQuickRenderTarget means no redirection
     if (customRenderTarget.isNull())
@@ -534,7 +538,7 @@ void QQuickWindowPrivate::syncSceneGraph()
     // Calculate the dpr the same way renderSceneGraph() will.
     qreal devicePixelRatio = q->effectiveDevicePixelRatio();
     if (redirect.rt.renderTarget && !QQuickRenderControl::renderWindowFor(q))
-        devicePixelRatio = 1;
+        devicePixelRatio = redirect.devicePixelRatio;
 
     QRhiCommandBuffer *cb = nullptr;
     if (rhi) {
@@ -644,15 +648,17 @@ void QQuickWindowPrivate::renderSceneGraph(const QSize &size, const QSize &surfa
         matrixFlags |= QSGAbstractRenderer::MatrixTransformFlipY;
     const qreal devicePixelRatio = q->effectiveDevicePixelRatio();
     if (redirect.rt.renderTarget) {
-        QRect rect(QPoint(0, 0), redirect.rt.renderTarget->pixelSize());
+        const QSize pixelSize = redirect.rt.renderTarget->pixelSize();
+        QRect rect(QPoint(0, 0), pixelSize);
         renderer->setDeviceRect(rect);
         renderer->setViewportRect(rect);
         if (QQuickRenderControl::renderWindowFor(q)) {
             renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), size), matrixFlags);
             renderer->setDevicePixelRatio(devicePixelRatio);
         } else {
-            renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), rect.size()), matrixFlags);
-            renderer->setDevicePixelRatio(1);
+            const QSizeF logicalSize = pixelSize / redirect.devicePixelRatio;
+            renderer->setProjectionMatrixToRect(QRectF(QPointF(0, 0), logicalSize), matrixFlags);
+            renderer->setDevicePixelRatio(redirect.devicePixelRatio);
         }
     } else {
         QSize pixelSize;
@@ -1320,6 +1326,8 @@ QQuickItem *QQuickWindow::contentItem() const
 
     \brief The item which currently has active focus or \c null if there is
     no item with active focus.
+
+    \sa QQuickItem::forceActiveFocus(), {Keyboard Focus in Qt Quick}
 */
 QQuickItem *QQuickWindow::activeFocusItem() const
 {
@@ -1489,8 +1497,11 @@ bool QQuickWindow::event(QEvent *e)
         // or fix QTBUG-90851 so that the event always has points?
         bool ret = (da && da->event(e));
 
-        // failsafe: never allow any kind of grab to persist after release
-        if (pe->isEndEvent()) {
+        // failsafe: never allow any kind of grab to persist after release,
+        // unless we're waiting for a synth event from QtGui (as with most tablet events)
+        if (pe->isEndEvent() && !(QQuickDeliveryAgentPrivate::isTabletEvent(pe) &&
+                                  (qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents) ||
+                                   QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse))) {
             if (pe->isSinglePointEvent()) {
                 if (static_cast<QSinglePointEvent *>(pe)->buttons() == Qt::NoButton) {
                     auto &firstPt = pe->point(0);
@@ -1724,8 +1735,14 @@ QPair<QQuickItem*, QQuickPointerHandler*> QQuickWindowPrivate::findCursorItemAnd
 }
 #endif
 
+void QQuickWindowPrivate::clearFocusObject()
+{
+    if (auto da = deliveryAgentPrivate())
+        da->clearFocusObject();
+}
+
 /*!
-    \qmlproperty list<Object> Window::data
+    \qmlproperty list<QtObject> Window::data
     \qmldefault
 
     The data property allows you to freely mix visual children, resources
@@ -2052,9 +2069,6 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
         // desired list is shorter.
         QSGNode *groupNode = itemPriv->childContainerNode();
         QSGNode *currentNode = groupNode->firstChild();
-        int added = 0;
-        int removed = 0;
-        int replaced = 0;
         QSGNode *desiredNode = nullptr;
 
         while (currentNode && (desiredNode = fetchNextNode(itemPriv, ii, fetchedPaintNode))) {
@@ -2067,7 +2081,6 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
                     desiredNode->parent()->removeChildNode(desiredNode);
                 groupNode->insertChildNodeAfter(desiredNode, currentNode);
                 groupNode->removeChildNode(currentNode);
-                replaced++;
 
                 // since we just replaced currentNode, we also need to reset
                 // the pointer.
@@ -2086,7 +2099,6 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
                 if (desiredNode->parent())
                     desiredNode->parent()->removeChildNode(desiredNode);
                 groupNode->appendChildNode(desiredNode);
-                added++;
             }
         } else if (currentNode) {
             // on the other hand, if we processed less than our current node
@@ -2096,7 +2108,6 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
                 QSGNode *node = currentNode->nextSibling();
                 groupNode->removeChildNode(currentNode);
                 currentNode = node;
-                removed++;
             }
         }
     }
@@ -4146,7 +4157,7 @@ void QQuickWindow::setTextRenderType(QQuickWindow::TextRenderType renderType)
     property on the window's palette, that property propagates to all child controls in the window,
     overriding any system defaults for that property.
 
-    \sa Item::palette, Popup::palette, ColorGroup
+    \sa Item::palette, Popup::palette, ColorGroup, SystemPalette
     //! internal \sa QQuickAbstractPaletteProvider, QQuickPalette
 */
 
@@ -4156,7 +4167,7 @@ QDebug operator<<(QDebug debug, const QQuickWindow *win)
     QDebugStateSaver saver(debug);
     debug.nospace();
     if (!win) {
-        debug << "QQuickWindow(0)";
+        debug << "QQuickWindow(nullptr)";
         return debug;
     }
 

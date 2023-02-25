@@ -1,39 +1,33 @@
 /****************************************************************************
 **
 ** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL3$
+** $QT_BEGIN_LICENSE:GPL-EXCEPT$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
 ** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPLv3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl.html.
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or later as published by the Free
-** Software Foundation and appearing in the file LICENSE.GPL included in
-** the packaging of this file. Please review the following information to
-** ensure the GNU General Public License version 2.0 requirements will be
-** met: http://www.gnu.org/licenses/gpl-2.0.html.
+** General Public License version 3 as published by the Free Software
+** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
+#include <QtGui/qpa/qplatformintegration.h>
+#include <QtGui/private/qguiapplication_p.h>
 #include <QtTest>
 #include <QtQml>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
@@ -62,11 +56,19 @@ private slots:
     void mnemonics();
     void addRemove();
     void checkHighlightWhenMenuDismissed();
+
+private:
+    static bool hasWindowActivation();
 };
 
 tst_qquickmenubar::tst_qquickmenubar()
     : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
+}
+
+bool tst_qquickmenubar::hasWindowActivation()
+{
+    return (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation));
 }
 
 void tst_qquickmenubar::delegate()
@@ -84,6 +86,9 @@ void tst_qquickmenubar::delegate()
 
 void tst_qquickmenubar::mouse()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Mouse highlight not functional on offscreen/minimal platforms");
@@ -114,13 +119,21 @@ void tst_qquickmenubar::mouse()
 
     // highlight a menubar item
     QTest::mouseMove(window.data(), fileMenuBarItem->mapToScene(QPointF(fileMenuBarItem->width() / 2, fileMenuBarItem->height() / 2)).toPoint());
+#ifndef Q_OS_ANDROID
+    // Android theme does not use hover effects, so moving the mouse would not
+    // highlight an item
     QVERIFY(fileMenuBarItem->isHighlighted());
+#endif
     QVERIFY(!fileMenuBarMenu->isVisible());
 
     // highlight another menubar item
     QTest::mouseMove(window.data(), editMenuBarItem->mapToScene(QPointF(editMenuBarItem->width() / 2, editMenuBarItem->height() / 2)).toPoint());
+#ifndef Q_OS_ANDROID
+    // Android theme does not use hover effects, so moving the mouse would not
+    // highlight an item
     QVERIFY(!fileMenuBarItem->isHighlighted());
     QVERIFY(editMenuBarItem->isHighlighted());
+#endif
     QVERIFY(!fileMenuBarMenu->isVisible());
     QVERIFY(!editMenuBarMenu->isVisible());
 
@@ -144,6 +157,13 @@ void tst_qquickmenubar::mouse()
 
     // highlight another menubar item to open another menu
     QTest::mouseMove(window.data(), helpMenuBarItem->mapToScene(QPointF(helpMenuBarItem->width() / 2, helpMenuBarItem->height() / 2)).toPoint());
+#ifdef Q_OS_ANDROID
+    // Android theme does not use hover effects, so moving the mouse would not
+    // highlight an item. Add a mouse click to change menubar item selection.
+    QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier,
+                      helpMenuBarItem->mapToScene(QPointF(helpMenuBarItem->width() / 2,
+                                                  helpMenuBarItem->height() / 2)).toPoint());
+#endif
     QVERIFY(!fileMenuBarItem->isHighlighted());
     QVERIFY(!editMenuBarItem->isHighlighted());
     QVERIFY(!viewMenuBarItem->isHighlighted());
@@ -163,8 +183,12 @@ void tst_qquickmenubar::mouse()
 
     // highlight a menubar item
     QTest::mouseMove(window.data(), editMenuBarItem->mapToScene(QPointF(editMenuBarItem->width() / 2, editMenuBarItem->height() / 2)).toPoint());
+#ifndef Q_OS_ANDROID
+    // Android theme does not use hover effects, so moving the mouse would not
+    // highlight an item
     QVERIFY(editMenuBarItem->isHighlighted());
     QVERIFY(!helpMenuBarItem->isHighlighted());
+#endif
     QVERIFY(!editMenuBarMenu->isVisible());
     QVERIFY(!helpMenuBarMenu->isVisible());
 
@@ -181,7 +205,12 @@ void tst_qquickmenubar::mouse()
     QQuickMenu *alignmentSubMenu = alignmentSubMenuItem->subMenu();
     QVERIFY(alignmentSubMenu);
     QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, alignmentSubMenuItem->mapToScene(QPointF(alignmentSubMenuItem->width() / 2, alignmentSubMenuItem->height() / 2)).toPoint());
+#if !defined(Q_OS_ANDROID) and !defined(Q_OS_WEBOS)
+    // The screen on Android is too small to fit the whole hierarchy, so the
+    // Alignment sub-menu is shown on top of View menu.
+    // WebOS also shows alignment sub-menu on top of View menu.
     QVERIFY(viewMenuBarMenu->isVisible());
+#endif
     QVERIFY(alignmentSubMenu->isVisible());
     QTRY_VERIFY(alignmentSubMenu->isOpened());
 
@@ -191,8 +220,13 @@ void tst_qquickmenubar::mouse()
     QQuickMenu *verticalSubMenu = verticalSubMenuItem->subMenu();
     QVERIFY(verticalSubMenu);
     QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, verticalSubMenuItem->mapToScene(QPointF(verticalSubMenuItem->width() / 2, verticalSubMenuItem->height() / 2)).toPoint());
+#if !defined(Q_OS_ANDROID) and !defined(Q_OS_WEBOS)
+    // The screen on Android is too small to fit the whole hierarchy, so the
+    // Vertical sub-menu is shown on top of View menu and Alignment sub-menu.
+    // WebOS also shows vertical sub-menu on top of View menu and Alignment sub-menu.
     QVERIFY(viewMenuBarMenu->isVisible());
     QVERIFY(alignmentSubMenu->isVisible());
+#endif
     QVERIFY(verticalSubMenu->isVisible());
     QTRY_VERIFY(verticalSubMenu->isOpened());
 
@@ -206,8 +240,12 @@ void tst_qquickmenubar::mouse()
     QTRY_VERIFY(!verticalSubMenu->isVisible());
 
     // re-highlight the same menubar item
+#ifndef Q_OS_ANDROID
+    // Android theme does not use hover effects, so moving the mouse would not
+    // highlight an item
     QTest::mouseMove(window.data(), viewMenuBarItem->mapToScene(QPointF(viewMenuBarItem->width() / 2, viewMenuBarItem->height() / 2)).toPoint());
     QVERIFY(viewMenuBarItem->isHighlighted());
+#endif
 
     // re-open the chain of menus
     QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, viewMenuBarItem->mapToScene(QPointF(viewMenuBarItem->width() / 2, viewMenuBarItem->height() / 2)).toPoint());
@@ -227,6 +265,9 @@ void tst_qquickmenubar::mouse()
 
 void tst_qquickmenubar::keys()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     QQmlApplicationEngine engine(testFileUrl("menubar.qml"));
 
     QScopedPointer<QQuickApplicationWindow> window(qobject_cast<QQuickApplicationWindow *>(engine.rootObjects().value(0)));
@@ -273,6 +314,11 @@ void tst_qquickmenubar::keys()
     QVERIFY(editMenuBarItem->isHighlighted());
     QVERIFY(editMenuBarItem->hasActiveFocus());
     QTRY_VERIFY(!editMenuBarMenu->isVisible());
+
+// There seem to be problems in focus handling in webOS QPA, see https://bugreports.qt.io/browse/WEBOSCI-45
+#ifdef Q_OS_WEBOS
+    QEXPECT_FAIL("", "WEBOSCI-45", Abort);
+#endif
     QVERIFY(!cutMenuItem->isHighlighted());
     QVERIFY(!cutMenuItem->hasActiveFocus());
 
@@ -411,8 +457,11 @@ void tst_qquickmenubar::keys()
 
 void tst_qquickmenubar::mnemonics()
 {
-#ifdef Q_OS_MACOS
-    QSKIP("Mnemonics are not used on macOS");
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
+#if defined(Q_OS_MACOS) or defined(Q_OS_WEBOS)
+    QSKIP("Mnemonics are not used on this platform");
 #endif
 
     QQmlApplicationEngine engine(testFileUrl("menubar.qml"));
@@ -503,7 +552,11 @@ void tst_qquickmenubar::mnemonics()
     QQuickMenu *alignmentSubMenu = alignmentSubMenuItem->subMenu();
     QVERIFY(alignmentSubMenu);
     keySim.click(Qt::Key_A); // "&Alignment"
+#ifndef Q_OS_ANDROID
+    // On Android sub-menus are not cascading, so the Alignment sub-menu is
+    // shown instead of View menu.
     QVERIFY(viewMenuBarMenu->isVisible());
+#endif
     QVERIFY(alignmentSubMenu->isVisible());
     QTRY_VERIFY(alignmentSubMenu->isOpened());
 
@@ -513,8 +566,12 @@ void tst_qquickmenubar::mnemonics()
     QQuickMenu *verticalSubMenu = verticalSubMenuItem->subMenu();
     QVERIFY(verticalSubMenu);
     keySim.click(Qt::Key_V); // "&Vertical"
+#ifndef Q_OS_ANDROID
+    // On Android sub-menus are not cascading, so the Vertical sub-menu is
+    // shown instead of View menu and Alignment sub-menu.
     QVERIFY(viewMenuBarMenu->isVisible());
     QVERIFY(alignmentSubMenu->isVisible());
+#endif
     QVERIFY(verticalSubMenu->isVisible());
     QTRY_VERIFY(verticalSubMenu->isOpened());
 
@@ -623,7 +680,7 @@ void tst_qquickmenubar::checkHighlightWhenMenuDismissed()
 
     centerOnScreen(window.data());
     moveMouseAway(window.data());
-    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
 
     QQuickMenuBar *menuBar = window->findChild<QQuickMenuBar *>("menuBar");
     QVERIFY(menuBar);

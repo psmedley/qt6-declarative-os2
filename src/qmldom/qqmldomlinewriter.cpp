@@ -406,7 +406,7 @@ void LineWriter::commitLine(QString eol, TextAddType tType, int untilChar)
     bool isSpaceOnly = QStringView(m_currentLine).mid(0, untilChar).trimmed().isEmpty();
     bool isEmptyNewline = !eol.isEmpty() && isSpaceOnly;
     quint32 endCommit = m_utf16Offset + untilChar;
-    // update positon, lineNr,...
+    // update position, lineNr,...
     // write out
     for (SinkF &sink : m_innerSinks)
         sink(m_currentLine.mid(0, untilChar));
@@ -480,3 +480,5 @@ void LineWriter::commitLine(QString eol, TextAddType tType, int untilChar)
 } // namespace Dom
 } // namespace QQmlJS
 QT_END_NAMESPACE
+
+#include "moc_qqmldomlinewriter_p.cpp"

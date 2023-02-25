@@ -102,8 +102,8 @@ public:
 
 class Q_QUICK_AUTOTEST_EXPORT QQuickItemViewPrivate : public QQuickFlickablePrivate, public QQuickItemViewTransitionChangeListener, public QAnimationJobChangeListener
 {
-    Q_DECLARE_PUBLIC(QQuickItemView)
 public:
+    Q_DECLARE_PUBLIC(QQuickItemView)
     QQuickItemViewPrivate();
     ~QQuickItemViewPrivate();
 
@@ -178,6 +178,7 @@ public:
 
     QQuickItem *createHighlightItem() const;
     QQuickItem *createComponentItem(QQmlComponent *component, qreal zValue, bool createDefault = false) const;
+    virtual void initializeComponentItem(QQuickItem *) const;
 
     void updateCurrent(int modelIndex);
     void updateTrackedItem();
@@ -279,7 +280,7 @@ public:
     QPauseAnimationJob bufferPause;
 
     QQmlComponent *highlightComponent;
-    FxViewItem *highlight;
+    std::unique_ptr<FxViewItem> highlight;
     int highlightRange;     // enum value
     qreal highlightRangeStart;
     qreal highlightRangeEnd;

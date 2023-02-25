@@ -3,6 +3,8 @@ qt_internal_add_qml_module(LabsWavefrontMesh
     VERSION "${PROJECT_VERSION}"
     PLUGIN_TARGET qmlwavefrontmeshplugin
     CLASS_NAME QmlWavefrontMeshPlugin
+    DEPENDENCIES
+        QtQuick
     SOURCES
         qwavefrontmesh.cpp qwavefrontmesh_p.h
         qqmlwavefrontmeshglobal_p.h
@@ -12,4 +14,6 @@ qt_internal_add_qml_module(LabsWavefrontMesh
         Qt::CorePrivate
         Qt::GuiPrivate
         Qt::QuickPrivate
+    GENERATE_CPP_EXPORTS
+    GENERATE_PRIVATE_CPP_EXPORTS
 )

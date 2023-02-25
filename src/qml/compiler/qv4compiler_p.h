@@ -78,7 +78,7 @@ struct Module;
 struct Class;
 struct TemplateObject;
 
-struct Q_QMLCOMPILER_PRIVATE_EXPORT StringTableGenerator {
+struct Q_QML_COMPILER_PRIVATE_EXPORT StringTableGenerator {
     StringTableGenerator();
 
     int registerString(const QString &str);
@@ -105,7 +105,7 @@ private:
     bool frozen = false;
 };
 
-struct Q_QMLCOMPILER_PRIVATE_EXPORT JSUnitGenerator {
+struct Q_QML_COMPILER_PRIVATE_EXPORT JSUnitGenerator {
     static void generateUnitChecksum(CompiledData::Unit *unit);
 
     struct MemberInfo {
@@ -125,13 +125,13 @@ struct Q_QMLCOMPILER_PRIVATE_EXPORT JSUnitGenerator {
     int registerSetterLookup(int nameIndex);
     int registerGlobalGetterLookup(int nameIndex);
     int registerQmlContextPropertyGetterLookup(int nameIndex);
-    int lookupNameIndex(int index) const { return lookups[index].nameIndex; }
+    int lookupNameIndex(int index) const { return lookups[index].nameIndex(); }
     QString lookupName(int index) const { return stringForIndex(lookupNameIndex(index)); }
 
     int registerRegExp(QQmlJS::AST::RegExpLiteral *regexp);
 
     int registerConstant(ReturnedValue v);
-    ReturnedValue constant(int idx);
+    ReturnedValue constant(int idx) const;
 
     int registerJSClass(const QStringList &members);
 

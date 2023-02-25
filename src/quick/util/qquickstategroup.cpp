@@ -53,7 +53,7 @@
 
 QT_BEGIN_NAMESPACE
 
-DEFINE_BOOL_CONFIG_OPTION(stateChangeDebug, STATECHANGE_DEBUG);
+Q_DECLARE_LOGGING_CATEGORY(lcStates)
 
 class QQuickStateGroupPrivate : public QObjectPrivate
 {
@@ -380,13 +380,16 @@ bool QQuickStateGroupPrivate::updateAutoState()
                 const QQmlProperty whenProp(state, u"when"_qs);
                 const auto potentialWhenBinding = QQmlAnyBinding::ofProperty(whenProp);
                 Q_ASSERT(!potentialWhenBinding.isUntypedPropertyBinding());
+
                 // if there is a binding, the value in when might not be up-to-date at this point
-                // so we manually reevaluate the binding
-                if (auto abstractBinding = dynamic_cast<QQmlBinding *>( potentialWhenBinding.asAbstractBinding()))
-                    whenValue = abstractBinding->evaluate().toBool();
+                // so we manually re-evaluate the binding
+                if (auto binding = dynamic_cast<QQmlBinding *>(potentialWhenBinding.asAbstractBinding())) {
+                    if (binding->hasValidContext())
+                        whenValue = binding->evaluate().toBool();
+                }
+
                 if (whenValue) {
-                    if (stateChangeDebug())
-                        qWarning() << "Setting auto state due to expression";
+                    qCDebug(lcStates) << "Setting auto state due to expression";
                     if (currentState != state->name()) {
                         q->setState(state->name());
                         return true;
@@ -491,11 +494,11 @@ void QQuickStateGroupPrivate::setCurrentStateInternal(const QString &state,
     applyingState = true;
 
     QQuickTransition *transition = ignoreTrans ? nullptr : findTransition(currentState, state);
-    if (stateChangeDebug()) {
-        qWarning() << this << "Changing state.  From" << currentState << ". To" << state;
+    if (lcStates().isDebugEnabled()) {
+        qCDebug(lcStates) << this << "changing state from:" << currentState << "to:" << state;
         if (transition)
-            qWarning() << "   using transition" << transition->fromState()
-                       << transition->toState();
+            qCDebug(lcStates) << "   using transition" << transition->fromState()
+                              << transition->toState();
     }
 
     QQuickState *oldState = nullptr;

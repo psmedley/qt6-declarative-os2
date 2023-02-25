@@ -137,10 +137,11 @@ static inline QString stripQuotes(const QString &s)
         return s;
 }
 
-void handleCompileErrors(const QFileInfo &fi, QQuickView *view)
+static void handleCompileErrors(
+        const QFileInfo &fi, const QList<QQmlError> &errors, QQmlEngine *engine,
+        QQuickView *view = nullptr)
 {
     // Error compiling the test - flag failure in the log and continue.
-    const QList<QQmlError> errors = view->errors();
     QuickTestResult results;
     results.setTestCaseName(fi.baseName());
     results.startLogging();
@@ -162,8 +163,11 @@ void handleCompileErrors(const QFileInfo &fi, QQuickView *view)
         str << ": " << e.description() << '\n';
     }
     str << "  Working directory: " << QDir::toNativeSeparators(QDir::current().absolutePath()) << '\n';
-    if (QQmlEngine *engine = view->engine()) {
-        str << "  View: " << view->metaObject()->className() << ", import paths:\n";
+    if (engine) {
+        str << "  ";
+        if (view)
+            str << "View: " << view->metaObject()->className() << ", ";
+        str << "Import paths:\n";
         const auto importPaths = engine->importPathList();
         for (const QString &i : importPaths)
             str << "    '" << QDir::toNativeSeparators(i) << "'\n";
@@ -298,7 +302,7 @@ private:
 
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
-        if (object->flags & Object::IsInlineComponentRoot)
+        if (object->hasFlag(Object::IsInlineComponentRoot))
             return result;
 
         if (const auto superTypeUnit = compilationUnit->resolvedTypes.value(
@@ -314,13 +318,13 @@ private:
                 // Look for override of name in this type
                 for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
                     if (compilationUnit->stringAt(binding->propertyNameIndex) == QLatin1String("name")) {
-                        if (binding->type == QV4::CompiledData::Binding::Type_String) {
+                        if (binding->type() == QV4::CompiledData::Binding::Type_String) {
                             result.testCaseName = compilationUnit->stringAt(binding->stringIndex);
                         } else {
                             QQmlError error;
                             error.setUrl(compilationUnit->url());
-                            error.setLine(binding->location.line);
-                            error.setColumn(binding->location.column);
+                            error.setLine(binding->location.line());
+                            error.setColumn(binding->location.column());
                             error.setDescription(QStringLiteral("the 'name' property of a TestCase must be a literal string"));
                             result.errors << error;
                         }
@@ -344,7 +348,7 @@ private:
         }
 
         for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
-            if (binding->type == QV4::CompiledData::Binding::Type_Object) {
+            if (binding->type() == QV4::CompiledData::Binding::Type_Object) {
                 const Object *child = compilationUnit->objectAt(binding->value.objectIndex);
                 result << enumerateTestCases(compilationUnit, child);
             }
@@ -361,9 +365,9 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
 
 int quick_test_main_with_setup(int argc, char **argv, const char *name, const char *sourceDir, QObject *setup)
 {
-    QCoreApplication *app = nullptr;
+    QScopedPointer<QCoreApplication> app;
     if (!QCoreApplication::instance())
-        app = new QGuiApplication(argc, argv);
+        app.reset(new QGuiApplication(argc, argv));
 
     if (setup)
         maybeInvokeSetupMethod(setup, "applicationAvailable()");
@@ -432,7 +436,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
             testPath = s;
     }
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_INTEGRITY)
             if (testPath.isEmpty())
                     testPath = QLatin1String(":/");
 #endif
@@ -532,9 +536,8 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 
         TestCaseCollector testCaseCollector(fi, &engine);
         if (!testCaseCollector.errors().isEmpty()) {
-            for (const QQmlError &error : testCaseCollector.errors())
-                qWarning() << error;
-            exit(1);
+            handleCompileErrors(fi, testCaseCollector.errors(), &engine);
+            continue;
         }
 
         TestCaseCollector::TestCaseList availableTestFunctions = testCaseCollector.testCases();
@@ -573,7 +576,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
         while (view.status() == QQuickView::Loading)
             QTest::qWait(10);
         if (view.status() == QQuickView::Error) {
-            handleCompileErrors(fi, &view);
+            handleCompileErrors(fi, view.errors(), view.engine(), &view);
             continue;
         }
         if (!QTestRootObject::instance()->hasQuit) {
@@ -616,7 +619,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 
     // Flush the current logging stream.
     QuickTestResult::setProgramName(nullptr);
-    delete app;
+    app.reset();
 
     // Check that all test functions passed on the command line were found
     if (!commandLineTestFunctions.isEmpty()) {
@@ -631,3 +634,5 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 }
 
 QT_END_NAMESPACE
+
+#include "moc_quicktest_p.cpp"

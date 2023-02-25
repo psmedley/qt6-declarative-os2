@@ -39,23 +39,23 @@
 
 #include "qv4qmlcontext_p.h"
 
-#include <private/qqmlengine_p.h>
-#include <private/qqmlcontext_p.h>
-
-#include <private/qv4engine_p.h>
-#include <private/qv4value_p.h>
-#include <private/qv4objectproto_p.h>
-#include <private/qv4mm_p.h>
-#include <private/qv4function_p.h>
-#include <private/qv4compileddata_p.h>
-#include <private/qqmltypewrapper_p.h>
-#include <private/qqmllistwrapper_p.h>
-#include <private/qqmljavascriptexpression_p.h>
 #include <private/qjsvalue_p.h>
-#include <private/qv4qobjectwrapper_p.h>
-#include <private/qv4module_p.h>
-#include <private/qv4lookup_p.h>
+#include <private/qqmlcontext_p.h>
+#include <private/qqmlengine_p.h>
+#include <private/qqmlglobal_p.h>
+#include <private/qqmljavascriptexpression_p.h>
+#include <private/qqmllistwrapper_p.h>
+#include <private/qqmltypewrapper_p.h>
+#include <private/qv4compileddata_p.h>
+#include <private/qv4engine_p.h>
+#include <private/qv4function_p.h>
 #include <private/qv4identifiertable_p.h>
+#include <private/qv4lookup_p.h>
+#include <private/qv4mm_p.h>
+#include <private/qv4module_p.h>
+#include <private/qv4objectproto_p.h>
+#include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4value_p.h>
 
 #include <QtCore/qloggingcategory.h>
 
@@ -206,7 +206,10 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
     //
     // Note: The scope object is only a QADMO for example when somebody registers a QQmlPropertyMap
     // sub-class as QML type and then instantiates it in .qml.
-    if (scopeObject && QQmlPropertyCache::isDynamicMetaObject(scopeObject->metaObject())) {
+    const QMetaObjectPrivate *metaObjectPrivate = scopeObject
+            ? reinterpret_cast<const QMetaObjectPrivate *>(scopeObject->metaObject()->d.data)
+            : nullptr;
+    if (metaObjectPrivate && metaObjectPrivate->flags & DynamicMetaObject) {
         // all bets are off, so don't try to optimize any lookups
         lookup = nullptr;
         if (performGobalLookUp())
@@ -265,7 +268,7 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
                 result = QQmlTypeWrapper::create(v4, scopeObject, context->imports(), r.importNamespace);
             }
             if (lookup) {
-                lookup->qmlTypeLookup.qmlTypeWrapper = static_cast<Heap::Object*>(result->heapObject());
+                lookup->qmlTypeLookup.qmlTypeWrapper = result->heapObject();
                 lookup->qmlContextPropertyGetter = QQmlContextWrapper::lookupType;
             }
             return result->asReturnedValue();
@@ -637,6 +640,11 @@ ReturnedValue QQmlContextWrapper::lookupContextObjectProperty(Lookup *l, Executi
     return QObjectWrapper::lookupGetterImpl(l, engine, obj, /*useOriginalProperty*/ true, revertLookup);
 }
 
+ReturnedValue QQmlContextWrapper::lookupScopeFallbackProperty(Lookup *l, ExecutionEngine *engine, Value *base)
+{
+    return resolveQmlContextPropertyLookupGetter(l, engine, base);
+}
+
 ReturnedValue QQmlContextWrapper::lookupInGlobalObject(Lookup *l, ExecutionEngine *engine, Value *base)
 {
     Q_UNUSED(base);
@@ -710,7 +718,7 @@ ReturnedValue QQmlContextWrapper::lookupType(Lookup *l, ExecutionEngine *engine,
     if (scopeObject && QQmlData::wasDeleted(scopeObject))
         return QV4::Encode::undefined();
 
-    Heap::Object *heapObject = l->qmlTypeLookup.qmlTypeWrapper;
+    Heap::Base *heapObject = l->qmlTypeLookup.qmlTypeWrapper;
     if (static_cast<Heap::QQmlTypeWrapper *>(heapObject)->object != scopeObject) {
         l->qmlTypeLookup.qmlTypeWrapper = nullptr;
         l->qmlContextPropertyGetter = QQmlContextWrapper::resolveQmlContextPropertyLookupGetter;
