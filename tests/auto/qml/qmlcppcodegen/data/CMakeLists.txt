@@ -3,6 +3,7 @@ set(cpp_sources
     birthdayparty.cpp birthdayparty.h
     cppbaseclass.h
     dynamicmeta.h
+    gadgetwithenum.h
     invisible.h
     objectwithmethod.h
     person.cpp person.h
@@ -13,6 +14,7 @@ set(cpp_sources
 
 set(qml_files
     AccessModelMethodsFromOutside.qml
+    BadType.qml
     BaseMember.qml
     BindingExpression.qml
     Cycle1.qml
@@ -22,6 +24,7 @@ set(qml_files
     Enums.qml
     Foozle.qml
     Loopy.qml
+    OkType.qml
     Panel.qml
     ProgressBar/Keyframe.qml
     ProgressBar/KeyframeGroup.qml
@@ -38,11 +41,14 @@ set(qml_files
     ambiguous1/Ambiguous.qml
     ambiguous2/Ambiguous.qml
     anchorsFill.qml
+    argumentConversion.qml
     array.qml
     asCast.qml
     attachedBaseEnum.qml
+    badSequence.qml
     bindToValueType.qml
     blockComments.qml
+    boundComponents.qml
     callContextPropertyLookupResult.qml
     childobject.qml
     colorAsVariant.qml
@@ -62,6 +68,7 @@ set(qml_files
     dialog.qml
     dynamicscene.qml
     enumInvalid.qml
+    enumLookup.qml
     enumScope.qml
     enumsInOtherObject.qml
     enumsUser.qml
@@ -84,6 +91,7 @@ set(qml_files
     infinities.qml
     invisibleBase.qml
     invisibleTypes.qml
+    invisibleListElementType.qml
     intEnumCompare.qml
     intOverflow.qml
     interactive.qml
@@ -107,7 +115,9 @@ set(qml_files
     nonNotifyable.qml
     noscope.qml
     notEqualsInt.qml
+    notNotString.qml
     nullAccess.qml
+    nullComparison.qml
     objectInVar.qml
     outOfBounds.qml
     overriddenMember.qml
@@ -118,6 +128,7 @@ set(qml_files
     prefixedMetaType.qml
     pressAndHoldButton.qml
     registerelimination.qml
+    registerPropagation.qml
     revisions.qml
     scopeVsObject.qml
     script.js
@@ -126,20 +137,29 @@ set(qml_files
     shifts.qml
     signal.qml
     signalHandler.qml
+    signalIndexMismatch.qml
     specificParent.qml
     stringLength.qml
+    stringToByteArray.qml
     testlogger.js
     text.qml
     themerbad.qml
     themergood.qml
     throwObjectName.qml
+    toString.qml
+    typePropagationLoop.qml
+    typePropertyClash.qml
+    typedArray.qml
     undefinedResets.qml
     unknownAttached.qml
     unknownParameter.qml
+    unstoredUndefined.qml
     unusedAttached.qml
     urlString.qml
+    valueTypeLists.qml
     valueTypeProperty.qml
     variantlist.qml
+    versionmismatch.qml
     voidfunction.qml
 )
 
@@ -161,7 +181,7 @@ set_target_properties(codegen_test_module PROPERTIES
 )
 
 qt6_add_qml_module(codegen_test_module
-    VERSION 1.0
+    VERSION 1.5
     URI TestTypes
     IMPORT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/imports/"
     DEPENDENCIES

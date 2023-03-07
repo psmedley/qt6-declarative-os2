@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2019 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquicktaphandler_p.h"
 #include "qquicksinglepointhandler_p_p.h"
@@ -153,24 +117,14 @@ bool QQuickTapHandler::wantsEventPoint(const QPointerEvent *event, const QEventP
 
 void QQuickTapHandler::handleEventPoint(QPointerEvent *event, QEventPoint &point)
 {
+    const bool isTouch = QQuickDeliveryAgentPrivate::isTouchEvent(event);
     switch (point.state()) {
     case QEventPoint::Pressed:
         setPressed(true, false, event, point);
         break;
     case QEventPoint::Released: {
-        // If the point has an exclusive grabber Item, then if it got the grab by filtering (like Flickable does),
-        // it's OK for DragHandler to react in spite of that.  But in other cases, if an exclusive grab
-        // still exists at the time of release, TapHandler should not react, because it would be redundant:
-        // some other item is already reacting, i.e. acting as if it has been clicked or tapped.
-        // So in that case we cancel the pressed state and do not emit tapped().
-        bool nonFilteringExclusiveGrabber = false;
-        if (auto g = qmlobject_cast<QQuickItem *>(event->exclusiveGrabber(point))) {
-            if (!g->filtersChildMouseEvents())
-                nonFilteringExclusiveGrabber = true;
-        }
-        if (QQuickDeliveryAgentPrivate::isTouchEvent(event) ||
-                (static_cast<const QSinglePointEvent *>(event)->buttons() & acceptedButtons()) == Qt::NoButton)
-            setPressed(false, nonFilteringExclusiveGrabber, event, point);
+        if (isTouch || (static_cast<const QSinglePointEvent *>(event)->buttons() & acceptedButtons()) == Qt::NoButton)
+            setPressed(false, false, event, point);
         break;
     }
     default:
@@ -178,6 +132,11 @@ void QQuickTapHandler::handleEventPoint(QPointerEvent *event, QEventPoint &point
     }
 
     QQuickSinglePointHandler::handleEventPoint(event, point);
+
+    // If TapHandler only needs a passive grab, it should not block other items and handlers from reacting.
+    // If the point is accepted, QQuickItemPrivate::localizedTouchEvent() would skip it.
+    if (isTouch && m_gesturePolicy == DragThreshold)
+        point.setAccepted(false);
 }
 
 /*!

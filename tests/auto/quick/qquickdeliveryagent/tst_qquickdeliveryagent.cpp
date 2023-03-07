@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <qtest.h>
 #include <QSignalSpy>
@@ -34,7 +9,9 @@
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickView>
 #include <QtQuick/QQuickWindow>
+#include <QtQuick/private/qquickrectangle_p.h>
 #include <QtQuick/private/qquickflickable_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquickpointhandler_p.h>
 #include <QtQuick/private/qquickshadereffectsource_p.h>
 #include <QtQuick/private/qquicktaphandler_p.h>
@@ -153,7 +130,10 @@ public:
 
 private slots:
     void passiveGrabberOrder();
+    void passiveGrabberItems();
+    void tapHandlerDoesntOverrideSubsceneGrabber_data();
     void tapHandlerDoesntOverrideSubsceneGrabber();
+    void undoDelegationWhenSubsceneFocusCleared();
     void touchCompression();
     void hoverPropagation_nested_data();
     void hoverPropagation_nested();
@@ -199,7 +179,7 @@ void tst_qquickdeliveryagent::passiveGrabberOrder()
     auto devPriv = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice());
     const auto &persistentPoint = devPriv->activePoints.values().first();
     qCDebug(lcTests) << "passive grabbers" << persistentPoint.passiveGrabbers << "contexts" << persistentPoint.passiveGrabbersContext;
-    QCOMPARE(persistentPoint.passiveGrabbers.count(), 2);
+    QCOMPARE(persistentPoint.passiveGrabbers.size(), 2);
     QCOMPARE(persistentPoint.passiveGrabbers.first(), subsceneTap);
     QCOMPARE(persistentPoint.passiveGrabbersContext.first(), subscene.deliveryAgent);
     QCOMPARE(persistentPoint.passiveGrabbers.last(), rootTap);
@@ -207,17 +187,161 @@ void tst_qquickdeliveryagent::passiveGrabberOrder()
     QTest::mouseRelease(&view, Qt::LeftButton);
     QTest::qWait(100);
     // QQuickWindow::event() has failsafe: clear all grabbers after release
-    QCOMPARE(persistentPoint.passiveGrabbers.count(), 0);
+    QCOMPARE(persistentPoint.passiveGrabbers.size(), 0);
 
     qCDebug(lcTests) << "TapHandlers emitted tapped in this order:" << spy.senders;
-    QCOMPARE(spy.senders.count(), 2);
+    QCOMPARE(spy.senders.size(), 2);
     // passive grabbers are visited in order, and emit tapped() at that time
     QCOMPARE(spy.senders.first(), subsceneTap);
     QCOMPARE(spy.senders.last(), rootTap);
 }
 
+class PassiveGrabberItem : public QQuickRectangle
+{
+public:
+    PassiveGrabberItem(QQuickItem *parent = nullptr) : QQuickRectangle(parent) {
+        setAcceptedMouseButtons(Qt::LeftButton);
+    }
+    void mousePressEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << "Passive grabber pressed";
+        lastPressed = true;
+        event->addPassiveGrabber(event->point(0), this);
+        event->ignore();
+    }
+    void mouseMoveEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << "Mouse move handled by passive grabber";
+        const QPointF pos = event->scenePosition();
+        const int threshold = 20;
+        bool overThreshold = pos.x() >= threshold;
+        if (overThreshold) {
+            event->setExclusiveGrabber(event->point(0), this);
+            this->setKeepMouseGrab(true);
+            event->accept();
+        } else {
+            event->ignore();
+        }
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << "Passive grabber released";
+        lastPressed = false;
+        event->ignore();
+    }
+
+    bool lastPressed = false;
+};
+
+class ExclusiveGrabberItem : public QQuickRectangle
+{
+public:
+    ExclusiveGrabberItem(QQuickItem *parent = nullptr) : QQuickRectangle(parent) {
+        setAcceptedMouseButtons(Qt::LeftButton);
+    }
+    void mousePressEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << "Exclusive grabber pressed";
+        lastPressed = true;
+        event->accept();
+    }
+    void mouseMoveEvent(QMouseEvent *event) override {
+        event->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        qCDebug(lcTests) << "Exclusive grabber released";
+        lastPressed = false;
+        event->accept();
+    }
+    void mouseUngrabEvent() override {
+        qCDebug(lcTests) << "Exclusive grab ended";
+        ungrabbed = true;
+    }
+
+    bool lastPressed = false;
+    bool ungrabbed = false;
+};
+
+void tst_qquickdeliveryagent::passiveGrabberItems()
+{
+    QQuickView view;
+    QQmlComponent component(view.engine());
+    qmlRegisterType<PassiveGrabberItem>("Test", 1, 0, "PassiveGrabber");
+    qmlRegisterType<ExclusiveGrabberItem>("Test", 1, 0, "ExclusiveGrabber");
+    component.loadUrl(testFileUrl("passiveGrabberItem.qml"));
+    view.setContent(QUrl(), &component, component.create());
+    QQuickItem *root = qobject_cast<QQuickItem*>(view.rootObject());
+    QVERIFY(root);
+    ExclusiveGrabberItem *exclusiveGrabber = root->property("exclusiveGrabber").value<ExclusiveGrabberItem*>();
+    PassiveGrabberItem *passiveGrabber = root->property("passiveGrabber").value<PassiveGrabberItem *>();
+    QVERIFY(exclusiveGrabber);
+    QVERIFY(passiveGrabber);
+
+    view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    QTest::mousePress(&view, Qt::LeftButton, Qt::NoModifier, QPoint(exclusiveGrabber->x() + 1, exclusiveGrabber->y() + 1));
+    auto devPriv = QPointingDevicePrivate::get(QPointingDevice::primaryPointingDevice());
+    const auto &persistentPoint = devPriv->activePoints.values().first();
+    QTRY_COMPARE(persistentPoint.passiveGrabbers.size(), 1);
+    QCOMPARE(persistentPoint.passiveGrabbers.first(), passiveGrabber);
+    QCOMPARE(persistentPoint.exclusiveGrabber, exclusiveGrabber);
+    QVERIFY(exclusiveGrabber->lastPressed);
+    QVERIFY(passiveGrabber->lastPressed);
+
+    // Mouse move bigger than threshold -> passive grabber becomes exclusive grabber
+    QTest::mouseMove(&view);
+    QTRY_COMPARE(persistentPoint.exclusiveGrabber, passiveGrabber);
+    QVERIFY(exclusiveGrabber->ungrabbed);
+
+    QTest::mouseRelease(&view, Qt::LeftButton);
+    // Only the passive grabber got the release event
+    // since it became the exclusive grabber on mouseMove
+    QTRY_VERIFY(!passiveGrabber->lastPressed);
+    QVERIFY(exclusiveGrabber->lastPressed);
+    QCOMPARE(persistentPoint.passiveGrabbers.size(), 0);
+    QCOMPARE(persistentPoint.exclusiveGrabber, nullptr);
+
+    exclusiveGrabber->lastPressed = false;
+    exclusiveGrabber->ungrabbed = false;
+    passiveGrabber->lastPressed = false;
+
+    QTest::mousePress(&view, Qt::LeftButton, Qt::NoModifier, QPoint(exclusiveGrabber->x() + 1, exclusiveGrabber->y() + 1));
+    const auto &pressedPoint = devPriv->activePoints.values().first();
+    QTRY_COMPARE(pressedPoint.passiveGrabbers.size(), 1);
+    QCOMPARE(pressedPoint.passiveGrabbers.first(), passiveGrabber);
+    QCOMPARE(pressedPoint.exclusiveGrabber, exclusiveGrabber);
+    QVERIFY(exclusiveGrabber->lastPressed);
+    QVERIFY(passiveGrabber->lastPressed);
+
+    // Mouse move smaller than threshold -> grab remains with the exclusive grabber
+    QTest::mouseMove(&view,  QPoint(exclusiveGrabber->x(), exclusiveGrabber->y()));
+    QTRY_COMPARE(pressedPoint.exclusiveGrabber, exclusiveGrabber);
+
+    QTest::mouseRelease(&view, Qt::LeftButton, Qt::NoModifier, QPoint(exclusiveGrabber->x(), exclusiveGrabber->y()));
+
+    // Both the passive and the exclusive grabber get the mouseRelease event
+    QTRY_VERIFY(!passiveGrabber->lastPressed);
+    QVERIFY(!exclusiveGrabber->lastPressed);
+    QCOMPARE(pressedPoint.passiveGrabbers.size(), 0);
+    QCOMPARE(pressedPoint.exclusiveGrabber, nullptr);
+}
+
+void tst_qquickdeliveryagent::tapHandlerDoesntOverrideSubsceneGrabber_data()
+{
+    QTest::addColumn<QQuickTapHandler::GesturePolicy>("gesturePolicy");
+    QTest::addColumn<int>("expectedTaps");
+    QTest::addColumn<int>("expectedCancels");
+    // TapHandler gets passive grab => "stealth" tap, regardless of other Items
+    QTest::newRow("DragThreshold") << QQuickTapHandler::DragThreshold << 1 << 0;
+    // TapHandler gets exclusive grab => it's cancelled when the TextEdit takes the grab
+    QTest::newRow("WithinBounds") << QQuickTapHandler::WithinBounds << 0 << 2; // 2 because of QTBUG-105865
+    QTest::newRow("ReleaseWithinBounds") << QQuickTapHandler::ReleaseWithinBounds << 0 << 2;
+    QTest::newRow("DragWithinBounds") << QQuickTapHandler::DragWithinBounds << 0 << 2;
+}
+
 void tst_qquickdeliveryagent::tapHandlerDoesntOverrideSubsceneGrabber() // QTBUG-94012
 {
+    QFETCH(QQuickTapHandler::GesturePolicy, gesturePolicy);
+    QFETCH(int, expectedTaps);
+    QFETCH(int, expectedCancels);
+
     QQuickView window;
 #ifdef DISABLE_HOVER_IN_IRRELEVANT_TESTS
     QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
@@ -234,19 +358,47 @@ void tst_qquickdeliveryagent::tapHandlerDoesntOverrideSubsceneGrabber() // QTBUG
 
     // add a TapHandler to it
     QQuickTapHandler tapHandler(&subscene);
+    tapHandler.setGesturePolicy(gesturePolicy);
     QSignalSpy clickSpy(&tapHandler, &QQuickTapHandler::tapped);
+    QSignalSpy cancelSpy(&tapHandler, &QQuickTapHandler::canceled);
 
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
     int cursorPos = textEdit->property("cursorPosition").toInt();
 
     // Click on the middle of the subscene to the right (texture cloned from the left).
-    // TapHandler takes a passive grab on press; TextEdit takes the exclusive grab;
-    // and TapHandler does not emit tapped, because of the non-filtering exclusive grabber.
+    // TapHandler takes whichever type of grab on press; TextEdit takes the exclusive grab;
+    // TapHandler either gets tapped if it has passive grab, or gets its exclusive grab cancelled.
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, clickPos);
     qCDebug(lcTests) << "clicking subscene TextEdit set cursorPos to" << cursorPos;
-    QVERIFY(textEdit->property("cursorPosition").toInt() > cursorPos);
-    QCOMPARE(clickSpy.count(), 0); // doesn't tap
+    QVERIFY(textEdit->property("cursorPosition").toInt() > cursorPos); // TextEdit reacts regardless
+    QCOMPARE(clickSpy.size(), expectedTaps);
+    QCOMPARE(cancelSpy.size(), expectedCancels);
+}
+
+void tst_qquickdeliveryagent::undoDelegationWhenSubsceneFocusCleared() // QTBUG-105192
+{
+    QQuickView window;
+#ifdef DISABLE_HOVER_IN_IRRELEVANT_TESTS
+    QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+#endif
+    QVERIFY(QQuickTest::initView(window, testFileUrl("listViewDelegate.qml")));
+    QQuickListView *listView = window.rootObject()->findChild<QQuickListView*>();
+    QVERIFY(listView);
+
+    // put the ListView into a SubsceneRootItem
+    SubsceneRootItem subscene(listView, listView->boundingRect(), window.rootObject());
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    // populate a delegate in ListView
+    listView->setModel(1);
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(QQuickVisualTestUtils::findViewDelegateItem(listView, 0, delegate));
+    QCOMPARE(QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->activeFocusItem, delegate);
+    delete listView;
+    QCOMPARE_NE(QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->activeFocusItem, delegate);
 }
 
 void tst_qquickdeliveryagent::touchCompression()

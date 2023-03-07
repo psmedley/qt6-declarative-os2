@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
@@ -176,7 +151,7 @@ void tst_QQuickFontDialogImpl::changingWritingSystem()
     QVERIFY(anyDelegate);
     QCOMPARE(anyDelegate->text(), QFontDatabase::writingSystemName(QFontDatabase::Any));
 
-    QCOMPARE(fontFamilyModelSpy.count(), 0);
+    QCOMPARE(fontFamilyModelSpy.size(), 0);
 
     // Select "Japanese" from the ComboBox.
     const int japaneseIndex = QFontDatabase::Japanese;
@@ -187,7 +162,7 @@ void tst_QQuickFontDialogImpl::changingWritingSystem()
     QTRY_VERIFY(!writingSystemComboBox->popup()->isVisible());
 
     // Check that the contents of the font family listview changed
-    QCOMPARE(fontFamilyModelSpy.count(), 1);
+    QCOMPARE(fontFamilyModelSpy.size(), 1);
 
     // And that the sample text is correctly set
     QCOMPARE(sampleEdit->text(), QFontDatabase::writingSystemSample(QFontDatabase::Japanese));
@@ -260,11 +235,11 @@ void tst_QQuickFontDialogImpl::clickAroundInTheFamilyListView()
         const QString expected2 = fontListModel[i],
                       actual2 = dialogHelper.dialog->selectedFont().family();
         QVERIFY2(expected2 == actual2, qPrintable(err.arg(expected2, actual2).append(", FONT ").append(fontDelegate->text())));
-        const int selectedFontSpyCount = selectedFontSpy.count();
+        const int selectedFontSpyCount = selectedFontSpy.size();
         QVERIFY2(selectedFontSpyCount == 1, qPrintable(err.arg(1).arg(selectedFontSpyCount).append(", FONT ").append(fontDelegate->text())));
-        QVERIFY2((oldStyleModel == fontStyleListView->model()) != (styleModelSpy.count() == 1),
+        QVERIFY2((oldStyleModel == fontStyleListView->model()) != (styleModelSpy.size() == 1),
                  qPrintable(QString("LOOP INDEX %1").arg(i)));
-        QVERIFY2((oldSizeModel == fontSizeListView->model()) != (sizeModelSpy.count() == 1),
+        QVERIFY2((oldSizeModel == fontSizeListView->model()) != (sizeModelSpy.size() == 1),
                  qPrintable(QString("LOOP INDEX %1").arg(i)));
     }
 
@@ -294,25 +269,25 @@ void tst_QQuickFontDialogImpl::settingUnderlineAndStrikeoutEffects()
 
     QVERIFY(clickButton(underlineCheckBox));
 
-    QCOMPARE(selectedFontSpy.count(), 1);
+    QCOMPARE(selectedFontSpy.size(), 1);
     QVERIFY(dialogHelper.dialog->selectedFont().underline());
     QVERIFY(!dialogHelper.dialog->selectedFont().strikeOut());
 
     QVERIFY(clickButton(underlineCheckBox));
 
-    QCOMPARE(selectedFontSpy.count(), 2);
+    QCOMPARE(selectedFontSpy.size(), 2);
     QVERIFY(!dialogHelper.dialog->selectedFont().underline());
     QVERIFY(!dialogHelper.dialog->selectedFont().strikeOut());
 
     QVERIFY(clickButton(strikeoutCheckBox));
 
-    QCOMPARE(selectedFontSpy.count(), 3);
+    QCOMPARE(selectedFontSpy.size(), 3);
     QVERIFY(!dialogHelper.dialog->selectedFont().underline());
     QVERIFY(dialogHelper.dialog->selectedFont().strikeOut());
 
     QVERIFY(clickButton(strikeoutCheckBox));
 
-    QCOMPARE(selectedFontSpy.count(), 4);
+    QCOMPARE(selectedFontSpy.size(), 4);
     QVERIFY(!dialogHelper.dialog->selectedFont().underline());
     QVERIFY(!dialogHelper.dialog->selectedFont().strikeOut());
 
@@ -426,7 +401,7 @@ public:
         do {
             m_searchText.append(searchText);
 
-            for (int i = 0; i < m_model.count(); ++i) {
+            for (int i = 0; i < m_model.size(); ++i) {
                 if (m_model.at(i).startsWith(m_searchText, Qt::CaseInsensitive))
                     return i;
             }
@@ -537,7 +512,7 @@ void tst_QQuickFontDialogImpl::setCurrentFontFromApi()
     QVERIFY(fontSizeEdit);
 
     // From when the listviews are populated
-    QCOMPARE(selectedFontSpy.count(), 1);
+    QCOMPARE(selectedFontSpy.size(), 1);
 
     selectedFontSpy.clear();
 
@@ -563,16 +538,16 @@ void tst_QQuickFontDialogImpl::setCurrentFontFromApi()
         QCOMPARE(styleModel.at(fontStyleListView->currentIndex()), style);
         QCOMPARE(fontSizeEdit->text(), QString::number(size++));
 
-        QCOMPARE(selectedFontSpy.count(), ++spyCounter);
+        QCOMPARE(selectedFontSpy.size(), ++spyCounter);
 
-        for (int styleIt = 0; styleIt < qMin(styleModel.count(), maxNumberOfStyles); ++styleIt) {
+        for (int styleIt = 0; styleIt < qMin(styleModel.size(), maxNumberOfStyles); ++styleIt) {
             const QString currentStyle = styleModel.at(styleIt);
 
             const QFont f = QFontDatabase::font(*family, currentStyle, size);
             dialogHelper.dialog->setSelectedFont(f);
 
             QCOMPARE(styleModel.at(fontStyleListView->currentIndex()), currentStyle);
-            QCOMPARE(selectedFontSpy.count(), ++spyCounter);
+            QCOMPARE(selectedFontSpy.size(), ++spyCounter);
         }
     }
 

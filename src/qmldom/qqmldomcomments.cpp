@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qqmldomcomments_p.h"
 #include "qqmldomoutwriter_p.h"
@@ -93,12 +68,12 @@ CommentInfo gets such a raw comment string and makes the various pieces availabl
 CommentInfo::CommentInfo(QStringView rawComment) : rawComment(rawComment)
 {
     commentBegin = 0;
-    while (commentBegin < quint32(rawComment.length()) && rawComment.at(commentBegin).isSpace()) {
+    while (commentBegin < quint32(rawComment.size()) && rawComment.at(commentBegin).isSpace()) {
         if (rawComment.at(commentBegin) == QLatin1Char('\n'))
             hasStartNewline = true;
         ++commentBegin;
     }
-    if (commentBegin < quint32(rawComment.length())) {
+    if (commentBegin < quint32(rawComment.size())) {
         QString expectedEnd;
         switch (rawComment.at(commentBegin).unicode()) {
         case '/':
@@ -123,7 +98,7 @@ CommentInfo::CommentInfo(QStringView rawComment) : rawComment(rawComment)
             break;
         }
         commentEnd = commentBegin + commentStartStr.size();
-        quint32 rawEnd = quint32(rawComment.length());
+        quint32 rawEnd = quint32(rawComment.size());
         while (commentEnd < rawEnd && rawComment.at(commentEnd).isSpace())
             ++commentEnd;
         commentContentEnd = commentContentBegin = commentEnd;
@@ -131,9 +106,9 @@ CommentInfo::CommentInfo(QStringView rawComment) : rawComment(rawComment)
         while (commentEnd < rawEnd) {
             QChar c = rawComment.at(commentEnd);
             if (c == e1) {
-                if (expectedEnd.length() > 1) {
+                if (expectedEnd.size() > 1) {
                     if (++commentEnd < rawEnd && rawComment.at(commentEnd) == expectedEnd.at(1)) {
-                        Q_ASSERT(expectedEnd.length() == 2);
+                        Q_ASSERT(expectedEnd.size() == 2);
                         commentEndStr = rawComment.mid(++commentEnd - 2, 2);
                         break;
                     } else {

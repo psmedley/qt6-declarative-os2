@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
@@ -267,10 +231,10 @@ void tst_QQuickFolderDialogImpl::chooseFolderViaStandardButtons()
     COMPARE_URL(dialogHelper.quickDialog->selectedFolder(), QUrl::fromLocalFile(tempSubDir2.path()));
     COMPARE_URL(dialogHelper.dialog->selectedFolder(), QUrl::fromLocalFile(tempSubDir2.path()));
     // Only selectedFile-related signals should be emitted.
-    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.count(), 0);
-    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.count(), 0);
+    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.size(), 0);
+    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.size(), 0);
 
     // Click the "Open" button.
     QVERIFY(dialogHelper.quickDialog->footer());
@@ -281,10 +245,10 @@ void tst_QQuickFolderDialogImpl::chooseFolderViaStandardButtons()
     QVERIFY(clickButton(openButton));
     COMPARE_URL(dialogHelper.dialog->selectedFolder(), QUrl::fromLocalFile(tempSubDir2.path()));
     COMPARE_URL(dialogHelper.quickDialog->selectedFolder(), QUrl::fromLocalFile(tempSubDir2.path()));
-    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.count(), 0);
-    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.count(), 0);
+    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.size(), 0);
+    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.size(), 0);
     QTRY_VERIFY(!dialogHelper.quickDialog->isVisible());
     QVERIFY(!dialogHelper.dialog->isVisible());
 }
@@ -359,10 +323,10 @@ void tst_QQuickFolderDialogImpl::changeFolderViaDoubleClick()
     COMPARE_URL(dialogHelper.dialog->selectedFolder(), QUrl());
     // selectedFolder is set to the folder when clicked and then set to an empty URL after
     // the double click.
-    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.count(), 2);
-    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.count(), 2);
-    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.count(), 1);
+    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.size(), 2);
+    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.size(), 2);
+    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.size(), 1);
     // Since we only changed the current folder, the dialog should still be open.
     QVERIFY(dialogHelper.dialog->isVisible());
 
@@ -432,10 +396,10 @@ void tst_QQuickFolderDialogImpl::changeFolderViaEnter()
     QTest::keyClick(dialogHelper.window(), Qt::Key_Return);
     COMPARE_URL(dialogHelper.dialog->currentFolder(), QUrl::fromLocalFile(tempSubDir1.path()));
     COMPARE_URL(dialogHelper.dialog->selectedFolder(), QUrl::fromLocalFile(tempSubSubDir.path()));
-    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.count(), 1);
-    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.count(), 1);
+    QCOMPARE(signalHelper.dialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.quickDialogSelectedFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.dialogCurrentFolderChangedSpy.size(), 1);
+    QCOMPARE(signalHelper.quickDialogCurrentFolderChangedSpy.size(), 1);
     // Since we only changed the current folder, the dialog should still be open.
     QVERIFY(dialogHelper.dialog->isVisible());
 
@@ -496,7 +460,7 @@ void tst_QQuickFolderDialogImpl::goUp()
     auto barListView = qobject_cast<QQuickListView*>(breadcrumbBar->contentItem());
     QVERIFY(barListView);
     if (QQuickTest::qIsPolishScheduled(barListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(barListView));
+        QVERIFY(QQuickTest::qWaitForPolish(barListView));
     QVERIFY(clickButton(breadcrumbBar->upButton()));
     COMPARE_URL(dialogHelper.dialog->currentFolder(), QUrl::fromLocalFile(tempDir.path()));
     // The previous directory that we were in should now be selected (matches e.g. Windows and Ubuntu).
@@ -532,7 +496,7 @@ void tst_QQuickFolderDialogImpl::goUpWhileTextEditHasFocus()
     auto barListView = qobject_cast<QQuickListView*>(breadcrumbBar->contentItem());
     QVERIFY(barListView);
     if (QQuickTest::qIsPolishScheduled(barListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(barListView));
+        QVERIFY(QQuickTest::qWaitForPolish(barListView));
     QVERIFY(clickButton(breadcrumbBar->upButton()));
     // The path should have changed to the parent directory.
     COMPARE_URL(dialogHelper.dialog->currentFolder(), QUrl::fromLocalFile(tempDir.path()));
@@ -582,7 +546,7 @@ void tst_QQuickFolderDialogImpl::goIntoLargeFolder()
     auto folderDialogListView = dialogHelper.quickDialog->findChild<QQuickListView*>("folderDialogListView");
     QVERIFY(folderDialogListView);
     if (QQuickTest::qIsPolishScheduled(folderDialogListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(folderDialogListView));
+        QVERIFY(QQuickTest::qWaitForPolish(folderDialogListView));
     // Just to be safe, make sure it's at least twice as big.
     if (folderDialogListView->contentItem()->height() < folderDialogListView->height() * 2) {
         QSKIP(qPrintable(QString::fromLatin1("Expected height of folderDialogListView's contentItem (%1)" \
@@ -723,7 +687,7 @@ void tst_QQuickFolderDialogImpl::tabFocusNavigation()
     }
 
     // Tab through each item, checking the focus after each.
-    for (auto expectedFocusItem : qAsConst(expectedFocusItems)) {
+    for (auto expectedFocusItem : std::as_const(expectedFocusItems)) {
         // Check the focus item first so that we account for the first item.
         // Print detailed failure message as workaround for QTBUG-92102.
         QVERIFY2(dialogHelper.window()->activeFocusItem() == expectedFocusItem, qPrintable(QString::fromLatin1(
@@ -738,7 +702,7 @@ void tst_QQuickFolderDialogImpl::tabFocusNavigation()
     std::reverse(expectedFocusItems.begin(), expectedFocusItems.end());
     // We know the first (last) item has focus already, so skip it.
     expectedFocusItems.removeFirst();
-    for (auto expectedFocusItem : qAsConst(expectedFocusItems)) {
+    for (auto expectedFocusItem : std::as_const(expectedFocusItems)) {
         QTest::keyClick(dialogHelper.window(), Qt::Key_Tab, Qt::ShiftModifier);
 
         QCOMPARE(dialogHelper.window()->activeFocusItem(), expectedFocusItem);

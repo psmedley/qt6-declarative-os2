@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest>
 #include <QtQuick>
@@ -93,23 +68,27 @@ void tst_PressAndHold::pressAndHold()
     QVERIFY(spy.isValid() && waitSpy.isValid());
 
     int startDragDistance = QGuiApplication::styleHints()->startDragDistance();
-    QMouseEvent press(QEvent::MouseButtonPress, QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QMouseEvent press2(QEvent::MouseButtonPress, QPointF(), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
-    QMouseEvent move(QEvent::MouseMove, QPointF(2 * startDragDistance, 2 * startDragDistance), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(), QPointF(),
+                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent press2(QEvent::MouseButtonPress, QPointF(), QPointF(),
+                       Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QMouseEvent move(QEvent::MouseMove, QPointF(2 * startDragDistance, 2 * startDragDistance), QPointF(),
+                     Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), QPointF(),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
 
     // pressAndHold() emitted
     QGuiApplication::sendEvent(control.data(), &press);
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE(spy.size(), 1);
     QGuiApplication::sendEvent(control.data(), &release);
-    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.size(), 1);
     spy.clear();
 
     // pressAndHold() canceled by release
     QGuiApplication::sendEvent(control.data(), &press);
     QGuiApplication::processEvents();
     QGuiApplication::sendEvent(control.data(), &release);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
 
     // pressAndHold() canceled by move
     QGuiApplication::sendEvent(control.data(), &press);
@@ -118,12 +97,12 @@ void tst_PressAndHold::pressAndHold()
     // by the time the second control emits pressAndHold(), we can reliably
     // assume that the first control would have emitted pressAndHold() if it
     // wasn't canceled as appropriate by the move event above
-    QTRY_COMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QTRY_COMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     QGuiApplication::sendEvent(control.data(), &release);
     QGuiApplication::sendEvent(waitControl.data(), &release);
-    QCOMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     waitSpy.clear();
 
     // pressAndHold() canceled by 2nd press
@@ -133,12 +112,12 @@ void tst_PressAndHold::pressAndHold()
     // by the time the second control emits pressAndHold(), we can reliably
     // assume that the first control would have emitted pressAndHold() if it
     // wasn't canceled as appropriate by the 2nd press event above
-    QTRY_COMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QTRY_COMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     QGuiApplication::sendEvent(control.data(), &release);
     QGuiApplication::sendEvent(waitControl.data(), &release);
-    QCOMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     waitSpy.clear();
 }
 
@@ -166,9 +145,12 @@ void tst_PressAndHold::keepSelection()
     QSignalSpy waitSpy(waitControl.data(), SIGNAL(pressAndHold(QQuickMouseEvent*)));
     QVERIFY(spy.isValid() && waitSpy.isValid());
 
-    QMouseEvent press(QEvent::MouseButtonPress, QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QMouseEvent press2(QEvent::MouseButtonPress, QPointF(), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
-    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(), QPointF(),
+                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent press2(QEvent::MouseButtonPress, QPointF(), QPointF(),
+                       Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), QPointF(),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
 
     QVERIFY(!control->property("text").toString().isEmpty());
     QVERIFY(QMetaObject::invokeMethod(control.data(), "selectAll"));
@@ -176,9 +158,9 @@ void tst_PressAndHold::keepSelection()
 
     // pressAndHold() emitted => selection remains
     QGuiApplication::sendEvent(control.data(), &press);
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE(spy.size(), 1);
     QGuiApplication::sendEvent(control.data(), &release);
-    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.size(), 1);
     QCOMPARE(control->property("selectedText"), control->property("text"));
     spy.clear();
 
@@ -186,7 +168,7 @@ void tst_PressAndHold::keepSelection()
     QGuiApplication::sendEvent(control.data(), &press);
     QGuiApplication::processEvents();
     QGuiApplication::sendEvent(control.data(), &release);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
     QVERIFY(control->property("selectedText").toString().isEmpty());
 
     QVERIFY(QMetaObject::invokeMethod(control.data(), "selectAll"));
@@ -199,12 +181,12 @@ void tst_PressAndHold::keepSelection()
     // by the time the second control emits pressAndHold(), we can reliably
     // assume that the first control would have emitted pressAndHold() if it
     // wasn't canceled as appropriate by the move event above
-    QTRY_COMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QTRY_COMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     QGuiApplication::sendEvent(control.data(), &release);
     QGuiApplication::sendEvent(waitControl.data(), &release);
-    QCOMPARE(waitSpy.count(), 1);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(waitSpy.size(), 1);
+    QCOMPARE(spy.size(), 0);
     QVERIFY(control->property("selectedText").toString().isEmpty());
     waitSpy.clear();
 }

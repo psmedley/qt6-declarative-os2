@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <QtTest/QtTest>
 #include <qsignalspy.h>
 #include <QtQml/qqmlengine.h>
@@ -366,7 +341,7 @@ void tst_qquickbehaviors::runningTrue()
 
     QSignalSpy runningSpy(animation, SIGNAL(runningChanged(bool)));
     rect->setProperty("myValue", 180);
-    QTRY_VERIFY(runningSpy.count() > 0);
+    QTRY_VERIFY(runningSpy.size() > 0);
 }
 
 //QTBUG-12295
@@ -604,7 +579,7 @@ void tst_qquickbehaviors::aliasedProperty()
     QSignalSpy targetValueSpy(behavior, SIGNAL(targetValueChanged()));
     QQuickItemPrivate::get(rect.data())->setState("moved");
     QCOMPARE(behavior->targetValue(), 400);
-    QCOMPARE(targetValueSpy.count(), 1);
+    QCOMPARE(targetValueSpy.size(), 1);
     QScopedPointer<QQuickRectangle> acc(qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("acc")));
     QScopedPointer<QQuickRectangle> range(qobject_cast<QQuickRectangle*>(acc->findChild<QQuickRectangle*>("range")));
     QTRY_VERIFY(acc->property("value").toDouble() > 0);
@@ -640,7 +615,7 @@ void tst_qquickbehaviors::oneWay()
     QQuickRectangle *myRect = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("MyRectOneWay"));
     myRect->setProperty("x", 100);
     QCOMPARE(behavior->targetValue(), 100);
-    QCOMPARE(targetValueSpy.count(), 1);
+    QCOMPARE(targetValueSpy.size(), 1);
     QCOMPARE(behavior->enabled(), false);
     qreal x = myRect->x();
     QCOMPARE(x, qreal(100));    //should change immediately
@@ -650,7 +625,7 @@ void tst_qquickbehaviors::oneWay()
 
     myRect->setProperty("x", 0);
     QCOMPARE(behavior->targetValue(), 0);
-    QCOMPARE(targetValueSpy.count(), 2);
+    QCOMPARE(targetValueSpy.size(), 2);
     QCOMPARE(behavior->enabled(), true);
     QCOMPARE(myAnimation->isRunning(), true);
     QVERIFY(myRect->x() > 0.0);
@@ -664,7 +639,8 @@ void tst_qquickbehaviors::safeToDelete()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("delete.qml"));
-    QVERIFY(c.create());
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o.data());
 }
 
 Q_DECLARE_METATYPE(QQmlProperty)

@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickmultipointhandler_p.h"
 #include "qquickmultipointhandler_p_p.h"
@@ -87,7 +51,7 @@ bool QQuickMultiPointHandler::wantsPointerEvent(QPointerEvent *event)
     // currentPoints, because we don't want to lose the pressPosition, and do
     // not want to reshuffle the order either).
     const auto candidatePoints = eligiblePoints(event);
-    if (candidatePoints.count() != d->currentPoints.count()) {
+    if (candidatePoints.size() != d->currentPoints.size()) {
         d->currentPoints.clear();
         if (active()) {
             setActive(false);
@@ -100,7 +64,7 @@ bool QQuickMultiPointHandler::wantsPointerEvent(QPointerEvent *event)
 
     ret = ret || (candidatePoints.size() >= minimumPointCount() && candidatePoints.size() <= maximumPointCount());
     if (ret) {
-        const int c = candidatePoints.count();
+        const int c = candidatePoints.size();
         d->currentPoints.resize(c);
         for (int i = 0; i < c; ++i) {
             d->currentPoints[i].reset(event, candidatePoints[i]);
@@ -301,7 +265,7 @@ bool QQuickMultiPointHandler::hasCurrentPoints(QPointerEvent *event)
         return false;
     // TODO optimize: either ensure the points are sorted,
     // or use std::equal with a predicate
-    for (const QQuickHandlerPoint &p : qAsConst(d->currentPoints)) {
+    for (const QQuickHandlerPoint &p : std::as_const(d->currentPoints)) {
         const QEventPoint *ep = event->pointById(p.id());
         if (!ep)
             return false;
@@ -338,7 +302,7 @@ QVector<QQuickMultiPointHandler::PointData> QQuickMultiPointHandler::angles(cons
 {
     Q_D(const QQuickMultiPointHandler);
     QVector<PointData> angles;
-    angles.reserve(d->currentPoints.count());
+    angles.reserve(d->currentPoints.size());
     for (const QQuickHandlerPoint &p : d->currentPoints) {
         qreal angle = QLineF(ref, p.scenePosition()).angle();
         angles.append(PointData(p.id(), -angle));     // convert to clockwise, to be consistent with QQuickItem::rotation
@@ -398,7 +362,7 @@ bool QQuickMultiPointHandler::grabPoints(QPointerEvent *event, const QVector<QEv
         }
     }
     if (allowed) {
-        for (auto point : points)
+        for (const auto &point : std::as_const(points))
             setExclusiveGrab(event, point);
     }
     return allowed;

@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtSG module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickpincharea_p_p.h"
 #include "qquickwindow.h"
@@ -360,7 +324,7 @@ void QQuickPinchArea::touchEvent(QTouchEvent *event)
 void QQuickPinchArea::clearPinch(QTouchEvent *event)
 {
     Q_D(QQuickPinchArea);
-    qCDebug(lcPA, "clear: %" PRIdQSIZETYPE " touchpoints", d->touchPoints.count());
+    qCDebug(lcPA, "clear: %" PRIdQSIZETYPE " touchpoints", d->touchPoints.size());
     d->touchPoints.clear();
     if (d->inPinch) {
         d->inPinch = false;
@@ -390,12 +354,13 @@ void QQuickPinchArea::clearPinch(QTouchEvent *event)
         }
     }
     setKeepTouchGrab(false);
+    setKeepMouseGrab(false);
 }
 
 void QQuickPinchArea::cancelPinch(QTouchEvent *event)
 {
     Q_D(QQuickPinchArea);
-    qCDebug(lcPA, "cancel: %" PRIdQSIZETYPE " touchpoints", d->touchPoints.count());
+    qCDebug(lcPA, "cancel: %" PRIdQSIZETYPE " touchpoints", d->touchPoints.size());
     d->touchPoints.clear();
     if (d->inPinch) {
         d->inPinch = false;
@@ -431,15 +396,17 @@ void QQuickPinchArea::cancelPinch(QTouchEvent *event)
             event->setExclusiveGrabber(point, nullptr);
     }
     setKeepTouchGrab(false);
+    setKeepMouseGrab(false);
 }
 
 void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
 {
     Q_D(QQuickPinchArea);
 
-    if (d->touchPoints.count() < 2) {
+    if (d->touchPoints.size() < 2) {
         // A pinch gesture is not occurring, so stealing the grab is permitted.
         setKeepTouchGrab(false);
+        setKeepMouseGrab(false);
         // During filtering, there's no need to hold a grab for one point,
         // because filtering happens for every event anyway.
         // But if we receive the event via direct delivery, and give up the grab,
@@ -450,7 +417,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
             event->setExclusiveGrabber(d->touchPoints.first(), nullptr);
     }
 
-    if (d->touchPoints.count() == 0) {
+    if (d->touchPoints.size() == 0) {
         if (d->inPinch) {
             d->inPinch = false;
             QPointF pinchCenter = mapFromScene(d->sceneLastCenter);
@@ -463,6 +430,8 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
             pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
             pe.setPoint1(mapFromScene(d->lastPoint1));
             pe.setPoint2(mapFromScene(d->lastPoint2));
+            setKeepTouchGrab(false);
+            setKeepMouseGrab(false);
             emit pinchFinished(&pe);
             d->pinchStartDist = 0;
             d->pinchActivated = false;
@@ -475,7 +444,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
     }
 
     QEventPoint touchPoint1 = d->touchPoints.at(0);
-    QEventPoint touchPoint2 = d->touchPoints.at(d->touchPoints. count() >= 2 ? 1 : 0);
+    QEventPoint touchPoint2 = d->touchPoints.at(d->touchPoints.size() >= 2 ? 1 : 0);
 
     if (touchPoint1.state() == QEventPoint::State::Pressed)
         d->sceneStartPoint1 = touchPoint1.scenePosition();
@@ -489,7 +458,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
     // Pinch is not started unless there are exactly two touch points
     // AND one or more of the points has just now been pressed (wasn't pressed already)
     // AND both points are inside the bounds.
-    if (d->touchPoints.count() == 2
+    if (d->touchPoints.size() == 2
             && (touchPoint1.state() == QEventPoint::State::Pressed || touchPoint2.state() == QEventPoint::State::Pressed) &&
             bounds.contains(touchPoint1.position()) && bounds.contains(touchPoint2.position())) {
         d->id1 = touchPoint1.id();
@@ -499,6 +468,8 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
         d->initPinch = true;
         event->setExclusiveGrabber(touchPoint1, this);
         event->setExclusiveGrabber(touchPoint2, this);
+        setKeepTouchGrab(true);
+        setKeepMouseGrab(true);
     }
     if (d->pinchActivated && !d->pinchRejected) {
         const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
@@ -509,7 +480,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
         qreal dist = qSqrt(dx*dx + dy*dy);
         QPointF sceneCenter = (p1 + p2)/2;
         qreal angle = QLineF(p1, p2).angle();
-        if (d->touchPoints.count() == 1) {
+        if (d->touchPoints.size() == 1) {
             // If we only have one point then just move the center
             if (d->id1 == touchPoint1.id())
                 sceneCenter = d->sceneLastCenter + touchPoint1.scenePosition() - d->lastPoint1;
@@ -523,7 +494,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
         qCDebug(lcPA, "pinch \u2316 %.1lf,%.1lf \u21e4%.1lf\u21e5 \u2220 %.1lf",
                 sceneCenter.x(), sceneCenter.y(), dist, angle);
         if (!d->inPinch || d->initPinch) {
-            if (d->touchPoints.count() >= 2) {
+            if (d->touchPoints.size() >= 2) {
                 if (d->initPinch) {
                     if (!d->inPinch)
                         d->pinchStartDist = dist;
@@ -554,13 +525,16 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
                     pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
                     pe.setPoint1(mapFromScene(d->lastPoint1));
                     pe.setPoint2(mapFromScene(d->lastPoint2));
-                    pe.setPointCount(d->touchPoints.count());
+                    pe.setPointCount(d->touchPoints.size());
                     emit pinchStarted(&pe);
                     if (pe.accepted()) {
                         d->inPinch = true;
                         event->setExclusiveGrabber(touchPoint1, this);
                         event->setExclusiveGrabber(touchPoint2, this);
                         setKeepTouchGrab(true);
+                        // So that PinchArea works in PathView, grab mouse events too.
+                        // We should be able to remove these setKeepMouseGrab calls when QTBUG-105567 is fixed.
+                        setKeepMouseGrab(true);
                         d->inPinch = true;
                         if (d->pinch && d->pinch->target()) {
                             auto targetParent = pinch()->target()->parentItem();
@@ -594,7 +568,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
             pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
             pe.setPoint1(touchPoint1.position());
             pe.setPoint2(touchPoint2.position());
-            pe.setPointCount(d->touchPoints.count());
+            pe.setPointCount(d->touchPoints.size());
             d->pinchLastScale = scale;
             d->sceneLastCenter = sceneCenter;
             d->pinchLastAngle = angle;

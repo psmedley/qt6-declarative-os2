@@ -1,33 +1,9 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <QtTest/QtTest>
 #include <QtQuick/qquickview.h>
 #include <qqmlengine.h>
+#include <QtQml/qqmlcomponent.h>
 #include <QtQuick/private/qquickrectangle_p.h>
 #include <QtQuick/private/qquickpositioners_p.h>
 #include <QtQuick/private/qquicktransition_p.h>
@@ -1065,7 +1041,7 @@ void tst_qquickpositioners::populateTransitions(const QString &positionerObjectN
         QTRY_COMPARE(window->rootObject()->property("populateTransitionsDone").toInt(), 0);
         QTRY_COMPARE(window->rootObject()->property("addTransitionsDone").toInt(), model.count());
     } else {
-        QVERIFY(QQuickTest::qWaitForItemPolished(positioner));
+        QVERIFY(QQuickTest::qWaitForPolish(positioner));
         QTRY_COMPARE(window->rootObject()->property("populateTransitionsDone").toInt(), 0);
         QTRY_COMPARE(window->rootObject()->property("addTransitionsDone").toInt(), 0);
     }
@@ -1132,7 +1108,7 @@ void tst_qquickpositioners::addTransitions(const QString &positionerObjectName)
     QQuickItem *positioner = window->rootObject()->findChild<QQuickItem*>(positionerObjectName);
     QVERIFY(positioner);
     positioner->findChild<QQuickItem*>("repeater")->setProperty("model", QVariant::fromValue(&model));
-    QVERIFY(QQuickTest::qWaitForItemPolished(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
 
     for (int i = 0; i < initialItemCount; i++)
         model.addItem("Original item" + QString::number(i), "");
@@ -1173,7 +1149,7 @@ void tst_qquickpositioners::addTransitions(const QString &positionerObjectName)
 
     targetItems = findItems<QQuickItem>(positioner, "wrapper", targetIndexes);
 
-    QTRY_COMPARE(window->rootObject()->property("addTransitionsDone").toInt(), targetData.count());
+    QTRY_COMPARE(window->rootObject()->property("addTransitionsDone").toInt(), targetData.size());
     QTRY_COMPARE(window->rootObject()->property("displaceTransitionsDone").toInt(), expectedDisplacedIndexes.count());
 
     // check the target and displaced items were animated
@@ -1258,7 +1234,7 @@ void tst_qquickpositioners::moveTransitions(const QString &positionerObjectName)
     QQuickItem *positioner = window->rootObject()->findChild<QQuickItem*>(positionerObjectName);
     QVERIFY(positioner);
     positioner->findChild<QQuickItem*>("repeater")->setProperty("model", QVariant::fromValue(&model));
-    QVERIFY(QQuickTest::qWaitForItemPolished(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
 
     switch (change.type) {
         case ListChange::Removed:
@@ -1267,7 +1243,7 @@ void tst_qquickpositioners::moveTransitions(const QString &positionerObjectName)
             break;
         case ListChange::Moved:
             model.moveItems(change.index, change.to, change.count);
-            QVERIFY(QQuickTest::qWaitForItemPolished(positioner));
+            QVERIFY(QQuickTest::qWaitForPolish(positioner));
             break;
         case ListChange::Inserted:
         case ListChange::SetCurrent:
@@ -1286,9 +1262,9 @@ void tst_qquickpositioners::moveTransitions(const QString &positionerObjectName)
     model_displacedItems_transitionVia.matchAgainst(expectedDisplacedValues, "wasn't animated with displaced anim", "shouldn't have been animated with displaced anim");
 
     // check attached properties
-    QCOMPARE(window->rootObject()->property("targetTrans_items").toMap().count(), 0);
-    QCOMPARE(window->rootObject()->property("targetTrans_targetIndexes").toList().count(), 0);
-    QCOMPARE(window->rootObject()->property("targetTrans_targetItems").toList().count(), 0);
+    QCOMPARE(window->rootObject()->property("targetTrans_items").toMap().size(), 0);
+    QCOMPARE(window->rootObject()->property("targetTrans_targetIndexes").toList().size(), 0);
+    QCOMPARE(window->rootObject()->property("targetTrans_targetItems").toList().size(), 0);
     if (expectedDisplacedIndexes.isValid()) {
         // adjust expectedDisplacedIndexes to their final values after the move
         QList<int> displacedIndexes;
@@ -1303,12 +1279,12 @@ void tst_qquickpositioners::moveTransitions(const QString &positionerObjectName)
         matchItemsAndIndexes(window->rootObject()->property("displacedTrans_items").toMap(), model, displacedIndexes);
 
         QVariantList listOfEmptyIntLists;
-        for (int i=0; i<displacedIndexes.count(); i++)
+        for (int i=0; i<displacedIndexes.size(); i++)
             listOfEmptyIntLists << QVariant::fromValue(QList<int>());
         QCOMPARE(window->rootObject()->property("displacedTrans_targetIndexes").toList(), listOfEmptyIntLists);
         QVariantList listOfEmptyObjectLists;
-        for (int i=0; i<displacedIndexes.count(); i++)
-            listOfEmptyObjectLists.insert(listOfEmptyObjectLists.count(), QVariantList());
+        for (int i=0; i<displacedIndexes.size(); i++)
+            listOfEmptyObjectLists.insert(listOfEmptyObjectLists.size(), QVariantList());
         QCOMPARE(window->rootObject()->property("displacedTrans_targetItems").toList(), listOfEmptyObjectLists);
     }
 
@@ -2962,37 +2938,37 @@ void tst_qquickpositioners::test_propertychanges()
     grid->setMove(rowTransition);
     QCOMPARE(grid->add(), rowTransition);
     QCOMPARE(grid->move(), rowTransition);
-    QCOMPARE(addSpy.count(),1);
-    QCOMPARE(moveSpy.count(),1);
+    QCOMPARE(addSpy.size(),1);
+    QCOMPARE(moveSpy.size(),1);
 
     grid->setAdd(rowTransition);
     grid->setMove(rowTransition);
-    QCOMPARE(addSpy.count(),1);
-    QCOMPARE(moveSpy.count(),1);
+    QCOMPARE(addSpy.size(),1);
+    QCOMPARE(moveSpy.size(),1);
 
     grid->setAdd(nullptr);
     grid->setMove(nullptr);
-    QCOMPARE(addSpy.count(),2);
-    QCOMPARE(moveSpy.count(),2);
+    QCOMPARE(addSpy.size(),2);
+    QCOMPARE(moveSpy.size(),2);
 
     grid->setColumns(-1);
     grid->setRows(3);
     QCOMPARE(grid->columns(), -1);
     QCOMPARE(grid->rows(), 3);
-    QCOMPARE(columnsSpy.count(),1);
-    QCOMPARE(rowsSpy.count(),1);
+    QCOMPARE(columnsSpy.size(),1);
+    QCOMPARE(rowsSpy.size(),1);
 
     grid->setColumns(-1);
     grid->setRows(3);
-    QCOMPARE(columnsSpy.count(),1);
-    QCOMPARE(rowsSpy.count(),1);
+    QCOMPARE(columnsSpy.size(),1);
+    QCOMPARE(rowsSpy.size(),1);
 
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*QML Grid: Grid contains more visible items \\(20\\) than rows\\*columns \\(6\\)"));
     grid->setColumns(2);
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*QML Grid: Grid contains more visible items \\(20\\) than rows\\*columns \\(4\\)"));
     grid->setRows(2);
-    QCOMPARE(columnsSpy.count(),2);
-    QCOMPARE(rowsSpy.count(),2);
+    QCOMPARE(columnsSpy.size(),2);
+    QCOMPARE(rowsSpy.size(),2);
 
 }
 
@@ -3822,7 +3798,7 @@ void tst_qquickpositioners::test_mirroring()
             QQuickItem *positionerB = itemB->parentItem();
             positionerA->setWidth(positionerA->width() * 2);
             positionerB->setWidth(positionerB->width() * 2);
-            QVERIFY(QQuickTest::qWaitForItemPolished(positionerA) && QQuickTest::qWaitForItemPolished(positionerB));
+            QVERIFY(QQuickTest::qWaitForPolish(positionerA) && QQuickTest::qWaitForPolish(positionerB));
             QTRY_COMPARE(itemA->x(), itemB->x());
         }
 
@@ -4036,7 +4012,7 @@ QQuickView *tst_qquickpositioners::createView(const QString &filename, bool wait
 void tst_qquickpositioners::matchIndexLists(const QVariantList &indexLists, const QList<int> &expectedIndexes)
 {
     const QSet<int> expectedIndexSet(expectedIndexes.cbegin(), expectedIndexes.cend());
-    for (int i=0; i<indexLists.count(); i++) {
+    for (int i=0; i<indexLists.size(); i++) {
         const auto &currentList = indexLists[i].value<QList<int> >();
         const QSet<int> current(currentList.cbegin(), currentList.cend());
         if (current != expectedIndexSet)
@@ -4056,20 +4032,20 @@ void tst_qquickpositioners::matchItemsAndIndexes(const QVariantMap &items, const
             qDebug() << itemIndex;
         QCOMPARE(model.name(itemIndex), name);
     }
-    QCOMPARE(items.count(), expectedIndexes.count());
+    QCOMPARE(items.size(), expectedIndexes.size());
 }
 
 void tst_qquickpositioners::matchItemLists(const QVariantList &itemLists, const QList<QQuickItem *> &expectedItems)
 {
-    for (int i=0; i<itemLists.count(); i++) {
+    for (int i=0; i<itemLists.size(); i++) {
         QCOMPARE(itemLists[i].typeId(), QMetaType::QVariantList);
         QVariantList current = itemLists[i].toList();
-        for (int j=0; j<current.count(); j++) {
+        for (int j=0; j<current.size(); j++) {
             QQuickItem *o = qobject_cast<QQuickItem*>(current[j].value<QObject*>());
             QVERIFY2(o, QTest::toString(QString("Invalid actual item at %1").arg(j)));
             QVERIFY2(expectedItems.contains(o), QTest::toString(QString("Cannot match item %1").arg(j)));
         }
-        QCOMPARE(current.count(), expectedItems.count());
+        QCOMPARE(current.size(), expectedItems.size());
     }
 }
 

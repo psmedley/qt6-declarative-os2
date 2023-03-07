@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <qtest.h>
 #include <QQmlEngine>
@@ -296,8 +271,9 @@ void tst_qqmlvaluetypes::sizef()
 
 void tst_qqmlvaluetypes::locale()
 {
-    {
-        QQmlComponent component(&engine, testFileUrl("locale_read.qml"));
+    for (const QUrl &testFile :
+         { testFileUrl("locale_read.qml"), testFileUrl("locale_read_singleton.qml") }) {
+        QQmlComponent component(&engine, testFile);
         QScopedPointer<QObject> object(component.create());
         QVERIFY(!object.isNull());
 
@@ -1184,7 +1160,7 @@ static void checkNoErrors(QQmlComponent& component)
     QList<QQmlError> errors = component.errors();
     if (errors.isEmpty())
         return;
-    for (int ii = 0; ii < errors.count(); ++ii) {
+    for (int ii = 0; ii < errors.size(); ++ii) {
         const QQmlError &error = errors.at(ii);
         qWarning("%d:%d:%s",error.line(),error.column(),error.description().toUtf8().constData());
     }
@@ -1714,8 +1690,8 @@ void tst_qqmlvaluetypes::sequences()
     {
         QList<BaseGadget> gadgetList{1, 4, 7, 8, 15};
         QJSValue value = engine.toScriptValue(gadgetList);
-        QCOMPARE(value.property("length").toInt(), gadgetList.length());
-        for (int i = 0; i < gadgetList.length(); ++i)
+        QCOMPARE(value.property("length").toInt(), gadgetList.size());
+        for (int i = 0; i < gadgetList.size(); ++i)
             QCOMPARE(value.property(i).property("baseProperty").toInt(), gadgetList.at(i).baseProperty());
     }
     {
@@ -1728,8 +1704,8 @@ void tst_qqmlvaluetypes::sequences()
     {
         QVector<QChar> qcharVector{QChar(1), QChar(4), QChar(42), QChar(8), QChar(15)};
         QJSValue value = engine.toScriptValue(qcharVector);
-        QCOMPARE(value.property("length").toInt(), qcharVector.length());
-        for (int i = 0; i < qcharVector.length(); ++i)
+        QCOMPARE(value.property("length").toInt(), qcharVector.size());
+        for (int i = 0; i < qcharVector.size(); ++i)
             QCOMPARE(value.property(i).toString(), qcharVector.at(i));
     }
     {
@@ -1791,7 +1767,7 @@ void tst_qqmlvaluetypes::enumerableProperties()
         names.insert(name);
     }
 
-    QCOMPARE(names.count(), 2);
+    QCOMPARE(names.size(), 2);
     QVERIFY(names.contains(QStringLiteral("baseProperty")));
     QVERIFY(names.contains(QStringLiteral("derivedProperty")));
 }

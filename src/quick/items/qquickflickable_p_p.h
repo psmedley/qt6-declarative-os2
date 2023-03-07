@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2019 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QQUICKFLICKABLE_P_P_H
 #define QQUICKFLICKABLE_P_P_H
@@ -107,8 +71,9 @@ public:
             , smoothVelocity(fp), atEnd(false), atBeginning(true)
             , transitionToSet(false)
             , fixingUp(false), inOvershoot(false), inRebound(false), moving(false), flicking(false)
-            , dragging(false), extentsChanged(false)
+            , flickingWhenDragBegan(false), dragging(false), extentsChanged(false)
             , explicitValue(false), minExtentDirty(true), maxExtentDirty(true)
+            , contentPositionChangedExternallyDuringDrag(false)
             , unused(0)
         {}
 
@@ -156,20 +121,22 @@ public:
         int vTime;
         QQuickFlickablePrivate::Velocity smoothVelocity;
         QPODVector<qreal,10> velocityBuffer;
-        bool atEnd : 1;
-        bool atBeginning : 1;
-        bool transitionToSet : 1;
-        bool fixingUp : 1;
-        bool inOvershoot : 1;
-        bool inRebound : 1;
-        bool moving : 1;
-        bool flicking : 1;
-        bool dragging : 1;
-        bool extentsChanged : 1;
-        bool explicitValue : 1;
-        mutable bool minExtentDirty : 1;
-        mutable bool maxExtentDirty : 1;
-        uint unused : 19;
+        uint atEnd : 1;
+        uint atBeginning : 1;
+        uint transitionToSet : 1;
+        uint fixingUp : 1;
+        uint inOvershoot : 1;
+        uint inRebound : 1;
+        uint moving : 1;
+        uint flicking : 1;
+        uint flickingWhenDragBegan : 1;
+        uint dragging : 1;
+        uint extentsChanged : 1;
+        uint explicitValue : 1;
+        mutable uint minExtentDirty : 1;
+        mutable uint maxExtentDirty : 1;
+        uint contentPositionChangedExternallyDuringDrag : 1;
+        uint unused : 17;
     };
 
     bool flickX(qreal velocity);

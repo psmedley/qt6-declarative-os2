@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 Canonical Limited and/or its subsidiary(-ies).
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 Canonical Limited and/or its subsidiary(-ies).
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/QtTest>
 #include <QtQml/qqmlengine.h>
@@ -42,6 +17,7 @@
 #include <QtQml/private/qqmlirloader_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QQmlComponent>
 
 class tst_QQMLTypeLoader : public QQmlDataTest
 {
@@ -122,6 +98,10 @@ void tst_QQMLTypeLoader::trimCache()
         url.setQuery(QString::number(i));
 
         QQmlTypeData *data = loader.getType(url).take();
+
+        // Backup source code should be dropped right after loading, even without cache trimming.
+        QVERIFY(!data->backupSourceCode().isValid());
+
         // Run an event loop to receive the callback that release()es.
         QTRY_COMPARE(data->count(), 2);
 
@@ -149,10 +129,10 @@ void tst_QQMLTypeLoader::trimCache()
         // The cache is free to keep the others.
     }
 
-    for (auto *data : qAsConst(releaseCompilationUnitLater))
+    for (auto *data : std::as_const(releaseCompilationUnitLater))
         data->release();
 
-    for (auto *data : qAsConst(releaseLater))
+    for (auto *data : std::as_const(releaseLater))
         data->release();
 }
 
@@ -295,8 +275,8 @@ public:
 
     qint64 readData(char *data, qint64 maxlen) override
     {
-        if (m_buffer.length() < maxlen)
-            maxlen = m_buffer.length();
+        if (m_buffer.size() < maxlen)
+            maxlen = m_buffer.size();
         std::memcpy(data, m_buffer.data(), maxlen);
         m_buffer.remove(0, maxlen);
         return maxlen;
@@ -371,9 +351,9 @@ public:
                 segments.removeFirst();
             }
             if (segments.startsWith("plugin")) {
-                if (segments.length() == 2) {
+                if (segments.size() == 2) {
                     segments.append(path);
-                } else if (segments.length() == 3) {
+                } else if (segments.size() == 3) {
                     if (!segments[2].startsWith('/'))
                         segments[2] = path + segments[2];
                 } else {
@@ -466,7 +446,7 @@ void tst_QQMLTypeLoader::intercept()
     QTRY_COMPARE(o->property("created").toInt(), 2);
     QTRY_COMPARE(o->property("loaded").toInt(), 2);
 
-    QVERIFY(factory.loadedFiles.length() >= 6);
+    QVERIFY(factory.loadedFiles.size() >= 6);
     QVERIFY(factory.loadedFiles.contains(dataDirectory() + "/test_intercept.qml"));
     QVERIFY(factory.loadedFiles.contains(dataDirectory() + "/Intercept.qml"));
     QVERIFY(factory.loadedFiles.contains(dataDirectory() + "/Fast/qmldir"));
@@ -684,6 +664,7 @@ static void getCompilationUnitAndRuntimeInfo(QQmlRefPointer<QV4::ExecutableCompi
     QQmlTypeLoader &loader = QQmlEnginePrivate::get(engine)->typeLoader;
     auto typeData = loader.getType(url);
     QVERIFY(typeData);
+    QVERIFY(!typeData->backupSourceCode().isValid());
 
     if (typeData->isError()) {
         const auto errors = typeData->errors();

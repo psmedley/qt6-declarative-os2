@@ -1,56 +1,11 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** BSD License Usage
-** Alternatively, you may use this file under the terms of the BSD license
-** as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
 import QtQuick
 import QtTest
 import Qt.labs.platform
+import QtQuick.Controls as Controls
+import org.qtproject.Test
 
 TestCase {
     id: testCase
@@ -73,6 +28,11 @@ TestCase {
     SignalSpy {
         id: itemsSpy
         signalName: "itemsChanged"
+    }
+
+    Component {
+        id: signalSpyComponent
+        SignalSpy {}
     }
 
     function init() {
@@ -260,5 +220,69 @@ TestCase {
         subMenu.title = "Title"
         compare(subMenu.title, "Title")
         compare(subMenuItem.text, "Title")
+    }
+
+    Component {
+        id: disabledMenuItemAndActionComponent
+
+        Item {
+            property alias action: action
+            property alias menu: menu
+
+            Controls.Action {
+                id: action
+                shortcut: StandardKey.Copy
+            }
+
+            Menu {
+                id: menu
+
+                MenuItem {
+                    enabled: !action.enabled
+                    shortcut: StandardKey.Copy
+                    text: "test"
+                }
+            }
+        }
+    }
+
+    function test_shortcuts() {
+        if (!TestHelper.shortcutsSupported)
+            skip("This test requires shortcut support")
+
+        let root = createTemporaryObject(disabledMenuItemAndActionComponent, testCase)
+        verify(root)
+        let menu = root.menu
+        let menuItem = menu.items[0]
+        verify(menuItem)
+        let action = root.action
+
+        let actionTriggeredSpy = signalSpyComponent.createObject(root,
+            { target: action, signalName: "triggered" })
+        verify(actionTriggeredSpy.valid)
+        let menuItemTriggeredSpy = signalSpyComponent.createObject(root,
+            { target: menuItem, signalName: "triggered" })
+        verify(menuItemTriggeredSpy.valid)
+
+        // Perform the shortcut; the Action should be triggered since the MenuItem is disabled.
+        keySequence(StandardKey.Copy)
+        compare(actionTriggeredSpy.count, 1)
+        compare(menuItemTriggeredSpy.count, 0)
+
+        // Disable the Action, enabling the MenuItem in the process.
+        action.enabled = false
+        verify(menuItem.enabled)
+        // Perform the shortcut; the MenuItem should be triggered since the Action is disabled.
+        keySequence(StandardKey.Copy)
+        compare(actionTriggeredSpy.count, 1)
+        compare(menuItemTriggeredSpy.count, 1)
+
+        // Re-enable the Action, disabling the MenuItem in the process.
+        action.enabled = true
+        verify(!menuItem.enabled)
+        // Perform the shortcut; the Action should be triggered since the MenuItem is disabled.
+        keySequence(StandardKey.Copy)
+        compare(actionTriggeredSpy.count, 2)
+        compare(menuItemTriggeredSpy.count, 1)
     }
 }

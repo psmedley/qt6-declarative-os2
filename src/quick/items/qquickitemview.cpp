@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickitemview_p_p.h"
 #include "qquickitemviewfxitem_p_p.h"
@@ -1000,7 +964,7 @@ void QQuickItemViewPrivate::applyPendingChanges()
 
 int QQuickItemViewPrivate::findMoveKeyIndex(QQmlChangeSet::MoveKey key, const QVector<QQmlChangeSet::Change> &changes) const
 {
-    for (int i=0; i<changes.count(); i++) {
+    for (int i=0; i<changes.size(); i++) {
         for (int j=changes[i].index; j<changes[i].index + changes[i].count; j++) {
             if (changes[i].moveKey(j) == key)
                 return j;
@@ -1137,7 +1101,7 @@ void QQuickItemViewPrivate::applyDelegateChange()
 void QQuickItemViewPrivate::checkVisible() const
 {
     int skip = 0;
-    for (int i = 0; i < visibleItems.count(); ++i) {
+    for (int i = 0; i < visibleItems.size(); ++i) {
         FxViewItem *item = visibleItems.at(i);
         if (item->index == -1) {
             ++skip;
@@ -1389,7 +1353,7 @@ qreal QQuickItemView::maxYExtent() const
 {
     Q_D(const QQuickItemView);
     if (d->layoutOrientation() == Qt::Horizontal)
-        return height();
+        return QQuickFlickable::maxYExtent();
 
     if (d->vData.maxExtentDirty) {
         d->maxExtent = d->maxExtentForAxis(d->vData, false);
@@ -1417,7 +1381,7 @@ qreal QQuickItemView::maxXExtent() const
 {
     Q_D(const QQuickItemView);
     if (d->layoutOrientation() == Qt::Vertical)
-        return width();
+        return QQuickFlickable::maxXExtent();
 
     if (d->hData.maxExtentDirty) {
         d->maxExtent = d->maxExtentForAxis(d->hData, true);
@@ -1600,8 +1564,8 @@ int QQuickItemViewPrivate::findLastVisibleIndex(int defaultValue) const
 }
 
 FxViewItem *QQuickItemViewPrivate::visibleItem(int modelIndex) const {
-    if (modelIndex >= visibleIndex && modelIndex < visibleIndex + visibleItems.count()) {
-        for (int i = modelIndex - visibleIndex; i < visibleItems.count(); ++i) {
+    if (modelIndex >= visibleIndex && modelIndex < visibleIndex + visibleItems.size()) {
+        for (int i = modelIndex - visibleIndex; i < visibleItems.size(); ++i) {
             FxViewItem *item = visibleItems.at(i);
             if (item->index == modelIndex)
                 return item;
@@ -1616,7 +1580,7 @@ FxViewItem *QQuickItemViewPrivate::firstItemInView() const {
         if (item->index != -1 && item->endPosition() > pos)
             return item;
     }
-    return visibleItems.count() ? visibleItems.first() : 0;
+    return visibleItems.size() ? visibleItems.first() : 0;
 }
 
 int QQuickItemViewPrivate::findLastIndexInView() const
@@ -1635,9 +1599,9 @@ int QQuickItemViewPrivate::findLastIndexInView() const
 // e.g. doing a removal animation
 int QQuickItemViewPrivate::mapFromModel(int modelIndex) const
 {
-    if (modelIndex < visibleIndex || modelIndex >= visibleIndex + visibleItems.count())
+    if (modelIndex < visibleIndex || modelIndex >= visibleIndex + visibleItems.size())
         return -1;
-    for (int i = 0; i < visibleItems.count(); ++i) {
+    for (int i = 0; i < visibleItems.size(); ++i) {
         FxViewItem *item = visibleItems.at(i);
         if (item->index == modelIndex)
             return i;
@@ -1718,7 +1682,7 @@ void QQuickItemViewPrivate::clear(bool onDestruction)
     releaseVisibleItems(QQmlInstanceModel::NotReusable);
     visibleIndex = 0;
 
-    for (FxViewItem *item : qAsConst(releasePendingTransition)) {
+    for (FxViewItem *item : std::as_const(releasePendingTransition)) {
         item->releaseAfterTransition = false;
         releaseItem(item, QQmlInstanceModel::NotReusable);
     }
@@ -1868,7 +1832,7 @@ void QQuickItemViewPrivate::layout()
     // viewBounds contains bounds before any add/remove/move operation to the view
     QRectF viewBounds(q->contentX(),  q->contentY(), q->width(), q->height());
 
-    if (!isValid() && !visibleItems.count()) {
+    if (!isValid() && !visibleItems.size()) {
         clear();
         setPosition(contentStartOffset());
         updateViewport();
@@ -1882,7 +1846,7 @@ void QQuickItemViewPrivate::layout()
             && transitioner->canTransition(QQuickItemViewTransitioner::RemoveTransition, false)) {
         // assume that any items moving now are moving due to the remove - if they schedule
         // a different transition, that will override this one anyway
-        for (int i=0; i<visibleItems.count(); i++)
+        for (int i=0; i<visibleItems.size(); i++)
             visibleItems[i]->transitionNextReposition(transitioner, QQuickItemViewTransitioner::RemoveTransition, false);
     }
 
@@ -1902,7 +1866,7 @@ void QQuickItemViewPrivate::layout()
         // Give the view one more chance to refill itself,
         // in case its size is changed such that more delegates become visible after component completed
         refill();
-        for (FxViewItem *item : qAsConst(visibleItems)) {
+        for (FxViewItem *item : std::as_const(visibleItems)) {
             if (!item->transitionScheduledOrRunning())
                 item->transitionNextReposition(transitioner, QQuickItemViewTransitioner::PopulateTransition, true);
         }
@@ -1939,14 +1903,14 @@ void QQuickItemViewPrivate::layout()
         prepareVisibleItemTransitions();
 
         // We cannot use iterators here as erasing from a container invalidates them.
-        for (int i = 0, count = releasePendingTransition.count(); i < count;) {
+        for (int i = 0, count = releasePendingTransition.size(); i < count;) {
             auto success = prepareNonVisibleItemTransition(releasePendingTransition[i], viewBounds);
             // prepareNonVisibleItemTransition() may remove items while in fast flicking.
             // Invisible animating items are kicked in or out the viewPort.
             // Recheck count to test if the item got removed. In that case the same index points
             // to a different item now.
             const int old_count = count;
-            count = releasePendingTransition.count();
+            count = releasePendingTransition.size();
             if (old_count > count)
                 continue;
 
@@ -1959,9 +1923,9 @@ void QQuickItemViewPrivate::layout()
             }
         }
 
-        for (int i=0; i<visibleItems.count(); i++)
+        for (int i=0; i<visibleItems.size(); i++)
             visibleItems[i]->startTransition(transitioner);
-        for (int i=0; i<releasePendingTransition.count(); i++)
+        for (int i=0; i<releasePendingTransition.size(); i++)
             releasePendingTransition[i]->startTransition(transitioner);
 
         transitioner->setPopulateTransitionEnabled(false);
@@ -1985,9 +1949,9 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
     updateUnrequestedIndexes();
 
-    FxViewItem *prevVisibleItemsFirst = visibleItems.count() ? *visibleItems.constBegin() : nullptr;
+    FxViewItem *prevVisibleItemsFirst = visibleItems.size() ? *visibleItems.constBegin() : nullptr;
     int prevItemCount = itemCount;
-    int prevVisibleItemsCount = visibleItems.count();
+    int prevVisibleItemsCount = visibleItems.size();
     bool visibleAffected = false;
     bool viewportChanged = !currentChanges.pendingChanges.removes().isEmpty()
             || !currentChanges.pendingChanges.inserts().isEmpty();
@@ -1999,7 +1963,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
         prevFirstItemInViewPos = prevFirstItemInView->position();
         prevFirstItemInViewIndex = prevFirstItemInView->index;
     }
-    qreal prevVisibleItemsFirstPos = visibleItems.count() ? firstVisibleItemPosition : 0.0;
+    qreal prevVisibleItemsFirstPos = visibleItems.size() ? firstVisibleItemPosition : 0.0;
 
     totalInsertionResult->visiblePos = prevFirstItemInViewPos;
     totalRemovalResult->visiblePos = prevFirstItemInViewPos;
@@ -2052,7 +2016,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
     QList<FxViewItem *> newItems;
     QList<MovedItem> movingIntoView;
 
-    for (int i=0; i<insertions.count(); i++) {
+    for (int i=0; i<insertions.size(); i++) {
         bool wasEmpty = visibleItems.isEmpty();
         if (applyInsertionChange(insertions[i], &insertionResult, &newItems, &movingIntoView))
             visibleAffected = true;
@@ -2063,14 +2027,14 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
         *totalInsertionResult += insertionResult;
 
         // set positions correctly for the next insertion
-        if (i < insertions.count() - 1) {
+        if (i < insertions.size() - 1) {
             repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstItemInView, &insertionResult, &removalResult);
             layoutVisibleItems(insertions[i].index);
             storeFirstVisibleItemPosition();
         }
         itemCount += insertions[i].count;
     }
-    for (FxViewItem *item : qAsConst(newItems)) {
+    for (FxViewItem *item : std::as_const(newItems)) {
         if (item->attached)
             item->attached->emitAdd();
     }
@@ -2079,7 +2043,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
     // find the index it was moved from in order to set its initial position, so that we
     // can transition it from this "original" position to its new position in the view
     if (transitioner && transitioner->canTransition(QQuickItemViewTransitioner::MoveTransition, true)) {
-        for (const MovedItem &m : qAsConst(movingIntoView)) {
+        for (const MovedItem &m : std::as_const(movingIntoView)) {
             int fromIndex = findMoveKeyIndex(m.moveKey, removals);
             if (fromIndex >= 0) {
                 if (prevFirstItemInViewIndex >= 0 && fromIndex < prevFirstItemInViewIndex)
@@ -2135,7 +2099,7 @@ bool QQuickItemViewPrivate::applyRemovalChange(const QQmlChangeSet::Change &remo
     Q_Q(QQuickItemView);
     bool visibleAffected = false;
 
-    if (visibleItems.count() && removal.index + removal.count > visibleItems.constLast()->index) {
+    if (visibleItems.size() && removal.index + removal.count > visibleItems.constLast()->index) {
         if (removal.index > visibleItems.constLast()->index)
             removeResult->countChangeAfterVisibleItems += removal.count;
         else
@@ -2213,7 +2177,7 @@ void QQuickItemViewPrivate::repositionFirstItem(FxViewItem *prevVisibleItemsFirs
     const QQmlNullableValue<qreal> prevViewPos = insertionResult->visiblePos;
 
     // reposition visibleItems.first() correctly so that the content y doesn't jump
-    if (visibleItems.count()) {
+    if (visibleItems.size()) {
         if (prevVisibleItemsFirst && insertionResult->changedFirstItem)
             resetFirstItemPosition(prevVisibleItemsFirstPos);
 
@@ -2260,7 +2224,7 @@ void QQuickItemViewPrivate::prepareVisibleItemTransitions()
 
     // must call for every visible item to init or discard transitions
     QRectF viewBounds(q->contentX(), q->contentY(), q->width(), q->height());
-    for (int i=0; i<visibleItems.count(); i++)
+    for (int i=0; i<visibleItems.size(); i++)
         visibleItems[i]->prepareTransition(transitioner, viewBounds);
 }
 
@@ -2312,7 +2276,7 @@ bool QQuickItemViewPrivate::prepareNonVisibleItemTransition(FxViewItem *item, co
 
 void QQuickItemViewPrivate::viewItemTransitionFinished(QQuickItemViewTransitionableItem *item)
 {
-    for (int i=0; i<releasePendingTransition.count(); i++) {
+    for (int i=0; i<releasePendingTransition.size(); i++) {
         if (releasePendingTransition.at(i)->transitionableItem == item) {
             releaseItem(releasePendingTransition.takeAt(i), reusableFlag);
             return;
@@ -2332,7 +2296,7 @@ FxViewItem *QQuickItemViewPrivate::createItem(int modelIndex, QQmlIncubator::Inc
     if (requestedIndex == modelIndex && incubationMode == QQmlIncubator::Asynchronous)
         return nullptr;
 
-    for (int i=0; i<releasePendingTransition.count(); i++) {
+    for (int i=0; i<releasePendingTransition.size(); i++) {
         if (releasePendingTransition.at(i)->index == modelIndex
                 && !releasePendingTransition.at(i)->isPendingRemoval()) {
             releasePendingTransition[i]->releaseAfterTransition = false;

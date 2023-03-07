@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlobjectmodel_p.h"
 
@@ -75,12 +39,12 @@ public:
     QQmlObjectModelPrivate() : QObjectPrivate(), moveId(0) {}
 
     static void children_append(QQmlListProperty<QObject> *prop, QObject *item) {
-        qsizetype index = static_cast<QQmlObjectModelPrivate *>(prop->data)->children.count();
+        qsizetype index = static_cast<QQmlObjectModelPrivate *>(prop->data)->children.size();
         static_cast<QQmlObjectModelPrivate *>(prop->data)->insert(index, item);
     }
 
     static qsizetype children_count(QQmlListProperty<QObject> *prop) {
-        return static_cast<QQmlObjectModelPrivate *>(prop->data)->children.count();
+        return static_cast<QQmlObjectModelPrivate *>(prop->data)->children.size();
     }
 
     static QObject *children_at(QQmlListProperty<QObject> *prop, qsizetype index) {
@@ -97,13 +61,13 @@ public:
 
     static void children_removeLast(QQmlListProperty<QObject> *prop) {
         auto data = static_cast<QQmlObjectModelPrivate *>(prop->data);
-        data->remove(data->children.count() - 1, 1);
+        data->remove(data->children.size() - 1, 1);
     }
 
     void insert(int index, QObject *item) {
         Q_Q(QQmlObjectModel);
         children.insert(index, Item(item));
-        for (int i = index; i < children.count(); ++i) {
+        for (int i = index; i < children.size(); ++i) {
             QQmlObjectModelAttached *attached = QQmlObjectModelAttached::properties(children.at(i).item);
             attached->setIndex(i);
         }
@@ -162,7 +126,7 @@ public:
             attached->setIndex(-1);
         }
         children.erase(children.begin() + index, children.begin() + index + n);
-        for (int i = index; i < children.count(); ++i) {
+        for (int i = index; i < children.size(); ++i) {
             QQmlObjectModelAttached *attached = QQmlObjectModelAttached::properties(children.at(i).item);
             attached->setIndex(i);
         }
@@ -178,11 +142,11 @@ public:
         const auto copy = children;
         for (const Item &child : copy)
             emit q->destroyingItem(child.item);
-        remove(0, children.count());
+        remove(0, children.size());
     }
 
     int indexOf(QObject *item) const {
-        for (int i = 0; i < children.count(); ++i)
+        for (int i = 0; i < children.size(); ++i)
             if (children.at(i).item == item)
                 return i;
         return -1;
@@ -267,7 +231,7 @@ QQmlListProperty<QObject> QQmlObjectModel::children()
 int QQmlObjectModel::count() const
 {
     Q_D(const QQmlObjectModel);
-    return d->children.count();
+    return d->children.size();
 }
 
 bool QQmlObjectModel::isValid() const
@@ -301,7 +265,7 @@ QQmlInstanceModel::ReleaseFlags QQmlObjectModel::release(QObject *item, Reusable
 QVariant QQmlObjectModel::variantValue(int index, const QString &role)
 {
     Q_D(QQmlObjectModel);
-    if (index < 0 || index >= d->children.count())
+    if (index < 0 || index >= d->children.size())
         return QString();
     return d->children.at(index).item->property(role.toUtf8().constData());
 }
@@ -344,7 +308,7 @@ QQmlObjectModelAttached *QQmlObjectModel::qmlAttachedProperties(QObject *obj)
 QObject *QQmlObjectModel::get(int index) const
 {
     Q_D(const QQmlObjectModel);
-    if (index < 0 || index >= d->children.count())
+    if (index < 0 || index >= d->children.size())
         return nullptr;
     return d->children.at(index).item;
 }

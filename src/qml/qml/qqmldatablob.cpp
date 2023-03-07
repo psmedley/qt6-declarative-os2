@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2019 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <private/qqmldatablob_p.h>
 #include <private/qqmlglobal_p.h>
@@ -290,7 +254,7 @@ void QQmlDataBlob::setError(const QList<QQmlError> &errors)
     Q_ASSERT(m_errors.isEmpty());
 
     // m_errors must be set before the m_data fence
-    m_errors.reserve(errors.count());
+    m_errors.reserve(errors.size());
     for (const QQmlError &error : errors) {
         if (error.url().isEmpty()) {
             QQmlError mutableError = error;
@@ -305,7 +269,7 @@ void QQmlDataBlob::setError(const QList<QQmlError> &errors)
 
     if (dumpErrors()) {
         qWarning().nospace() << "Errors for " << urlString();
-        for (int ii = 0; ii < errors.count(); ++ii)
+        for (int ii = 0; ii < errors.size(); ++ii)
             qWarning().nospace() << "    " << qPrintable(errors.at(ii).toString());
     }
     cancelAllWaitingFor();
@@ -349,7 +313,7 @@ void QQmlDataBlob::addDependency(QQmlDataBlob *blob)
         status() == Error || status() == Complete || m_isDone)
         return;
 
-    for (const auto &existingDep: qAsConst(m_waitingFor))
+    for (const auto &existingDep: std::as_const(m_waitingFor))
         if (existingDep.data() == blob)
             return;
 
@@ -539,7 +503,7 @@ void QQmlDataBlob::tryDone()
 
 void QQmlDataBlob::cancelAllWaitingFor()
 {
-    while (m_waitingFor.count()) {
+    while (m_waitingFor.size()) {
         QQmlRefPointer<QQmlDataBlob> blob = m_waitingFor.takeLast();
 
         Q_ASSERT(blob->m_waitingOnMe.contains(this));
@@ -550,7 +514,7 @@ void QQmlDataBlob::cancelAllWaitingFor()
 
 void QQmlDataBlob::notifyAllWaitingOnMe()
 {
-    while (m_waitingOnMe.count()) {
+    while (m_waitingOnMe.size()) {
         QQmlDataBlob *blob = m_waitingOnMe.takeLast();
 
         Q_ASSERT(std::any_of(blob->m_waitingFor.constBegin(), blob->m_waitingFor.constEnd(),
@@ -569,7 +533,7 @@ void QQmlDataBlob::notifyComplete(QQmlDataBlob *blob)
     m_inCallback = true;
 
     QQmlRefPointer<QQmlDataBlob> blobRef;
-    for (int i = 0; i < m_waitingFor.count(); ++i) {
+    for (int i = 0; i < m_waitingFor.size(); ++i) {
         if (m_waitingFor.at(i).data() == blob) {
             blobRef = m_waitingFor.takeAt(i);
             break;
@@ -612,7 +576,7 @@ QString QQmlDataBlob::SourceCodeData::readAll(QString *error) const
     }
 
     QByteArray data(fileSize, Qt::Uninitialized);
-    if (f.read(data.data(), data.length()) != data.length()) {
+    if (f.read(data.data(), data.size()) != data.size()) {
         *error = f.errorString();
         return QString();
     }

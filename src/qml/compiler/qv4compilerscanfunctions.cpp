@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qv4compilerscanfunctions_p.h"
 
@@ -344,7 +308,7 @@ bool ScanFunctions::visit(PatternElement *ast)
         declarationLocation.length = ast->lastSourceLocation().end() - declarationLocation.offset;
     }
 
-    for (const auto &name : qAsConst(names)) {
+    for (const auto &name : std::as_const(names)) {
         if (_context->isStrict && (name.id == QLatin1String("eval") || name.id == QLatin1String("arguments")))
             _cg->throwSyntaxError(ast->identifierToken, QStringLiteral("Variable name may not be eval or arguments in strict mode"));
         checkName(QStringView(name.id), ast->identifierToken);
@@ -757,7 +721,7 @@ void ScanFunctions::calcEscapingVariables()
 {
     Module *m = _cg->_module;
 
-    for (Context *inner : qAsConst(m->contextMap)) {
+    for (Context *inner : std::as_const(m->contextMap)) {
         if (inner->usesArgumentsObject != Context::ArgumentsObjectUsed)
             continue;
         if (inner->contextType != ContextType::Block && !inner->isArrowFunction)
@@ -769,7 +733,7 @@ void ScanFunctions::calcEscapingVariables()
             c->usesArgumentsObject = Context::ArgumentsObjectUsed;
         inner->usesArgumentsObject = Context::ArgumentsObjectNotUsed;
     }
-    for (Context *inner : qAsConst(m->contextMap)) {
+    for (Context *inner : std::as_const(m->contextMap)) {
         if (!inner->parent || inner->usesArgumentsObject == Context::ArgumentsObjectUnknown)
             inner->usesArgumentsObject = Context::ArgumentsObjectNotUsed;
         if (inner->usesArgumentsObject == Context::ArgumentsObjectUsed) {
@@ -782,7 +746,7 @@ void ScanFunctions::calcEscapingVariables()
         }
     }
 
-    for (Context *c : qAsConst(m->contextMap)) {
+    for (Context *c : std::as_const(m->contextMap)) {
         if (c->contextType != ContextType::ESModule)
             continue;
         for (const auto &entry: c->exportEntries) {
@@ -793,8 +757,8 @@ void ScanFunctions::calcEscapingVariables()
         break;
     }
 
-    for (Context *inner : qAsConst(m->contextMap)) {
-        for (const QString &var : qAsConst(inner->usedVariables)) {
+    for (Context *inner : std::as_const(m->contextMap)) {
+        for (const QString &var : std::as_const(inner->usedVariables)) {
             Context *c = inner;
             while (c) {
                 Context *current = c;
@@ -856,7 +820,7 @@ void ScanFunctions::calcEscapingVariables()
             c->innerFunctionAccessesThis |= innerFunctionAccessesThis;
         }
     }
-    for (Context *c : qAsConst(m->contextMap)) {
+    for (Context *c : std::as_const(m->contextMap)) {
         if (c->innerFunctionAccessesThis) {
             // add an escaping 'this' variable
             c->addLocalVar(QStringLiteral("this"), Context::VariableDefinition, VariableScope::Let);
@@ -882,7 +846,7 @@ void ScanFunctions::calcEscapingVariables()
                 c->requiresExecutionContext = true;
                 c->argumentsCanEscape = true;
             } else {
-                for (const auto &m : qAsConst(c->members)) {
+                for (const auto &m : std::as_const(c->members)) {
                     if (m.isLexicallyScoped()) {
                         c->requiresExecutionContext = true;
                         break;
@@ -897,13 +861,13 @@ void ScanFunctions::calcEscapingVariables()
             mIt->canEscape = true;
         }
         const QLatin1String exprForOn("expression for on");
-        if (c->contextType == ContextType::Binding && c->name.length() > exprForOn.size() &&
+        if (c->contextType == ContextType::Binding && c->name.size() > exprForOn.size() &&
             c->name.startsWith(exprForOn) && c->name.at(exprForOn.size()).isUpper())
             // we don't really need this for bindings, but we do for signal handlers, and in this case,
             // we don't know if the code is a signal handler or not.
             c->requiresExecutionContext = true;
         if (c->allVarsEscape) {
-            for (const auto &m : qAsConst(c->members))
+            for (const auto &m : std::as_const(c->members))
                 m.canEscape = true;
         }
     }
@@ -911,7 +875,7 @@ void ScanFunctions::calcEscapingVariables()
     static const bool showEscapingVars = qEnvironmentVariableIsSet("QV4_SHOW_ESCAPING_VARS");
     if (showEscapingVars) {
         qDebug() << "==== escaping variables ====";
-        for (Context *c : qAsConst(m->contextMap)) {
+        for (Context *c : std::as_const(m->contextMap)) {
             qDebug() << "Context" << c << c->name << "requiresExecutionContext" << c->requiresExecutionContext << "isStrict" << c->isStrict;
             qDebug() << "    isArrowFunction" << c->isArrowFunction << "innerFunctionAccessesThis" << c->innerFunctionAccessesThis;
             qDebug() << "    parent:" << c->parent;

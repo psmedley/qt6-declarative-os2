@@ -7,6 +7,8 @@
 function(qt_declarative_write_tag_header target_name)
     set(out_file "${CMAKE_CURRENT_BINARY_DIR}/qml_compile_hash_p.h")
     if(FEATURE_developer_build AND EXISTS "${out_file}")
+        target_sources(${target_name} PRIVATE "${out_file}")
+        set_source_files_properties("${out_file}" PROPERTIES GENERATED TRUE)
         return()
     endif()
 
@@ -63,6 +65,7 @@ function(qt_declarative_generate_reg_exp_jit_tables consuming_target)
         OUTPUT "${output_file}"
         COMMAND "${QT_INTERNAL_DECLARATIVE_PYTHON}" ${retgen_script_file} ${output_file}
         MAIN_DEPENDENCY ${retgen_script_file}
+        VERBATIM
     )
     target_sources(${consuming_target} PRIVATE ${output_file})
     target_include_directories(${consuming_target} PRIVATE $<BUILD_INTERFACE:${generate_dir}>)

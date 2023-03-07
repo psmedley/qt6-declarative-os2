@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qaccessiblequickitem_p.h"
 
@@ -82,7 +46,7 @@ public:
     QString anchor() const override
     {
         const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
-        if (linkIndex < links.count())
+        if (linkIndex < links.size())
             return links.at(linkIndex).m_anchor;
         return QString();
     }
@@ -90,7 +54,7 @@ public:
     QString anchorTarget() const override
     {
         const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
-        if (linkIndex < links.count())
+        if (linkIndex < links.size())
             return links.at(linkIndex).m_anchorTarget;
         return QString();
     }
@@ -98,7 +62,7 @@ public:
     int startIndex() const override
     {
         const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
-        if (linkIndex < links.count())
+        if (linkIndex < links.size())
             return links.at(linkIndex).m_startIndex;
         return -1;
     }
@@ -106,7 +70,7 @@ public:
     int endIndex() const override
     {
         const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
-        if (linkIndex < links.count())
+        if (linkIndex < links.size())
             return links.at(linkIndex).m_endIndex;
         return -1;
     }
@@ -149,7 +113,7 @@ QWindow *QAccessibleHyperlink::window() const
 QRect QAccessibleHyperlink::rect() const
 {
     const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
-    if (linkIndex < links.count()) {
+    if (linkIndex < links.size()) {
         const QPoint tl = itemScreenRect(textItem()).topLeft();
         return links.at(linkIndex).rect.translated(tl);
     }
@@ -268,9 +232,9 @@ int QAccessibleQuickItem::childCount() const
     // see comment in QAccessibleQuickItem::child() as to why we do this
     int cc = 0;
     if (QQuickText *textItem = qobject_cast<QQuickText*>(item())) {
-        cc = QQuickTextPrivate::get(textItem)->getLinks().count();
+        cc = QQuickTextPrivate::get(textItem)->getLinks().size();
     }
-    cc += childItems().count();
+    cc += childItems().size();
     return cc;
 }
 
@@ -307,7 +271,7 @@ QAccessibleInterface *QAccessibleQuickItem::childAt(int x, int y) const
 
     // special case for text interfaces
     if (QQuickText *textItem = qobject_cast<QQuickText*>(item())) {
-        const auto hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().count();
+        const auto hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().size();
         for (auto i = 0; i < hyperLinkChildCount; i++) {
             QAccessibleInterface *iface = child(i);
             if (iface->rect().contains(x,y)) {
@@ -318,7 +282,7 @@ QAccessibleInterface *QAccessibleQuickItem::childAt(int x, int y) const
 
     // general item hit test
     const QList<QQuickItem*> kids = accessibleUnignoredChildren(item(), true);
-    for (int i = kids.count() - 1; i >= 0; --i) {
+    for (int i = kids.size() - 1; i >= 0; --i) {
         QAccessibleInterface *childIface = QAccessible::queryAccessibleInterface(kids.at(i));
         if (QAccessibleInterface *childChild = childIface->childAt(x, y))
             return childChild;
@@ -380,7 +344,7 @@ QAccessibleInterface *QAccessibleQuickItem::child(int index) const
 
 
     if (QQuickText *textItem = qobject_cast<QQuickText*>(item())) {
-        const int hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().count();
+        const int hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().size();
         if (index < hyperLinkChildCount) {
             auto it = m_childToId.constFind(index);
             if (it != m_childToId.constEnd())
@@ -395,7 +359,7 @@ QAccessibleInterface *QAccessibleQuickItem::child(int index) const
     }
 
     QList<QQuickItem *> children = childItems();
-    if (index < children.count()) {
+    if (index < children.size()) {
         QQuickItem *child = children.at(index);
         return QAccessible::queryAccessibleInterface(child);
     }
@@ -406,7 +370,7 @@ int QAccessibleQuickItem::indexOfChild(const QAccessibleInterface *iface) const
 {
     int hyperLinkChildCount = 0;
     if (QQuickText *textItem = qobject_cast<QQuickText*>(item())) {
-        hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().count();
+        hyperLinkChildCount = QQuickTextPrivate::get(textItem)->getLinks().size();
         if (QAccessibleHyperlinkInterface *hyperLinkIface = const_cast<QAccessibleInterface *>(iface)->hyperlinkInterface()) {
             // ### assumes that there is only one subclass implementing QAccessibleHyperlinkInterface
             // Alternatively, we could simply iterate with child() and do a linear search for it

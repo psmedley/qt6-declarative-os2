@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquicktext_p.h"
 #include "qquicktext_p_p.h"
@@ -321,7 +285,7 @@ void QQuickText::imageDownloadFinished()
 
     if (d->extra.isAllocated() && d->extra->nbActiveDownloads == 0) {
         bool needToUpdateLayout = false;
-        for (QQuickStyledTextImgTag *img : qAsConst(d->extra->visibleImgTags)) {
+        for (QQuickStyledTextImgTag *img : std::as_const(d->extra->visibleImgTags)) {
             if (!img->size.isValid()) {
                 img->size = img->pix->implicitSize();
                 needToUpdateLayout = true;
@@ -653,7 +617,7 @@ void QQuickTextPrivate::elideFormats(
 {
     const int end = start + length;
     const QVector<QTextLayout::FormatRange> formats = layout.formats();
-    for (int i = 0; i < formats.count(); ++i) {
+    for (int i = 0; i < formats.size(); ++i) {
         QTextLayout::FormatRange format = formats.at(i);
         const int formatLength = qMin(format.start + format.length, end) - qMax(format.start, start);
         if (formatLength > 0) {
@@ -677,7 +641,7 @@ QString QQuickTextPrivate::elidedText(qreal lineWidth, const QTextLine &line, QT
         QString elideText = layout.text().mid(line.textStart(), line.textLength());
         if (!styledText) {
             // QFontMetrics won't help eliding styled text.
-            elideText[elideText.length() - 1] = elideChar;
+            elideText[elideText.size() - 1] = elideChar;
             // Appending the elide character may push the line over the maximum width
             // in which case the elided text will need to be elided.
             QFontMetricsF metrics(layout.font());
@@ -833,7 +797,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             if (noBreakLastLine && visibleCount == maxLineCount)
                 layout.engine()->option.setWrapMode(QTextOption::WrapAnywhere);
             if (customLayout) {
-                setupCustomLineGeometry(line, naturalHeight, layoutText.length());
+                setupCustomLineGeometry(line, naturalHeight, layoutText.size());
             } else {
                 setLineGeometry(line, lineWidth, naturalHeight);
             }
@@ -947,8 +911,8 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
                 // implicit width.
                 const int eol = line.isValid()
                         ? line.textStart() + line.textLength()
-                        : layoutText.length();
-                if (eol < layoutText.length() && layoutText.at(eol) != QChar::LineSeparator)
+                        : layoutText.size();
+                if (eol < layoutText.size() && layoutText.at(eol) != QChar::LineSeparator)
                     line = layout.createLine();
                 for (; line.isValid() && unwrappedLineCount <= maxLineCount; ++unwrappedLineCount)
                     line = layout.createLine();
@@ -1145,18 +1109,18 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
             QVector<QTextLayout::FormatRange> formats;
             switch (elideMode) {
             case QQuickText::ElideRight:
-                elideFormats(elideStart, elideText.length() - 1, 0, &formats);
+                elideFormats(elideStart, elideText.size() - 1, 0, &formats);
                 break;
             case QQuickText::ElideLeft:
-                elideFormats(elideEnd - elideText.length() + 1, elideText.length() - 1, 1, &formats);
+                elideFormats(elideEnd - elideText.size() + 1, elideText.size() - 1, 1, &formats);
                 break;
             case QQuickText::ElideMiddle: {
                 const int index = elideText.indexOf(elideChar);
                 if (index != -1) {
                     elideFormats(elideStart, index, 0, &formats);
                     elideFormats(
-                            elideEnd - elideText.length() + index + 1,
-                            elideText.length() - index - 1,
+                            elideEnd - elideText.size() + index + 1,
+                            elideText.size() - index - 1,
                             index + 1,
                             &formats);
                 }
@@ -1176,7 +1140,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
         QTextLine elidedLine = elideLayout->createLine();
         elidedLine.setPosition(QPointF(0, height));
         if (customLayout) {
-            setupCustomLineGeometry(elidedLine, height, elideText.length(), visibleCount - 1);
+            setupCustomLineGeometry(elidedLine, height, elideText.size(), visibleCount - 1);
         } else {
             setLineGeometry(elidedLine, lineWidth, height);
         }
@@ -1230,7 +1194,7 @@ void QQuickTextPrivate::setLineGeometry(QTextLine &line, qreal lineWidth, qreal 
     QList<QQuickStyledTextImgTag *> imagesInLine;
 
     if (extra.isAllocated()) {
-        for (QQuickStyledTextImgTag *image : qAsConst(extra->imgTags)) {
+        for (QQuickStyledTextImgTag *image : std::as_const(extra->imgTags)) {
             if (image->position >= line.textStart() &&
                 image->position < line.textStart() + line.textLength()) {
 
@@ -1268,7 +1232,7 @@ void QQuickTextPrivate::setLineGeometry(QTextLine &line, qreal lineWidth, qreal 
         }
     }
 
-    for (QQuickStyledTextImgTag *image : qAsConst(imagesInLine)) {
+    for (QQuickStyledTextImgTag *image : std::as_const(imagesInLine)) {
         totalLineHeight = qMax(totalLineHeight, textTop + image->pos.y() + image->size.height());
         const int leadX = line.cursorToX(image->position);
         const int trailX = line.cursorToX(image->position, QTextLine::Trailing);
@@ -2445,21 +2409,23 @@ void QQuickText::geometryChange(const QRectF &newGeometry, const QRectF &oldGeom
         goto geomChangeDone;
 
     if (!(widthChanged || widthMaximum) && !d->isLineLaidOutConnected()) { // only height has changed
-        if (newGeometry.height() > oldGeometry.height()) {
-            if (!d->heightExceeded && !qFuzzyIsNull(oldGeometry.height())) {
-                // Height is adequate and growing, and it wasn't 0 previously.
-                goto geomChangeDone;
-            }
-            if (d->lineCount == d->maximumLineCount())  // Reached maximum line and height is growing.
-                goto geomChangeDone;
-        } else if (newGeometry.height() < oldGeometry.height()) {
-            if (d->lineCount < 2 && !verticalScale && newGeometry.height() > 0)  // A single line won't be truncated until the text is 0 height.
-                goto geomChangeDone;
+        if (!verticalPositionChanged) {
+            if (newGeometry.height() > oldGeometry.height()) {
+                if (!d->heightExceeded && !qFuzzyIsNull(oldGeometry.height())) {
+                    // Height is adequate and growing, and it wasn't 0 previously.
+                    goto geomChangeDone;
+                }
+                if (d->lineCount == d->maximumLineCount())  // Reached maximum line and height is growing.
+                    goto geomChangeDone;
+            } else if (newGeometry.height() < oldGeometry.height()) {
+                if (d->lineCount < 2 && !verticalScale && newGeometry.height() > 0)  // A single line won't be truncated until the text is 0 height.
+                    goto geomChangeDone;
 
-            if (!verticalScale // no scaling, no eliding, and either unwrapped, or no maximum line count.
-                    && d->elideMode != QQuickText::ElideRight
-                    && !(d->maximumLineCountValid && d->widthExceeded)) {
-                goto geomChangeDone;
+                if (!verticalScale // no scaling, no eliding, and either unwrapped, or no maximum line count.
+                        && d->elideMode != QQuickText::ElideRight
+                        && !(d->maximumLineCountValid && d->widthExceeded)) {
+                    goto geomChangeDone;
+                }
             }
         }
     } else if (!heightChanged && widthMaximum) {
@@ -2545,7 +2511,7 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
             node->addTextLayout(QPointF(dx, dy), d->elideLayout, color, d->style, styleColor, linkColor);
 
         if (d->extra.isAllocated()) {
-            for (QQuickStyledTextImgTag *img : qAsConst(d->extra->visibleImgTags)) {
+            for (QQuickStyledTextImgTag *img : std::as_const(d->extra->visibleImgTags)) {
                 QQuickPixmap *pix = img->pix;
                 if (pix && pix->isReady())
                     node->addImage(QRectF(img->pos.x() + dx, img->pos.y() + dy, pix->width(), pix->height()), pix->image());
@@ -3006,6 +2972,13 @@ void QQuickText::hoverLeaveEvent(QHoverEvent *event)
 {
     Q_D(QQuickText);
     d->processHoverEvent(event);
+}
+
+void QQuickText::invalidate()
+{
+    Q_D(QQuickText);
+    d->textHasChanged = true;
+    d->updateLayout();
 }
 
 bool QQuickTextPrivate::transformChanged(QQuickItem *transformedItem)

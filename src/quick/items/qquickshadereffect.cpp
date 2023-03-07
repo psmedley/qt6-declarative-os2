@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <private/qquickshadereffect_p.h>
 #include <private/qsgcontextplugin_p.h>
@@ -1165,6 +1129,8 @@ QSGNode *QQuickShaderEffectImpl::handleUpdatePaintNode(QSGNode *oldNode, QQuickI
     sd.fragment.shader = &m_shaders[Fragment];
     sd.fragment.dirtyConstants = &m_dirtyConstants[Fragment];
     sd.fragment.dirtyTextures = &m_dirtyTextures[Fragment];
+    sd.materialTypeCacheKey = m_item->window();
+
     node->syncMaterial(&sd);
 
     if (m_dirty & QSGShaderEffectNode::DirtyShaderMesh) {
@@ -1243,6 +1209,7 @@ bool QQuickShaderEffectImpl::updateUniformValue(const QByteArray &name, const QV
     sd.fragment.shader = &m_shaders[Fragment];
     sd.fragment.dirtyConstants = &dirtyConstants[Fragment];
     sd.fragment.dirtyTextures = {};
+    sd.materialTypeCacheKey = m_item->window();
 
     node->syncMaterial(&sd);
 
@@ -1254,7 +1221,7 @@ void QQuickShaderEffectImpl::handleItemChange(QQuickItem::ItemChange change, con
     // Move the window ref.
     if (change == QQuickItem::ItemSceneChange) {
         for (int shaderType = 0; shaderType < NShader; ++shaderType) {
-            for (const auto &vd : qAsConst(m_shaders[shaderType].varData)) {
+            for (const auto &vd : std::as_const(m_shaders[shaderType].varData)) {
                 if (vd.specialType == QSGShaderEffectNode::VariableData::Source) {
                     QQuickItem *source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(vd.value));
                     if (source) {
@@ -1296,7 +1263,7 @@ void QQuickShaderEffectImpl::disconnectSignals(Shader shaderType)
         if (mapper)
             QObjectPrivate::disconnect(m_item, mapper->signalIndex(), &a);
     }
-    for (const auto &vd : qAsConst(m_shaders[shaderType].varData)) {
+    for (const auto &vd : std::as_const(m_shaders[shaderType].varData)) {
         if (vd.specialType == QSGShaderEffectNode::VariableData::Source) {
             QQuickItem *source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(vd.value));
             if (source) {
@@ -1310,7 +1277,7 @@ void QQuickShaderEffectImpl::disconnectSignals(Shader shaderType)
 
 void QQuickShaderEffectImpl::clearMappers(QQuickShaderEffectImpl::Shader shaderType)
 {
-    for (auto *mapper : qAsConst(m_mappers[shaderType])) {
+    for (auto *mapper : std::as_const(m_mappers[shaderType])) {
         if (mapper)
             mapper->destroyIfLastRef();
     }
@@ -1347,7 +1314,7 @@ bool QQuickShaderEffectImpl::updateShader(Shader shaderType, const QUrl &fileUrl
 
     disconnectSignals(shaderType);
 
-    m_shaders[shaderType].shaderInfo = QSGGuiThreadShaderEffectManager::ShaderInfo();
+    m_shaders[shaderType].shaderInfo.variables.clear();
     m_shaders[shaderType].varData.clear();
 
     if (!fileUrl.isEmpty()) {
@@ -1435,16 +1402,13 @@ void QQuickShaderEffectImpl::updateShaderVars(Shader shaderType)
 
     const bool texturesSeparate = mgr->hasSeparateSamplerAndTextureObjects();
 
-    const int varCount = m_shaders[shaderType].shaderInfo.variables.count();
+    const int varCount = m_shaders[shaderType].shaderInfo.variables.size();
     m_shaders[shaderType].varData.resize(varCount);
 
     // Recreate signal mappers when the shader has changed.
     clearMappers(shaderType);
 
-    auto *engine = qmlEngine(m_item);
-    QQmlRefPointer<QQmlPropertyCache> propCache = engine
-            ? QQmlData::ensurePropertyCache(engine, m_item)
-            : QQmlRefPointer<QQmlPropertyCache>();
+    QQmlPropertyCache::ConstPtr propCache = QQmlData::ensurePropertyCache(m_item);
 
     if (!m_itemMetaObject)
         m_itemMetaObject = m_item->metaObject();
@@ -1484,7 +1448,7 @@ void QQuickShaderEffectImpl::updateShaderVars(Shader shaderType)
 
         // Find the property on the ShaderEffect item.
         int propIdx = -1;
-        QQmlPropertyData *pd = nullptr;
+        const QQmlPropertyData *pd = nullptr;
         if (propCache) {
             pd = propCache->property(QLatin1String(v.name), nullptr, nullptr);
             if (pd) {
@@ -1535,7 +1499,7 @@ void QQuickShaderEffectImpl::updateShaderVars(Shader shaderType)
 bool QQuickShaderEffectImpl::sourceIsUnique(QQuickItem *source, Shader typeToSkip, int indexToSkip) const
 {
     for (int shaderType = 0; shaderType < NShader; ++shaderType) {
-        for (int idx = 0; idx < m_shaders[shaderType].varData.count(); ++idx) {
+        for (int idx = 0; idx < m_shaders[shaderType].varData.size(); ++idx) {
             if (shaderType != typeToSkip || idx != indexToSkip) {
                 const auto &vd(m_shaders[shaderType].varData[idx]);
                 if (vd.specialType == QSGShaderEffectNode::VariableData::Source && qvariant_cast<QObject *>(vd.value) == source)
@@ -1550,7 +1514,7 @@ std::optional<int> QQuickShaderEffectImpl::findMappedShaderVariableId(const QByt
 {
     for (int shaderType = 0; shaderType < NShader; ++shaderType) {
         const auto &vars = m_shaders[shaderType].shaderInfo.variables;
-        for (int idx = 0; idx < vars.count(); ++idx) {
+        for (int idx = 0; idx < vars.size(); ++idx) {
             if (vars[idx].name == name)
                 return indexToMappedId(shaderType, idx);
         }
@@ -1566,10 +1530,11 @@ void QQuickShaderEffectImpl::propertyChanged(int mappedId)
     const auto &v(m_shaders[type].shaderInfo.variables[idx]);
     auto &vd(m_shaders[type].varData[idx]);
 
+    QVariant oldValue = vd.value;
     vd.value = getValueFromProperty(m_item, m_itemMetaObject, v.name, vd.propertyIndex);
 
     if (vd.specialType == QSGShaderEffectNode::VariableData::Source) {
-        QQuickItem *source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(vd.value));
+        QQuickItem *source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(oldValue));
         if (source) {
             if (m_item->window())
                 QQuickItemPrivate::get(source)->derefWindow();

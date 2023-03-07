@@ -1,8 +1,10 @@
 import QtQml
 import TestTypes
+import TestTypes as TT2
 import Ambiguous 1.2
 
 QtObject {
+    id: self
     property string attachedForNonObject: objectName.Component.objectName
     property string attachedForNasty: Nasty.objectName
 
@@ -28,8 +30,13 @@ QtObject {
 
     Component.onCompleted: doesNotExist()
 
+    property string aString: self + "a"
+
     signal foo()
     signal bar()
     // Cannot assign potential undefined
     onFoo: objectName = self.bar()
+
+    property int enumFromGadget1: GadgetWithEnum.CONNECTED + 1
+    property int enumFromGadget2: TT2.GadgetWithEnum.CONNECTED + 1
 }

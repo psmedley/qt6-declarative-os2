@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlxmlhttprequest_p.h"
 
@@ -540,7 +504,7 @@ ReturnedValue NodePrototype::method_get_previousSibling(const FunctionObject *b,
     if (!r->d()->d->parent)
         RETURN_RESULT(Encode::null());
 
-    for (int ii = 0; ii < r->d()->d->parent->children.count(); ++ii) {
+    for (int ii = 0; ii < r->d()->d->parent->children.size(); ++ii) {
         if (r->d()->d->parent->children.at(ii) == r->d()->d) {
             if (ii == 0)
                 return Encode::null();
@@ -562,9 +526,9 @@ ReturnedValue NodePrototype::method_get_nextSibling(const FunctionObject *b, con
     if (!r->d()->d->parent)
         RETURN_RESULT(Encode::null());
 
-    for (int ii = 0; ii < r->d()->d->parent->children.count(); ++ii) {
+    for (int ii = 0; ii < r->d()->d->parent->children.size(); ++ii) {
         if (r->d()->d->parent->children.at(ii) == r->d()->d) {
-            if ((ii + 1) == r->d()->d->parent->children.count())
+            if ((ii + 1) == r->d()->d->parent->children.size())
                 return Encode::null();
             else
                 return Node::create(scope.engine, r->d()->d->parent->children.at(ii + 1));
@@ -702,7 +666,7 @@ ReturnedValue CharacterData::method_length(const FunctionObject *b, const Value 
     if (!r)
         RETURN_UNDEFINED();
 
-    return Encode(int(r->d()->d->data.length()));
+    return Encode(int(r->d()->d->data.size()));
 }
 
 ReturnedValue CharacterData::prototype(ExecutionEngine *v4)
@@ -895,7 +859,7 @@ ReturnedValue NamedNodeMap::virtualGet(const Managed *m, PropertyKey id, const V
     if (id.isArrayIndex()) {
         uint index = id.asArrayIndex();
 
-        if ((int)index < r->d()->list().count()) {
+        if ((int)index < r->d()->list().size()) {
             if (hasProperty)
                 *hasProperty = true;
             return Node::create(v4, r->d()->list().at(index));
@@ -909,10 +873,10 @@ ReturnedValue NamedNodeMap::virtualGet(const Managed *m, PropertyKey id, const V
         return Object::virtualGet(m, id, receiver, hasProperty);
 
     if (id == v4->id_length()->propertyKey())
-        return Value::fromInt32(r->d()->list().count()).asReturnedValue();
+        return Value::fromInt32(r->d()->list().size()).asReturnedValue();
 
     QString str = id.toQString();
-    for (int ii = 0; ii < r->d()->list().count(); ++ii) {
+    for (int ii = 0; ii < r->d()->list().size(); ++ii) {
         if (r->d()->list().at(ii)->name == str) {
             if (hasProperty)
                 *hasProperty = true;
@@ -938,7 +902,7 @@ ReturnedValue NodeList::virtualGet(const Managed *m, PropertyKey id, const Value
 
     if (id.isArrayIndex()) {
         uint index = id.asArrayIndex();
-        if ((int)index < r->d()->d->children.count()) {
+        if ((int)index < r->d()->d->children.size()) {
             if (hasProperty)
                 *hasProperty = true;
             return Node::create(v4, r->d()->d->children.at(index));
@@ -949,7 +913,7 @@ ReturnedValue NodeList::virtualGet(const Managed *m, PropertyKey id, const Value
     }
 
     if (id == v4->id_length()->propertyKey())
-        return Value::fromInt32(r->d()->d->children.count()).asReturnedValue();
+        return Value::fromInt32(r->d()->d->children.size()).asReturnedValue();
     return Object::virtualGet(m, id, receiver, hasProperty);
 }
 
@@ -1174,7 +1138,7 @@ QString QQmlXMLHttpRequest::headers() const
     QString ret;
 
     for (const HeaderPair &header : m_headersList) {
-        if (ret.length())
+        if (ret.size())
             ret.append(QLatin1String("\r\n"));
         ret += QString::fromUtf8(header.first) + QLatin1String(": ")
              + QString::fromUtf8(header.second);
@@ -1238,7 +1202,7 @@ void QQmlXMLHttpRequest::requestFromUrl(const QUrl &url)
                 int n = 0;
                 int semiColon = str.indexOf(QLatin1Char(';'), charsetIdx);
                 if (semiColon == -1) {
-                    n = str.length() - charsetIdx;
+                    n = str.size() - charsetIdx;
                 } else {
                     n = semiColon - charsetIdx;
                 }
@@ -1466,13 +1430,13 @@ void QQmlXMLHttpRequest::finished()
     dispatchCallbackSafely();
 
     m_thisObject.clear();
-    m_qmlContext = nullptr;
+    m_qmlContext.reset();
 }
 
 
 void QQmlXMLHttpRequest::readEncoding()
 {
-    for (const HeaderPair &header : qAsConst(m_headersList)) {
+    for (const HeaderPair &header : std::as_const(m_headersList)) {
         if (header.first == "content-type") {
             int separatorIdx = header.second.indexOf(';');
             if (separatorIdx == -1) {
@@ -1483,7 +1447,7 @@ void QQmlXMLHttpRequest::readEncoding()
                 if (charsetIdx != -1) {
                     charsetIdx += 8;
                     separatorIdx = header.second.indexOf(';', charsetIdx);
-                    m_charset = header.second.mid(charsetIdx, separatorIdx >= 0 ? separatorIdx : header.second.length());
+                    m_charset = header.second.mid(charsetIdx, separatorIdx >= 0 ? separatorIdx : header.second.size());
                 }
             }
             break;
@@ -1516,7 +1480,7 @@ QV4::ReturnedValue QQmlXMLHttpRequest::jsonResponseBody(QV4::ExecutionEngine* en
 
         QJsonParseError error;
         const QString& jtext = responseBody();
-        JsonParser parser(scope.engine, jtext.constData(), jtext.length());
+        JsonParser parser(scope.engine, jtext.constData(), jtext.size());
         ScopedValue jsonObject(scope, parser.parse(&error));
         if (error.error != QJsonParseError::NoError)
             return engine->throwSyntaxError(QStringLiteral("JSON.parse: Parse error"));
@@ -1657,7 +1621,7 @@ struct QQmlXMLHttpRequestWrapper : Object {
     Member(class, Pointer, Object *, proto)
 
 DECLARE_HEAP_OBJECT(QQmlXMLHttpRequestCtor, FunctionObject) {
-    DECLARE_MARKOBJECTS(QQmlXMLHttpRequestCtor);
+    DECLARE_MARKOBJECTS(QQmlXMLHttpRequestCtor)
     void init(ExecutionEngine *engine);
 };
 

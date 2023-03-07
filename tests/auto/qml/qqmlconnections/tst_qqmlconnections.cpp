@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -78,6 +53,7 @@ private slots:
     void noAcceleratedGlobalLookup();
 
     void bindToPropertyWithUnderscoreChangeHandler();
+    void invalidTarget();
 
 private:
     QQmlEngine engine;
@@ -252,7 +228,7 @@ void tst_qqmlconnections::errors()
     QQmlComponent c(&engine, url);
     QVERIFY(c.isError());
     QList<QQmlError> errors = c.errors();
-    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.size(), 1);
     QCOMPARE(errors.at(0).description(), error);
 }
 
@@ -488,6 +464,25 @@ void tst_qqmlconnections::bindToPropertyWithUnderscoreChangeHandler()
     underscoreProperty.write(42);
     QVERIFY(root->property("sanityCheck").toBool());
     QVERIFY(root->property("success").toBool());
+}
+
+void tst_qqmlconnections::invalidTarget()
+{
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("invalidTarget.qml");
+    QQmlComponent component(&engine, url);
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> root {component.create()};
+    QVERIFY(root);
+    QCOMPARE(root->objectName(), QStringLiteral("button"));
+
+    QTest::ignoreMessage(
+                QtWarningMsg,
+                qPrintable(
+                    url.toString()
+                    + QLatin1String(":5:5: TypeError: Cannot read property 'objectName' of null")));
+    QTRY_VERIFY(root->objectName().isEmpty());
 }
 
 QTEST_MAIN(tst_qqmlconnections)

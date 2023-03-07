@@ -1,33 +1,9 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <qtest.h>
 
+#include <QtQml/QQmlComponent>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtQuick/qquickview.h>
@@ -1059,13 +1035,13 @@ void tst_qquickitem::constructor()
     QQuickItem *child1 = new QQuickItem(root.data());
     QCOMPARE(child1->parent(), root.data());
     QCOMPARE(child1->parentItem(), root.data());
-    QCOMPARE(root->childItems().count(), 1);
+    QCOMPARE(root->childItems().size(), 1);
     QCOMPARE(root->childItems().at(0), child1);
 
     QQuickItem *child2 = new QQuickItem(root.data());
     QCOMPARE(child2->parent(), root.data());
     QCOMPARE(child2->parentItem(), root.data());
-    QCOMPARE(root->childItems().count(), 2);
+    QCOMPARE(root->childItems().size(), 2);
     QCOMPARE(root->childItems().at(0), child1);
     QCOMPARE(root->childItems().at(1), child2);
 }
@@ -1083,7 +1059,7 @@ void tst_qquickitem::setParentItem()
     child1->setParentItem(root);
     QVERIFY(!child1->parent());
     QCOMPARE(child1->parentItem(), root);
-    QCOMPARE(root->childItems().count(), 1);
+    QCOMPARE(root->childItems().size(), 1);
     QCOMPARE(root->childItems().at(0), child1);
 
     QQuickItem *child2 = new QQuickItem;
@@ -1092,14 +1068,14 @@ void tst_qquickitem::setParentItem()
     child2->setParentItem(root);
     QVERIFY(!child2->parent());
     QCOMPARE(child2->parentItem(), root);
-    QCOMPARE(root->childItems().count(), 2);
+    QCOMPARE(root->childItems().size(), 2);
     QCOMPARE(root->childItems().at(0), child1);
     QCOMPARE(root->childItems().at(1), child2);
 
     child1->setParentItem(nullptr);
     QVERIFY(!child1->parent());
     QVERIFY(!child1->parentItem());
-    QCOMPARE(root->childItems().count(), 1);
+    QCOMPARE(root->childItems().size(), 1);
     QCOMPARE(root->childItems().at(0), child2);
 
     delete root;
@@ -1589,7 +1565,7 @@ void tst_qquickitem::polishLoopDetection()
     }
 
     QList<QQuickItem*> items = window.contentItem()->childItems();
-    for (int i = 0; i < items.count(); ++i) {
+    for (int i = 0; i < items.size(); ++i) {
         static_cast<TestPolishItem*>(items.at(i))->doPolish();
     }
     item = static_cast<TestPolishItem*>(items.first());
@@ -1945,7 +1921,7 @@ void tst_qquickitem::paintOrder()
     QList<QQuickItem*> list = QQuickItemPrivate::get(root)->paintOrderChildItems();
 
     QStringList items;
-    for (int i = 0; i < list.count(); ++i)
+    for (int i = 0; i < list.size(); ++i)
         items << list.at(i)->objectName();
 
     QCOMPARE(items, expected);

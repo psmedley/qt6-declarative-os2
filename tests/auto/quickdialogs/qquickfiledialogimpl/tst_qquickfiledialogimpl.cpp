@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtCore/qloggingcategory.h>
 #include <QtTest/qtest.h>
@@ -111,6 +86,8 @@ private slots:
     void done();
     void setSelectedFile_data();
     void setSelectedFile();
+    void selectNewFileViaTextField_data();
+    void selectNewFileViaTextField();
 
 private:
     QTemporaryDir tempDir;
@@ -122,6 +99,7 @@ private:
     QScopedPointer<QFile> tempSubFile2;
 
     QTemporaryDir largeTempDir;
+    QStringList largeTempDirPaths;
     QDir largeTempDirLargeSubDir;
     const int largeTempDirLargeSubDirIndex = 80;
 
@@ -145,7 +123,7 @@ void tst_QQuickFileDialogImpl::initTestCase()
 
     qputenv("QT_QUICK_DIALOGS_PRESELECT_FIRST_FILE", "1");
 
-    QVERIFY(tempDir.isValid());
+    QVERIFY2(tempDir.isValid(), qPrintable(tempDir.errorString()));
     // QTEST_QUICKCONTROLS_MAIN constructs the test case object once,
     // and then calls qRun() for each style, and qRun() calls initTestCase().
     // So, we need to check if we've already made the temporary directory.
@@ -191,24 +169,23 @@ void tst_QQuickFileDialogImpl::initTestCase()
     /*
         Create another temporary directory that contains a large amount of folders.
     */
-    QVERIFY(largeTempDir.isValid());
+    QVERIFY2(largeTempDir.isValid(), qPrintable(largeTempDir.errorString()));
     const static int largeFileCount = 100;
+    const QDir largeTempDirectory(largeTempDir.path());
     for (int i = 0; i < largeFileCount; ++i) {
-        QDir newDir(largeTempDir.path());
-        QVERIFY(newDir.exists());
         // Pad with zeroes so that the directories are ordered as we expect.
-        QVERIFY(newDir.mkdir(QString::fromLatin1("dir%1").arg(i, 3, 10, QLatin1Char('0'))));
+        const QString dirName = QString::fromLatin1("dir%1").arg(i, 3, 10, QLatin1Char('0'));
+        QVERIFY(largeTempDirectory.mkdir(dirName));
+        largeTempDirPaths.append(largeTempDirectory.filePath(dirName));
     }
 
     // ... and within one of those folders, more folders.
     largeTempDirLargeSubDir = QDir(largeTempDir.path() + "/dir"
         + QString::fromLatin1("%1").arg(largeTempDirLargeSubDirIndex, 3, 10, QLatin1Char('0')));
     QVERIFY(largeTempDirLargeSubDir.exists());
-    for (int i = 0; i < largeFileCount; ++i) {
-        QDir newDir(largeTempDirLargeSubDir.path());
-        QVERIFY(newDir.exists());
-        QVERIFY(newDir.mkdir(QString::fromLatin1("sub-dir%1").arg(i, 3, 10, QLatin1Char('0'))));
-    }
+    const QDir largeTempSubDirectory = QDir(largeTempDirLargeSubDir.path());
+    for (int i = 0; i < largeFileCount; ++i)
+        QVERIFY(largeTempSubDirectory.mkdir(QString::fromLatin1("sub-dir%1").arg(i, 3, 10, QLatin1Char('0'))));
 
     // Ensure that each test starts off in the temporary directory.
     oldCurrentDir = QDir::current();
@@ -734,7 +711,7 @@ void tst_QQuickFileDialogImpl::goUp()
     auto barListView = qobject_cast<QQuickListView*>(breadcrumbBar->contentItem());
     QVERIFY(barListView);
     if (QQuickTest::qIsPolishScheduled(barListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(barListView));
+        QVERIFY(QQuickTest::qWaitForPolish(barListView));
     QVERIFY(clickButton(breadcrumbBar->upButton()));
     // The previous directory that we were in should now be selected (matches e.g. Windows and Ubuntu).
     VERIFY_FILE_SELECTED_AND_FOCUSED(QUrl::fromLocalFile(tempDir.path()), QUrl::fromLocalFile(tempSubDir.path()), 0);
@@ -772,7 +749,7 @@ void tst_QQuickFileDialogImpl::goUpWhileTextEditHasFocus()
     auto barListView = qobject_cast<QQuickListView*>(breadcrumbBar->contentItem());
     QVERIFY(barListView);
     if (QQuickTest::qIsPolishScheduled(barListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(barListView));
+        QVERIFY(QQuickTest::qWaitForPolish(barListView));
     QVERIFY(clickButton(breadcrumbBar->upButton()));
     // The path should have changed to the parent directory.
     COMPARE_URL(dialogHelper.dialog->currentFolder(), QUrl::fromLocalFile(tempDir.path()));
@@ -796,7 +773,7 @@ void tst_QQuickFileDialogImpl::goIntoLargeFolder()
     // If the screen is so tall that the contentItem is not vertically larger than the view,
     // then the test makes no sense.
     if (QQuickTest::qIsPolishScheduled(dialogHelper.fileDialogListView))
-        QVERIFY(QQuickTest::qWaitForItemPolished(dialogHelper.fileDialogListView));
+        QVERIFY(QQuickTest::qWaitForPolish(dialogHelper.fileDialogListView));
     // Just to be safe, make sure it's at least twice as big.
     if (dialogHelper.fileDialogListView->contentItem()->height() < dialogHelper.fileDialogListView->height() * 2) {
         QSKIP(qPrintable(QString::fromLatin1("Expected height of dialogHelper.fileDialogListView's contentItem (%1)" \
@@ -832,6 +809,9 @@ void tst_QQuickFileDialogImpl::goUpIntoLargeFolder()
 
     // Go up a directory via the keyboard shortcut.
     QTest::keySequence(dialogHelper.window(), goUpKeySequence);
+    QString failureMessage;
+    QTRY_VERIFY2(verifyFileDialogDelegates(dialogHelper.fileDialogListView,
+        largeTempDirPaths, failureMessage), qPrintable(failureMessage));
     VERIFY_FILE_SELECTED_AND_FOCUSED(QUrl::fromLocalFile(largeTempDir.path()),
         QUrl::fromLocalFile(largeTempDirLargeSubDir.path()), largeTempDirLargeSubDirIndex);
 }
@@ -1053,7 +1033,7 @@ void tst_QQuickFileDialogImpl::tabFocusNavigation()
     }
 
     // Tab through each item, checking the focus after each.
-    for (auto expectedFocusItem : qAsConst(expectedFocusItems)) {
+    for (auto expectedFocusItem : std::as_const(expectedFocusItems)) {
         // Check the focus item first so that we account for the first item.
         // Print detailed failure message as workaround for QTBUG-92102.
         QVERIFY2(dialogHelper.window()->activeFocusItem() == expectedFocusItem, qPrintable(QString::fromLatin1(
@@ -1068,7 +1048,7 @@ void tst_QQuickFileDialogImpl::tabFocusNavigation()
     std::reverse(expectedFocusItems.begin(), expectedFocusItems.end());
     // We know the first (last) item has focus already, so skip it.
     expectedFocusItems.removeFirst();
-    for (auto expectedFocusItem : qAsConst(expectedFocusItems)) {
+    for (auto expectedFocusItem : std::as_const(expectedFocusItems)) {
         QTest::keyClick(dialogHelper.window(), Qt::Key_Tab, Qt::ShiftModifier);
 
         QCOMPARE(dialogHelper.window()->activeFocusItem(), expectedFocusItem);
@@ -1392,6 +1372,48 @@ void tst_QQuickFileDialogImpl::setSelectedFile()
         VERIFY_FILE_SELECTED_AND_FOCUSED(QUrl::fromLocalFile(tempDir.path()), tempFile1Url, 1);
     } else {
         QTRY_COMPARE(dialogHelper.fileDialogListView->currentIndex(), -1);
+    }
+}
+
+void tst_QQuickFileDialogImpl::selectNewFileViaTextField_data()
+{
+    fileMode_data();
+}
+void tst_QQuickFileDialogImpl::selectNewFileViaTextField()
+{
+    QFETCH(QQuickFileDialog::FileMode, fileMode);
+
+    // Open the dialog.
+    FileDialogTestHelper dialogHelper(this, "fileDialog.qml");
+    dialogHelper.dialog->setFileMode(fileMode);
+
+    if (fileMode == QQuickFileDialog::SaveFile)
+        dialogHelper.dialog->setSelectedFile(QUrl());
+
+    OPEN_QUICK_DIALOG();
+    QQuickTest::qWaitForPolish(dialogHelper.window());
+
+    const QQuickTextField *fileNameTextField =
+            dialogHelper.quickDialog->findChild<QQuickTextField *>("fileNameTextField");
+    QVERIFY(fileNameTextField);
+
+    QVERIFY2(fileNameTextField->isVisible() == (fileMode == QQuickFileDialog::SaveFile),
+             "The TextField for file name should only be visible when the FileMode is 'SaveFile'");
+
+    if (fileMode == QQuickFileDialog::SaveFile) {
+        const QPoint textFieldCenterPos =
+                fileNameTextField->mapToScene({ fileNameTextField->width() / 2, fileNameTextField->height() / 2 }).toPoint();
+
+        QTest::mouseClick(dialogHelper.window(), Qt::LeftButton, Qt::NoModifier, textFieldCenterPos);
+        QTRY_VERIFY(fileNameTextField->hasActiveFocus());
+
+        const QByteArray newFileName("foo.txt");
+        for (const auto &c : newFileName)
+            QTest::keyClick(dialogHelper.window(), c);
+        QTest::keyClick(dialogHelper.window(), Qt::Key_Enter);
+
+        QTRY_COMPARE(fileNameTextField->text(), newFileName);
+        QCOMPARE(dialogHelper.dialog->selectedFile().fileName(), newFileName);
     }
 }
 

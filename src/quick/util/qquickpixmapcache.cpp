@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <QtQuick/private/qquickpixmapcache_p.h>
 #include <QtQuick/private/qquickimageprovider_p.h>
@@ -328,6 +292,7 @@ public:
     QQuickImageProviderOptions::AutoTransform appliedTransform;
     QColorSpace targetColorSpace;
 
+    QIODevice *specialDevice = nullptr;
     QQuickTextureFactory *textureFactory;
 
     QIntrusiveList<QQuickPixmap, &QQuickPixmap::dataListNode> declarativePixmaps;
@@ -501,7 +466,7 @@ static QString existingImageFileForPath(const QString &localFile)
         return localFile;
 
     QString tryFile = localFile + QStringLiteral(".xxxx");
-    const int suffixIdx = localFile.length() + 1;
+    const int suffixIdx = localFile.size() + 1;
     for (const QString &suffix : backendSupport()->fileSuffixes) {
         tryFile.replace(suffixIdx, 10, suffix);
         if (QFileInfo::exists(tryFile))
@@ -534,7 +499,7 @@ QQuickPixmapReader::~QQuickPixmapReader()
 
     mutex.lock();
     // manually cancel all outstanding jobs.
-    for (QQuickPixmapReply *reply : qAsConst(jobs)) {
+    for (QQuickPixmapReply *reply : std::as_const(jobs)) {
         if (reply->data && reply->data->reply == reply)
             reply->data->reply = nullptr;
         delete reply;
@@ -549,10 +514,10 @@ QQuickPixmapReader::~QQuickPixmapReader()
         }
     };
 
-    for (auto *reply : qAsConst(networkJobs))
+    for (auto *reply : std::as_const(networkJobs))
         cancelJob(reply);
 
-    for (auto *reply : qAsConst(asyncResponses))
+    for (auto *reply : std::as_const(asyncResponses))
         cancelJob(reply);
 #endif
     if (threadObject) threadObject->processJobs();
@@ -695,7 +660,7 @@ void QQuickPixmapReader::processJobs()
 
         // Clean cancelled jobs
         if (!cancelled.isEmpty()) {
-            for (int i = 0; i < cancelled.count(); ++i) {
+            for (int i = 0; i < cancelled.size(); ++i) {
                 QQuickPixmapReply *job = cancelled.at(i);
 #if QT_CONFIG(qml_network)
                 QNetworkReply *reply = networkJobs.key(job, 0);
@@ -723,7 +688,7 @@ void QQuickPixmapReader::processJobs()
         if (!jobs.isEmpty()) {
             // Find a job we can use
             bool usableJob = false;
-            for (int i = jobs.count() - 1; !usableJob && i >= 0; i--) {
+            for (int i = jobs.size() - 1; !usableJob && i >= 0; i--) {
                 QQuickPixmapReply *job = jobs.at(i);
                 const QUrl url = job->url;
                 QString localFile;
@@ -741,7 +706,7 @@ void QQuickPixmapReader::processJobs()
                     localFile = QQmlFile::urlToLocalFileOrQrc(url);
                     usableJob = !localFile.isEmpty()
 #if QT_CONFIG(qml_network)
-                            || networkJobs.count() < IMAGEREQUEST_MAX_NETWORK_REQUEST_COUNT
+                            || networkJobs.size() < IMAGEREQUEST_MAX_NETWORK_REQUEST_COUNT
 #endif
                             ;
                 }
@@ -879,6 +844,8 @@ void QQuickPixmapReader::processJob(QQuickPixmapReply *runningJob, const QUrl &u
                 }
                 // Might be that the async provider was so quick it emitted the signal before we
                 // could connect to it.
+                //
+                // loadAcquire() synchronizes-with storeRelease() in QQuickImageResponsePrivate::_q_finished():
                 if (static_cast<QQuickImageResponsePrivate*>(QObjectPrivate::get(response))->finished.loadAcquire()) {
                     QMetaObject::invokeMethod(threadObject, "asyncResponseFinished",
                                               Qt::QueuedConnection, Q_ARG(QQuickImageResponse*, response));
@@ -895,40 +862,54 @@ void QQuickPixmapReader::processJob(QQuickPixmapReply *runningJob, const QUrl &u
             QImage image;
             QQuickPixmapReply::ReadError errorCode = QQuickPixmapReply::NoError;
             QString errorStr;
-            QFile f(existingImageFileForPath(localFile));
             QSize readSize;
-            if (f.open(QIODevice::ReadOnly)) {
-                QSGTextureReader texReader(&f, localFile);
-                if (backendSupport()->hasOpenGL && texReader.isTexture()) {
-                    QQuickTextureFactory *factory = texReader.read();
-                    if (factory) {
-                        readSize = factory->textureSize();
-                    } else {
-                        errorStr = QQuickPixmap::tr("Error decoding: %1").arg(url.toString());
-                        if (f.fileName() != localFile)
-                            errorStr += QString::fromLatin1(" (%1)").arg(f.fileName());
-                        errorCode = QQuickPixmapReply::Decoding;
-                    }
-                    mutex.lock();
-                    if (!cancelled.contains(runningJob))
-                        runningJob->postReply(errorCode, errorStr, readSize, factory);
-                    mutex.unlock();
-                    return;
-                } else {
-                    int frameCount;
-                    int const frame = runningJob->data ? runningJob->data->frame : 0;
-                    if (!readImage(url, &f, &image, &errorStr, &readSize, &frameCount, runningJob->requestRegion, runningJob->requestSize,
-                                   runningJob->providerOptions, nullptr, frame)) {
-                        errorCode = QQuickPixmapReply::Loading;
-                        if (f.fileName() != localFile)
-                            errorStr += QString::fromLatin1(" (%1)").arg(f.fileName());
-                    } else if (runningJob->data) {
-                        runningJob->data->frameCount = frameCount;
-                    }
+
+            if (runningJob->data && runningJob->data->specialDevice) {
+                int frameCount;
+                int const frame = runningJob->data ? runningJob->data->frame : 0;
+                if (!readImage(url, runningJob->data->specialDevice, &image, &errorStr, &readSize, &frameCount,
+                               runningJob->requestRegion, runningJob->requestSize,
+                               runningJob->providerOptions, nullptr, frame)) {
+                    errorCode = QQuickPixmapReply::Loading;
+                } else if (runningJob->data) {
+                    runningJob->data->frameCount = frameCount;
                 }
             } else {
-                errorStr = QQuickPixmap::tr("Cannot open: %1").arg(url.toString());
-                errorCode = QQuickPixmapReply::Loading;
+                QFile f(existingImageFileForPath(localFile));
+                if (f.open(QIODevice::ReadOnly)) {
+                    QSGTextureReader texReader(&f, localFile);
+                    if (backendSupport()->hasOpenGL && texReader.isTexture()) {
+                        QQuickTextureFactory *factory = texReader.read();
+                        if (factory) {
+                            readSize = factory->textureSize();
+                        } else {
+                            errorStr = QQuickPixmap::tr("Error decoding: %1").arg(url.toString());
+                            if (f.fileName() != localFile)
+                                errorStr += QString::fromLatin1(" (%1)").arg(f.fileName());
+                            errorCode = QQuickPixmapReply::Decoding;
+                        }
+                        mutex.lock();
+                        if (!cancelled.contains(runningJob))
+                            runningJob->postReply(errorCode, errorStr, readSize, factory);
+                        mutex.unlock();
+                        return;
+                    } else {
+                        int frameCount;
+                        int const frame = runningJob->data ? runningJob->data->frame : 0;
+                        if (!readImage(url, &f, &image, &errorStr, &readSize, &frameCount,
+                                       runningJob->requestRegion, runningJob->requestSize,
+                                       runningJob->providerOptions, nullptr, frame)) {
+                            errorCode = QQuickPixmapReply::Loading;
+                            if (f.fileName() != localFile)
+                                errorStr += QString::fromLatin1(" (%1)").arg(f.fileName());
+                        } else if (runningJob->data) {
+                            runningJob->data->frameCount = frameCount;
+                        }
+                    }
+                } else {
+                    errorStr = QQuickPixmap::tr("Cannot open: %1").arg(url.toString());
+                    errorCode = QQuickPixmapReply::Loading;
+                }
             }
             mutex.lock();
             if (!cancelled.contains(runningJob))
@@ -1320,7 +1301,7 @@ void QQuickPixmapData::addToCache()
         pixmapStore()->m_cache.insert(key, this);
         inCache = true;
         PIXMAP_PROFILE(pixmapCountChanged<QQuickProfiler::PixmapCacheCountChanged>(
-                url, pixmapStore()->m_cache.count()));
+                url, pixmapStore()->m_cache.size()));
     }
 }
 
@@ -1334,7 +1315,7 @@ void QQuickPixmapData::removeFromCache(QQuickPixmapStore *store)
         store->m_cache.remove(key);
         inCache = false;
         PIXMAP_PROFILE(pixmapCountChanged<QQuickProfiler::PixmapCacheCountChanged>(
-                url, store->m_cache.count()));
+                url, store->m_cache.size()));
     }
 }
 
@@ -1730,6 +1711,46 @@ void QQuickPixmap::load(QQmlEngine *engine, const QUrl &url, const QRect &reques
 
         QQuickPixmapReader::readerMutex.lock();
         d->reply = QQuickPixmapReader::instance(engine)->getImage(d);
+        QQuickPixmapReader::readerMutex.unlock();
+    } else {
+        d = *iter;
+        d->addref();
+        d->declarativePixmaps.insert(this);
+    }
+}
+
+/*! \internal
+    Attempts to load an image from the given \a url via the given \a device.
+    This is for special cases when the QImageIOHandler can benefit from reusing
+    the I/O device, or from something extra that a subclass of QIODevice
+    carries with it. So far, this code doesn't support loading anything other
+    than a QImage, for example compressed textures. It can be added if needed.
+*/
+void QQuickPixmap::loadImageFromDevice(QQmlEngine *engine, QIODevice *device, const QUrl &url,
+                                       const QRect &requestRegion, const QSize &requestSize,
+                                       const QQuickImageProviderOptions &providerOptions, int frame, int frameCount)
+{
+    auto oldD = d;
+    QQuickPixmapKey key = { &url, &requestRegion, &requestSize, frame, providerOptions };
+    QQuickPixmapStore *store = pixmapStore();
+    QHash<QQuickPixmapKey, QQuickPixmapData *>::Iterator iter = store->m_cache.end();
+    iter = store->m_cache.find(key);
+    if (iter == store->m_cache.end()) {
+        if (!engine)
+            return;
+
+        d = new QQuickPixmapData(this, url, requestRegion, requestSize, providerOptions,
+                                 QQuickImageProviderOptions::UsePluginDefaultTransform, frame, frameCount);
+        d->specialDevice = device;
+        d->addToCache();
+
+        QQuickPixmapReader::readerMutex.lock();
+        d->reply = QQuickPixmapReader::instance(engine)->getImage(d);
+        if (oldD) {
+            QObject::connect(d->reply, &QQuickPixmapReply::finished, [oldD]() {
+                oldD->release();
+            });
+        }
         QQuickPixmapReader::readerMutex.unlock();
     } else {
         d = *iter;

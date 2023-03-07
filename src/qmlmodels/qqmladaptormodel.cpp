@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2018 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2018 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmladaptormodel_p.h"
 
@@ -145,7 +109,7 @@ public:
         }
 
         QVector<int> signalIndexes;
-        for (int i = 0; i < roles.count(); ++i) {
+        for (int i = 0; i < roles.size(); ++i) {
             const int role = roles.at(i);
             if (!changed && watchedRoleIds.contains(role))
                 changed = true;
@@ -155,7 +119,7 @@ public:
                 signalIndexes.append(propertyId + signalOffset);
         }
         if (roles.isEmpty()) {
-            const int propertyRolesCount = propertyRoles.count();
+            const int propertyRolesCount = propertyRoles.size();
             signalIndexes.reserve(propertyRolesCount);
             for (int propertyId = 0; propertyId < propertyRolesCount; ++propertyId)
                 signalIndexes.append(propertyId + signalOffset);
@@ -165,13 +129,13 @@ public:
         for (const auto item : items)
             guardedItems.append(item);
 
-        for (const auto &item : qAsConst(guardedItems)) {
+        for (const auto &item : std::as_const(guardedItems)) {
             if (item.isNull())
                 continue;
 
             const int idx = item->modelIndex();
             if (idx >= index && idx < index + count) {
-                for (int i = 0; i < signalIndexes.count(); ++i)
+                for (int i = 0; i < signalIndexes.size(); ++i)
                     QMetaObject::activate(item, signalIndexes.at(i), nullptr);
             }
         }
@@ -262,7 +226,7 @@ QQmlDMCachedModelData::QQmlDMCachedModelData(
     , type(dataType)
 {
     if (index == -1)
-        cachedData.resize(type->hasModelData ? 1 : type->propertyRoles.count());
+        cachedData.resize(type->hasModelData ? 1 : type->propertyRoles.size());
 
     QObjectPrivate::get(this)->metaObject = type;
 
@@ -286,10 +250,10 @@ int QQmlDMCachedModelData::metaCall(QMetaObject::Call call, int id, void **argum
         const int propertyIndex = id - type->propertyOffset;
         if (index == -1) {
             const QMetaObject *meta = metaObject();
-            if (cachedData.count() > 1) {
+            if (cachedData.size() > 1) {
                 cachedData[propertyIndex] = *static_cast<QVariant *>(arguments[0]);
                 QMetaObject::activate(this, meta, propertyIndex, nullptr);
-            } else if (cachedData.count() == 1) {
+            } else if (cachedData.size() == 1) {
                 cachedData[0] = *static_cast<QVariant *>(arguments[0]);
                 QMetaObject::activate(this, meta, 0, nullptr);
                 QMetaObject::activate(this, meta, 1, nullptr);
@@ -307,7 +271,7 @@ void QQmlDMCachedModelData::setValue(const QString &role, const QVariant &value)
 {
     QHash<QByteArray, int>::iterator it = type->roleNames.find(role.toUtf8());
     if (it != type->roleNames.end()) {
-        for (int i = 0; i < type->propertyRoles.count(); ++i) {
+        for (int i = 0; i < type->propertyRoles.size(); ++i) {
             if (type->propertyRoles.at(i) == *it) {
                 cachedData[i] = value;
                 return;
@@ -323,7 +287,7 @@ bool QQmlDMCachedModelData::resolveIndex(const QQmlAdaptorModel &adaptorModel, i
         cachedData.clear();
         setModelIndex(idx, adaptorModel.rowAt(idx), adaptorModel.columnAt(idx));
         const QMetaObject *meta = metaObject();
-        const int propertyCount = type->propertyRoles.count();
+        const int propertyCount = type->propertyRoles.size();
         for (int i = 0; i < propertyCount; ++i)
             QMetaObject::activate(this, meta, i, nullptr);
         return true;
@@ -368,10 +332,10 @@ QV4::ReturnedValue QQmlDMCachedModelData::set_property(const QV4::FunctionObject
     if (o->d()->item->index == -1) {
         QQmlDMCachedModelData *modelData = static_cast<QQmlDMCachedModelData *>(o->d()->item);
         if (!modelData->cachedData.isEmpty()) {
-            if (modelData->cachedData.count() > 1) {
+            if (modelData->cachedData.size() > 1) {
                 modelData->cachedData[propertyId] = scope.engine->toVariant(argv[0], QMetaType {});
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), propertyId, nullptr);
-            } else if (modelData->cachedData.count() == 1) {
+            } else if (modelData->cachedData.size() == 1) {
                 modelData->cachedData[0] = scope.engine->toVariant(argv[0], QMetaType {});
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), 0, nullptr);
                 QMetaObject::activate(o->d()->item, o->d()->item->metaObject(), 1, nullptr);
@@ -532,12 +496,12 @@ public:
         const QAbstractItemModel *aim = model.aim();
         const QHash<int, QByteArray> names = aim ? aim->roleNames() : QHash<int, QByteArray>();
         for (QHash<int, QByteArray>::const_iterator it = names.begin(), cend = names.end(); it != cend; ++it) {
-            const int propertyId = propertyRoles.count();
+            const int propertyId = propertyRoles.size();
             propertyRoles.append(it.key());
             roleNames.insert(it.value(), it.key());
             addProperty(&builder, propertyId, it.value(), propertyType);
         }
-        if (propertyRoles.count() == 1) {
+        if (propertyRoles.size() == 1) {
             hasModelData = true;
             const int role = names.begin().key();
             const QByteArray propertyName = QByteArrayLiteral("modelData");
@@ -978,7 +942,8 @@ QQmlAdaptorModel::Accessors::~Accessors()
 }
 
 QQmlAdaptorModel::QQmlAdaptorModel()
-    : accessors(&qt_vdm_null_accessors)
+    : QQmlGuard<QObject>(QQmlAdaptorModel::objectDestroyedImpl, nullptr)
+    , accessors(&qt_vdm_null_accessors)
 {
 }
 
@@ -987,7 +952,7 @@ QQmlAdaptorModel::~QQmlAdaptorModel()
     accessors->cleanup(*this);
 }
 
-void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *)
+void QQmlAdaptorModel::setModel(const QVariant &variant)
 {
     accessors->cleanup(*this);
 
@@ -1073,9 +1038,10 @@ void QQmlAdaptorModel::useImportVersion(QTypeRevision revision)
     modelItemRevision = revision;
 }
 
-void QQmlAdaptorModel::objectDestroyed(QObject *)
+void QQmlAdaptorModel::objectDestroyedImpl(QQmlGuardImpl *guard)
 {
-    setModel(QVariant(), nullptr);
+    auto This = static_cast<QQmlAdaptorModel *>(guard);
+    This->setModel(QVariant());
 }
 
 QQmlAdaptorModelEngineData::QQmlAdaptorModelEngineData(QV4::ExecutionEngine *v4)

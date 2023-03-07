@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the Qt Quick Templates 2 module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickcombobox_p.h"
 #include "qquickcontrol_p_p.h"
@@ -49,6 +13,7 @@
 #include <QtCore/qglobal.h>
 #include <QtGui/qinputmethod.h>
 #include <QtGui/qguiapplication.h>
+#include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformtheme.h>
 #include <QtQml/qjsvalue.h>
 #include <QtQml/qqmlcontext.h>
@@ -225,7 +190,7 @@ QVariant QQuickComboBoxDelegateModel::variantValue(int index, const QString &rol
             const QVariant object = model.toList().value(index);
             if (object.metaType() == QMetaType::fromType<QVariantMap>()) {
                 const QVariantMap data = object.toMap();
-                if (data.count() == 1)
+                if (data.size() == 1)
                     return data.first();
             }
         }
@@ -275,9 +240,9 @@ public:
 
     void createDelegateModel();
 
-    void handlePress(const QPointF &point, ulong timestamp) override;
-    void handleMove(const QPointF &point, ulong timestamp) override;
-    void handleRelease(const QPointF &point, ulong timestamp) override;
+    bool handlePress(const QPointF &point, ulong timestamp) override;
+    bool handleMove(const QPointF &point, ulong timestamp) override;
+    bool handleRelease(const QPointF &point, ulong timestamp) override;
     void handleUngrab() override;
 
     void cancelIndicator();
@@ -476,10 +441,10 @@ void QQuickComboBoxPrivate::updateEditText()
 
     if (extra.isAllocated() && extra->allowComplete && !text.isEmpty()) {
         const QString completed = tryComplete(text);
-        if (completed.length() > text.length()) {
+        if (completed.size() > text.size()) {
             input->setText(completed);
             // This will select the text backwards.
-            input->select(completed.length(), text.length());
+            input->select(completed.size(), text.size());
             return;
         }
     }
@@ -583,14 +548,14 @@ QString QQuickComboBoxPrivate::tryComplete(const QString &input)
             continue;
 
         // either the first or the shortest match
-        if (match.isEmpty() || text.length() < match.length())
+        if (match.isEmpty() || text.size() < match.size())
             match = text;
     }
 
     if (match.isEmpty())
         return input;
 
-    return input + match.mid(input.length());
+    return input + match.mid(input.size());
 }
 
 void QQuickComboBoxPrivate::setCurrentIndex(int index, Activation activate)
@@ -766,21 +731,23 @@ void QQuickComboBoxPrivate::createDelegateModel()
         delete oldModel;
 }
 
-void QQuickComboBoxPrivate::handlePress(const QPointF &point, ulong timestamp)
+bool QQuickComboBoxPrivate::handlePress(const QPointF &point, ulong timestamp)
 {
     Q_Q(QQuickComboBox);
     QQuickControlPrivate::handlePress(point, timestamp);
     q->setPressed(true);
+    return true;
 }
 
-void QQuickComboBoxPrivate::handleMove(const QPointF &point, ulong timestamp)
+bool QQuickComboBoxPrivate::handleMove(const QPointF &point, ulong timestamp)
 {
     Q_Q(QQuickComboBox);
     QQuickControlPrivate::handleMove(point, timestamp);
     q->setPressed(q->contains(point));
+    return true;
 }
 
-void QQuickComboBoxPrivate::handleRelease(const QPointF &point, ulong timestamp)
+bool QQuickComboBoxPrivate::handleRelease(const QPointF &point, ulong timestamp)
 {
     Q_Q(QQuickComboBox);
     QQuickControlPrivate::handleRelease(point, timestamp);
@@ -788,6 +755,7 @@ void QQuickComboBoxPrivate::handleRelease(const QPointF &point, ulong timestamp)
         q->setPressed(false);
         togglePopup(false);
     }
+    return true;
 }
 
 void QQuickComboBoxPrivate::handleUngrab()
@@ -2012,16 +1980,22 @@ void QQuickComboBox::keyPressEvent(QKeyEvent *event)
     Q_D(QQuickComboBox);
     QQuickControl::keyPressEvent(event);
 
-    switch (event->key()) {
+    const auto key = event->key();
+    if (!isEditable()) {
+        const auto buttonPressKeys = QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::ButtonPressKeys).value<QList<Qt::Key>>();
+        if (buttonPressKeys.contains(key)) {
+            if (!event->isAutoRepeat())
+                setPressed(true);
+            event->accept();
+            return;
+        }
+    }
+
+    switch (key) {
     case Qt::Key_Escape:
     case Qt::Key_Back:
         if (d->isPopupVisible())
             event->accept();
-        break;
-    case Qt::Key_Space:
-        if (!event->isAutoRepeat())
-            setPressed(true);
-        event->accept();
         break;
     case Qt::Key_Enter:
     case Qt::Key_Return:
@@ -2072,13 +2046,19 @@ void QQuickComboBox::keyReleaseEvent(QKeyEvent *event)
     if (event->isAutoRepeat())
         return;
 
-    switch (event->key()) {
-    case Qt::Key_Space:
-        if (!isEditable())
-            d->togglePopup(true);
-        setPressed(false);
-        event->accept();
-        break;
+    const auto key = event->key();
+    if (!isEditable()) {
+        const auto buttonPressKeys = QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::ButtonPressKeys).value<QList<Qt::Key>>();
+        if (buttonPressKeys.contains(key)) {
+            if (!isEditable())
+                d->togglePopup(true);
+            setPressed(false);
+            event->accept();
+            return;
+        }
+    }
+
+    switch (key) {
     case Qt::Key_Enter:
     case Qt::Key_Return:
         if (!isEditable() || d->isPopupVisible())

@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <qtest.h>
 #include <QQmlEngine>
@@ -34,6 +9,7 @@
 #include <QQuickItem>
 #include <private/qqmlengine_p.h>
 #include <private/qqmltypedata_p.h>
+#include <private/qqmldelegatemodel_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 
 class tst_qqmltranslation : public QQmlDataTest
@@ -48,6 +24,7 @@ private slots:
     void idTranslation();
     void translationChange();
     void preferJSContext();
+    void listModel();
 };
 
 void tst_qqmltranslation::translation_data()
@@ -80,6 +57,7 @@ void tst_qqmltranslation::translation()
         QQmlContext *context = qmlContext(object);
         QQmlEnginePrivate *engine = QQmlEnginePrivate::get(context->engine());
         QQmlRefPointer<QQmlTypeData> typeData = engine->typeLoader.getType(context->baseUrl());
+        QVERIFY(!typeData->backupSourceCode().isValid());
         QV4::CompiledData::CompilationUnit *compilationUnit = typeData->compilationUnit();
         QVERIFY(compilationUnit);
 
@@ -140,6 +118,7 @@ void tst_qqmltranslation::idTranslation()
         QQmlContext *context = qmlContext(object);
         QQmlEnginePrivate *engine = QQmlEnginePrivate::get(context->engine());
         QQmlRefPointer<QQmlTypeData> typeData = engine->typeLoader.getType(context->baseUrl());
+        QVERIFY(!typeData->backupSourceCode().isValid());
         QV4::CompiledData::CompilationUnit *compilationUnit = typeData->compilationUnit();
         QVERIFY(compilationUnit);
 
@@ -193,6 +172,14 @@ class DummyTranslator : public QTranslator
             return QString::fromUtf8("Deutsch in mylibrary");
         if (!qstrcmp(sourceText, "English in translation") && !qstrcmp(context, "nested_js_translation"))
             return QString::fromUtf8("Deutsch in Setzung");
+        if (!qstrcmp(sourceText, "soup"))
+            return QString::fromUtf8("Suppe");
+        if (!qstrcmp(sourceText, "fish"))
+            return QString::fromUtf8("Fisch");
+        if (!qstrcmp(sourceText, "meat"))
+            return QString::fromUtf8("Fleisch");
+        if (!qstrcmp(sourceText, "bread"))
+            return QString::fromUtf8("Brot");
         return QString();
     }
 
@@ -252,6 +239,35 @@ void tst_qqmltranslation::preferJSContext()
              QStringLiteral("Deutsch in mylibrary"));
 
     QCoreApplication::removeTranslator(&translator);
+}
+
+void tst_qqmltranslation::listModel()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("translatedElements.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o);
+
+    QQmlDelegateModel *model = qobject_cast<QQmlDelegateModel *>(o.data());
+    QVERIFY(model);
+
+    QCOMPARE(model->count(), 4);
+
+    QCOMPARE(model->object(0)->property("dish").toString(), QStringLiteral("soup"));
+    QCOMPARE(model->object(1)->property("dish").toString(), QStringLiteral("fish"));
+    QCOMPARE(model->object(2)->property("dish").toString(), QStringLiteral("meat"));
+    QCOMPARE(model->object(3)->property("dish").toString(), QStringLiteral("bread"));
+
+    DummyTranslator translator;
+    QCoreApplication::installTranslator(&translator);
+    engine.setUiLanguage(QStringLiteral("xxx"));
+    engine.retranslate();
+
+    QCOMPARE(model->object(0)->property("dish").toString(), QStringLiteral("Suppe"));
+    QCOMPARE(model->object(1)->property("dish").toString(), QStringLiteral("Fisch"));
+    QCOMPARE(model->object(2)->property("dish").toString(), QStringLiteral("Fleisch"));
+    QCOMPARE(model->object(3)->property("dish").toString(), QStringLiteral("Brot"));
 }
 
 QTEST_MAIN(tst_qqmltranslation)

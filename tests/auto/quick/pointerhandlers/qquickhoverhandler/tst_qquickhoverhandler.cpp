@@ -1,36 +1,12 @@
-/****************************************************************************
-**
-** Copyright (C) 2018 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2018 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/QtTest>
 
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickhoverhandler_p.h>
+#include <QtQuick/private/qquickpointerhandler_p_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <qpa/qwindowsysteminterface.h>
 
@@ -38,6 +14,7 @@
 
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlproperty.h>
+#include <QQmlComponent>
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
@@ -62,9 +39,15 @@ private slots:
     void hoverHandlerAndUnderlyingHoverHandler();
     void mouseAreaAndUnderlyingHoverHandler();
     void hoverHandlerAndUnderlyingMouseArea();
+    void disabledHoverHandlerAndUnderlyingMouseArea();
+    void hoverHandlerOnDisabledItem();
     void movingItemWithHoverHandler();
     void margin();
     void window();
+    void deviceCursor_data();
+    void deviceCursor();
+    void addHandlerFromCpp();
+    void ensureHoverHandlerWorksWhenItemHasHoverDisabled();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
@@ -118,45 +101,45 @@ void tst_HoverHandler::hoverHandlerAndUnderlyingHoverHandler()
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(topSidebarHH->isHovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 0);
+    QCOMPARE(sidebarHoveredSpy.size(), 0);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 
     QTest::mouseMove(window, buttonCenter);
     QCOMPARE(topSidebarHH->isHovered(), !blocking);
-    QCOMPARE(sidebarHoveredSpy.count(), blocking ? 2 : 1);
+    QCOMPARE(sidebarHoveredSpy.size(), blocking ? 2 : 1);
     QCOMPARE(buttonHH->isHovered(), true);
-    QCOMPARE(buttonHoveredSpy.count(), 1);
+    QCOMPARE(buttonHoveredSpy.size(), 1);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::PointingHandCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), blocking ? 3 : 1);
+    QCOMPARE(sidebarHoveredSpy.size(), blocking ? 3 : 1);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(topSidebarHH->isHovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), blocking ? 4 : 2);
+    QCOMPARE(sidebarHoveredSpy.size(), blocking ? 4 : 2);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
@@ -189,45 +172,45 @@ void tst_HoverHandler::mouseAreaAndUnderlyingHoverHandler()
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(topSidebarHH->isHovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 0);
+    QCOMPARE(sidebarHoveredSpy.size(), 0);
     QCOMPARE(buttonMA->hovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
     QCOMPARE(buttonMA->hovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 
     QTest::mouseMove(window, buttonCenter);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
     QCOMPARE(buttonMA->hovered(), true);
-    QCOMPARE(buttonHoveredSpy.count(), 1);
+    QCOMPARE(buttonHoveredSpy.size(), 1);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::UpArrowCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(topSidebarHH->isHovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
     QCOMPARE(buttonMA->hovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(topSidebarHH->isHovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 2);
+    QCOMPARE(sidebarHoveredSpy.size(), 2);
     QCOMPARE(buttonMA->hovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
@@ -255,48 +238,129 @@ void tst_HoverHandler::hoverHandlerAndUnderlyingMouseArea()
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(bottomSidebarMA->hovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 0);
+    QCOMPARE(sidebarHoveredSpy.size(), 0);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(bottomSidebarMA->hovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 1);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 0);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ClosedHandCursor);
 #endif
 
     QTest::mouseMove(window, buttonCenter);
     QCOMPARE(bottomSidebarMA->hovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 2);
+    QCOMPARE(sidebarHoveredSpy.size(), 2);
     QCOMPARE(buttonHH->isHovered(), true);
-    QCOMPARE(buttonHoveredSpy.count(), 1);
+    QCOMPARE(buttonHoveredSpy.size(), 1);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::PointingHandCursor);
 #endif
 
     QTest::mouseMove(window, rightOfButton);
     QCOMPARE(bottomSidebarMA->hovered(), true);
-    QCOMPARE(sidebarHoveredSpy.count(), 3);
+    QCOMPARE(sidebarHoveredSpy.size(), 3);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ClosedHandCursor);
 #endif
 
     QTest::mouseMove(window, outOfSidebar);
     QCOMPARE(bottomSidebarMA->hovered(), false);
-    QCOMPARE(sidebarHoveredSpy.count(), 4);
+    QCOMPARE(sidebarHoveredSpy.size(), 4);
     QCOMPARE(buttonHH->isHovered(), false);
-    QCOMPARE(buttonHoveredSpy.count(), 2);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
+}
+
+void tst_HoverHandler::disabledHoverHandlerAndUnderlyingMouseArea()
+{
+    // Check that if a disabled HoverHandler is installed on an item, it
+    // will not participate in hover event delivery, and as such, also
+    // not block propagation to siblings.
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "lesHoverables.qml");
+    QQuickView * window = windowPtr.data();
+    QQuickItem * bottomSidebar = window->rootObject()->findChild<QQuickItem *>("bottomSidebar");
+    QVERIFY(bottomSidebar);
+    QQuickMouseArea *bottomSidebarMA = bottomSidebar->findChild<QQuickMouseArea *>("bottomSidebarMA");
+    QVERIFY(bottomSidebarMA);
+    QQuickItem * button = bottomSidebar->findChild<QQuickItem *>("buttonWithHH");
+    QVERIFY(button);
+    QQuickHoverHandler *buttonHH = button->findChild<QQuickHoverHandler *>("buttonHH");
+    QVERIFY(buttonHH);
+
+    // By disabling the HoverHandler, it should no longer
+    // block the sibling MouseArea underneath from receiving hover events.
+    buttonHH->setEnabled(false);
+
+    QPoint buttonCenter(button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QPoint rightOfButton(button->mapToScene(QPointF(button->width() + 2, button->height() / 2)).toPoint());
+    QPoint outOfSidebar(bottomSidebar->mapToScene(QPointF(bottomSidebar->width() + 2, bottomSidebar->height() / 2)).toPoint());
+    QSignalSpy sidebarHoveredSpy(bottomSidebarMA, SIGNAL(hoveredChanged()));
+    QSignalSpy buttonHoveredSpy(buttonHH, SIGNAL(hoveredChanged()));
+
+    QTest::mouseMove(window, outOfSidebar);
+    QCOMPARE(bottomSidebarMA->hovered(), false);
+    QCOMPARE(sidebarHoveredSpy.size(), 0);
+    QCOMPARE(buttonHH->isHovered(), false);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
+
+    QTest::mouseMove(window, buttonCenter);
+    QCOMPARE(bottomSidebarMA->hovered(), true);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
+    QCOMPARE(buttonHH->isHovered(), false);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
+
+    QTest::mouseMove(window, rightOfButton);
+    QCOMPARE(bottomSidebarMA->hovered(), true);
+    QCOMPARE(sidebarHoveredSpy.size(), 1);
+    QCOMPARE(buttonHH->isHovered(), false);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
+}
+
+void tst_HoverHandler::hoverHandlerOnDisabledItem()
+{
+    // Check that if HoverHandler on a disabled item will
+    // continue to receive hover events (QTBUG-30801)
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "lesHoverables.qml");
+    QQuickView * window = windowPtr.data();
+    QQuickItem * bottomSidebar = window->rootObject()->findChild<QQuickItem *>("bottomSidebar");
+    QVERIFY(bottomSidebar);
+    QQuickItem * button = bottomSidebar->findChild<QQuickItem *>("buttonWithHH");
+    QVERIFY(button);
+    QQuickHoverHandler *buttonHH = button->findChild<QQuickHoverHandler *>("buttonHH");
+    QVERIFY(buttonHH);
+
+    // Disable the button/rectangle item. This should not
+    // block its HoverHandler from being hovered
+    button->setEnabled(false);
+
+    QPoint buttonCenter(button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QPoint rightOfButton(button->mapToScene(QPointF(button->width() + 2, button->height() / 2)).toPoint());
+    QSignalSpy buttonHoveredSpy(buttonHH, SIGNAL(hoveredChanged()));
+
+    QTest::mouseMove(window, rightOfButton);
+    QCOMPARE(buttonHH->isHovered(), false);
+    QCOMPARE(buttonHoveredSpy.size(), 0);
+
+    QTest::mouseMove(window, buttonCenter);
+    QCOMPARE(buttonHH->isHovered(), true);
+    QCOMPARE(buttonHoveredSpy.size(), 1);
+
+    QTest::mouseMove(window, rightOfButton);
+    QCOMPARE(buttonHH->isHovered(), false);
+    QCOMPARE(buttonHoveredSpy.size(), 2);
 }
 
 void tst_HoverHandler::movingItemWithHoverHandler()
@@ -352,21 +416,21 @@ void tst_HoverHandler::margin() // QTBUG-85303
 
     QTest::mouseMove(window, {10, 10});
     QCOMPARE(hh->isHovered(), false);
-    QCOMPARE(hoveredSpy.count(), 0);
+    QCOMPARE(hoveredSpy.size(), 0);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::ArrowCursor);
 #endif
 
     QTest::mouseMove(window, leftMargin);
     QCOMPARE(hh->isHovered(), true);
-    QCOMPARE(hoveredSpy.count(), 1);
+    QCOMPARE(hoveredSpy.size(), 1);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
 
     QTest::mouseMove(window, itemCenter);
     QCOMPARE(hh->isHovered(), true);
-    QCOMPARE(hoveredSpy.count(), 1);
+    QCOMPARE(hoveredSpy.size(), 1);
 #if QT_CONFIG(cursor)
     QCOMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
@@ -405,6 +469,206 @@ void tst_HoverHandler::window() // QTBUG-98717
         QSKIP("QCursor::setPos() doesn't work (QTBUG-76312).");
     QTRY_COMPARE(window->cursor().shape(), Qt::OpenHandCursor);
 #endif
+}
+
+void tst_HoverHandler::deviceCursor_data()
+{
+    QTest::addColumn<bool>("synthMouseForTabletEvents");
+    QTest::addColumn<bool>("earlierTabletBeforeMouse");
+
+    QTest::newRow("nosynth, tablet wins") << false << false;
+    QTest::newRow("synth, tablet wins") << true << false;
+    QTest::newRow("synth, mouse wins") << true << true;
+}
+
+void tst_HoverHandler::deviceCursor()
+{
+#if !QT_CONFIG(tabletevent)
+    QSKIP("This test depends on QTabletEvent delivery.");
+#endif
+    QFETCH(bool, synthMouseForTabletEvents);
+    QFETCH(bool, earlierTabletBeforeMouse);
+    qApp->setAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents, synthMouseForTabletEvents);
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("hoverDeviceCursors.qml")));
+    // Ensure that we don't get extra hover events delivered on the side
+    QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    // And flush out any mouse events that might be queued up in QPA, since QTest::mouseMove() calls processEvents.
+    qGuiApp->processEvents();
+    const QQuickItem *root = window.rootObject();
+    QQuickHoverHandler *stylusHandler = root->findChild<QQuickHoverHandler *>("stylus");
+    QVERIFY(stylusHandler);
+    QQuickHoverHandler *eraserHandler = root->findChild<QQuickHoverHandler *>("stylus eraser");
+    QVERIFY(eraserHandler);
+    QQuickHoverHandler *aibrushHandler = root->findChild<QQuickHoverHandler *>("airbrush");
+    QVERIFY(aibrushHandler);
+    QQuickHoverHandler *airbrushEraserHandler = root->findChild<QQuickHoverHandler *>("airbrush eraser");
+    QVERIFY(airbrushEraserHandler);
+    QQuickHoverHandler *mouseHandler = root->findChild<QQuickHoverHandler *>("mouse");
+    QVERIFY(mouseHandler);
+
+    QPoint point(100, 100);
+
+    const qint64 stylusId = 1234567890;
+    QElapsedTimer timer;
+    timer.start();
+    auto testStylusDevice = [&](QInputDevice::DeviceType dt, QPointingDevice::PointerType pt,
+                                Qt::CursorShape expectedCursor, QQuickHoverHandler* expectedActiveHandler) {
+        // We will follow up with a mouse event afterwards, and we want to simulate that the tablet events occur
+        // either slightly before (earlierTabletBeforeMouse == true) or some time before.
+        // It turns out that the first mouse move happens at timestamp 501 (simulated).
+        const ulong timestamp = (earlierTabletBeforeMouse ? 0 : 400) + timer.elapsed();
+        qCDebug(lcPointerTests) << "@" << timestamp << "sending" << dt << pt << "expecting" << expectedCursor << expectedActiveHandler->objectName();
+        QWindowSystemInterface::handleTabletEvent(&window, timestamp, point, window.mapToGlobal(point),
+                int(dt), int(pt), Qt::NoButton, 0, 0, 0, 0, 0, 0, stylusId, Qt::NoModifier);
+        point += QPoint(1, 0);
+#if QT_CONFIG(cursor)
+        // QQuickItem::setCursor() doesn't get called: we only have HoverHandlers in this test
+        QCOMPARE(root->cursor().shape(), Qt::ArrowCursor);
+        QTRY_COMPARE(window.cursor().shape(), expectedCursor);
+#endif
+        QCOMPARE(stylusHandler->isHovered(), stylusHandler == expectedActiveHandler);
+        QCOMPARE(eraserHandler->isHovered(), eraserHandler == expectedActiveHandler);
+        QCOMPARE(aibrushHandler->isHovered(), aibrushHandler == expectedActiveHandler);
+        QCOMPARE(airbrushEraserHandler->isHovered(), airbrushEraserHandler == expectedActiveHandler);
+    };
+
+    // simulate move events from various tablet stylus types
+    testStylusDevice(QInputDevice::DeviceType::Stylus, QPointingDevice::PointerType::Pen,
+                     Qt::CrossCursor, stylusHandler);
+    testStylusDevice(QInputDevice::DeviceType::Stylus, QPointingDevice::PointerType::Eraser,
+                     Qt::PointingHandCursor, eraserHandler);
+    testStylusDevice(QInputDevice::DeviceType::Airbrush, QPointingDevice::PointerType::Pen,
+                     Qt::BusyCursor, aibrushHandler);
+    testStylusDevice(QInputDevice::DeviceType::Airbrush, QPointingDevice::PointerType::Eraser,
+                     Qt::OpenHandCursor, airbrushEraserHandler);
+
+    qCDebug(lcPointerTests) << "---- no more tablet events, now we send a mouse move";
+
+    // move the mouse: the mouse-specific HoverHandler gets to set the cursor only if
+    // more than kCursorOverrideTimeout ms have elapsed (100ms)
+    QTest::mouseMove(&window, point, 100);
+    QTRY_IMPL(mouseHandler->isHovered() == true, 500);
+    const bool afterTimeout =
+            QQuickPointerHandlerPrivate::get(airbrushEraserHandler)->lastEventTime + 100 <
+            QQuickPointerHandlerPrivate::get(mouseHandler)->lastEventTime;
+    qCDebug(lcPointerTests) << "airbrush handler reacted last time:" << QQuickPointerHandlerPrivate::get(airbrushEraserHandler)->lastEventTime
+                            << "and the mouse handler reacted at time:" << QQuickPointerHandlerPrivate::get(mouseHandler)->lastEventTime
+                            << "so > 100 ms have elapsed?" << afterTimeout;
+    if (afterTimeout)
+        QCOMPARE(mouseHandler->isHovered(), true);
+    else
+        QSKIP("Failed to delay mouse move 100ms after the previous tablet event");
+
+#if QT_CONFIG(cursor)
+    QCOMPARE(window.cursor().shape(), afterTimeout ? Qt::IBeamCursor : Qt::OpenHandCursor);
+#endif
+    QCOMPARE(stylusHandler->isHovered(), false);
+    QCOMPARE(eraserHandler->isHovered(), false);
+    QCOMPARE(aibrushHandler->isHovered(), false);
+    QCOMPARE(airbrushEraserHandler->isHovered(), true); // there was no fresh QTabletEvent to tell it not to be hovered
+}
+
+void tst_HoverHandler::addHandlerFromCpp()
+{
+    // Check that you can create a hover handler from c++, and add it
+    // as a child of an existing item. Continue to check that you can
+    // also change the parent item at runtime.
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("nohandler.qml"));
+    QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY(!window.isNull());
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickItem *childItem = window->findChild<QQuickItem *>("childItem");
+    QVERIFY(childItem);
+
+    // Move mouse outside child
+    const QPoint outside(200, 200);
+    const QPoint inside(50, 50);
+    QTest::mouseMove(window.data(), outside);
+
+    QQuickHoverHandler *handler = new QQuickHoverHandler(childItem);
+    QSignalSpy spy(handler, &QQuickHoverHandler::hoveredChanged);
+
+    // Move mouse inside child
+    QTest::mouseMove(window.data(), inside);
+    QVERIFY(handler->isHovered());
+    QCOMPARE(spy.size(), 1);
+
+    // Move mouse outside child
+    QTest::mouseMove(window.data(), outside);
+    QVERIFY(!handler->isHovered());
+    QCOMPARE(spy.size(), 2);
+
+    // Remove the parent item from the handler
+    spy.clear();
+    handler->setParentItem(nullptr);
+
+    // Move mouse inside child
+    QTest::mouseMove(window.data(), inside);
+    QVERIFY(!handler->isHovered());
+    QCOMPARE(spy.size(), 0);
+
+    // Move mouse outside child
+    QTest::mouseMove(window.data(), outside);
+    QVERIFY(!handler->isHovered());
+    QCOMPARE(spy.size(), 0);
+
+    // Reparent back the item to the handler
+    spy.clear();
+    handler->setParentItem(childItem);
+
+    // Move mouse inside child
+    QTest::mouseMove(window.data(), inside);
+    QVERIFY(handler->isHovered());
+    QCOMPARE(spy.size(), 1);
+
+    // Move mouse outside child
+    QTest::mouseMove(window.data(), outside);
+    QVERIFY(!handler->isHovered());
+    QCOMPARE(spy.size(), 2);
+}
+
+void tst_HoverHandler::ensureHoverHandlerWorksWhenItemHasHoverDisabled()
+{
+    // Check that a hover handler with a leaf item as parent, continues to
+    // receive hover, even if the item itself stops listening for hover.
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("nohandler.qml"));
+    QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY(!window.isNull());
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickItem *childItem = window->findChild<QQuickItem *>("childItem");
+    QVERIFY(childItem);
+
+    // Move mouse outside child
+    const QPoint outside(200, 200);
+    const QPoint inside(50, 50);
+    QTest::mouseMove(window.data(), outside);
+
+    QQuickHoverHandler *handler = new QQuickHoverHandler(childItem);
+
+    // Toggle hover on the item. This should not clear subtreeHoverEnabled
+    // on the item as a whole, since it still has a hover handler.
+    childItem->setAcceptHoverEvents(true);
+    childItem->setAcceptHoverEvents(false);
+    QSignalSpy spy(handler, &QQuickHoverHandler::hoveredChanged);
+
+    // Move mouse inside child
+    QTest::mouseMove(window.data(), inside);
+    QVERIFY(handler->isHovered());
+    QCOMPARE(spy.size(), 1);
+
+    // Move mouse outside child
+    QTest::mouseMove(window.data(), outside);
+    QVERIFY(!handler->isHovered());
+    QCOMPARE(spy.size(), 2);
 }
 
 QTEST_MAIN(tst_HoverHandler)

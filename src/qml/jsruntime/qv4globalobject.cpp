@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qv4globalobject_p.h"
 #include <private/qv4mm_p.h>
@@ -68,7 +32,7 @@ static QString escape(const QString &input)
 {
     QString output;
     output.reserve(input.size() * 3);
-    const int length = input.length();
+    const int length = input.size();
     for (int i = 0; i < length; ++i) {
         ushort uc = input.at(i).unicode();
         if (uc < 0x100) {
@@ -99,9 +63,9 @@ static QString escape(const QString &input)
 static QString unescape(const QString &input)
 {
     QString result;
-    result.reserve(input.length());
+    result.reserve(input.size());
     int i = 0;
-    const int length = input.length();
+    const int length = input.size();
     while (i < length) {
         QChar c = input.at(i++);
         if ((c == u'%') && (i + 1 < length)) {
@@ -149,7 +113,7 @@ static QString encode(const QString &input, const char *unescapedSet, bool *ok)
 {
     *ok = true;
     QString output;
-    const int length = input.length();
+    const int length = input.size();
     int i = 0;
     while (i < length) {
         const QChar c = input.at(i);
@@ -223,8 +187,8 @@ static QString decode(const QString &input, DecodeMode decodeMode, bool *ok)
 {
     *ok = true;
     QString output;
-    output.reserve(input.length());
-    const int length = input.length();
+    output.reserve(input.size());
+    const int length = input.size();
     int i = 0;
     const QChar percent = QLatin1Char('%');
     while (i < length) {
@@ -417,7 +381,7 @@ ReturnedValue GlobalFunctions::method_parseInt(const FunctionObject *b, const Va
     CHECK_EXCEPTION();
 
     const QChar *pos = trimmed.constData();
-    const QChar *end = pos + trimmed.length();
+    const QChar *end = pos + trimmed.size();
 
     int sign = 1; // 3
     if (pos != end) {

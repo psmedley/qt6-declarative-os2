@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickflickable_p.h"
 #include "qquickflickable_p_p.h"
@@ -354,7 +318,7 @@ void QQuickFlickablePrivate::AxisData::updateVelocity()
     }
 }
 
-void QQuickFlickablePrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &)
+void QQuickFlickablePrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &oldGeom)
 {
     Q_Q(QQuickFlickable);
     if (item == contentItem) {
@@ -363,8 +327,14 @@ void QQuickFlickablePrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometr
             orient |= Qt::Horizontal;
         if (change.yChange())
             orient |= Qt::Vertical;
-        if (orient)
+        if (orient) {
             q->viewportMoved(orient);
+            const QPointF deltaMoved = item->position() - oldGeom.topLeft();
+            if (hData.contentPositionChangedExternallyDuringDrag)
+                hData.pressPos += deltaMoved.x();
+            if (vData.contentPositionChangedExternallyDuringDrag)
+                vData.pressPos += deltaMoved.y();
+        }
         if (orient & Qt::Horizontal)
             emit q->contentXChanged();
         if (orient & Qt::Vertical)
@@ -747,7 +717,8 @@ void QQuickFlickablePrivate::updateBeginningEnd()
 /*!
     \qmlsignal QtQuick::Flickable::flickEnded()
 
-    This signal is emitted when the view stops moving due to a flick.
+    This signal is emitted when the view stops moving after a flick
+    or a series of flicks.
 */
 
 /*!
@@ -824,8 +795,11 @@ void QQuickFlickable::setContentX(qreal pos)
     d->hData.vTime = d->timeline.time();
     if (isMoving() || isFlicking())
         movementEnding(true, false);
-    if (!qFuzzyCompare(-pos, d->hData.move.value()))
+    if (!qFuzzyCompare(-pos, d->hData.move.value())) {
+        d->hData.contentPositionChangedExternallyDuringDrag = d->hData.dragging;
         d->hData.move.setValue(-pos);
+        d->hData.contentPositionChangedExternallyDuringDrag = false;
+    }
 }
 
 qreal QQuickFlickable::contentY() const
@@ -842,8 +816,11 @@ void QQuickFlickable::setContentY(qreal pos)
     d->vData.vTime = d->timeline.time();
     if (isMoving() || isFlicking())
         movementEnding(false, true);
-    if (!qFuzzyCompare(-pos, d->vData.move.value()))
+    if (!qFuzzyCompare(-pos, d->vData.move.value())) {
+        d->vData.contentPositionChangedExternallyDuringDrag = d->vData.dragging;
         d->vData.move.setValue(-pos);
+        d->vData.contentPositionChangedExternallyDuringDrag = false;
+    }
 }
 
 /*!
@@ -1139,7 +1116,9 @@ void QQuickFlickablePrivate::maybeBeginDrag(qint64 currentTimestamp, const QPoin
     pressPos = pressPosn;
     hData.pressPos = hData.move.value();
     vData.pressPos = vData.move.value();
-    bool wasFlicking = hData.flicking || vData.flicking;
+    const bool wasFlicking = hData.flicking || vData.flicking;
+    hData.flickingWhenDragBegan = hData.flicking;
+    vData.flickingWhenDragBegan = vData.flicking;
     if (hData.flicking) {
         hData.flicking = false;
         emit q->flickingHorizontallyChanged();
@@ -2242,9 +2221,11 @@ void QQuickFlickable::setContentWidth(qreal w)
         d->contentItem->setWidth(w);
     d->hData.markExtentsDirty();
     // Make sure that we're entirely in view.
-    if (!d->pressed && !d->hData.moving && !d->vData.moving) {
+    if ((!d->pressed && !d->hData.moving && !d->vData.moving) || d->hData.dragging) {
+        d->hData.contentPositionChangedExternallyDuringDrag = d->hData.dragging;
         d->fixupMode = QQuickFlickablePrivate::Immediate;
         d->fixupX();
+        d->hData.contentPositionChangedExternallyDuringDrag = false;
     } else if (!d->pressed && d->hData.fixingUp) {
         d->fixupMode = QQuickFlickablePrivate::ExtentChanged;
         d->fixupX();
@@ -2271,9 +2252,11 @@ void QQuickFlickable::setContentHeight(qreal h)
         d->contentItem->setHeight(h);
     d->vData.markExtentsDirty();
     // Make sure that we're entirely in view.
-    if (!d->pressed && !d->hData.moving && !d->vData.moving) {
+    if ((!d->pressed && !d->hData.moving && !d->vData.moving) || d->vData.dragging) {
+        d->vData.contentPositionChangedExternallyDuringDrag = d->vData.dragging;
         d->fixupMode = QQuickFlickablePrivate::Immediate;
         d->fixupY();
+        d->vData.contentPositionChangedExternallyDuringDrag = false;
     } else if (!d->pressed && d->vData.fixingUp) {
         d->fixupMode = QQuickFlickablePrivate::ExtentChanged;
         d->fixupY();
@@ -2920,6 +2903,12 @@ void QQuickFlickable::movementStarting()
     if (!wasMoving && (d->hData.moving || d->vData.moving)) {
         emit movingChanged();
         emit movementStarted();
+#if QT_CONFIG(accessibility)
+        if (QAccessible::isActive()) {
+            QAccessibleEvent ev(this, QAccessible::ScrollingStart);
+            QAccessible::updateAccessibility(&ev);
+        }
+#endif
     }
 }
 
@@ -2933,7 +2922,7 @@ void QQuickFlickable::movementEnding(bool hMovementEnding, bool vMovementEnding)
     Q_D(QQuickFlickable);
 
     // emit flicking signals
-    bool wasFlicking = d->hData.flicking || d->vData.flicking;
+    const bool wasFlicking = d->hData.flicking || d->vData.flicking;
     if (hMovementEnding && d->hData.flicking) {
         d->hData.flicking = false;
         emit flickingHorizontallyChanged();
@@ -2944,6 +2933,10 @@ void QQuickFlickable::movementEnding(bool hMovementEnding, bool vMovementEnding)
     }
     if (wasFlicking && (!d->hData.flicking || !d->vData.flicking)) {
         emit flickingChanged();
+        emit flickEnded();
+    } else if (d->hData.flickingWhenDragBegan || d->vData.flickingWhenDragBegan) {
+        d->hData.flickingWhenDragBegan = !hMovementEnding;
+        d->vData.flickingWhenDragBegan = !vMovementEnding;
         emit flickEnded();
     }
 
@@ -2964,6 +2957,12 @@ void QQuickFlickable::movementEnding(bool hMovementEnding, bool vMovementEnding)
     if (wasMoving && !isMoving()) {
         emit movingChanged();
         emit movementEnded();
+#if QT_CONFIG(accessibility)
+        if (QAccessible::isActive()) {
+            QAccessibleEvent ev(this, QAccessible::ScrollingEnd);
+            QAccessible::updateAccessibility(&ev);
+        }
+#endif
     }
 
     if (hMovementEnding) {

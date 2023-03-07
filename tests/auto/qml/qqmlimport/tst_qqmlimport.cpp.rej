@@ -1,0 +1,11 @@
+--- tests/auto/qml/qqmlimport/tst_qqmlimport.cpp	2022-09-06 18:22:24.000000000 +0930
++++ tests/auto/qml/qqmlimport/tst_qqmlimport.cpp	2022-12-13 01:03:20.000000000 +1030
+@@ -146,7 +133,7 @@
+     window->setSource(testFileUrl("testfile_supported.qml"));
+     QVERIFY(window->errors().isEmpty());
+ 
+-    QString warningString("%1:30:1: module does not support the designer \"MyPluginUnsupported\" \n     import MyPluginUnsupported 1.0\r \n     ^ ");
++    QString warningString("%1:5:1: module does not support the designer \"MyPluginUnsupported\" \n     import MyPluginUnsupported 1.0\r \n     ^ ");
+ #if !defined(Q_OS_WIN)
+     warningString.remove('\r');
+ #endif

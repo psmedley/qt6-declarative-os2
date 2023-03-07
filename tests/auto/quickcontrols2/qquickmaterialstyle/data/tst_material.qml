@@ -1,52 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** BSD License Usage
-** Alternatively, you may use this file under the terms of the BSD license
-** as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
 import QtQuick
 import QtQuick.Window
@@ -55,8 +8,6 @@ import QtQuick.Templates as T
 import QtQuick.Controls
 import QtQuick.Controls.Material
 
-import org.qtproject.Test
-
 TestCase {
     id: testCase
     width: 200
@@ -64,6 +15,12 @@ TestCase {
     visible: true
     when: windowShown
     name: "Material"
+
+    function init() {
+        // This is particularly important for test_propertyBindingLoop,
+        // which relies on binding loop warnings failing the test.
+        failOnWarning(/.?/)
+    }
 
     Component {
         id: button
@@ -82,17 +39,12 @@ TestCase {
     }
 
     Component {
-        id: window
+        id: windowComponent
         Window { }
     }
 
     Component {
-        id: applicationWindow
-        ApplicationWindow { }
-    }
-
-    Component {
-        id: styledWindow
+        id: styledWindowComponent
         Window {
             Material.theme: Material.Dark
             Material.primary: Material.Brown
@@ -103,7 +55,7 @@ TestCase {
     }
 
     Component {
-        id: loader
+        id: buttonLoaderComponent
         Loader {
             active: false
             sourceComponent: Button { }
@@ -111,7 +63,7 @@ TestCase {
     }
 
     Component {
-        id: swipeView
+        id: swipeViewComponent
         SwipeView {
             Material.theme: Material.Dark
             Button { }
@@ -119,7 +71,7 @@ TestCase {
     }
 
     Component {
-        id: menu
+        id: menuComponent
         ApplicationWindow {
             Material.primary: Material.Blue
             Material.accent: Material.Red
@@ -162,7 +114,7 @@ TestCase {
     }
 
     Component {
-        id: comboBox
+        id: comboBoxComponent
         ApplicationWindow {
             width: 200
             height: 200
@@ -179,7 +131,7 @@ TestCase {
     }
 
     Component {
-        id: windowPane
+        id: windowPaneComponent
         ApplicationWindow {
             width: 200
             height: 200
@@ -198,7 +150,7 @@ TestCase {
     }
 
     function test_defaults() {
-        var control = button.createObject(testCase)
+        let control = createTemporaryObject(button, testCase)
         verify(control)
         verify(control.Material)
         compare(control.Material.primary, Material.color(Material.Indigo))
@@ -206,11 +158,10 @@ TestCase {
         compare(control.Material.foreground, "#dd000000")
         compare(control.Material.background, "#fafafa")
         compare(control.Material.theme, Material.Light)
-        control.destroy()
     }
 
     function test_set() {
-        var control = button.createObject(testCase)
+        let control = createTemporaryObject(button, testCase)
         verify(control)
         control.Material.primary = Material.Green
         control.Material.accent = Material.Brown
@@ -222,11 +173,10 @@ TestCase {
         compare(control.Material.background, Material.color(Material.Red, themeshade(control.Material.theme)))
         compare(control.Material.foreground, Material.color(Material.Blue))
         compare(control.Material.theme, Material.Dark)
-        control.destroy()
     }
 
     function test_reset() {
-        var control = styledButton.createObject(testCase)
+        let control = createTemporaryObject(styledButton, testCase)
         verify(control)
         compare(control.Material.primary, Material.color(Material.DeepOrange))
         compare(control.Material.accent, Material.color(Material.DeepPurple, themeshade(control.Material.theme)))
@@ -243,7 +193,6 @@ TestCase {
         compare(control.Material.background, testCase.Material.background)
         compare(control.Material.foreground, testCase.Material.foreground)
         compare(control.Material.theme, testCase.Material.theme)
-        control.destroy()
     }
 
     function test_inheritance_data() {
@@ -257,19 +206,19 @@ TestCase {
     }
 
     function test_inheritance(data) {
-        var prop = data.tag
-        var parent = button.createObject(testCase)
+        let prop = data.tag
+        let parent = createTemporaryObject(button, testCase)
         parent.Material[prop] = data.value1
         compare(parent.Material[prop], data.value1)
 
-        var child1 = button.createObject(parent)
+        let child1 = button.createObject(parent)
         compare(child1.Material[prop], data.value1)
 
         parent.Material[prop] = data.value2
         compare(parent.Material[prop], data.value2)
         compare(child1.Material[prop], data.value2)
 
-        var child2 = button.createObject(parent)
+        let child2 = button.createObject(parent)
         compare(child2.Material[prop], data.value2)
 
         child2.Material[prop] = data.value1
@@ -283,21 +232,19 @@ TestCase {
         compare(child1.Material[prop], parent.Material[prop])
         verify(child2.Material[prop] !== parent.Material[prop])
 
-        var grandChild1 = button.createObject(child1)
-        var grandChild2 = button.createObject(child2)
+        let grandChild1 = button.createObject(child1)
+        let grandChild2 = button.createObject(child2)
         compare(grandChild1.Material[prop], child1.Material[prop])
         compare(grandChild2.Material[prop], child2.Material[prop])
 
-        var themelessGrandGrandChild = button.createObject(grandChild1)
-        var grandGrandGrandChild1 = button.createObject(themelessGrandGrandChild)
+        let themelessGrandGrandChild = button.createObject(grandChild1)
+        let grandGrandGrandChild1 = button.createObject(themelessGrandGrandChild)
         compare(grandGrandGrandChild1.Material[prop], parent.Material[prop])
 
         child1.Material[prop] = data.value2
         compare(child1.Material[prop], data.value2)
         compare(grandChild1.Material[prop], data.value2)
         compare(grandGrandGrandChild1.Material[prop], data.value2)
-
-        parent.destroy()
     }
 
     function test_inheritance_popup_data() {
@@ -309,8 +256,8 @@ TestCase {
     }
 
     function test_inheritance_popup(data) {
-        var prop = data.tag
-        var popupObject = popupComponent.createObject(testCase)
+        let prop = data.tag
+        let popupObject = createTemporaryObject(popupComponent, testCase)
         compare(popupObject.popup.Material.textSelectionColor.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label.color.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label2.color.toString(), popupObject.Material.textSelectionColor.toString())
@@ -326,28 +273,26 @@ TestCase {
         compare(popupObject.popup.Material.textSelectionColor.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label.color.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label2.color.toString(), popupObject.Material.textSelectionColor.toString())
-
-        popupObject.destroy()
     }
 
     function test_window() {
-        var parent = window.createObject()
+        let parent = createTemporaryObject(windowComponent)
 
-        var control = button.createObject(parent.contentItem)
+        let control = button.createObject(parent.contentItem)
         compare(control.Material.primary, parent.Material.primary)
         compare(control.Material.accent, parent.Material.accent)
         compare(control.Material.background, parent.Material.background)
         compare(control.Material.foreground, parent.Material.foreground)
         compare(control.Material.theme, parent.Material.theme)
 
-        var styledChild = styledWindow.createObject(window)
+        let styledChild = styledWindowComponent.createObject(parent)
         verify(styledChild.Material.primary !== parent.Material.primary)
         verify(styledChild.Material.accent !== parent.Material.accent)
         verify(styledChild.Material.background !== parent.Material.background)
         verify(styledChild.Material.foreground !== parent.Material.foreground)
         verify(styledChild.Material.theme !== parent.Material.theme)
 
-        var unstyledChild = window.createObject(window)
+        let unstyledChild = windowComponent.createObject(parent)
         compare(unstyledChild.Material.primary, parent.Material.primary)
         compare(unstyledChild.Material.accent, parent.Material.accent)
         compare(unstyledChild.Material.background, parent.Material.background)
@@ -373,12 +318,10 @@ TestCase {
         compare(control.Material.foreground, Material.color(Material.Pink))
         verify(styledChild.Material.foreground !== Material.color(Material.Pink))
         // ### TODO: compare(unstyledChild.Material.foreground, Material.color(Material.Pink))
-
-        parent.destroy()
     }
 
     function test_loader() {
-        var control = loader.createObject(testCase)
+        let control = createTemporaryObject(buttonLoaderComponent, testCase)
         control.Material.primary = Material.Yellow
         control.Material.accent = Material.Lime
         control.Material.background = Material.LightGreen
@@ -406,26 +349,24 @@ TestCase {
         compare(control.item.Material.accent, Material.color(Material.Brown))
         compare(control.item.Material.background, Material.color(Material.Red))
         compare(control.item.Material.foreground, Material.color(Material.Pink))
-        control.destroy()
     }
 
     function test_swipeView() {
-        var control = swipeView.createObject(testCase)
+        let control = createTemporaryObject(swipeViewComponent, testCase)
         verify(control)
-        var child = control.itemAt(0)
+        let child = control.itemAt(0)
         verify(child)
         compare(control.Material.theme, Material.Dark)
         compare(child.Material.theme, Material.Dark)
-        control.destroy()
     }
 
     function test_menu() {
-        var container = menu.createObject(testCase)
+        let container = createTemporaryObject(menuComponent, testCase)
         verify(container)
         verify(container.menu)
         container.menu.open()
         verify(container.menu.visible)
-        var child = container.menu.itemAt(0)
+        let child = container.menu.itemAt(0)
         verify(child)
         compare(container.Material.theme, Material.Light)
         compare(container.menu.Material.theme, Material.Dark)
@@ -436,11 +377,10 @@ TestCase {
         compare(container.Material.accent, Material.color(Material.Red))
         compare(container.menu.Material.accent, Material.color(Material.Red, themeshade(container.menu.Material.theme)))
         compare(child.Material.accent, Material.color(Material.Red, themeshade(child.Material.theme)))
-        container.destroy()
     }
 
     function test_comboBox() {
-        var window = comboBox.createObject(testCase)
+        let window = createTemporaryObject(comboBoxComponent, testCase)
         verify(window)
         verify(window.combo)
         waitForRendering(window.combo)
@@ -448,9 +388,9 @@ TestCase {
         verify(window.combo.activeFocus)
         keyClick(Qt.Key_Space)
         verify(window.combo.popup.visible)
-        var listView = window.combo.popup.contentItem
+        let listView = window.combo.popup.contentItem
         verify(listView)
-        var child = listView.contentItem.children[0]
+        let child = listView.contentItem.children[0]
         verify(child)
         compare(window.Material.theme, Material.Light)
         compare(window.combo.Material.theme, Material.Dark)
@@ -461,14 +401,13 @@ TestCase {
         compare(window.Material.accent, Material.color(Material.Red))
         compare(window.combo.Material.accent, Material.color(Material.Red, themeshade(window.combo.Material.theme)))
         compare(child.Material.accent, Material.color(Material.Red, themeshade(child.Material.theme)))
-        window.destroy()
     }
 
     function test_windowChange() {
-        var ldr = loader.createObject()
+        let ldr = buttonLoaderComponent.createObject()
         verify(ldr)
 
-        var wnd = window.createObject()
+        let wnd = createTemporaryObject(windowComponent)
         verify(wnd)
 
         wnd.Material.theme = Material.Dark
@@ -480,8 +419,6 @@ TestCase {
 
         ldr.parent = wnd.contentItem
         compare(ldr.item.Material.theme, Material.Dark)
-
-        wnd.destroy()
     }
 
     function test_colors_data() {
@@ -491,10 +428,10 @@ TestCase {
     }
 
     function test_colors(data) {
-        var control = button.createObject(testCase)
+        let control = createTemporaryObject(button, testCase)
         verify(control)
 
-        var prop = data.tag
+        let prop = data.tag
 
         // Material.Color - enum
         control.Material[prop] = Material.Red
@@ -531,8 +468,6 @@ TestCase {
         control.Material[prop] = "foo"
         ignoreWarning(new RegExp("QML Button: unknown Material." + prop + " value: #1"))
         control.Material[prop] = "#1"
-
-        control.destroy()
     }
 
     function test_font_data() {
@@ -604,11 +539,11 @@ TestCase {
     }
 
     function test_font(data) {
-        var window = windowPane.createObject(testCase)
+        let window = createTemporaryObject(windowPaneComponent, testCase)
         verify(window)
         verify(window.pane)
 
-        var control = Qt.createQmlObject("import QtQuick.Controls; " + data.type + " { }", window.pane)
+        let control = Qt.createQmlObject("import QtQuick.Controls; " + data.type + " { }", window.pane)
         verify(control)
 
         compare(control.font[data.attribute], data.value)
@@ -627,14 +562,11 @@ TestCase {
         compare(window.font[data.attribute], data.window)
         compare(window.pane.font[data.attribute], data.window)
         compare(control.font[data.attribute], data.window)
-
-        window.destroy()
     }
 
     Component {
-        id: backgroundControls
+        id: backgroundControlsComponent
         ApplicationWindow {
-            id: window
             property Button button: Button { }
             property ComboBox combobox: ComboBox { }
             property Drawer drawer: Drawer { }
@@ -668,16 +600,16 @@ TestCase {
     }
 
     function test_background(data) {
-        var window = backgroundControls.createObject(testCase)
+        let window = createTemporaryObject(backgroundControlsComponent, testCase)
         verify(window)
 
-        var control = window[data.tag]
+        let control = window[data.tag]
         verify(control)
 
         control.parent = window.contentItem
         control.visible = true
 
-        var defaultBackground = control.background.color
+        let defaultBackground = control.background.color
 
         window.Material.background = "#ff0000"
         compare(window.color, "#ff0000")
@@ -699,23 +631,19 @@ TestCase {
 
         control.Material.background = "#0000ff"
         tryCompare(control.background, "color", "#0000ff")
-
-        window.destroy()
     }
 
     Component {
-        id: busyIndicator
+        id: busyIndicatorComponent
         BusyIndicator { }
     }
 
     function test_shade() {
-        var control = busyIndicator.createObject(testCase)
+        let control = createTemporaryObject(busyIndicatorComponent, testCase)
 
         compare(control.contentItem.color.toString(), Material.color(Material.Pink, Material.Shade500))
         control.Material.theme = Material.Dark
         compare(control.contentItem.color.toString(), Material.color(Material.Pink, Material.Shade200))
-
-        control.destroy()
     }
 
     // We can't declare components with JS syntax (when creating a data row),
@@ -785,7 +713,5 @@ TestCase {
     function test_propertyBindingLoop(data) {
         let item = createTemporaryObject(data.component, testCase)
         verify(item)
-        verify(!BindingLoopDetector.bindingLoopDetected, "Detected binding loop")
-        BindingLoopDetector.reset()
     }
 }

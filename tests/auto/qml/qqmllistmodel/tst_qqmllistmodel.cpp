@@ -1,34 +1,10 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQuick/private/qquickanimation_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
 #include <QtQml/private/qqmlengine_p.h>
 #include <QtQmlModels/private/qqmllistmodel_p.h>
 #include <QtQml/private/qqmlexpression_p.h>
@@ -40,6 +16,8 @@
 #include <QSignalSpy>
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+
+using namespace Qt::StringLiterals;
 
 Q_DECLARE_METATYPE(QList<int>)
 Q_DECLARE_METATYPE(QList<QVariantHash>)
@@ -139,6 +117,7 @@ private slots:
     void listElementWithTemplateString();
     void destroyComponentObject();
     void objectOwnershipFlip();
+    void enumsInListElement();
 };
 
 bool tst_qqmllistmodel::compareVariantList(const QVariantList &testList, QVariant object)
@@ -149,10 +128,10 @@ bool tst_qqmllistmodel::compareVariantList(const QVariantList &testList, QVarian
     if (model == nullptr)
         return false;
 
-    if (model->count() != testList.count())
+    if (model->count() != testList.size())
         return false;
 
-    for (int i=0 ; i < testList.count() ; ++i) {
+    for (int i=0 ; i < testList.size() ; ++i) {
         const QVariant &testVariant = testList.at(i);
         if (testVariant.typeId() != QMetaType::QVariantMap)
             return false;
@@ -618,7 +597,7 @@ void tst_qqmllistmodel::dynamic()
     QCOMPARE(actual,result);
 
     if (model.count() > 0)
-        QVERIFY(spyCount.count() > 0);
+        QVERIFY(spyCount.size() > 0);
 }
 
 void tst_qqmllistmodel::enumerate()
@@ -726,7 +705,7 @@ void tst_qqmllistmodel::error()
     } else {
         QVERIFY(component.isError());
         QList<QQmlError> errors = component.errors();
-        QCOMPARE(errors.count(),1);
+        QCOMPARE(errors.size(),1);
         QCOMPARE(errors.at(0).description(),error);
     }
 }
@@ -824,7 +803,7 @@ void tst_qqmllistmodel::get()
         QCOMPARE(model->data(index, role), roleValue);
     }
 
-    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.size(), 1);
 
     QList<QVariant> spyResult = spy.takeFirst();
     QCOMPARE(spyResult.at(0).value<QModelIndex>(), model->index(index, 0, QModelIndex()));
@@ -925,7 +904,7 @@ void tst_qqmllistmodel::get_nested()
     testData << qMakePair(1, QString("listRoleB"));
     testData << qMakePair(1, QString("listRoleC"));
 
-    for (int i=0; i<testData.count(); i++) {
+    for (int i=0; i<testData.size(); i++) {
         int outerListIndex = testData[i].first;
         QString outerListRoleName = testData[i].second;
         int outerListRole = roleFromName(model, outerListRoleName);
@@ -948,7 +927,7 @@ void tst_qqmllistmodel::get_nested()
         } else {
             QCOMPARE(childModel->data(index, role), roleValue);
         }
-        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.size(), 1);
 
         QList<QVariant> spyResult = spy.takeFirst();
         QCOMPARE(spyResult.at(0).value<QModelIndex>(), childModel->index(index, 0, QModelIndex()));
@@ -1118,7 +1097,7 @@ void tst_qqmllistmodel::property_changes()
     expr.evaluate();
     QVERIFY2(!expr.hasError(), qPrintable(expr.error().toString()));
 
-    QString signalHandler = "on" + QString(roleName[0].toUpper()) + roleName.mid(1, roleName.length()) + "Changed:";
+    QString signalHandler = "on" + QString(roleName[0].toUpper()) + roleName.mid(1, roleName.size()) + "Changed:";
     QString qml = "import QtQuick 2.0\n"
                   "Connections {\n"
                         "property bool gotSignal: false\n"
@@ -1143,11 +1122,11 @@ void tst_qqmllistmodel::property_changes()
 
     // test itemsChanged() is emitted correctly
     if (itemsChanged) {
-        QCOMPARE(spyItemsChanged.count(), 1);
+        QCOMPARE(spyItemsChanged.size(), 1);
         QCOMPARE(spyItemsChanged.at(0).at(0).value<QModelIndex>(), model.index(listIndex, 0, QModelIndex()));
         QCOMPARE(spyItemsChanged.at(0).at(1).value<QModelIndex>(), model.index(listIndex, 0, QModelIndex()));
     } else {
-        QCOMPARE(spyItemsChanged.count(), 0);
+        QCOMPARE(spyItemsChanged.size(), 0);
     }
 
     expr.setExpression(testExpression);
@@ -1664,7 +1643,7 @@ void tst_qqmllistmodel::crash_append_empty_array()
     QQmlExpression expr(engine.rootContext(), model, "append(new Array())");
     expr.evaluate();
     QVERIFY2(!expr.hasError(), qPrintable(expr.error().toString()));
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
 }
 
 void tst_qqmllistmodel::dynamic_roles_crash_QTBUG_38907()
@@ -1777,7 +1756,7 @@ void tst_qqmllistmodel::objectDestroyed()
     std::unique_ptr<QObject> obj = std::make_unique<QObject>();
     connect(obj.get(), &QObject::destroyed, [&]() { obj.release(); });
 
-    engine.rootContext()->setContextProperty(u"contextObject"_qs, obj.get());
+    engine.rootContext()->setContextProperty(u"contextObject"_s, obj.get());
     engine.setObjectOwnership(obj.get(), QJSEngine::JavaScriptOwnership);
 
     delete component.create();
@@ -1785,7 +1764,7 @@ void tst_qqmllistmodel::objectDestroyed()
     engine.collectGarbage();
     QTest::qSleep(250);
     QVERIFY(obj);
-    engine.evaluate(u"model.clear();"_qs);
+    engine.evaluate(u"model.clear();"_s);
     engine.collectGarbage();
     QTRY_VERIFY(!obj);
 }
@@ -1803,7 +1782,7 @@ void tst_qqmllistmodel::destroyObject()
                 QUrl());
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     QScopedPointer<QObject> element(new QObject);
-    engine.rootContext()->setContextProperty(u"contextObject"_qs, element.data());
+    engine.rootContext()->setContextProperty(u"contextObject"_s, element.data());
 
     QScopedPointer<QObject> o(component.create());
     QVERIFY(!o.isNull());
@@ -1912,6 +1891,22 @@ void tst_qqmllistmodel::objectOwnershipFlip()
     QMetaObject::invokeMethod(root.data(), "checkItem");
 
     QCOMPARE(QJSEngine::objectOwnership(item.data()), QJSEngine::CppOwnership);
+}
+
+void tst_qqmllistmodel::enumsInListElement()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("enumsInListElement.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(!root.isNull());
+
+    QQuickListView *listView = qobject_cast<QQuickListView *>(root.data());
+    QVERIFY(listView);
+    QCOMPARE(listView->count(), 3);
+    for (int i = 0; i < 3; ++i) {
+        QCOMPARE(listView->itemAtIndex(i)->property("text"), QVariant(QString::number(i)));
+    }
 }
 
 QTEST_MAIN(tst_qqmllistmodel)

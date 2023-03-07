@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/QtTest>
 #include <QSignalSpy>
@@ -37,6 +12,8 @@
 #include <QNetworkAccessManager>
 #include <QtQmlXmlListModel/private/qqmlxmllistmodel_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+
+using namespace Qt::StringLiterals;
 
 typedef QList<QVariantList> QQmlXmlModelData;
 
@@ -102,7 +79,7 @@ private:
                 const QStringList fields = item.split(QLatin1Char(','));
                 for (const QString &field : fields) {
                     QStringList values = field.split(QLatin1Char('='));
-                    if (values.count() != 2) {
+                    if (values.size() != 2) {
                         qWarning() << "makeItemXmlAndData: invalid field:" << field;
                         continue;
                     }
@@ -258,7 +235,7 @@ void tst_QQmlXmlListModel::roles()
     QTRY_COMPARE(model->rowCount(), 9);
 
     QHash<int, QByteArray> roleNames = model->roleNames();
-    QCOMPARE(roleNames.count(), 4);
+    QCOMPARE(roleNames.size(), 4);
     QVERIFY(roleNames.key("name", -1) >= 0);
     QVERIFY(roleNames.key("type", -1) >= 0);
     QVERIFY(roleNames.key("age", -1) >= 0);
@@ -269,7 +246,7 @@ void tst_QQmlXmlListModel::roles()
     roles.insert(roleNames.key("type"));
     roles.insert(roleNames.key("age"));
     roles.insert(roleNames.key("size"));
-    QCOMPARE(roles.count(), 4);
+    QCOMPARE(roles.size(), 4);
 }
 
 void tst_QQmlXmlListModel::elementErrors()
@@ -317,7 +294,7 @@ void tst_QQmlXmlListModel::uniqueRoleNames()
     QTRY_COMPARE(model->rowCount(), 9);
 
     QHash<int, QByteArray> roleNames = model->roleNames();
-    QCOMPARE(roleNames.count(), 1);
+    QCOMPARE(roleNames.size(), 1);
 }
 
 void tst_QQmlXmlListModel::headers()
@@ -336,7 +313,7 @@ void tst_QQmlXmlListModel::headers()
                  QQmlXmlListModel::Ready);
 
     // It doesn't do a network request for a local file
-    QCOMPARE(factory.lastSentHeaders.count(), 0);
+    QCOMPARE(factory.lastSentHeaders.size(), 0);
 
     model->setProperty("source", QUrl("http://localhost/filethatdoesnotexist.xml"));
     QTRY_COMPARE_WITH_TIMEOUT(qvariant_cast<QQmlXmlListModel::Status>(model->property("status")),
@@ -345,7 +322,7 @@ void tst_QQmlXmlListModel::headers()
     QVariantMap expectedHeaders;
     expectedHeaders["Accept"] = "application/xml,*/*";
 
-    QCOMPARE(factory.lastSentHeaders.count(), expectedHeaders.count());
+    QCOMPARE(factory.lastSentHeaders.size(), expectedHeaders.size());
     for (auto it = expectedHeaders.cbegin(), end = expectedHeaders.cend(); it != end; ++it) {
         QVERIFY(factory.lastSentHeaders.contains(it.key()));
         QCOMPARE(factory.lastSentHeaders[it.key()].toString(), it.value().toString());
@@ -368,7 +345,7 @@ void tst_QQmlXmlListModel::source()
     QCOMPARE(model->property("progress").toDouble(), qreal(1.0));
     QCOMPARE(qvariant_cast<QQmlXmlListModel::Status>(model->property("status")),
              QQmlXmlListModel::Loading);
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE(spy.size(), 1);
     spy.clear();
     QCOMPARE(qvariant_cast<QQmlXmlListModel::Status>(model->property("status")),
              QQmlXmlListModel::Ready);
@@ -380,9 +357,9 @@ void tst_QQmlXmlListModel::source()
     if (model->property("source").toString().isEmpty())
         QCOMPARE(qvariant_cast<QQmlXmlListModel::Status>(model->property("status")),
                  QQmlXmlListModel::Null);
-    qreal expectedProgress = (source.isLocalFile() || (source.scheme() == QLatin1String("qrc"))) ? 1.0 : 0.0;
+    qreal expectedProgress = (source.isLocalFile() || (source.scheme() == "qrc"_L1)) ? 1.0 : 0.0;
     QCOMPARE(model->property("progress").toDouble(), expectedProgress);
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE(spy.size(), 1);
     spy.clear();
     QCOMPARE(qvariant_cast<QQmlXmlListModel::Status>(model->property("status")),
              QQmlXmlListModel::Loading);
@@ -396,10 +373,10 @@ void tst_QQmlXmlListModel::source()
     timer.start(20000);
     loop.exec();
 
-    if (spy.count() == 0 && status != QQmlXmlListModel::Ready) {
+    if (spy.size() == 0 && status != QQmlXmlListModel::Ready) {
         qWarning("QQmlXmlListModel invalid source test timed out");
     } else {
-        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.size(), 1);
         spy.clear();
     }
 
@@ -438,7 +415,7 @@ void tst_QQmlXmlListModel::data()
 
     for (int i = 0; i < 9; i++) {
         QModelIndex index = model->index(i, 0);
-        for (int j = 0; j < model->roleNames().count(); j++) {
+        for (int j = 0; j < model->roleNames().size(); j++) {
             QCOMPARE(model->data(index, j), QVariant());
         }
     }
@@ -465,9 +442,9 @@ void tst_QQmlXmlListModel::reload()
     QCoreApplication::processEvents();
     QMetaObject::invokeMethod(model.get(), "reload");
     QMetaObject::invokeMethod(model.get(), "reload");
-    QTRY_COMPARE(spyCount.count(), 0);
-    QTRY_COMPARE(spyInsert.count(), 1);
-    QTRY_COMPARE(spyRemove.count(), 1);
+    QTRY_COMPARE(spyCount.size(), 0);
+    QTRY_COMPARE(spyInsert.size(), 1);
+    QTRY_COMPARE(spyRemove.size(), 1);
 
     QCOMPARE(spyInsert[0][1].toInt(), 0);
     QCOMPARE(spyInsert[0][2].toInt(), 8);
@@ -580,14 +557,14 @@ void tst_QQmlXmlListModel::propertyChanges()
     QCOMPARE(role->property("name").toString(), QString("size"));
     QCOMPARE(role->property("elementName").toString(), QString("size"));
 
-    QCOMPARE(nameSpy.count(), 1);
-    QCOMPARE(elementSpy.count(), 1);
+    QCOMPARE(nameSpy.size(), 1);
+    QCOMPARE(elementSpy.size(), 1);
 
     role->setProperty("name", "size");
     role->setProperty("elementName", "size");
 
-    QCOMPARE(nameSpy.count(), 1);
-    QCOMPARE(elementSpy.count(), 1);
+    QCOMPARE(nameSpy.size(), 1);
+    QCOMPARE(elementSpy.size(), 1);
 
     QSignalSpy sourceSpy(model.get(), SIGNAL(sourceChanged()));
     QSignalSpy modelQuerySpy(model.get(), SIGNAL(queryChanged()));
@@ -600,14 +577,14 @@ void tst_QQmlXmlListModel::propertyChanges()
 
     QTRY_COMPARE(model->rowCount(), 1);
 
-    QCOMPARE(sourceSpy.count(), 1);
-    QCOMPARE(modelQuerySpy.count(), 1);
+    QCOMPARE(sourceSpy.size(), 1);
+    QCOMPARE(modelQuerySpy.size(), 1);
 
     model->setProperty("source", QUrl("model2.xml"));
     model->setProperty("query", "/Pets");
 
-    QCOMPARE(sourceSpy.count(), 1);
-    QCOMPARE(modelQuerySpy.count(), 1);
+    QCOMPARE(sourceSpy.size(), 1);
+    QCOMPARE(modelQuerySpy.size(), 1);
 
     QTRY_COMPARE(model->rowCount(), 1);
 }

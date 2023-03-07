@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the Qt Labs Platform module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquicklabsplatformmenuitem_p.h"
 #include "qquicklabsplatformmenu_p.h"
@@ -126,16 +90,7 @@ QQuickLabsPlatformMenuItem::~QQuickLabsPlatformMenuItem()
         m_menu->removeItem(this);
     if (m_group)
         m_group->removeItem(this);
-#if QT_CONFIG(shortcut)
-    if (m_shortcutId != -1) {
-        QKeySequence sequence;
-        if (m_shortcut.metaType().id() == QMetaType::Int)
-            sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-        else
-            sequence = QKeySequence::fromString(m_shortcut.toString());
-        QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
-    }
-#endif
+    removeShortcut();
     delete m_iconLoader;
     m_iconLoader = nullptr;
     delete m_handle;
@@ -302,8 +257,15 @@ void QQuickLabsPlatformMenuItem::setEnabled(bool enabled)
     if (m_enabled == enabled)
         return;
 
+    if (!enabled)
+        removeShortcut();
+
     bool wasEnabled = isEnabled();
     m_enabled = enabled;
+
+    if (enabled)
+        addShortcut();
+
     sync();
     if (isEnabled() != wasEnabled)
         emit enabledChanged();
@@ -509,31 +471,10 @@ void QQuickLabsPlatformMenuItem::setShortcut(const QVariant& shortcut)
     if (m_shortcut == shortcut)
         return;
 
-#if QT_CONFIG(shortcut)
-    if (m_shortcutId != -1) {
-        QKeySequence sequence;
-        if (m_shortcut.metaType().id() == QMetaType::Int)
-            sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-        else
-            sequence = QKeySequence::fromString(m_shortcut.toString());
-        QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
-    }
-#endif
+    removeShortcut();
     m_shortcut = shortcut;
     sync();
-#if QT_CONFIG(shortcut)
-    QKeySequence sequence;
-    if (m_shortcut.metaType().id() == QMetaType::Int)
-        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-    else
-        sequence = QKeySequence::fromString(m_shortcut.toString());
-    if (!sequence.isEmpty()) {
-        m_shortcutId = QGuiApplicationPrivate::instance()->shortcutMap.addShortcut(this, sequence,
-            Qt::WindowShortcut, QQuickShortcutContext::matcher);
-    } else {
-        m_shortcutId = -1;
-    }
-#endif
+    addShortcut();
     emit shortcutChanged();
 }
 
@@ -637,6 +578,38 @@ void QQuickLabsPlatformMenuItem::activate()
 void QQuickLabsPlatformMenuItem::updateIcon()
 {
     sync();
+}
+
+void QQuickLabsPlatformMenuItem::addShortcut()
+{
+#if QT_CONFIG(shortcut)
+    QKeySequence sequence;
+    if (m_shortcut.metaType().id() == QMetaType::Int)
+        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
+    else
+        sequence = QKeySequence::fromString(m_shortcut.toString());
+    if (!sequence.isEmpty() && m_enabled) {
+        m_shortcutId = QGuiApplicationPrivate::instance()->shortcutMap.addShortcut(this, sequence,
+            Qt::WindowShortcut, QQuickShortcutContext::matcher);
+    } else {
+        m_shortcutId = -1;
+    }
+#endif
+}
+
+void QQuickLabsPlatformMenuItem::removeShortcut()
+{
+#if QT_CONFIG(shortcut)
+    if (m_shortcutId == -1)
+        return;
+
+    QKeySequence sequence;
+    if (m_shortcut.metaType().id() == QMetaType::Int)
+        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
+    else
+        sequence = QKeySequence::fromString(m_shortcut.toString());
+    QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
+#endif
 }
 
 QT_END_NAMESPACE

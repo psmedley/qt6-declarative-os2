@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <QtTest/qtest.h>
 #include <QtTest/QSignalSpy>
@@ -153,8 +117,8 @@ void tst_QQuickPalette::newColorSubgroup()
         anotherPalette.fromQPalette(Qt::red);
         (p.*setter)((anotherPalette.*getter)());
 
-        QCOMPARE(subgroupChanged.count(), 1);
-        QCOMPARE(paletteChanged.count(), 1);
+        QCOMPARE(subgroupChanged.size(), 1);
+        QCOMPARE(paletteChanged.size(), 1);
     }
 }
 
@@ -197,7 +161,7 @@ void tst_QQuickPalette::paletteChangedWhenColorGroupChanged()
     p.inactive()->setMid(Qt::green);
     p.disabled()->setMid(Qt::blue);
 
-    QCOMPARE(sp.count(), 3);
+    QCOMPARE(sp.size(), 3);
 }
 
 void tst_QQuickPalette::createDefault()
@@ -218,7 +182,7 @@ void tst_QQuickPalette::changeCurrentColorGroup()
     palette.setCurrentGroup(QPalette::Disabled);
 
     QCOMPARE(palette.currentColorGroup(), QPalette::Disabled);
-    QCOMPARE(ss.count(), 1);
+    QCOMPARE(ss.size(), 1);
 }
 
 void tst_QQuickPalette::inheritColor()
@@ -302,10 +266,10 @@ void tst_QQuickPalette::createFromQtPalette()
     QSignalSpy sp(&palette, &QQuickColorGroup::changed);
 
     palette.fromQPalette(QPalette());
-    QCOMPARE(sp.count(), 0);
+    QCOMPARE(sp.size(), 0);
 
     palette.fromQPalette(somePalette);
-    QCOMPARE(sp.count(), 1);
+    QCOMPARE(sp.size(), 1);
 }
 
 void tst_QQuickPalette::convertToQtPalette()

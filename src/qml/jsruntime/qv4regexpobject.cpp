@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qv4regexpobject_p.h"
 #include "qv4objectproto_p.h"
@@ -84,7 +48,7 @@ void Heap::RegExpObject::init(QV4::RegExp *value)
 static QString minimalPattern(const QString &pattern)
 {
     QString ecmaPattern;
-    int len = pattern.length();
+    int len = pattern.size();
     ecmaPattern.reserve(len);
     int i = 0;
     const QChar *wc = pattern.unicode();
@@ -182,7 +146,7 @@ ReturnedValue RegExpObject::builtinExec(ExecutionEngine *engine, const String *s
 
     Scope scope(engine);
     int offset = (global() || sticky()) ? lastIndex() : 0;
-    if (offset < 0 || offset > s.length()) {
+    if (offset < 0 || offset > s.size()) {
         setLastIndex(0);
         RETURN_RESULT(Encode::null());
     }
@@ -206,7 +170,7 @@ ReturnedValue RegExpObject::builtinExec(ExecutionEngine *engine, const String *s
     int len = value()->captureCount();
     array->arrayReserve(len);
     ScopedValue v(scope);
-    int strlen = s.length();
+    int strlen = s.size();
     for (int i = 0; i < len; ++i) {
         int start = matchOffsets[i * 2];
         int end = matchOffsets[i * 2 + 1];
@@ -268,7 +232,7 @@ uint parseFlags(Scope &scope, const QV4::Value *f)
         if (scope.hasException())
             return flags;
         QString str = s->toQString();
-        for (int i = 0; i < str.length(); ++i) {
+        for (int i = 0; i < str.size(); ++i) {
             if (str.at(i) == QLatin1Char('g') && !(flags & CompiledData::RegExp::RegExp_Global)) {
                 flags |= CompiledData::RegExp::RegExp_Global;
             } else if (str.at(i) == QLatin1Char('i') && !(flags & CompiledData::RegExp::RegExp_IgnoreCase)) {
@@ -418,7 +382,7 @@ ReturnedValue RegExpPrototype::execFirstMatch(const FunctionObject *b, const Val
     QString s = str->toQString();
 
     int offset = r->lastIndex();
-    if (offset < 0 || offset > s.length()) {
+    if (offset < 0 || offset > s.size()) {
         r->setLastIndex(0);
         RETURN_RESULT(Encode::null());
     }
@@ -554,7 +518,7 @@ ReturnedValue RegExpPrototype::method_get_ignoreCase(const FunctionObject *f, co
 static int advanceStringIndex(int index, const QString &str, bool unicode)
 {
     if (unicode) {
-        if (index < str.length() - 1 &&
+        if (index < str.size() - 1 &&
             str.at(index).isHighSurrogate() &&
             str.at(index + 1).isLowSurrogate())
             ++index;
@@ -643,7 +607,7 @@ ReturnedValue RegExpPrototype::method_replace(const FunctionObject *f, const Val
     if (scope.hasException())
         return Encode::undefined();
 
-    int lengthS = s->toQString().length();
+    int lengthS = s->toQString().size();
 
     ScopedString replaceValue(scope);
     ScopedFunctionObject replaceFunction(scope, (argc > 1 ? argv[1] : Value::undefinedValue()));
@@ -695,7 +659,7 @@ ReturnedValue RegExpPrototype::method_replace(const FunctionObject *f, const Val
         if (scope.hasException())
             return Encode::undefined();
         QString m = matchString->toQString();
-        int matchLength = m.length();
+        int matchLength = m.size();
         v = resultObject->get(scope.engine->id_index());
         int position = v->toInt32();
         position = qMax(qMin(position, lengthS), 0);
@@ -822,7 +786,7 @@ ReturnedValue RegExpPrototype::method_split(const FunctionObject *f, const Value
         return A->asReturnedValue();
 
     QString S = s->toQString();
-    int size = S.length();
+    int size = S.size();
     if (size == 0) {
         ScopedValue z(scope, exec(scope.engine, splitter, s));
         if (z->isNull())

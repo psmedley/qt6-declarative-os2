@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Lt.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the Qt Quick Controls 2 module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 import QtQuick
 import QtQuick.Controls.impl
@@ -55,6 +19,13 @@ T.TreeViewDelegate {
     topPadding: contentItem ? (height - contentItem.implicitHeight) / 2 : 0
     leftPadding: !mirrored ? leftMargin + __contentIndent : width - leftMargin - __contentIndent - implicitContentWidth
 
+    highlighted: control.selected || control.current
+               || ((control.treeView.selectionBehavior === TableView.SelectRows
+               || control.treeView.selectionBehavior === TableView.SelectionDisabled)
+               && control.row === control.treeView.currentRow)
+
+    required property int row
+    required property var model
     readonly property real __contentIndent: !isTreeNode ? 0 : (depth * indentation) + (indicator ? indicator.width + spacing : 0)
 
     indicator: Item {
@@ -63,8 +34,8 @@ T.TreeViewDelegate {
         readonly property real __indicatorIndent: control.leftMargin + (control.depth * control.indentation)
         x: !control.mirrored ? __indicatorIndent : control.width - __indicatorIndent - width
         y: (control.height - height) / 2
-        width: 16
-        height: 16
+        implicitWidth: 20
+        implicitHeight: 40 // same as Button.qml
         ColorImage {
             x: (parent.width - width) / 2
             y: (parent.height - height) / 2
@@ -72,13 +43,21 @@ T.TreeViewDelegate {
             source: "qrc:/qt-project.org/imports/QtQuick/Controls/Basic/images/arrow-indicator.png"
             color: control.palette.windowText
             defaultColor: "#353637"
-            scale: 0.5
         }
+    }
+
+    background: Rectangle {
+        implicitHeight: 40 // same as Button.qml
+        color: control.highlighted
+               ? control.palette.highlight
+               : (control.treeView.alternatingRows && control.row % 2 !== 0
+               ? control.palette.alternateBase : control.palette.base)
     }
 
     contentItem: Label {
         clip: false
-        text: model.display
+        text: control.model.display
         elide: Text.ElideRight
+        color: control.highlighted ? control.palette.highlightedText : control.palette.buttonText
     }
 }

@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2019 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickpathview_p.h"
 #include "qquickpathview_p_p.h"
@@ -246,10 +210,10 @@ void QQuickPathViewPrivate::clear()
         currentItem = nullptr;
     }
 
-    for (QQuickItem *p : qAsConst(items))
+    for (QQuickItem *p : std::as_const(items))
         releaseItem(p);
 
-    for (QQuickItem *p : qAsConst(itemCache))
+    for (QQuickItem *p : std::as_const(itemCache))
         releaseItem(p);
 
     if (requestedIndex >= 0) {
@@ -422,7 +386,7 @@ void QQuickPathViewPrivate::setHighlightPosition(qreal pos)
 void QQuickPathView::pathUpdated()
 {
     Q_D(QQuickPathView);
-    for (QQuickItem *item : qAsConst(d->items)) {
+    for (QQuickItem *item : std::as_const(d->items)) {
         if (QQuickPathViewAttached *att = d->attached(item))
             att->m_percent = -1;
     }
@@ -1655,21 +1619,21 @@ void QQuickPathView::mousePressEvent(QMouseEvent *event)
 void QQuickPathViewPrivate::handleMousePressEvent(QMouseEvent *event)
 {
     Q_Q(QQuickPathView);
-    if (!interactive || !items.count() || !model || !modelCount)
+    if (!interactive || !items.size() || !model || !modelCount)
         return;
     velocityBuffer.clear();
     int idx = 0;
-    for (; idx < items.count(); ++idx) {
+    for (; idx < items.size(); ++idx) {
         QQuickItem *item = items.at(idx);
         if (item->contains(item->mapFromScene(event->scenePosition())))
             break;
     }
-    if (idx == items.count() && qFuzzyIsNull(dragMargin))  // didn't click on an item
+    if (idx == items.size() && qFuzzyIsNull(dragMargin))  // didn't click on an item
         return;
 
     startPoint = pointNear(event->position(), &startPc);
     startPos = event->position();
-    if (idx == items.count()) {
+    if (idx == items.size()) {
         qreal distance = qAbs(event->position().x() - startPoint.x()) + qAbs(event->position().y() - startPoint.y());
         if (distance > dragMargin)
             return;
@@ -2014,7 +1978,7 @@ void QQuickPathView::refill()
     bool waiting = false;
     if (d->modelCount) {
         // add items as needed
-        if (d->items.count() < count+d->cacheSize) {
+        if (d->items.size() < count+d->cacheSize) {
             int endIdx = 0;
             qreal endPos;
             int startIdx = 0;
@@ -2025,7 +1989,7 @@ void QQuickPathView::refill()
                 endPos = -1;
                 startPos = 2;
 
-                for (QQuickItem * item : qAsConst(d->items)) {
+                for (QQuickItem * item : std::as_const(d->items)) {
                     int idx = d->model->indexOf(item, nullptr);
                     qreal curPos = d->positionOfIndex(idx);
                     if (curPos > endPos) {
@@ -2052,9 +2016,9 @@ void QQuickPathView::refill()
             if (idx >= d->modelCount)
                 idx = 0;
             qreal nextPos = d->positionOfIndex(idx);
-            while ((d->isInBound(nextPos, endPos, 1 + d->mappedCache) || !d->items.count())
-                    && d->items.count() < count+d->cacheSize) {
-                qCDebug(lcItemViewDelegateLifecycle) << "append" << idx << "@" << nextPos << (d->currentIndex == idx ? "current" : "") << "items count was" << d->items.count();
+            while ((d->isInBound(nextPos, endPos, 1 + d->mappedCache) || !d->items.size())
+                    && d->items.size() < count+d->cacheSize) {
+                qCDebug(lcItemViewDelegateLifecycle) << "append" << idx << "@" << nextPos << (d->currentIndex == idx ? "current" : "") << "items count was" << d->items.size();
                 QQuickItem *item = d->getItem(idx, idx+1, nextPos >= 1);
                 if (!item) {
                     waiting = true;
@@ -2085,8 +2049,8 @@ void QQuickPathView::refill()
                 idx = d->modelCount - 1;
             nextPos = d->positionOfIndex(idx);
             while (!waiting && d->isInBound(nextPos, d->mappedRange - d->mappedCache, startPos)
-                    && d->items.count() < count+d->cacheSize) {
-                qCDebug(lcItemViewDelegateLifecycle) << "prepend" << idx << "@" << nextPos << (d->currentIndex == idx ? "current" : "") << "items count was" << d->items.count();
+                    && d->items.size() < count+d->cacheSize) {
+                qCDebug(lcItemViewDelegateLifecycle) << "prepend" << idx << "@" << nextPos << (d->currentIndex == idx ? "current" : "") << "items count was" << d->items.size();
                 QQuickItem *item = d->getItem(idx, idx+1, nextPos >= 1);
                 if (!item) {
                     waiting = true;
@@ -2114,8 +2078,8 @@ void QQuickPathView::refill()
             // new items appear in the middle. This more generic addition iteration handles this
             // Since this is the rare case, we try append/prepend first and only do this if
             // there are gaps still left to fill.
-            if (!waiting && d->items.count() < count+d->cacheSize) {
-                qCDebug(lcItemViewDelegateLifecycle) << "Checking for pathview middle inserts, items count was" << d->items.count();
+            if (!waiting && d->items.size() < count+d->cacheSize) {
+                qCDebug(lcItemViewDelegateLifecycle) << "Checking for pathview middle inserts, items count was" << d->items.size();
                 idx = startIdx;
                 QQuickItem *lastItem = d->items.at(0);
                 while (idx != endIdx) {
@@ -2131,7 +2095,7 @@ void QQuickPathView::refill()
                         if (!d->items.contains(item)) { //We found a hole
                             qCDebug(lcItemViewDelegateLifecycle) << "middle insert" << idx << "@" << nextPos
                                                                  << (d->currentIndex == idx ? "current" : "")
-                                                                 << "items count was" << d->items.count();
+                                                                 << "items count was" << d->items.size();
                             if (d->currentIndex == idx) {
                                 currentVisible = true;
                                 d->currentItemOffset = nextPos;
@@ -2185,7 +2149,7 @@ void QQuickPathView::refill()
         if (QQuickPathViewAttached *att = d->attached(d->highlightItem))
             att->setOnPath(currentVisible);
     }
-    for (QQuickItem *item : qAsConst(d->itemCache))
+    for (QQuickItem *item : std::as_const(d->itemCache))
         d->releaseItem(item);
     d->itemCache.clear();
 
@@ -2271,7 +2235,7 @@ void QQuickPathView::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
     d->items.clear();
 
     if (!d->modelCount) {
-        for (QQuickItem * item : qAsConst(d->itemCache))
+        for (QQuickItem * item : std::as_const(d->itemCache))
             d->releaseItem(item);
         d->itemCache.clear();
         d->offset = 0;
@@ -2324,7 +2288,7 @@ void QQuickPathView::movementEnding()
 int QQuickPathViewPrivate::calcCurrentIndex()
 {
     int current = 0;
-    if (modelCount && model && items.count()) {
+    if (modelCount && model && items.size()) {
         offset = std::fmod(offset, qreal(modelCount));
         if (offset < 0)
             offset += modelCount;
@@ -2341,7 +2305,7 @@ void QQuickPathViewPrivate::createCurrentItem()
         return;
 
     bool inItems = false;
-    for (QQuickItem *item : qAsConst(items)) {
+    for (QQuickItem *item : std::as_const(items)) {
         if (model->indexOf(item, nullptr) == currentIndex) {
             inItems = true;
             break;
@@ -2396,7 +2360,7 @@ void QQuickPathViewPrivate::fixOffsetCallback(void *d)
 void QQuickPathViewPrivate::fixOffset()
 {
     Q_Q(QQuickPathView);
-    if (model && items.count()) {
+    if (model && items.size()) {
         if (haveHighlightRange && (highlightRangeMode == QQuickPathView::StrictlyEnforceRange
                 || snapMode != QQuickPathView::NoSnap)) {
             int curr = calcCurrentIndex();

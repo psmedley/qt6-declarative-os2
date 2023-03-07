@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 
 #include <QtTest/QtTest>
@@ -437,22 +412,22 @@ void tst_TapHandler::mouseGesturePolicyReleaseWithinBounds()
 
 void tst_TapHandler::gesturePolicyDragWithinBounds_data()
 {
-    QTest::addColumn<QPointingDevice::DeviceType>("deviceType");
+    QTest::addColumn<const QPointingDevice *>("device");
     QTest::addColumn<QPoint>("dragStart");
     QTest::addColumn<QPoint>("dragDistance");
     QTest::addColumn<QString>("expectedFeedback");
 
-    QTest::newRow("mouse: click") << QPointingDevice::DeviceType::Mouse << QPoint(200, 200) << QPoint(0, 0) << "middle";
-    QTest::newRow("touch: tap") << QPointingDevice::DeviceType::TouchScreen << QPoint(200, 200) << QPoint(0, 0) << "middle";
-    QTest::newRow("mouse: drag up") << QPointingDevice::DeviceType::Mouse << QPoint(200, 200) << QPoint(0, -20) << "top";
-    QTest::newRow("touch: drag up") << QPointingDevice::DeviceType::TouchScreen << QPoint(200, 200) << QPoint(0, -20) << "top";
-    QTest::newRow("mouse: drag out to cancel") << QPointingDevice::DeviceType::Mouse << QPoint(435, 200) << QPoint(10, 0) << "canceled";
-    QTest::newRow("touch: drag out to cancel") << QPointingDevice::DeviceType::TouchScreen << QPoint(435, 200) << QPoint(10, 0) << "canceled";
+    QTest::newRow("mouse: click") << QPointingDevice::primaryPointingDevice() << QPoint(200, 200) << QPoint(0, 0) << "middle";
+    QTest::newRow("touch: tap") << touchDevice << QPoint(200, 200) << QPoint(0, 0) << "middle";
+    QTest::newRow("mouse: drag up") << QPointingDevice::primaryPointingDevice() << QPoint(200, 200) << QPoint(0, -20) << "top";
+    QTest::newRow("touch: drag up") << touchDevice << QPoint(200, 200) << QPoint(0, -20) << "top";
+    QTest::newRow("mouse: drag out to cancel") << QPointingDevice::primaryPointingDevice() << QPoint(435, 200) << QPoint(10, 0) << "canceled";
+    QTest::newRow("touch: drag out to cancel") << touchDevice << QPoint(435, 200) << QPoint(10, 0) << "canceled";
 }
 
 void tst_TapHandler::gesturePolicyDragWithinBounds()
 {
-    QFETCH(QPointingDevice::DeviceType, deviceType);
+    QFETCH(const QPointingDevice *, device);
     QFETCH(QPoint, dragStart);
     QFETCH(QPoint, dragDistance);
     QFETCH(QString, expectedFeedback);
@@ -464,33 +439,14 @@ void tst_TapHandler::gesturePolicyDragWithinBounds()
     QVERIFY(tapHandler);
     QSignalSpy canceledSpy(tapHandler, &QQuickTapHandler::canceled);
 
-    switch (static_cast<QPointingDevice::DeviceType>(deviceType)) {
-    case QPointingDevice::DeviceType::Mouse:
-        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, dragStart);
-        QTRY_VERIFY(tapHandler->isPressed());
-        QTest::mouseMove(&window, dragStart + dragDistance);
-        if (expectedCanceled)
-            QTRY_COMPARE(tapHandler->timeHeld(), -1);
-        else
-            QTRY_VERIFY(tapHandler->timeHeld() > 0.1);
-        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, dragStart + dragDistance);
-        break;
-    case QPointingDevice::DeviceType::TouchScreen:
-        QTest::touchEvent(&window, touchDevice).press(0, dragStart, &window);
-        QQuickTouchUtils::flush(&window);
-        QTRY_VERIFY(tapHandler->isPressed());
-        QTest::touchEvent(&window, touchDevice).move(0, dragStart + dragDistance, &window);
-        QQuickTouchUtils::flush(&window);
-        if (expectedCanceled)
-            QTRY_COMPARE(tapHandler->timeHeld(), -1);
-        else
-            QTRY_VERIFY(tapHandler->timeHeld() > 0.1);
-        QTest::touchEvent(&window, touchDevice).release(0, dragStart + dragDistance, &window);
-        QQuickTouchUtils::flush(&window);
-        break;
-    default:
-        break;
-    }
+    QQuickTest::pointerPress(device, &window, 0, dragStart);
+    QTRY_VERIFY(tapHandler->isPressed());
+    QQuickTest::pointerMove(device, &window, 0, dragStart + dragDistance);
+    if (expectedCanceled)
+        QTRY_COMPARE(tapHandler->timeHeld(), -1);
+    else
+        QTRY_VERIFY(tapHandler->timeHeld() > 0.1);
+    QQuickTest::pointerRelease(device, &window, 0, dragStart + dragDistance);
 
     QCOMPARE(window.rootObject()->property("feedbackText"), expectedFeedback);
     if (expectedCanceled)

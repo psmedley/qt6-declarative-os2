@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -200,6 +175,7 @@ private slots:
     void revertListMemoryLeak();
     void duplicateStateName();
     void trivialWhen();
+    void jsValueWhen();
     void noStateOsciallation();
     void parentChangeCorrectReversal();
     void revertNullObjectBinding();
@@ -207,6 +183,7 @@ private slots:
     void parentChangeInvolvingBindings();
     void deferredProperties();
     void rewindAnchorChange();
+    void bindingProperlyRemovedWithTransition();
 };
 
 void tst_qquickstates::initTestCase()
@@ -1351,7 +1328,7 @@ void tst_qquickstates::illegalObjectCreation()
 
     QQmlComponent component(&engine, testFileUrl("illegalObj.qml"));
     QList<QQmlError> errors = component.errors();
-    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.size(), 1);
     const QQmlError &error = errors.at(0);
     QCOMPARE(error.line(), 9);
     QCOMPARE(error.column(), 23);
@@ -1506,7 +1483,7 @@ void tst_qquickstates::editProperties()
     rectPrivate->setState("");
 
 
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
     QVERIFY(propertyChangesBlue->containsValue("width"));
     QVERIFY(!propertyChangesBlue->containsProperty("x"));
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 50);
@@ -1514,20 +1491,20 @@ void tst_qquickstates::editProperties()
 
     propertyChangesBlue->changeValue("width", 60);
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 60);
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
 
 
     propertyChangesBlue->changeExpression("width", "myRectangle.width / 2");
     QVERIFY(!propertyChangesBlue->containsValue("width"));
     QVERIFY(propertyChangesBlue->containsExpression("width"));
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 0);
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
 
     propertyChangesBlue->changeValue("width", 50);
     QVERIFY(propertyChangesBlue->containsValue("width"));
     QVERIFY(!propertyChangesBlue->containsExpression("width"));
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 50);
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
 
     QVERIFY(QQmlAnyBinding::ofProperty(QQmlProperty(childRect, "width")));
     rectPrivate->setState("blue");
@@ -1536,7 +1513,7 @@ void tst_qquickstates::editProperties()
 
     propertyChangesBlue->changeValue("width", 60);
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 60);
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
     QCOMPARE(childRect->width(), qreal(60));
     QVERIFY(!QQmlAnyBinding::ofProperty(QQmlProperty(childRect, "width")));
 
@@ -1544,7 +1521,7 @@ void tst_qquickstates::editProperties()
     QVERIFY(!propertyChangesBlue->containsValue("width"));
     QVERIFY(propertyChangesBlue->containsExpression("width"));
     QCOMPARE(propertyChangesBlue->value("width").toInt(), 0);
-    QCOMPARE(propertyChangesBlue->actions().length(), 2);
+    QCOMPARE(propertyChangesBlue->actions().size(), 2);
     QVERIFY(QQmlAnyBinding::ofProperty(QQmlProperty(childRect, "width")));
     QCOMPARE(childRect->width(), qreal(200));
 
@@ -1555,13 +1532,13 @@ void tst_qquickstates::editProperties()
     QCOMPARE(childRect->width(), qreal(402));
     QVERIFY(QQmlAnyBinding::ofProperty(QQmlProperty(childRect, "width")));
 
-    QCOMPARE(propertyChangesGreen->actions().length(), 2);
+    QCOMPARE(propertyChangesGreen->actions().size(), 2);
     rectPrivate->setState("green");
     QCOMPARE(childRect->width(), qreal(200));
     QCOMPARE(childRect->height(), qreal(100));
     QVERIFY(QQmlAnyBinding::ofProperty(QQmlProperty(childRect, "width")));
     QVERIFY(greenState->bindingInRevertList(childRect, "width"));
-    QCOMPARE(propertyChangesGreen->actions().length(), 2);
+    QCOMPARE(propertyChangesGreen->actions().size(), 2);
 
 
     propertyChangesGreen->removeProperty("height");
@@ -1718,6 +1695,16 @@ void tst_qquickstates::trivialWhen()
     QVERIFY(root);
 }
 
+void tst_qquickstates::jsValueWhen()
+{
+    QQmlEngine engine;
+
+    QQmlComponent c(&engine, testFileUrl("jsValueWhen.qml"));
+    QScopedPointer<QObject> root(c.create());
+    QVERIFY(root);
+    QVERIFY(root->property("works").toBool());
+}
+
 void tst_qquickstates::noStateOsciallation()
 {
    QQmlEngine engine;
@@ -1841,6 +1828,7 @@ void tst_qquickstates::parentChangeInvolvingBindings()
 {
    QQmlEngine engine;
    QQmlComponent c(&engine, testFileUrl("parentChangeInvolvingBindings.qml"));
+   Listener listener;
    QScopedPointer<QQuickItem> root { qobject_cast<QQuickItem *>(c.create()) };
    QVERIFY2(root, qPrintable(c.errorString()));
 
@@ -1848,7 +1836,6 @@ void tst_qquickstates::parentChangeInvolvingBindings()
    QVERIFY(child);
    QQuickItem *childItem = qobject_cast<QQuickItem *>(child);
    QVERIFY(childItem);
-   Listener listener;
    QQuickItemPrivate::get(childItem)->addItemChangeListener(&listener, QQuickItemPrivate::Geometry);
 
 
@@ -1897,10 +1884,10 @@ void tst_qquickstates::parentChangeInvolvingBindings()
    QCOMPARE(root->property("childRotation").toInt(), 100);
 
    // First change to 40 via reverse(), then to 20 via binding.
-   QCOMPARE(xSpy.count(), 2);
+   QCOMPARE(xSpy.size(), 2);
 
    // First change to 400 via reverse(), then to 200 via binding.
-   QCOMPARE(widthSpy.count(), 2);
+   QCOMPARE(widthSpy.size(), 2);
 
    QCOMPARE(root->property("childX").toInt(), 20);
    QCOMPARE(root->property("childWidth").toInt(), 200);
@@ -1976,6 +1963,26 @@ void tst_qquickstates::rewindAnchorChange()
     QTRY_COMPARE(innerRect->y(), 0);
     QTRY_COMPARE(innerRect->width(), 200);
     QTRY_COMPARE(innerRect->height(), 200);
+}
+
+void tst_qquickstates::bindingProperlyRemovedWithTransition()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("removeBindingWithTransition.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> root(c.create());
+    QVERIFY(root);
+    QQuickItem *item = qobject_cast<QQuickItem *>(root.get());
+    QVERIFY(item);
+
+    item->setProperty("toggle", false);
+    QTRY_COMPARE(item->width(), 300);
+
+    item->setProperty("state1Width", 100);
+    QCOMPARE(item->width(), 300);
+
+    item->setProperty("toggle", true);
+    QTRY_COMPARE(item->width(), 100);
 }
 
 QTEST_MAIN(tst_qquickstates)

@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlbind_p.h"
 
@@ -343,7 +307,7 @@ void QQmlBindPrivate::validate(QQmlBind *q) const
     if (!when)
         return;
 
-    qsizetype iterationEnd = entries.length();
+    qsizetype iterationEnd = entries.size();
     if (lastIsTarget) {
         if (obj) {
             Q_ASSERT(!entries.isEmpty());
@@ -513,7 +477,7 @@ void QQmlBind::setObject(QObject *obj)
     The property to be updated.
 
     This can be a group property if the expression results in accessing a
-    property of a \l {QML Basic Types}{value type}. For example:
+    property of a \l {QML Value Types}{value type}. For example:
 
     \qml
     Item {
@@ -640,7 +604,7 @@ void QQmlBind::setDelayed(bool delayed)
         oldEntries.pop_back();
     }
 
-    for (qsizetype i = 0, end = oldEntries.length(); i < end; ++i) {
+    for (qsizetype i = 0, end = oldEntries.size(); i < end; ++i) {
         QQmlBindEntry &newEntry = d->entries[i];
         QQmlBindEntry &oldEntry = oldEntries[i];
         newEntry.previousKind = newEntry.previous.set(
@@ -830,7 +794,7 @@ void QQmlBindPrivate::decodeBinding(
         if (delayed) {
             if (!delayedValues)
                 createDelayedValues();
-            const QString delayedName = QString::number(entries.length());
+            const QString delayedName = QString::number(entries.size());
             delayedValues->insert(delayedName, QVariant());
             QQmlProperty bindingTarget = QQmlProperty(delayedValues.get(), delayedName);
             Q_ASSERT(bindingTarget.isValid());
@@ -899,7 +863,7 @@ void QQmlBindPrivate::evalDelayed()
         bool ok;
         const int delayedIndex = delayedName.toInt(&ok);
         Q_ASSERT(ok);
-        Q_ASSERT(delayedIndex >= 0 && delayedIndex < entries.length());
+        Q_ASSERT(delayedIndex >= 0 && delayedIndex < entries.size());
         entries[delayedIndex].prop.write((*delayedValues)[delayedName]);
     }
     (*delayedValues)[pendingName].setValue(QStringList());
@@ -1046,7 +1010,7 @@ void QQmlBind::eval()
         return;
 
     d->writingProperty = true;
-    for (qsizetype i = 0, end = d->entries.length(); i != end; ++i) {
+    for (qsizetype i = 0, end = d->entries.size(); i != end; ++i) {
         QQmlBindEntry &entry = d->entries[i];
         if (!entry.prop.isValid())
             continue;

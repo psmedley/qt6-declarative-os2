@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qsgsoftwareinternalrectanglenode_p.h"
 #include <qmath.h>
@@ -120,7 +84,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
 {
     //normalize stops
     bool needsNormalization = false;
-    for (const QGradientStop &stop : qAsConst(stops)) {
+    for (const QGradientStop &stop : std::as_const(stops)) {
         if (stop.first < 0.0 || stop.first > 1.0) {
             needsNormalization = true;
             break;
@@ -129,7 +93,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
 
     if (needsNormalization) {
         QGradientStops normalizedStops;
-        if (stops.count() == 1) {
+        if (stops.size() == 1) {
             //If there is only one stop, then the position does not matter
             //It is just treated as a color
             QGradientStop stop = stops.at(0);
@@ -140,7 +104,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
             int below = -1;
             int above = -1;
             QVector<int> between;
-            for (int i = 0; i < stops.count(); ++i) {
+            for (int i = 0; i < stops.size(); ++i) {
                 if (stops.at(i).first < 0.0) {
                     below = i;
                 } else if (stops.at(i).first > 1.0) {
@@ -154,7 +118,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
             //Interpoloate new color values for above and below
             if (below != -1 ) {
                 //If there are more than one stops left, interpolate
-                if (below + 1 < stops.count()) {
+                if (below + 1 < stops.size()) {
                     normalizedStops.append(interpolateStop(stops.at(below), stops.at(below + 1), 0.0));
                 } else {
                     QGradientStop singleStop;
@@ -164,7 +128,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
                 }
             }
 
-            for (int i = 0; i < between.count(); ++i)
+            for (int i = 0; i < between.size(); ++i)
                 normalizedStops.append(stops.at(between.at(i)));
 
             if (above != -1) {
@@ -285,8 +249,8 @@ bool QSGSoftwareInternalRectangleNode::isOpaque() const
         return false;
     if (m_penWidth > 0.0f && m_penColor.alpha() < 255)
         return false;
-    if (m_stops.count() > 0) {
-        for (const QGradientStop &stop : qAsConst(m_stops)) {
+    if (m_stops.size() > 0) {
+        for (const QGradientStop &stop : std::as_const(m_stops)) {
             if (stop.second.alpha() < 255)
                 return false;
         }

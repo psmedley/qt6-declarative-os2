@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "viewtestutils_p.h"
 
@@ -32,6 +7,7 @@
 #include <QtQuick/QQuickView>
 #include <QtQuick/QQuickView>
 #include <QtGui/QScreen>
+#include <QtGui/qpa/qwindowsysteminterface.h>
 
 #include <QtTest/QTest>
 
@@ -103,7 +79,7 @@ void QQuickViewTestUtils::flick(QQuickView *window, const QPoint &from, const QP
 QList<int> QQuickViewTestUtils::adjustIndexesForAddDisplaced(const QList<int> &indexes, int index, int count)
 {
     QList<int> result;
-    for (int i=0; i<indexes.count(); i++) {
+    for (int i=0; i<indexes.size(); i++) {
         int num = indexes[i];
         if (num >= index) {
             num += count;
@@ -116,7 +92,7 @@ QList<int> QQuickViewTestUtils::adjustIndexesForAddDisplaced(const QList<int> &i
 QList<int> QQuickViewTestUtils::adjustIndexesForMove(const QList<int> &indexes, int from, int to, int count)
 {
     QList<int> result;
-    for (int i=0; i<indexes.count(); i++) {
+    for (int i=0; i<indexes.size(); i++) {
         int num = indexes[i];
         if (from < to) {
             if (num >= from && num < from + count)
@@ -137,7 +113,7 @@ QList<int> QQuickViewTestUtils::adjustIndexesForMove(const QList<int> &indexes, 
 QList<int> QQuickViewTestUtils::adjustIndexesForRemoveDisplaced(const QList<int> &indexes, int index, int count)
 {
     QList<int> result;
-    for (int i=0; i<indexes.count(); i++) {
+    for (int i=0; i<indexes.size(); i++) {
         int num = indexes[i];
         if (num >= index)
             num -= count;
@@ -154,7 +130,7 @@ QQuickViewTestUtils::QaimModel::QaimModel(QObject *parent)
 int QQuickViewTestUtils::QaimModel::rowCount(const QModelIndex &parent) const
 {
     Q_UNUSED(parent);
-    return list.count();
+    return list.size();
 }
 
 int QQuickViewTestUtils::QaimModel::columnCount(const QModelIndex &parent) const
@@ -199,15 +175,15 @@ QString QQuickViewTestUtils::QaimModel::number(int index) const
 
 void QQuickViewTestUtils::QaimModel::addItem(const QString &name, const QString &number)
 {
-    emit beginInsertRows(QModelIndex(), list.count(), list.count());
+    emit beginInsertRows(QModelIndex(), list.size(), list.size());
     list.append(QPair<QString,QString>(name, number));
     emit endInsertRows();
 }
 
 void QQuickViewTestUtils::QaimModel::addItems(const QList<QPair<QString, QString> > &items)
 {
-    emit beginInsertRows(QModelIndex(), list.count(), list.count()+items.count()-1);
-    for (int i=0; i<items.count(); i++)
+    emit beginInsertRows(QModelIndex(), list.size(), list.size()+items.size()-1);
+    for (int i=0; i<items.size(); i++)
         list.append(QPair<QString,QString>(items[i].first, items[i].second));
     emit endInsertRows();
 }
@@ -221,8 +197,8 @@ void QQuickViewTestUtils::QaimModel::insertItem(int index, const QString &name, 
 
 void QQuickViewTestUtils::QaimModel::insertItems(int index, const QList<QPair<QString, QString> > &items)
 {
-    emit beginInsertRows(QModelIndex(), index, index+items.count()-1);
-    for (int i=0; i<items.count(); i++)
+    emit beginInsertRows(QModelIndex(), index, index+items.size()-1);
+    for (int i=0; i<items.size(); i++)
         list.insert(index + i, QPair<QString,QString>(items[i].first, items[i].second));
     emit endInsertRows();
 }
@@ -264,7 +240,7 @@ void QQuickViewTestUtils::QaimModel::modifyItem(int idx, const QString &name, co
 
 void QQuickViewTestUtils::QaimModel::clear()
 {
-    int count = list.count();
+    int count = list.size();
     if (count > 0) {
         beginRemoveRows(QModelIndex(), 0, count-1);
         list.clear();
@@ -300,11 +276,11 @@ private:
 };
 
 void QQuickViewTestUtils::QaimModel::matchAgainst(const QList<QPair<QString, QString> > &other, const QString &error1, const QString &error2) {
-    for (int i=0; i<other.count(); i++) {
+    for (int i=0; i<other.size(); i++) {
         QVERIFY2(list.contains(other[i]),
                  ScopedPrintable(other[i].first + QLatin1Char(' ') + other[i].second + QLatin1Char(' ') + error1));
     }
-    for (int i=0; i<list.count(); i++) {
+    for (int i=0; i<list.size(); i++) {
         QVERIFY2(other.contains(list[i]),
                  ScopedPrintable(list[i].first + QLatin1Char(' ') + list[i].second + QLatin1Char(' ') + error2));
     }
@@ -361,7 +337,7 @@ bool QQuickViewTestUtils::ListRange::isValid() const
 
 int QQuickViewTestUtils::ListRange::count() const
 {
-    return indexes.count();
+    return indexes.size();
 }
 
 QList<QPair<QString,QString> > QQuickViewTestUtils::ListRange::getModelDataValues(const QaimModel &model)
@@ -369,7 +345,7 @@ QList<QPair<QString,QString> > QQuickViewTestUtils::ListRange::getModelDataValue
     QList<QPair<QString,QString> > data;
     if (!valid)
         return data;
-    for (int i=0; i<indexes.count(); i++)
+    for (int i=0; i<indexes.size(); i++)
         data.append(qMakePair(model.name(indexes[i]), model.number(indexes[i])));
     return data;
 }
@@ -420,7 +396,7 @@ bool QQuickViewTestUtils::testVisibleItems(const QQuickItemViewPrivate *priv, bo
     QHash<QQuickItem*, int> uniqueItems;
 
     int skip = 0;
-    for (int i = 0; i < priv->visibleItems.count(); ++i) {
+    for (int i = 0; i < priv->visibleItems.size(); ++i) {
         FxViewItem *item = priv->visibleItems.at(i);
         if (!item) {
             *failItem = nullptr;
@@ -469,6 +445,10 @@ namespace QQuickTouchUtils {
         da->deliverDelayedTouchEvent();
     }
 
+}
+
+namespace QTest {
+    int Q_TESTLIB_EXPORT defaultMouseDelay();
 }
 
 namespace QQuickTest {
@@ -528,6 +508,88 @@ namespace QQuickTest {
             return false;
         return true;
     }
+
+    // TODO maybe move the generic pointerPress/Move/Release functions to QTestLib later on
+
+    static Qt::MouseButton pressedTabletButton = Qt::NoButton;
+    static Qt::KeyboardModifiers pressedTabletModifiers = Qt::NoModifier;
+
+    void pointerPress(const QPointingDevice *dev, QQuickWindow *window, int pointId, const QPoint &p,
+                      Qt::MouseButton button, Qt::KeyboardModifiers modifiers)
+    {
+        switch (dev->type()) {
+        case QPointingDevice::DeviceType::Mouse:
+        case QPointingDevice::DeviceType::TouchPad:
+            QTest::mousePress(window, button, modifiers, p);
+            break;
+        case QPointingDevice::DeviceType::TouchScreen:
+            QTest::touchEvent(window, const_cast<QPointingDevice *>(dev)).press(pointId, p, window);
+            QQuickTouchUtils::flush(window);
+            break;
+        case QPointingDevice::DeviceType::Puck:
+        case QPointingDevice::DeviceType::Stylus:
+        case QPointingDevice::DeviceType::Airbrush:
+            QTest::lastMouseTimestamp += QTest::defaultMouseDelay();
+            pressedTabletButton = button;
+            pressedTabletModifiers = modifiers;
+            QWindowSystemInterface::handleTabletEvent(window, QTest::lastMouseTimestamp, dev, p, window->mapToGlobal(p),
+                                                      button, 0.8, 0, 0, 0, 0, 0, modifiers);
+            break;
+        default:
+            qWarning() << "can't send a press event from" << dev;
+            break;
+        }
+    }
+
+    void pointerMove(const QPointingDevice *dev, QQuickWindow *window, int pointId, const QPoint &p)
+    {
+        switch (dev->type()) {
+        case QPointingDevice::DeviceType::Mouse:
+        case QPointingDevice::DeviceType::TouchPad:
+            QTest::mouseMove(window, p);
+            break;
+        case QPointingDevice::DeviceType::TouchScreen:
+            QTest::touchEvent(window, const_cast<QPointingDevice *>(dev)).move(pointId, p, window);
+            QQuickTouchUtils::flush(window);
+            break;
+        case QPointingDevice::DeviceType::Puck:
+        case QPointingDevice::DeviceType::Stylus:
+        case QPointingDevice::DeviceType::Airbrush:
+            QTest::lastMouseTimestamp += QTest::defaultMouseDelay();
+            QWindowSystemInterface::handleTabletEvent(window, QTest::lastMouseTimestamp, dev, p, window->mapToGlobal(p),
+                                                      pressedTabletButton, 0, 0, 0, 0, 0, 0, pressedTabletModifiers);
+            break;
+        default:
+            qWarning() << "can't send a move event from" << dev;
+            break;
+        }
+    }
+
+    void pointerRelease(const QPointingDevice *dev, QQuickWindow *window, int pointId, const QPoint &p,
+                        Qt::MouseButton button, Qt::KeyboardModifiers modifiers)
+    {
+        switch (dev->type()) {
+        case QPointingDevice::DeviceType::Mouse:
+        case QPointingDevice::DeviceType::TouchPad:
+            QTest::mouseRelease(window, button, modifiers, p);
+            break;
+        case QPointingDevice::DeviceType::TouchScreen:
+            QTest::touchEvent(window, const_cast<QPointingDevice *>(dev)).release(pointId, p, window);
+            QQuickTouchUtils::flush(window);
+            break;
+        case QPointingDevice::DeviceType::Puck:
+        case QPointingDevice::DeviceType::Stylus:
+        case QPointingDevice::DeviceType::Airbrush:
+            QTest::lastMouseTimestamp += QTest::defaultMouseDelay();
+            QWindowSystemInterface::handleTabletEvent(window, QTest::lastMouseTimestamp, dev, p, window->mapToGlobal(p),
+                                                      Qt::NoButton, 0, 0, 0, 0, 0, 0, modifiers);
+            break;
+        default:
+            qWarning() << "can't send a press event from" << dev;
+            break;
+        }
+    }
+
 }
 
 QT_END_NAMESPACE

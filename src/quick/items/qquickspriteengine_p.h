@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QQUICKSPRITEENGINE_P_H
 #define QQUICKSPRITEENGINE_P_H
@@ -204,7 +168,7 @@ public:
         return m_globalGoal;
     }
 
-    int count() const {return m_things.count();}
+    int count() const {return m_things.size();}
     void setCount(int c);
 
     void setGoal(int state, int sprite=0, bool jump=false);
@@ -217,13 +181,13 @@ public:
     QQuickStochasticState* state(int idx) const {return m_states[idx];}
     int stateIndex(QQuickStochasticState* s) const {return m_states.indexOf(s);}
     int stateIndex(const QString& s) const {
-        for (int i=0; i<m_states.count(); i++)
+        for (int i=0; i<m_states.size(); i++)
             if (m_states[i]->name() == s)
                 return i;
         return -1;
     }
 
-    int stateCount() {return m_states.count();}
+    int stateCount() {return m_states.size();}
 private:
 Q_SIGNALS:
 
@@ -327,7 +291,7 @@ inline void spriteClear(QQmlListProperty<QQuickSprite> *p)
 
 inline qsizetype spriteCount(QQmlListProperty<QQuickSprite> *p)
 {
-    return reinterpret_cast<QList<QQuickSprite *> *>(p->data)->count();
+    return reinterpret_cast<QList<QQuickSprite *> *>(p->data)->size();
 }
 
 inline void spriteReplace(QQmlListProperty<QQuickSprite> *p, qsizetype idx, QQuickSprite *s)

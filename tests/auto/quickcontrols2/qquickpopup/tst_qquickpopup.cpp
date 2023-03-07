@@ -1,30 +1,6 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
@@ -36,11 +12,13 @@
 #include <QtQuick/qquickview.h>
 #include <QtQuick/private/qquickpalette_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickTemplates2/private/qquickapplicationwindow_p.h>
 #include <QtQuickTemplates2/private/qquickcombobox_p.h>
 #include <QtQuickTemplates2/private/qquickdialog_p.h>
 #include <QtQuickTemplates2/private/qquickoverlay_p.h>
+#include <QtQuickTemplates2/private/qquickoverlay_p_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p.h>
 #include <QtQuickTemplates2/private/qquickpopupitem_p_p.h>
 #include <QtQuickTemplates2/private/qquickbutton_p.h>
@@ -81,6 +59,7 @@ private slots:
     void activeFocusOnClosingSeveralPopups();
     void activeFocusAfterExit();
     void activeFocusOnDelayedEnter();
+    void activeFocusDespiteLowerStackingOrder();
     void hover_data();
     void hover();
     void wheel_data();
@@ -113,6 +92,7 @@ private slots:
 
 private:
     static bool hasWindowActivation();
+    QScopedPointer<QPointingDevice> touchScreen = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
 };
 
 tst_QQuickPopup::tst_QQuickPopup()
@@ -199,18 +179,18 @@ void tst_QQuickPopup::state()
     QVERIFY(closedSpy.isValid());
 
     popup->open();
-    QCOMPARE(visibleChangedSpy.count(), 1);
-    QCOMPARE(aboutToShowSpy.count(), 1);
-    QCOMPARE(aboutToHideSpy.count(), 0);
-    QTRY_COMPARE(openedSpy.count(), 1);
-    QCOMPARE(closedSpy.count(), 0);
+    QCOMPARE(visibleChangedSpy.size(), 1);
+    QCOMPARE(aboutToShowSpy.size(), 1);
+    QCOMPARE(aboutToHideSpy.size(), 0);
+    QTRY_COMPARE(openedSpy.size(), 1);
+    QCOMPARE(closedSpy.size(), 0);
 
     popup->close();
-    QTRY_COMPARE(visibleChangedSpy.count(), 2);
-    QCOMPARE(aboutToShowSpy.count(), 1);
-    QCOMPARE(aboutToHideSpy.count(), 1);
-    QCOMPARE(openedSpy.count(), 1);
-    QTRY_COMPARE(closedSpy.count(), 1);
+    QTRY_COMPARE(visibleChangedSpy.size(), 2);
+    QCOMPARE(aboutToShowSpy.size(), 1);
+    QCOMPARE(aboutToHideSpy.size(), 1);
+    QCOMPARE(openedSpy.size(), 1);
+    QTRY_COMPARE(closedSpy.size(), 1);
 }
 
 void tst_QQuickPopup::overlay_data()
@@ -236,7 +216,6 @@ void tst_QQuickPopup::overlay()
     QFETCH(bool, modal);
     QFETCH(bool, dim);
 
-    QScopedPointer<QPointingDevice> device(QTest::createTouchDevice());
     QQuickControlsApplicationHelper helper(this, source);
     QVERIFY2(helper.ready, helper.failureMessage());
 
@@ -255,8 +234,8 @@ void tst_QQuickPopup::overlay()
     QVERIFY(!overlay->isVisible()); // no popups open
 
     QTest::mouseClick(window, Qt::LeftButton);
-    QCOMPARE(overlayPressedSignal.count(), 0);
-    QCOMPARE(overlayReleasedSignal.count(), 0);
+    QCOMPARE(overlayPressedSignal.size(), 0);
+    QCOMPARE(overlayReleasedSignal.size(), 0);
 
     QQuickPopup *popup = window->property("popup").value<QQuickPopup*>();
     QVERIFY(popup);
@@ -282,19 +261,19 @@ void tst_QQuickPopup::overlay()
     QTRY_VERIFY(popup->isOpened());
 
     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), ++overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), ++overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
     QTRY_VERIFY(!popup->isVisible());
     QVERIFY(!overlay->isVisible());
 
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount); // no modal-popups open
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount); // no modal-popups open
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
     popup->setDim(dim);
     popup->setModal(modal);
@@ -307,16 +286,16 @@ void tst_QQuickPopup::overlay()
     QTRY_VERIFY(popup->isOpened());
 
     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), ++overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), ++overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), ++overlayReleaseCount);
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), ++overlayReleaseCount);
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
     QTRY_VERIFY(!popup->isVisible());
     QVERIFY(!overlay->isVisible());
@@ -327,17 +306,17 @@ void tst_QQuickPopup::overlay()
     QVERIFY(overlay->isVisible());
     QTRY_VERIFY(popup->isOpened());
 
-    QTest::touchEvent(window, device.data()).press(0, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), ++overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QTest::touchEvent(window, touchScreen.data()).press(0, QPoint(1, 1));
+    QCOMPARE(overlayPressedSignal.size(), ++overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
-    QTest::touchEvent(window, device.data()).release(0, QPoint(1, 1));
-    QCOMPARE(overlayPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), ++overlayReleaseCount);
-    QCOMPARE(overlayAttachedPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayAttachedReleasedSignal.count(), overlayReleaseCount);
+    QTest::touchEvent(window, touchScreen.data()).release(0, QPoint(1, 1));
+    QCOMPARE(overlayPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), ++overlayReleaseCount);
+    QCOMPARE(overlayAttachedPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayAttachedReleasedSignal.size(), overlayReleaseCount);
 
     QTRY_VERIFY(!popup->isVisible());
     QVERIFY(!overlay->isVisible());
@@ -349,33 +328,33 @@ void tst_QQuickPopup::overlay()
     QVERIFY(!button->isPressed());
     QTRY_VERIFY(popup->isOpened());
 
-    QTest::touchEvent(window, device.data()).press(0, button->mapToScene(QPointF(1, 1)).toPoint());
+    QTest::touchEvent(window, touchScreen.data()).press(0, button->mapToScene(QPointF(1, 1)).toPoint());
     QVERIFY(popup->isVisible());
     QVERIFY(overlay->isVisible());
     QCOMPARE(button->isPressed(), !modal);
-    QCOMPARE(overlayPressedSignal.count(), ++overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), ++overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
 
-    QTest::touchEvent(window, device.data()).stationary(0).press(1, button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QTest::touchEvent(window, touchScreen.data()).stationary(0).press(1, button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
     QVERIFY(popup->isVisible());
     QVERIFY(overlay->isVisible());
     QCOMPARE(button->isPressed(), !modal);
-    QCOMPARE(overlayPressedSignal.count(), ++overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), ++overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
 
-    QTest::touchEvent(window, device.data()).release(0, button->mapToScene(QPointF(1, 1)).toPoint()).stationary(1);
+    QTest::touchEvent(window, touchScreen.data()).release(0, button->mapToScene(QPointF(1, 1)).toPoint()).stationary(1);
     QTRY_VERIFY(!popup->isVisible());
     QVERIFY(!overlay->isVisible());
     QVERIFY(!button->isPressed());
-    QCOMPARE(overlayPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), ++overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), ++overlayReleaseCount);
 
-    QTest::touchEvent(window, device.data()).release(1, button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QTest::touchEvent(window, touchScreen.data()).release(1, button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
     QVERIFY(!popup->isVisible());
     QVERIFY(!overlay->isVisible());
     QVERIFY(!button->isPressed());
-    QCOMPARE(overlayPressedSignal.count(), overlayPressCount);
-    QCOMPARE(overlayReleasedSignal.count(), overlayReleaseCount);
+    QCOMPARE(overlayPressedSignal.size(), overlayPressCount);
+    QCOMPARE(overlayReleasedSignal.size(), overlayReleaseCount);
 }
 
 void tst_QQuickPopup::zOrder_data()
@@ -428,40 +407,40 @@ void tst_QQuickPopup::windowChange()
     QQuickItem item;
     popup.setParentItem(&item);
     QVERIFY(!popup.window());
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
 
     QQuickWindow window;
     item.setParentItem(window.contentItem());
     QCOMPARE(popup.window(), &window);
-    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.size(), 1);
 
     item.setParentItem(nullptr);
     QVERIFY(!popup.window());
-    QCOMPARE(spy.count(), 2);
+    QCOMPARE(spy.size(), 2);
 
     popup.setParentItem(window.contentItem());
     QCOMPARE(popup.window(), &window);
-    QCOMPARE(spy.count(), 3);
+    QCOMPARE(spy.size(), 3);
 
     popup.resetParentItem();
     QVERIFY(!popup.window());
-    QCOMPARE(spy.count(), 4);
+    QCOMPARE(spy.size(), 4);
 
     popup.setParent(&window);
     popup.resetParentItem();
     QCOMPARE(popup.window(), &window);
-    QCOMPARE(spy.count(), 5);
+    QCOMPARE(spy.size(), 5);
 
     popup.setParent(this);
     popup.resetParentItem();
     QVERIFY(!popup.window());
-    QCOMPARE(spy.count(), 6);
+    QCOMPARE(spy.size(), 6);
 
     item.setParentItem(window.contentItem());
     popup.setParent(&item);
     popup.resetParentItem();
     QCOMPARE(popup.window(), &window);
-    QCOMPARE(spy.count(), 7);
+    QCOMPARE(spy.size(), 7);
 
     popup.setParent(nullptr);
 }
@@ -471,25 +450,44 @@ Q_DECLARE_METATYPE(QQuickPopup::ClosePolicy)
 void tst_QQuickPopup::closePolicy_data()
 {
     qRegisterMetaType<QQuickPopup::ClosePolicy>();
+    const auto *mouse = QPointingDevice::primaryPointingDevice();
+    const auto *touch = touchScreen.data();
 
     QTest::addColumn<QString>("source");
+    QTest::addColumn<const QPointingDevice *>("device");
     QTest::addColumn<QQuickPopup::ClosePolicy>("closePolicy");
 
-    QTest::newRow("Window:NoAutoClose") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
-    QTest::newRow("Window:CloseOnPressOutside") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
-    QTest::newRow("Window:CloseOnPressOutsideParent") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
-    QTest::newRow("Window:CloseOnPressOutside|Parent") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
-    QTest::newRow("Window:CloseOnReleaseOutside") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
-    QTest::newRow("Window:CloseOnReleaseOutside|Parent") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
-    QTest::newRow("Window:CloseOnEscape") << "window.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
+    QTest::newRow("Window:NoAutoClose mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
+    QTest::newRow("Window:CloseOnPressOutside mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
+    QTest::newRow("Window:CloseOnPressOutsideParent mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("Window:CloseOnPressOutside|Parent mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("Window:CloseOnReleaseOutside mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
+    QTest::newRow("Window:CloseOnReleaseOutside|Parent mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
+    QTest::newRow("Window:CloseOnEscape mouse") << "window.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
 
-    QTest::newRow("ApplicationWindow:NoAutoClose") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
-    QTest::newRow("ApplicationWindow:CloseOnPressOutside") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
-    QTest::newRow("ApplicationWindow:CloseOnPressOutsideParent") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
-    QTest::newRow("ApplicationWindow:CloseOnPressOutside|Parent") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
-    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
-    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside|Parent") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
-    QTest::newRow("ApplicationWindow:CloseOnEscape") << "applicationwindow.qml"<< static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
+    QTest::newRow("ApplicationWindow:NoAutoClose mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutside mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutsideParent mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutside|Parent mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
+    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside|Parent mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnEscape mouse") << "applicationwindow.qml" << mouse << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
+
+    QTest::newRow("Window:NoAutoClose touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
+    QTest::newRow("Window:CloseOnPressOutside touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
+    QTest::newRow("Window:CloseOnPressOutsideParent touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("Window:CloseOnPressOutside|Parent touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("Window:CloseOnReleaseOutside touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
+    QTest::newRow("Window:CloseOnReleaseOutside|Parent touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
+    QTest::newRow("Window:CloseOnEscape touch") << "window.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
+
+    QTest::newRow("ApplicationWindow:NoAutoClose touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::NoAutoClose);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutside touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutsideParent touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnPressOutside|Parent touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside);
+    QTest::newRow("ApplicationWindow:CloseOnReleaseOutside|Parent touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
+    QTest::newRow("ApplicationWindow:CloseOnEscape touch") << "applicationwindow.qml" << touch << static_cast<QQuickPopup::ClosePolicy>(QQuickPopup::CloseOnEscape);
 }
 
 void tst_QQuickPopup::closePolicy()
@@ -498,6 +496,7 @@ void tst_QQuickPopup::closePolicy()
         QSKIP("Window activation is not supported");
 
     QFETCH(QString, source);
+    QFETCH(const QPointingDevice *, device);
     QFETCH(QQuickPopup::ClosePolicy, closePolicy);
 
     QQuickControlsApplicationHelper helper(this, source);
@@ -525,56 +524,58 @@ void tst_QQuickPopup::closePolicy()
     // wait for dimmer
     QTest::qWait(50);
 
-    // press outside popup and its parent
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    if (closePolicy.testFlag(QQuickPopup::CloseOnPressOutside) || closePolicy.testFlag(QQuickPopup::CloseOnPressOutsideParent))
-        QTRY_VERIFY(!popup->isVisible());
-    else
+    for (int i = 0; i < 2; ++i) {
+        // press outside popup and its parent
+        QQuickTest::pointerPress(device, window, 0, {1, 1});
+        if (closePolicy.testFlag(QQuickPopup::CloseOnPressOutside) || closePolicy.testFlag(QQuickPopup::CloseOnPressOutsideParent))
+            QTRY_VERIFY(!popup->isVisible());
+        else
+            QVERIFY(popup->isOpened());
+
+        popup->open();
+        QVERIFY(popup->isVisible());
+        QTRY_VERIFY(popup->isOpened());
+
+        // release outside popup and its parent
+        QQuickTest::pointerRelease(device, window, 0, {1, 1});
+        if (closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutside) || closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutsideParent))
+            QTRY_VERIFY(!popup->isVisible());
+        else
+            QVERIFY(popup->isOpened());
+
+        popup->open();
+        QVERIFY(popup->isVisible());
+        QTRY_VERIFY(popup->isOpened());
+
+        // press outside popup but inside its parent
+        QQuickTest::pointerPress(device, window, 0, QPoint(button->x() + 1, button->y() + 1));
+        if (closePolicy.testFlag(QQuickPopup::CloseOnPressOutside) && !closePolicy.testFlag(QQuickPopup::CloseOnPressOutsideParent))
+            QTRY_VERIFY(!popup->isVisible());
+        else
+            QVERIFY(popup->isOpened());
+
+        popup->open();
+        QVERIFY(popup->isVisible());
+        QTRY_VERIFY(popup->isOpened());
+
+        // release outside popup but inside its parent
+        QQuickTest::pointerRelease(device, window, 0, QPoint(button->x() + 1, button->y() + 1));
+        if (closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutside) && !closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutsideParent))
+            QTRY_VERIFY(!popup->isVisible());
+        else
+            QVERIFY(popup->isOpened());
+
+        popup->open();
+        QVERIFY(popup->isVisible());
+        QTRY_VERIFY(popup->isOpened());
+
+        // press inside and release outside
+        QQuickTest::pointerPress(device, window, 0, QPoint(button->x() + popup->x() + 1,
+                                                           button->y() + popup->y() + 1));
         QVERIFY(popup->isOpened());
-
-    popup->open();
-    QVERIFY(popup->isVisible());
-    QTRY_VERIFY(popup->isOpened());
-
-    // release outside popup and its parent
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    if (closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutside) || closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutsideParent))
-        QTRY_VERIFY(!popup->isVisible());
-    else
+        QQuickTest::pointerRelease(device, window, 0, {1, 1});
         QVERIFY(popup->isOpened());
-
-    popup->open();
-    QVERIFY(popup->isVisible());
-    QTRY_VERIFY(popup->isOpened());
-
-    // press outside popup but inside its parent
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(button->x() + 1, button->y() + 1));
-    if (closePolicy.testFlag(QQuickPopup::CloseOnPressOutside) && !closePolicy.testFlag(QQuickPopup::CloseOnPressOutsideParent))
-        QTRY_VERIFY(!popup->isVisible());
-    else
-        QVERIFY(popup->isOpened());
-
-    popup->open();
-    QVERIFY(popup->isVisible());
-    QTRY_VERIFY(popup->isOpened());
-
-    // release outside popup but inside its parent
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(button->x() + 1, button->y() + 1));
-    if (closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutside) && !closePolicy.testFlag(QQuickPopup::CloseOnReleaseOutsideParent))
-        QTRY_VERIFY(!popup->isVisible());
-    else
-        QVERIFY(popup->isOpened());
-
-    popup->open();
-    QVERIFY(popup->isVisible());
-    QTRY_VERIFY(popup->isOpened());
-
-    // press inside and release outside
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(button->x() + popup->x() + 1,
-                                                                     button->y() + popup->y() + 1));
-    QVERIFY(popup->isOpened());
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
-    QVERIFY(popup->isOpened());
+    }
 
     // escape
     QTest::keyClick(window, Qt::Key_Escape);
@@ -887,6 +888,50 @@ void tst_QQuickPopup::activeFocusOnDelayedEnter()
     QTRY_VERIFY(popup2->hasActiveFocus());
 }
 
+// Test that a popup (popup1) with a lower stacking order than another popup (popup2) gets
+// key events due to having active focus.
+void tst_QQuickPopup::activeFocusDespiteLowerStackingOrder()
+{
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
+    QQuickControlsApplicationHelper helper(this, QStringLiteral("activeFocusOnClose3.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickPopup *popup1 = window->property("popup1").value<QQuickPopup *>();
+    QVERIFY(popup1);
+    popup1->open();
+    QTRY_VERIFY(popup1->isOpened());
+
+    QQuickPopup *popup2 = window->property("popup2").value<QQuickPopup *>();
+    QVERIFY(popup2);
+    popup2->open();
+    QTRY_VERIFY(popup2->isOpened());
+    popup2->setX(popup1->width() / 2);
+    popup2->setY(popup1->height() / 2);
+
+    // Both popups have no explicitly assigned Z value, so they should be the same.
+    // Items (QQuickPopupItem in this case) with identical Z values are rendered according
+    // to their order in the childItems container in the parent QQuickItem (see
+    // paintOrderChildItems(), which is what stackingOrderPopups() uses).
+    QCOMPARE(popup1->z(), popup2->z());
+
+    // Give popup1 active focus. Even though it's stacked under popup2,
+    // it should still receive key events.
+    popup1->forceActiveFocus();
+
+    // Press Escape to close popup1.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QVERIFY(!popup1->isOpened());
+    QVERIFY(popup2->isOpened());
+    QTRY_VERIFY(!popup1->isVisible());
+    QVERIFY(!popup1->hasActiveFocus());
+}
+
 void tst_QQuickPopup::hover_data()
 {
     QTest::addColumn<QString>("source");
@@ -924,7 +969,7 @@ void tst_QQuickPopup::hover()
     QSignalSpy openedSpy(popup, SIGNAL(opened()));
     QVERIFY(openedSpy.isValid());
     popup->open();
-    QVERIFY(openedSpy.count() == 1 || openedSpy.wait());
+    QVERIFY(openedSpy.size() == 1 || openedSpy.wait());
     QTRY_VERIFY(popup->width() > 10); // somehow this can take a short time with macOS style
 
     // hover the parent button outside the popup
@@ -945,7 +990,7 @@ void tst_QQuickPopup::hover()
     QSignalSpy closedSpy(popup, SIGNAL(closed()));
     QVERIFY(closedSpy.isValid());
     popup->close();
-    QVERIFY(closedSpy.count() == 1 || closedSpy.wait());
+    QVERIFY(closedSpy.size() == 1 || closedSpy.wait());
 
     // hover the parent button after closing the popup
     QTest::mouseMove(window, QPoint(window->width() / 2, window->height() / 2));
@@ -991,6 +1036,10 @@ void tst_QQuickPopup::wheel()
     QVERIFY(popup && popup->contentItem());
     popup->setModal(modal);
 
+    QQuickPopup *nestedPopup = window->property("nestedPopup").value<QQuickPopup*>();
+    QVERIFY(nestedPopup && nestedPopup->contentItem());
+    nestedPopup->setModal(modal);
+
     QQuickSlider *popupSlider = window->property("popupSlider").value<QQuickSlider*>();
     QVERIFY(popupSlider);
 
@@ -1008,7 +1057,7 @@ void tst_QQuickPopup::wheel()
     QSignalSpy openedSpy(popup, SIGNAL(opened()));
     QVERIFY(openedSpy.isValid());
     popup->open();
-    QVERIFY(openedSpy.count() == 1 || openedSpy.wait());
+    QVERIFY(openedSpy.size() == 1 || openedSpy.wait());
 
     {
         // wheel over the popup content
@@ -1019,6 +1068,22 @@ void tst_QQuickPopup::wheel()
 
         QVERIFY(qFuzzyCompare(contentSlider->value(), oldContentValue)); // must not have moved
         QVERIFY(!qFuzzyCompare(popupSlider->value(), oldPopupValue)); // must have moved
+    }
+
+    QSignalSpy nestedOpenedSpy(nestedPopup, SIGNAL(opened()));
+    QVERIFY(nestedOpenedSpy.isValid());
+    nestedPopup->open();
+    QVERIFY(nestedOpenedSpy.size() == 1 || nestedOpenedSpy.wait());
+
+    {
+        // wheel over the popup content
+        qreal oldContentValue = contentSlider->value();
+        qreal oldPopupValue = popupSlider->value();
+
+        QVERIFY(sendWheelEvent(popupSlider, QPoint(popupSlider->width() / 2, popupSlider->height() / 2), 15));
+
+        QVERIFY(qFuzzyCompare(contentSlider->value(), oldContentValue)); // must not have moved
+        QCOMPARE(qFuzzyCompare(popupSlider->value(), oldPopupValue), modal); // must not have moved unless modeless
     }
 
     {
@@ -1315,7 +1380,7 @@ void tst_QQuickPopup::closeOnEscapeWithVisiblePopup()
     QVERIFY(popup);
     QTRY_VERIFY(popup->isOpened());
 
-    QTRY_VERIFY(window->activeFocusItem());
+    QTRY_VERIFY(popup->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!popup->isVisible());
 }
@@ -1332,12 +1397,12 @@ void tst_QQuickPopup::enabled()
     popup.setEnabled(false);
     QVERIFY(!popup.isEnabled());
     QVERIFY(!popup.popupItem()->isEnabled());
-    QCOMPARE(enabledSpy.count(), 1);
+    QCOMPARE(enabledSpy.size(), 1);
 
     popup.popupItem()->setEnabled(true);
     QVERIFY(popup.isEnabled());
     QVERIFY(popup.popupItem()->isEnabled());
-    QCOMPARE(enabledSpy.count(), 2);
+    QCOMPARE(enabledSpy.size(), 2);
 }
 
 void tst_QQuickPopup::orientation_data()
@@ -1456,15 +1521,15 @@ void tst_QQuickPopup::disabledPalette()
     auto palette = QQuickPopupPrivate::get(popup)->palette();
     palette->setBase(Qt::green);
     palette->disabled()->setBase(Qt::red);
-    QCOMPARE(popupPaletteSpy.count(), 2);
-    QCOMPARE(popupItemPaletteSpy.count(), 2);
+    QCOMPARE(popupPaletteSpy.size(), 2);
+    QCOMPARE(popupItemPaletteSpy.size(), 2);
     QCOMPARE(popup->background()->property("color").value<QColor>(), Qt::green);
 
     popup->setEnabled(false);
-    QCOMPARE(popupEnabledSpy.count(), 1);
-    QCOMPARE(popupItemEnabledSpy.count(), 1);
-    QCOMPARE(popupPaletteSpy.count(), 3);
-    QCOMPARE(popupItemPaletteSpy.count(), 3);
+    QCOMPARE(popupEnabledSpy.size(), 1);
+    QCOMPARE(popupItemEnabledSpy.size(), 1);
+    QCOMPARE(popupPaletteSpy.size(), 3);
+    QCOMPARE(popupItemPaletteSpy.size(), 3);
     QCOMPARE(popup->background()->property("color").value<QColor>(), Qt::red);
 }
 
@@ -1496,8 +1561,8 @@ void tst_QQuickPopup::disabledParentPalette()
     auto palette = QQuickPopupPrivate::get(popup)->palette();
     palette->setBase(Qt::green);
     palette->disabled()->setBase(Qt::red);
-    QCOMPARE(popupPaletteSpy.count(), 2);
-    QCOMPARE(popupItemPaletteSpy.count(), 2);
+    QCOMPARE(popupPaletteSpy.size(), 2);
+    QCOMPARE(popupItemPaletteSpy.size(), 2);
     QCOMPARE(popup->background()->property("color").value<QColor>(), Qt::green);
 
     // Disable the overlay (which is QQuickPopupItem's parent) to ensure that
@@ -1508,10 +1573,10 @@ void tst_QQuickPopup::disabledParentPalette()
     QVERIFY(!popup->isEnabled());
     QVERIFY(!popup->popupItem()->isEnabled());
     QCOMPARE(popup->background()->property("color").value<QColor>(), Qt::red);
-    QCOMPARE(popupEnabledSpy.count(), 1);
-    QCOMPARE(popupItemEnabledSpy.count(), 1);
-    QCOMPARE(popupPaletteSpy.count(), 3);
-    QCOMPARE(popupItemPaletteSpy.count(), 3);
+    QCOMPARE(popupEnabledSpy.size(), 1);
+    QCOMPARE(popupItemEnabledSpy.size(), 1);
+    QCOMPARE(popupPaletteSpy.size(), 3);
+    QCOMPARE(popupItemPaletteSpy.size(), 3);
 
     popup->close();
     QTRY_VERIFY(!popup->isVisible());
@@ -1669,7 +1734,7 @@ void tst_QQuickPopup::invisibleToolTipOpen()
     QVERIFY(componentLoadedSpy.isValid());
 
     loader->setProperty("active", true);
-    QTRY_COMPARE(componentLoadedSpy.count(), 1);
+    QTRY_COMPARE(componentLoadedSpy.size(), 1);
 
     QTRY_VERIFY(toolTip->isVisible());
 }

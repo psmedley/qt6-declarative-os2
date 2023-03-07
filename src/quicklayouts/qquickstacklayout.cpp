@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the Qt Quick Layouts module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickstacklayout_p.h"
 
@@ -128,7 +92,6 @@ QQuickStackLayout::QQuickStackLayout(QQuickItem *parent) :
 int QQuickStackLayout::count() const
 {
     Q_D(const QQuickStackLayout);
-    ensureLayoutItemsUpdated();
     return d->count;
 }
 
@@ -141,14 +104,12 @@ int QQuickStackLayout::count() const
 int QQuickStackLayout::currentIndex() const
 {
     Q_D(const QQuickStackLayout);
-    ensureLayoutItemsUpdated();
     return d->currentIndex;
 }
 
 void QQuickStackLayout::setCurrentIndex(int index)
 {
     Q_D(QQuickStackLayout);
-    ensureLayoutItemsUpdated();
     if (index == d->currentIndex)
         return;
 
@@ -184,7 +145,9 @@ void QQuickStackLayout::componentComplete()
 {
     QQuickLayout::componentComplete();    // will call our geometryChange(), (where isComponentComplete() == true)
 
-    ensureLayoutItemsUpdated();
+    childItemsChanged();
+    invalidate();
+    ensureLayoutItemsUpdated(ApplySizeHints);
 
     QQuickItem *par = parentItem();
     if (qobject_cast<QQuickLayout*>(par))
@@ -205,8 +168,11 @@ void QQuickStackLayout::itemChange(QQuickItem::ItemChange change, const QQuickIt
             stackLayoutAttached->setIndex(-1);
             stackLayoutAttached->setIsCurrentItem(false);
         }
+        m_cachedItemSizeHints.remove(item);
+        childItemsChanged();
         invalidate();
     } else if (change == ItemChildAddedChange) {
+        childItemsChanged();
         invalidate();
     }
 }
@@ -214,7 +180,6 @@ void QQuickStackLayout::itemChange(QQuickItem::ItemChange change, const QQuickIt
 QSizeF QQuickStackLayout::sizeHint(Qt::SizeHint whichSizeHint) const
 {
     Q_D(const QQuickStackLayout);
-    ensureLayoutItemsUpdated();
     QSizeF &askingFor = m_cachedSizeHints[whichSizeHint];
     if (!askingFor.isValid()) {
         QSizeF &minS = m_cachedSizeHints[Qt::MinimumSize];
@@ -226,10 +191,8 @@ QSizeF QQuickStackLayout::sizeHint(Qt::SizeHint whichSizeHint) const
         maxS = QSizeF(std::numeric_limits<qreal>::infinity(), std::numeric_limits<qreal>::infinity());
 
         const int count = itemCount();
-        m_cachedItemSizeHints.resize(count);
         for (int i = 0; i < count; ++i) {
-            SizeHints &hints = m_cachedItemSizeHints[i];
-            QQuickStackLayout::collectItemSizeHints(itemAt(i), hints.array);
+            SizeHints &hints = cachedItemSizeHints(i);
             minS = minS.expandedTo(hints.min());
             prefS = prefS.expandedTo(hints.pref());
             //maxS = maxS.boundedTo(hints.max());       // Can be resized to be larger than any of its items.
@@ -243,7 +206,6 @@ QSizeF QQuickStackLayout::sizeHint(Qt::SizeHint whichSizeHint) const
 
 int QQuickStackLayout::indexOf(QQuickItem *childItem) const
 {
-    ensureLayoutItemsUpdated();
     if (childItem) {
         int indexOfItem = 0;
         const auto items = childItems();
@@ -295,11 +257,11 @@ void QQuickStackLayout::setAlignment(QQuickItem * /*item*/, Qt::Alignment /*alig
 
 void QQuickStackLayout::invalidate(QQuickItem *childItem)
 {
-    const int indexOfChild = indexOf(childItem);
-    if (indexOfChild >= 0 && indexOfChild < m_cachedItemSizeHints.count()) {
-        m_cachedItemSizeHints[indexOfChild].min() = QSizeF();
-        m_cachedItemSizeHints[indexOfChild].pref() = QSizeF();
-        m_cachedItemSizeHints[indexOfChild].max() = QSizeF();
+    if (childItem) {
+        SizeHints &hints = m_cachedItemSizeHints[childItem];
+        hints.min() = QSizeF();
+        hints.pref() = QSizeF();
+        hints.max() = QSizeF();
     }
 
     for (int i = 0; i < Qt::NSizeHints; ++i)
@@ -310,11 +272,11 @@ void QQuickStackLayout::invalidate(QQuickItem *childItem)
         parentLayout->invalidate(this);
 }
 
-void QQuickStackLayout::updateLayoutItems()
+void QQuickStackLayout::childItemsChanged()
 {
     Q_D(QQuickStackLayout);
     const int count = itemCount();
-    int oldIndex = d->currentIndex;
+    const int oldIndex = d->currentIndex;
     if (!d->explicitCurrentIndex)
         d->currentIndex = (count > 0 ? 0 : -1);
 
@@ -339,6 +301,17 @@ void QQuickStackLayout::updateLayoutItems()
     }
 }
 
+QQuickStackLayout::SizeHints &QQuickStackLayout::cachedItemSizeHints(int index) const
+{
+    QQuickItem *item = itemAt(index);
+    Q_ASSERT(item);
+    SizeHints &hints = m_cachedItemSizeHints[item];     // will create an entry if it doesn't exist
+    if (!hints.min().isValid())
+        QQuickStackLayout::collectItemSizeHints(item, hints.array);
+    return hints;
+}
+
+
 void QQuickStackLayout::rearrange(const QSizeF &newSize)
 {
     Q_D(QQuickStackLayout);
@@ -346,11 +319,10 @@ void QQuickStackLayout::rearrange(const QSizeF &newSize)
         return;
 
     qCDebug(lcQuickLayouts) << "QQuickStackLayout::rearrange";
-    ensureLayoutItemsUpdated();
 
-    if (d->currentIndex == -1 || d->currentIndex >= m_cachedItemSizeHints.count())
+    if (d->currentIndex == -1 || d->currentIndex >= m_cachedItemSizeHints.size())
         return;
-    QQuickStackLayout::SizeHints &hints = m_cachedItemSizeHints[d->currentIndex];
+    QQuickStackLayout::SizeHints &hints = cachedItemSizeHints(d->currentIndex);
     QQuickItem *item = itemAt(d->currentIndex);
     Q_ASSERT(item);
     item->setPosition(QPointF(0,0));    // ### respect alignment?

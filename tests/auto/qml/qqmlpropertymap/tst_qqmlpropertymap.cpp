@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQml/qqmlengine.h>
@@ -34,6 +9,8 @@
 #include <QtQuick/private/qquicktext_p.h>
 #include <QSignalSpy>
 #include <QDebug>
+
+using namespace Qt::StringLiterals;
 
 class tst_QQmlPropertyMap : public QQmlDataTest
 {
@@ -65,6 +42,7 @@ private slots:
     void lookupsInSubTypes();
     void freeze();
     void cachedSignals();
+    void signalIndices();
 };
 
 class LazyPropertyMap : public QQmlPropertyMap, public QQmlParserStatus
@@ -112,7 +90,7 @@ void tst_QQmlPropertyMap::insert()
     QQmlPropertyMap map;
     map.insert(QLatin1String("key1"),100);
     map.insert(QLatin1String("key2"),200);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(map.contains(QLatin1String("key1")));
 
     QCOMPARE(map.value(QLatin1String("key1")), QVariant(100));
@@ -125,33 +103,33 @@ void tst_QQmlPropertyMap::insert()
     //QQmlPropertyMap has an invokable keys() method
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"keys\" is not permitted, conflicts with internal symbols.");
     map.insert(QLatin1String("keys"), 1);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(!map.contains(QLatin1String("keys")));
     QVERIFY(map.value(QLatin1String("keys")).isNull());
 
     //QQmlPropertyMap has a deleteLater() slot
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"deleteLater\" is not permitted, conflicts with internal symbols.");
     map.insert(QLatin1String("deleteLater"), 1);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(!map.contains(QLatin1String("deleteLater")));
     QVERIFY(map.value(QLatin1String("deleteLater")).isNull());
 
     //QQmlPropertyMap has an valueChanged() signal
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"valueChanged\" is not permitted, conflicts with internal symbols.");
     map.insert(QLatin1String("valueChanged"), 1);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(!map.contains(QLatin1String("valueChanged")));
     QVERIFY(map.value(QLatin1String("valueChanged")).isNull());
 
     //but 'valueChange' should be ok
     map.insert(QLatin1String("valueChange"), 1);
-    QCOMPARE(map.keys().count(), 3);
+    QCOMPARE(map.keys().size(), 3);
     QVERIFY(map.contains(QLatin1String("valueChange")));
     QCOMPARE(map.value(QLatin1String("valueChange")), QVariant(1));
 
     //'valueCHANGED' should be ok, too
     map.insert(QLatin1String("valueCHANGED"), 1);
-    QCOMPARE(map.keys().count(), 4);
+    QCOMPARE(map.keys().size(), 4);
     QVERIFY(map.contains(QLatin1String("valueCHANGED")));
     QCOMPARE(map.value(QLatin1String("valueCHANGED")), QVariant(1));
 }
@@ -166,7 +144,7 @@ void tst_QQmlPropertyMap::insertMany()
 
     QQmlPropertyMap map;
     map.insert(values);
-    QCOMPARE(map.keys().count(), 4);
+    QCOMPARE(map.keys().size(), 4);
     QVERIFY(map.contains(QLatin1String("key1")));
     QCOMPARE(map.value(QLatin1String("key2")), QVariant(200));
     QCOMPARE(map.value(QLatin1String("key1")), QVariant("Hello World"));
@@ -184,7 +162,7 @@ void tst_QQmlPropertyMap::insertMany()
     //QQmlPropertyMap has an invokable keys() method
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"keys\" is not permitted, conflicts with internal symbols.");
     map.insert(values);
-    QCOMPARE(map.keys().count(), 4);
+    QCOMPARE(map.keys().size(), 4);
     QVERIFY(!map.contains(QLatin1String("keys")));
     QVERIFY(map.value(QLatin1String("keys")).isNull());
 
@@ -193,7 +171,7 @@ void tst_QQmlPropertyMap::insertMany()
     //QQmlPropertyMap has a deleteLater() slot
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"deleteLater\" is not permitted, conflicts with internal symbols.");
     map.insert(values);
-    QCOMPARE(map.keys().count(), 4);
+    QCOMPARE(map.keys().size(), 4);
     QVERIFY(!map.contains(QLatin1String("deleteLater")));
     QVERIFY(map.value(QLatin1String("deleteLater")).isNull());
 
@@ -202,13 +180,13 @@ void tst_QQmlPropertyMap::insertMany()
     //QQmlPropertyMap has an valueChanged() signal
     QTest::ignoreMessage(QtWarningMsg, "Creating property with name \"valueChanged\" is not permitted, conflicts with internal symbols.");
     map.insert(values);
-    QCOMPARE(map.keys().count(), 4);
+    QCOMPARE(map.keys().size(), 4);
     QVERIFY(!map.contains(QLatin1String("valueChanged")));
     QVERIFY(map.value(QLatin1String("valueChanged")).isNull());
 
     values.remove(QStringLiteral("valueChanged"));
     map.insert(values); // Adds "foobar" and changes "key1"
-    QCOMPARE(map.keys().count(), 5);
+    QCOMPARE(map.keys().size(), 5);
     QCOMPARE(map.value(QStringLiteral("foobar")).toInt(), 12);
     QCOMPARE(map.value(QStringLiteral("key1")).toInt(), 100);
 }
@@ -218,7 +196,7 @@ void tst_QQmlPropertyMap::operatorInsert()
     QQmlPropertyMap map;
     map[QLatin1String("key1")] = 100;
     map[QLatin1String("key2")] = 200;
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
 
     QCOMPARE(map.value(QLatin1String("key1")), QVariant(100));
     QCOMPARE(map.value(QLatin1String("key2")), QVariant(200));
@@ -247,12 +225,12 @@ void tst_QQmlPropertyMap::clear()
 {
     QQmlPropertyMap map;
     map.insert(QLatin1String("key1"),100);
-    QCOMPARE(map.keys().count(), 1);
+    QCOMPARE(map.keys().size(), 1);
 
     QCOMPARE(map.value(QLatin1String("key1")), QVariant(100));
 
     map.clear(QLatin1String("key1"));
-    QCOMPARE(map.keys().count(), 1);
+    QCOMPARE(map.keys().size(), 1);
     QVERIFY(map.contains(QLatin1String("key1")));
     QCOMPARE(map.value(QLatin1String("key1")), QVariant());
 }
@@ -263,10 +241,10 @@ void tst_QQmlPropertyMap::changed()
     QSignalSpy spy(&map, SIGNAL(valueChanged(QString,QVariant)));
     map.insert(QLatin1String("key1"),100);
     map.insert(QLatin1String("key2"),200);
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
 
     map.clear(QLatin1String("key1"));
-    QCOMPARE(spy.count(), 0);
+    QCOMPARE(spy.size(), 0);
 
     //make changes in QML
     QQmlEngine engine;
@@ -279,9 +257,9 @@ void tst_QQmlPropertyMap::changed()
     QScopedPointer<QQuickText> txt(qobject_cast<QQuickText*>(component.create()));
     QVERIFY(txt);
     QCOMPARE(txt->text(), QString('X'));
-    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.size(), 1);
     QList<QVariant> arguments = spy.takeFirst();
-    QCOMPARE(arguments.count(), 2);
+    QCOMPARE(arguments.size(), 2);
     QCOMPARE(arguments.at(0).toString(),QLatin1String("key1"));
     QCOMPARE(arguments.at(1).value<QVariant>(),QVariant("Hello World"));
     QCOMPARE(map.value(QLatin1String("key1")), QVariant("Hello World"));
@@ -507,7 +485,7 @@ void tst_QQmlPropertyMap::disallowExtending()
                       "}\n", QUrl());
     obj.reset(component.create());
     QVERIFY(obj.isNull());
-    QCOMPARE(component.errors().count(), 1);
+    QCOMPARE(component.errors().size(), 1);
     QCOMPARE(component.errors().at(0).toString(), QStringLiteral("<Unknown File>:3:1: Fully dynamic types cannot declare new properties."));
 }
 
@@ -546,24 +524,24 @@ void tst_QQmlPropertyMap::QTBUG_48136()
     QSignalSpy notifySpy(&map, QByteArray::number(QSIGNAL_CODE) + prop.notifySignal().methodSignature());
 
     map.insert(key, 42);
-    QCOMPARE(notifySpy.count(), 1);
+    QCOMPARE(notifySpy.size(), 1);
     map.insert(key, 43);
-    QCOMPARE(notifySpy.count(), 2);
+    QCOMPARE(notifySpy.size(), 2);
     map.insert(key, 43);
-    QCOMPARE(notifySpy.count(), 2);
+    QCOMPARE(notifySpy.size(), 2);
     map.insert(key, 44);
-    QCOMPARE(notifySpy.count(), 3);
+    QCOMPARE(notifySpy.size(), 3);
 
     //
     // Test that the valueChanged signal is emitted correctly
     //
     QSignalSpy valueChangedSpy(&map, &QQmlPropertyMap::valueChanged);
     map.setProperty(key, 44);
-    QCOMPARE(valueChangedSpy.count(), 0);
+    QCOMPARE(valueChangedSpy.size(), 0);
     map.setProperty(key, 45);
-    QCOMPARE(valueChangedSpy.count(), 1);
+    QCOMPARE(valueChangedSpy.size(), 1);
     map.setProperty(key, 45);
-    QCOMPARE(valueChangedSpy.count(), 1);
+    QCOMPARE(valueChangedSpy.size(), 1);
 }
 
 void tst_QQmlPropertyMap::lookupsInSubTypes()
@@ -582,14 +560,14 @@ void tst_QQmlPropertyMap::freeze()
 
     map.insert(QLatin1String("key1"),100);
     map.insert(QLatin1String("key2"),200);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(map.contains(QLatin1String("key1")));
     QCOMPARE(map.value(QLatin1String("key1")), QVariant(100));
     QCOMPARE(map.value(QLatin1String("key2")), QVariant(200));
 
     map.freeze();
     map.insert(QLatin1String("key3"), 32);
-    QCOMPARE(map.keys().count(), 2);
+    QCOMPARE(map.keys().size(), 2);
     QVERIFY(!map.contains("key3"));
 
     map.insert(QLatin1String("key1"), QStringLiteral("Hello World"));
@@ -603,10 +581,10 @@ public:
     Map(QObject *parent = nullptr)
         : QQmlPropertyMap(this, parent)
     {
-        insert( "a", u"yayayaya"_qs );
-        insert( "b", u"yayayayb"_qs);
-        insert( "c", u"yayayayc"_qs);
-        insert( "d", u"yayayayd"_qs);
+        insert( "a", u"yayayaya"_s );
+        insert( "b", u"yayayayb"_s);
+        insert( "c", u"yayayayc"_s);
+        insert( "d", u"yayayayd"_s);
 
         freeze();
     }
@@ -622,18 +600,59 @@ void tst_QQmlPropertyMap::cachedSignals()
     QVERIFY2(c.isReady(), qPrintable(c.errorString()));
     QScopedPointer<QObject> o(c.create());
     QVERIFY(!o.isNull());
-    QCOMPARE(o->property("text").toString(), u"yayayayc"_qs);
-    foo.setProperty("c", u"something"_qs);
-    QCOMPARE(o->property("text").toString(), u"something"_qs);
-    foo.insert("c", u"other"_qs);
-    QCOMPARE(o->property("text").toString(), u"other"_qs);
+    QCOMPARE(o->property("text").toString(), u"yayayayc"_s);
+    foo.setProperty("c", u"something"_s);
+    QCOMPARE(o->property("text").toString(), u"something"_s);
+    foo.insert("c", u"other"_s);
+    QCOMPARE(o->property("text").toString(), u"other"_s);
     QTest::ignoreMessage(
                 QtWarningMsg,
-                qPrintable(url.toString() + u":4:5: Unable to assign [undefined] to QString"_qs));
+                qPrintable(url.toString() + u":4:5: Unable to assign [undefined] to QString"_s));
     foo.clear("c");
-    QCOMPARE(o->property("text").toString(), u"other"_qs);
-    foo.insert("c", u"final"_qs);
-    QCOMPARE(o->property("text").toString(), u"final"_qs);
+    QCOMPARE(o->property("text").toString(), u"other"_s);
+    foo.insert("c", u"final"_s);
+    QCOMPARE(o->property("text").toString(), u"final"_s);
+}
+
+class NastyMap: public QQmlPropertyMap
+{
+    Q_OBJECT
+    Q_PROPERTY(int a READ a WRITE setA NOTIFY aChanged)
+    Q_PROPERTY(int b MEMBER m_b CONSTANT)
+
+public:
+
+    int a() const { return m_a; }
+    void setA(int a)
+    {
+        if (a != m_a) {
+            m_a = a;
+            emit aChanged();
+        }
+    }
+
+signals:
+    void aChanged();
+    void extraSignal();
+
+private:
+    int m_a = 0;
+    int m_b = 7;
+};
+
+void tst_QQmlPropertyMap::signalIndices()
+{
+    NastyMap map;
+    map.insert(QLatin1String("key1"), 100);
+    const QMetaObject *mo = map.metaObject();
+    const int propertyIndex = mo->indexOfProperty("key1");
+    const QMetaProperty property = mo->property(propertyIndex);
+    const int signalIndex = property.notifySignalIndex();
+    const QMetaMethod method = mo->method(signalIndex);
+
+    QSignalSpy spy(&map, method);
+    map.insert(QLatin1String("key1"), 200);
+    QCOMPARE(spy.size(), 1);
 }
 
 QTEST_MAIN(tst_QQmlPropertyMap)

@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtCore>
 #include <QtTest>
@@ -143,6 +118,27 @@ void tst_qqmlfile::urlData()
     QTest::addRow("file:content 1 slash")   << QStringLiteral("file:content:/foo/bar") << true << QStringLiteral("content:/foo/bar");
     QTest::addRow("file:content 2 slashes") << QStringLiteral("file:content://foo/bar") << true << QStringLiteral("content://foo/bar");
     QTest::addRow("file:content 3 slashes") << QStringLiteral("file:content:///foo/bar") << true << QStringLiteral("content:///foo/bar");
+
+    const QString contentExternalstoragePath = hasAssetsAndContent ?
+                QStringLiteral("content://com.android.externalstorage.documents/foo") : invalid;
+    const QString contentDownloadsPath = hasAssetsAndContent ?
+                QStringLiteral("content://com.android.providers.downloads.documents/foo") : invalid;
+    const QString contentMediaPath = hasAssetsAndContent ?
+                QStringLiteral("content://com.android.providers.media.documents") : invalid;
+
+    QTest::addRow("content externalstorage")     << QStringLiteral("content://com.android.externalstorage.documents/foo")
+                                                 << hasAssetsAndContent << contentExternalstoragePath;
+    QTest::addRow("content downloads documents") << QStringLiteral("content://com.android.providers.downloads.documents/foo")
+                                                 << hasAssetsAndContent << contentDownloadsPath;
+    QTest::addRow("content media documents")     << QStringLiteral("content://com.android.providers.media.documents")
+                                                 << hasAssetsAndContent << contentMediaPath;
+
+    QTest::addRow("assets externalstorage")      << QStringLiteral("assets://com.android.externalstorage.documents/foo")
+                                                 << false << invalid;
+    QTest::addRow("assets downloads documents")  << QStringLiteral("assets://com.android.providers.downloads.documents/foo")
+                                                 << false << invalid;
+    QTest::addRow("assets media documents")      << QStringLiteral("assets://com.android.providers.media.documents")
+                                                 << false << invalid;
 }
 
 void tst_qqmlfile::isLocalFile_data()

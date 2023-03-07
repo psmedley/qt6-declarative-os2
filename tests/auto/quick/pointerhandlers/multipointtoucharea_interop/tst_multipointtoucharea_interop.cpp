@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2017 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QtTest/QtTest>
 
@@ -170,7 +145,7 @@ void tst_MptaInterop::touchesThenPinch()
     QQuickTouchUtils::flush(window);
     QVERIFY(tp.at(0)->property("pressed").toBool());
     QTRY_VERIFY(tp.at(1)->property("pressed").toBool());
-    QCOMPARE(mptaPressedSpy.count(), 2);
+    QCOMPARE(mptaPressedSpy.size(), 2);
 
     // Press a third touchpoint: MPTA grabs it too
     QPoint p3 = mpta->mapToScene(QPointF(110, 200)).toPoint();
@@ -179,8 +154,8 @@ void tst_MptaInterop::touchesThenPinch()
     QCOMPARE(tp.at(0)->property("pressed").toBool(), true);
     QCOMPARE(tp.at(1)->property("pressed").toBool(), true);
     QCOMPARE(tp.at(2)->property("pressed").toBool(), true);
-    QCOMPARE(mptaPressedSpy.count(), 3);
-    QCOMPARE(mptaCanceledSpy.count(), 0);
+    QCOMPARE(mptaPressedSpy.size(), 3);
+    QCOMPARE(mptaCanceledSpy.size(), 0);
     QCOMPARE(devPriv->pointById(1)->exclusiveGrabber, mpta);
     QCOMPARE(devPriv->pointById(2)->exclusiveGrabber, mpta);
     QCOMPARE(devPriv->pointById(3)->exclusiveGrabber, mpta);
@@ -279,7 +254,7 @@ void tst_MptaInterop::touchesThenPinch()
 
     touch.release(2, p2).commit();
     QQuickTouchUtils::flush(window);
-    QTRY_COMPARE(mptaReleasedSpy.count(), 1);
+    QTRY_COMPARE(mptaReleasedSpy.size(), 1);
 }
 
 void tst_MptaInterop::unloadHandlerWithPassiveGrab()

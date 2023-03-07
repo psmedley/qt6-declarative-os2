@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**/
-#include "qqmldomerrormessage_p.h"
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 #include "qqmldomitem_p.h"
 #include "qqmldomstringdumper_p.h"
 #include "qqmldomattachedinfo_p.h"
@@ -108,20 +72,20 @@ and use it to create new ErrorMessages using its debug, warning, error,... metho
 
 void ErrorGroups::dump(Sink sink) const
 {
-    for (int i = 0; i < groups.length(); ++i)
+    for (int i = 0; i < groups.size(); ++i)
         groups.at(i).dump(sink);
 }
 
 void ErrorGroups::dumpId(Sink sink) const
 {
-    for (int i = 0; i < groups.length(); ++i)
+    for (int i = 0; i < groups.size(); ++i)
         groups.at(i).dumpId(sink);
 }
 
 QCborArray ErrorGroups::toCbor() const
 {
     QCborArray res;
-    for (int i = 0; i < groups.length(); ++i)
+    for (int i = 0; i < groups.size(); ++i)
         res.append(QCborValue(groups.at(i).groupId()));
     return res;
 }
@@ -199,7 +163,7 @@ void ErrorGroups::fatal(Dumper msg, Path element, QStringView canonicalFilePath,
     int ibuf = 0;
     auto sink = [&ibuf, &buf](QStringView s) {
         int is = 0;
-        while (ibuf < FatalMsgMaxLen && is < s.length()) {
+        while (ibuf < FatalMsgMaxLen && is < s.size()) {
             QChar c = s.at(is);
             if (c == QChar::fromLatin1('\n') || c == QChar::fromLatin1('\r') || (c >= QChar::fromLatin1(' ') && c <= QChar::fromLatin1('~')))
                 buf[ibuf++] = c.toLatin1();
@@ -272,11 +236,11 @@ int ErrorGroups::cmp(const ErrorGroups &o1, const ErrorGroups &o2)
 {
     auto &g1 = o1.groups;
     auto &g2 = o2.groups;
-    if (g1.length() < g2.length())
+    if (g1.size() < g2.size())
         return -1;
-    if (g1.length() < g2.length())
+    if (g1.size() < g2.size())
         return 1;
-    for (int i = 0; i < g1.length(); ++i) {
+    for (int i = 0; i < g1.size(); ++i) {
         int c = std::strcmp(g1.at(i).groupId().data(), g2.at(i).groupId().data());
         if (c != 0)
             return c;

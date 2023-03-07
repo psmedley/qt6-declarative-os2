@@ -2,6 +2,7 @@ qt6_add_qml_module(chartsplugin
     VERSION 1.0
     URI "Charts"
     PLUGIN_TARGET chartsplugin
+    DEPENDENCIES QtQuick
 )
 
 target_sources(chartsplugin PRIVATE
@@ -34,6 +35,7 @@ if(QT6_IS_SHARED_LIBS_BUILD AND APPLE)
                     $<TARGET_FILE:chartsplugin> ${bundle_charts_dir}
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     ${chars_qmldir_file} ${bundle_charts_dir}
+            VERBATIM
         )
     endif()
 endif()
@@ -44,3 +46,5 @@ install(TARGETS chartsplugin
     BUNDLE DESTINATION "${INSTALL_EXAMPLEDIR}"
     LIBRARY DESTINATION "${INSTALL_EXAMPLEDIR}"
 )
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/qmldir
+    DESTINATION "${INSTALL_EXAMPLEDIR}")

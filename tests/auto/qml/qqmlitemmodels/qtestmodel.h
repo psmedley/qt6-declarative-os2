@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef Q_TEST_MODEL_H
 #define Q_TEST_MODEL_H
@@ -99,7 +74,7 @@ public:
         Node *n = (Node*)parent.internalPointer();
         if (!n)
             n = tree;
-        return n->children.count();
+        return n->children.size();
     }
 
     int columnCount(const QModelIndex& parent = QModelIndex()) const override {
@@ -122,7 +97,7 @@ public:
         Node *pn = (Node*)parent.internalPointer();
         if (!pn)
             pn = tree;
-        if (row >= pn->children.count())
+        if (row >= pn->children.size())
             return QModelIndex();
 
         Node *n = pn->children.at(row);
@@ -155,7 +130,7 @@ public:
         if (pn != tree)
             pn = pn->parent;
         if (idx.row() < 0 || idx.column() < 0 || idx.column() >= cols
-            || idx.row() >= pn->children.count()) {
+            || idx.row() >= pn->children.size()) {
             wrongIndex = true;
             qWarning("Invalid modelIndex [%d,%d,%p]", idx.row(), idx.column(),
                      idx.internalPointer());
@@ -293,15 +268,15 @@ public:
         void addRows(int row, int count)
         {
             if (count > 0) {
-                children.reserve(children.count() + count);
+                children.reserve(children.size() + count);
                 children.insert(row, count, (Node *)0);
             }
         }
 
         void removeRows(int row, int count, bool keepAlive = false)
         {
-            int newCount = qMax(children.count() - count, 0);
-            int effectiveCountDiff = children.count() - newCount;
+            int newCount = qMax(children.size() - count, 0);
+            int effectiveCountDiff = children.size() - newCount;
             if (effectiveCountDiff > 0) {
                 if (!keepAlive)
                     for (int i = 0; i < effectiveCountDiff; i++)

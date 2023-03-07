@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlxmllistmodel_p.h"
 
@@ -399,7 +363,7 @@ QVariant QQmlXmlListModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> QQmlXmlListModel::roleNames() const
 {
     QHash<int, QByteArray> roleNames;
-    for (int i = 0; i < m_roles.count(); ++i)
+    for (int i = 0; i < m_roles.size(); ++i)
         roleNames.insert(m_roles.at(i), m_roleNames.at(i).toUtf8());
     return roleNames;
 }
@@ -473,7 +437,7 @@ QQmlListProperty<QQmlXmlListModelRole> QQmlXmlListModel::roleObjects()
 void QQmlXmlListModel::appendRole(QQmlXmlListModelRole *role)
 {
     if (role) {
-        int i = m_roleObjects.count();
+        int i = m_roleObjects.size();
         m_roleObjects.append(role);
         if (m_roleNames.contains(role->name())) {
             qmlWarning(role)
@@ -555,7 +519,7 @@ QQmlXmlListModelQueryJob QQmlXmlListModel::createJob(const QByteArray &data)
     job.data = data;
     job.query = m_query;
 
-    for (int i = 0; i < m_roleObjects.count(); i++) {
+    for (int i = 0; i < m_roleObjects.size(); i++) {
         if (!m_roleObjects.at(i)->isValid()) {
             job.roleNames << QString();
             job.elementNames << QString();
@@ -780,7 +744,7 @@ void QQmlXmlListModel::dataCleared()
 
 void QQmlXmlListModel::queryError(void *object, const QString &error)
 {
-    for (int i = 0; i < m_roleObjects.count(); i++) {
+    for (int i = 0; i < m_roleObjects.size(); i++) {
         if (m_roleObjects.at(i) == static_cast<QQmlXmlListModelRole *>(object)) {
             qmlWarning(m_roleObjects.at(i))
                     << QQmlXmlListModel::tr("Query error: \"%1\"").arg(error);
@@ -796,7 +760,7 @@ void QQmlXmlListModel::queryCompleted(const QQmlXmlListModelQueryResult &result)
         return;
 
     int origCount = m_size;
-    bool sizeChanged = result.data.count() != m_size;
+    bool sizeChanged = result.data.size() != m_size;
 
     if (m_source.isEmpty())
         m_status = Null;
@@ -809,7 +773,7 @@ void QQmlXmlListModel::queryCompleted(const QQmlXmlListModelQueryResult &result)
         beginRemoveRows(QModelIndex(), 0, origCount - 1);
         endRemoveRows();
     }
-    m_size = result.data.count();
+    m_size = result.data.size();
     m_data = result.data;
 
     if (m_size > 0) {
@@ -877,10 +841,10 @@ void QQmlXmlListModelQueryRunnable::doQueryJob(QQmlXmlListModelQueryResult *curr
 
     while (!reader.atEnd() && !m_promise.isCanceled()) {
         int i = 0;
-        while (i < items.count()) {
+        while (i < items.size()) {
             if (reader.readNextStartElement()) {
                 if (reader.name() == items.at(i)) {
-                    if (i != items.count() - 1) {
+                    if (i != items.size() - 1) {
                         i++;
                         continue;
                     } else {

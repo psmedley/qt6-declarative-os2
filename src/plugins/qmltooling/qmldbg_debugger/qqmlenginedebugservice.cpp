@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlenginedebugservice.h"
 #include "qqmlwatcher.h"
@@ -158,7 +122,7 @@ QDataStream &operator>>(QDataStream &ds,
 static inline bool isSignalPropertyName(const QString &signalName)
 {
     // see QmlCompiler::isSignalPropertyName
-    return signalName.length() >= 3 && signalName.startsWith(QLatin1String("on")) &&
+    return signalName.size() >= 3 && signalName.startsWith(QLatin1String("on")) &&
             signalName.at(2).isLetter() && signalName.at(2).isUpper();
 }
 
@@ -183,7 +147,8 @@ QQmlEngineDebugServiceImpl::propertyData(QObject *obj, int propIdx)
 {
     QQmlObjectProperty rv;
 
-    QMetaProperty prop = obj->metaObject()->property(propIdx);
+    const QMetaObject *metaObject = obj->metaObject();
+    QMetaProperty prop = metaObject->property(propIdx);
 
     rv.type = QQmlObjectProperty::Unknown;
     rv.valueTypeName = QString::fromUtf8(prop.typeName());
@@ -194,7 +159,10 @@ QQmlEngineDebugServiceImpl::propertyData(QObject *obj, int propIdx)
     if (binding)
         rv.binding = binding->expression();
 
-    rv.value = valueContents(prop.read(obj));
+    if (metaObject->metaType().flags().testFlag(QMetaType::IsGadget))
+        rv.value = valueContents(static_cast<QQmlGadgetPtrWrapper *>(obj)->readOnGadget(prop));
+    else
+        rv.value = valueContents(prop.read(obj));
 
     if (prop.metaType().flags().testFlag(QMetaType::PointerToQObject))  {
         rv.type = QQmlObjectProperty::Object;
@@ -295,8 +263,8 @@ void QQmlEngineDebugServiceImpl::buildObjectDump(QDataStream &message,
 
     QObjectList children = object->children();
 
-    int childrenCount = children.count();
-    for (int ii = 0; ii < children.count(); ++ii) {
+    int childrenCount = children.size();
+    for (int ii = 0; ii < children.size(); ++ii) {
         if (qobject_cast<QQmlContext*>(children[ii]))
             --childrenCount;
     }
@@ -305,7 +273,7 @@ void QQmlEngineDebugServiceImpl::buildObjectDump(QDataStream &message,
 
     QList<QQmlObjectProperty> fakeProperties;
 
-    for (int ii = 0; ii < children.count(); ++ii) {
+    for (int ii = 0; ii < children.size(); ++ii) {
         QObject *child = children.at(ii);
         if (qobject_cast<QQmlContext*>(child))
             continue;
@@ -354,12 +322,12 @@ void QQmlEngineDebugServiceImpl::buildObjectDump(QDataStream &message,
         }
     }
 
-    message << int(propertyIndexes.size() + fakeProperties.count());
+    message << int(propertyIndexes.size() + fakeProperties.size());
 
     for (int ii = 0; ii < propertyIndexes.size(); ++ii)
         message << propertyData(object, propertyIndexes.at(ii));
 
-    for (int ii = 0; ii < fakeProperties.count(); ++ii)
+    for (int ii = 0; ii < fakeProperties.size(); ++ii)
         message << fakeProperties[ii];
 }
 
@@ -368,7 +336,7 @@ void QQmlEngineDebugServiceImpl::prepareDeferredObjects(QObject *obj)
     qmlExecuteDeferred(obj);
 
     QObjectList children = obj->children();
-    for (int ii = 0; ii < children.count(); ++ii) {
+    for (int ii = 0; ii < children.size(); ++ii) {
         QObject *child = children.at(ii);
         prepareDeferredObjects(child);
     }
@@ -379,7 +347,7 @@ void QQmlEngineDebugServiceImpl::storeObjectIds(QObject *co)
 {
     QQmlDebugService::idForObject(co);
     QObjectList children = co->children();
-    for (int ii = 0; ii < children.count(); ++ii)
+    for (int ii = 0; ii < children.size(); ++ii)
         storeObjectIds(children.at(ii));
 }
 
@@ -416,14 +384,14 @@ void QQmlEngineDebugServiceImpl::buildObjectList(QDataStream &message,
     }
 
     count = 0;
-    for (int ii = 0; ii < instances.count(); ++ii) {
+    for (int ii = 0; ii < instances.size(); ++ii) {
         QQmlData *data = QQmlData::get(instances.at(ii));
         if (data->context == p.data())
             count ++;
     }
     message << count;
 
-    for (int ii = 0; ii < instances.count(); ++ii) {
+    for (int ii = 0; ii < instances.size(); ++ii) {
         QQmlData *data = QQmlData::get(instances.at(ii));
         if (data->context == p.data())
             message << objectData(instances.at(ii));
@@ -501,9 +469,9 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
 
     if (type == "LIST_ENGINES") {
         rs << QByteArray("LIST_ENGINES_R");
-        rs << queryId << int(m_engines.count());
+        rs << queryId << int(m_engines.size());
 
-        for (int ii = 0; ii < m_engines.count(); ++ii) {
+        for (int ii = 0; ii < m_engines.size(); ++ii) {
             QJSEngine *engine = m_engines.at(ii);
 
             QString engineName = engine->objectName();
@@ -559,7 +527,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         const QList<QObject*> objects = objectForLocationInfo(file, lineNumber, columnNumber);
 
         rs << QByteArray("FETCH_OBJECTS_FOR_LOCATION_R") << queryId
-           << int(objects.count());
+           << int(objects.size());
 
         for (QObject *object : objects) {
             if (recurse)
@@ -782,8 +750,7 @@ bool QQmlEngineDebugServiceImpl::setMethodBody(int objectId, const QString &meth
     QQmlRefPointer<QQmlContextData> contextData = QQmlContextData::get(context);
 
     QQmlPropertyData dummy;
-    QQmlPropertyData *prop =
-            QQmlPropertyCache::property(context->engine(), object, method, contextData, &dummy);
+    const QQmlPropertyData *prop = QQmlPropertyCache::property(object, method, contextData, &dummy);
 
     if (!prop || !prop->isVMEFunction())
         return false;
@@ -792,7 +759,7 @@ bool QQmlEngineDebugServiceImpl::setMethodBody(int objectId, const QString &meth
     QList<QByteArray> paramNames = metaMethod.parameterNames();
 
     QString paramStr;
-    for (int ii = 0; ii < paramNames.count(); ++ii) {
+    for (int ii = 0; ii < paramNames.size(); ++ii) {
         if (ii != 0) paramStr.append(QLatin1Char(','));
         paramStr.append(QString::fromUtf8(paramNames.at(ii)));
     }

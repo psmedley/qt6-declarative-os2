@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include <math.h>
 #include <QtCore/qstack.h>
@@ -169,7 +133,7 @@ int QQmlTreeModelToTableModel::rowCount(const QModelIndex &) const
 {
     if (!m_model)
         return 0;
-    return m_items.count();
+    return m_items.size();
 }
 
 int QQmlTreeModelToTableModel::columnCount(const QModelIndex &parent) const
@@ -202,7 +166,7 @@ QVariant QQmlTreeModelToTableModel::headerData(int section, Qt::Orientation orie
 
 int QQmlTreeModelToTableModel::depthAtRow(int row) const
 {
-    if (row < 0 || row >= m_items.count())
+    if (row < 0 || row >= m_items.size())
         return 0;
     return m_items.at(row).depth;
 }
@@ -213,7 +177,7 @@ int QQmlTreeModelToTableModel::itemIndex(const QModelIndex &index) const
     if (!index.isValid() || index == m_rootIndex || m_items.isEmpty())
         return -1;
 
-    const int totalCount = m_items.count();
+    const int totalCount = m_items.size();
 
     // We start nearest to the lastViewedItem
     int localCount = qMin(m_lastItemIndex - 1, totalCount - m_lastItemIndex);
@@ -268,7 +232,7 @@ QModelIndex QQmlTreeModelToTableModel::mapToModel(const QModelIndex &index) cons
         return QModelIndex();
 
     const int row = index.row();
-    if (row < 0 || row > m_items.count() - 1)
+    if (row < 0 || row > m_items.size() - 1)
         return QModelIndex();
 
     const QModelIndex sourceIndex = m_items.at(row).index;
@@ -281,7 +245,7 @@ QModelIndex QQmlTreeModelToTableModel::mapFromModel(const QModelIndex &index) co
         return QModelIndex();
 
     int row = -1;
-    for (int i = 0; i < m_items.count(); ++i) {
+    for (int i = 0; i < m_items.size(); ++i) {
         const QModelIndex proxyIndex = m_items[i].index;
         if (proxyIndex.row() == index.row() && proxyIndex.parent() == index.parent()) {
             row = i;
@@ -297,7 +261,7 @@ QModelIndex QQmlTreeModelToTableModel::mapFromModel(const QModelIndex &index) co
 
 QModelIndex QQmlTreeModelToTableModel::mapToModel(int row) const
 {
-    if (row < 0 || row >= m_items.count())
+    if (row < 0 || row >= m_items.size())
         return QModelIndex();
     return m_items.at(row).index;
 }
@@ -350,8 +314,8 @@ QItemSelection  QQmlTreeModelToTableModel::selectionForRowRange(const QModelInde
     }
 
     QItemSelection sel;
-    sel.reserve(ranges.count());
-    for (const MIPair &pair : qAsConst(ranges))
+    sel.reserve(ranges.size());
+    for (const MIPair &pair : std::as_const(ranges))
        sel.append(QItemSelectionRange(pair.first, pair.second));
 
     return sel;
@@ -404,7 +368,7 @@ void QQmlTreeModelToTableModel::showModelChildItems(const TreeItem &parentItem, 
     int rowDepth = rowIdx == 0 ? 0 : parentItem.depth + 1;
     if (doInsertRows)
         beginInsertRows(QModelIndex(), startIdx, startIdx + insertCount - 1);
-    m_items.reserve(m_items.count() + insertCount);
+    m_items.reserve(m_items.size() + insertCount);
 
     for (int i = 0; i < insertCount; i++) {
         const QModelIndex &cmi = m_model->index(start + i, 0, parentIndex);
@@ -482,14 +446,14 @@ bool QQmlTreeModelToTableModel::isExpanded(const QModelIndex &index) const
 
 bool QQmlTreeModelToTableModel::isExpanded(int row) const
 {
-    if (row < 0 || row >= m_items.count())
+    if (row < 0 || row >= m_items.size())
         return false;
     return m_items.at(row).expanded;
 }
 
 bool QQmlTreeModelToTableModel::hasChildren(int row) const
 {
-    if (row < 0 || row >= m_items.count())
+    if (row < 0 || row >= m_items.size())
         return false;
     return m_model->hasChildren(m_items[row].index);
 }
@@ -517,6 +481,32 @@ void QQmlTreeModelToTableModel::expandRow(int n)
     expandPendingRows();
 }
 
+void QQmlTreeModelToTableModel::expandRecursively(int row, int depth)
+{
+    Q_ASSERT(depth == -1 || depth > 0);
+    const int startDepth = depthAtRow(row);
+
+    auto expandHelp = [this, depth, startDepth] (const auto expandHelp, const QModelIndex &index) -> void {
+        const int rowToExpand = itemIndex(index);
+        if (!m_expandedItems.contains(index))
+            expandRow(rowToExpand);
+
+        if (depth != -1 && depthAtRow(rowToExpand) == startDepth + depth - 1)
+            return;
+
+        const int childCount = m_model->rowCount(index);
+        for (int childRow = 0; childRow < childCount; ++childRow) {
+            const QModelIndex childIndex = m_model->index(childRow, 0, index);
+            if (m_model->hasChildren(childIndex))
+                expandHelp(expandHelp, childIndex);
+        }
+    };
+
+    const QModelIndex index = m_items[row].index;
+    if (index.isValid())
+        expandHelp(expandHelp, index);
+}
+
 void QQmlTreeModelToTableModel::expandPendingRows(bool doInsertRows)
 {
     while (!m_itemsToExpand.isEmpty()) {
@@ -535,6 +525,30 @@ void QQmlTreeModelToTableModel::expandPendingRows(bool doInsertRows)
         // pair per expansion (same as we do for collapsing).
         showModelChildItems(item, 0, childrenCount - 1, doInsertRows, false);
     }
+}
+
+void QQmlTreeModelToTableModel::collapseRecursively(int row)
+{
+    auto collapseHelp = [this] (const auto collapseHelp, const QModelIndex &index) -> void {
+        if (m_expandedItems.contains(index)) {
+            const int rowToCollapse = itemIndex(index);
+            if (rowToCollapse != -1)
+                collapseRow(rowToCollapse);
+            else
+                m_expandedItems.remove(index);
+        }
+
+        const int childCount = m_model->rowCount(index);
+        for (int childRow = 0; childRow < childCount; ++childRow) {
+            const QModelIndex childIndex = m_model->index(childRow, 0, index);
+            if (m_model->hasChildren(childIndex))
+                collapseHelp(collapseHelp, childIndex);
+        }
+    };
+
+    const QModelIndex index = m_items[row].index;
+    if (index.isValid())
+        collapseHelp(collapseHelp, index);
 }
 
 void QQmlTreeModelToTableModel::collapseRow(int n)
@@ -558,8 +572,13 @@ void QQmlTreeModelToTableModel::collapseRow(int n)
     removeVisibleRows(n + 1, lastIndex);
 }
 
-int QQmlTreeModelToTableModel::lastChildIndex(const QModelIndex &index)
+int QQmlTreeModelToTableModel::lastChildIndex(const QModelIndex &index) const
 {
+    // The purpose of this function is to return the row of the last decendant of a node N.
+    // But note: index should point to the last child of N, and not N itself!
+    // This means that if index is not expanded, the last child will simply be index itself.
+    // Otherwise, since the tree underneath index can be of any depth, it will instead find
+    // the first sibling of N, get its table row, and simply return the row above.
     if (!m_expandedItems.contains(index))
         return itemIndex(index);
 
@@ -572,7 +591,7 @@ int QQmlTreeModelToTableModel::lastChildIndex(const QModelIndex &index)
         parent = parent.parent();
     }
 
-    int firstIndex = nextSiblingIndex.isValid() ? itemIndex(nextSiblingIndex) : m_items.count();
+    int firstIndex = nextSiblingIndex.isValid() ? itemIndex(nextSiblingIndex) : m_items.size();
     return firstIndex - 1;
 }
 
@@ -588,7 +607,7 @@ void QQmlTreeModelToTableModel::removeVisibleRows(int startIndex, int endIndex, 
         endRemoveRows();
 
         /* We need to update the model index for all the items below the removed ones */
-        int lastIndex = m_items.count() - 1;
+        int lastIndex = m_items.size() - 1;
         if (startIndex <= lastIndex) {
             const QModelIndex &topLeft = index(startIndex, 0, QModelIndex());
             const QModelIndex &bottomRight = index(lastIndex, 0, QModelIndex());
@@ -628,7 +647,7 @@ void QQmlTreeModelToTableModel::modelDataChanged(const QModelIndex &topLeft, con
     for (int i = topLeft.row(); i <= bottomRight.row(); i++) {
         // Group items with same parent to minize the number of 'dataChanged()' emits
         int bottomIndex = topIndex;
-        while (bottomIndex < m_items.count()) {
+        while (bottomIndex < m_items.size()) {
             const QModelIndex &idx = m_items.at(bottomIndex).index;
             if (idx.parent() != parent) {
                 --bottomIndex;
@@ -644,7 +663,7 @@ void QQmlTreeModelToTableModel::modelDataChanged(const QModelIndex &topLeft, con
         if (i == bottomRight.row())
             break;
         topIndex = bottomIndex + 1;
-        while (topIndex < m_items.count()
+        while (topIndex < m_items.size()
                && m_items.at(topIndex).index.parent() != parent)
             topIndex++;
     }
@@ -653,50 +672,87 @@ void QQmlTreeModelToTableModel::modelDataChanged(const QModelIndex &topLeft, con
 
 void QQmlTreeModelToTableModel::modelLayoutAboutToBeChanged(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint)
 {
-    ASSERT_CONSISTENCY();
-    Q_UNUSED(parents)
     Q_UNUSED(hint)
+
+    // Since the m_items is a list of TreeItems that contains QPersistentModelIndexes, we
+    // cannot wait until we get a modelLayoutChanged() before we remove the affected rows
+    // from that list. After the layout has changed, the list (or, the persistent indexes
+    // that it contains) is no longer in sync with the model (after all, that is what we're
+    // supposed to correct in modelLayoutChanged()).
+    // This means that vital functions, like itemIndex(index), cannot be trusted at that point.
+    // Therefore we need to do the update in two steps; First remove all the affected rows
+    // from here (while we're still in sync with the model), and then add back the
+    // affected rows, and notify about it, from modelLayoutChanged().
+    m_modelLayoutChanged = false;
+
+    if (parents.isEmpty() || !parents[0].isValid()) {
+        // Update entire model
+        emit layoutAboutToBeChanged();
+        m_modelLayoutChanged = true;
+        m_items.clear();
+        return;
+    }
+
+    for (const QPersistentModelIndex &pmi : parents) {
+        if (!m_expandedItems.contains(pmi))
+            continue;
+        const int row = itemIndex(pmi);
+        if (row == -1)
+            continue;
+        const int rowCount = m_model->rowCount(pmi);
+        if (rowCount == 0)
+            continue;
+
+        if (!m_modelLayoutChanged) {
+            emit layoutAboutToBeChanged();
+            m_modelLayoutChanged = true;
+        }
+
+        const QModelIndex &lmi = m_model->index(rowCount - 1, 0, pmi);
+        const int lastRow = lastChildIndex(lmi);
+        removeVisibleRows(row + 1, lastRow, false /*doRemoveRows*/);
+    }
+
+    ASSERT_CONSISTENCY();
 }
 
 void QQmlTreeModelToTableModel::modelLayoutChanged(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint)
 {
     Q_UNUSED(hint)
 
-    if (parents.isEmpty()) {
-        emit layoutAboutToBeChanged();
-        m_items.clear();
+    if (!m_modelLayoutChanged) {
+        // No relevant changes done from modelLayoutAboutToBeChanged()
+        return;
+    }
+
+    if (m_items.isEmpty()) {
+        // Entire model has changed. Add back all rows.
         showModelTopLevelItems(false /*doInsertRows*/);
         const QModelIndex &mi = m_model->index(0, 0);
         const int columnCount = m_model->columnCount(mi);
-        emit dataChanged(index(0, 0), index(m_items.count() - 1, columnCount - 1));
+        emit dataChanged(index(0, 0), index(m_items.size() - 1, columnCount - 1));
         emit layoutChanged();
         return;
     }
 
-    bool shouldEmitLayoutChanged = false;
     for (const QPersistentModelIndex &pmi : parents) {
-        if (m_expandedItems.contains(pmi)) {
-            int row = itemIndex(pmi);
-            if (row != -1) {
-                if (!shouldEmitLayoutChanged) {
-                    shouldEmitLayoutChanged = true;
-                    emit layoutAboutToBeChanged();
-                }
-                int rowCount = m_model->rowCount(pmi);
-                if (rowCount > 0) {
-                    const QModelIndex &lmi = m_model->index(rowCount - 1, 0, pmi);
-                    const int lastRow = lastChildIndex(lmi);
-                    const int columnCount = m_model->columnCount(lmi);
-                    removeVisibleRows(row + 1, lastRow, false /*doRemoveRows*/);
-                    showModelChildItems(m_items.at(row), 0, rowCount - 1, false /*doInsertRows*/);
-                    emit dataChanged(index(row + 1, 0), index(lastRow, columnCount - 1));
-                }
-            }
-        }
+        if (!m_expandedItems.contains(pmi))
+            continue;
+        const int row = itemIndex(pmi);
+        if (row == -1)
+            continue;
+        const int rowCount = m_model->rowCount(pmi);
+        if (rowCount == 0)
+            continue;
+
+        const QModelIndex &lmi = m_model->index(rowCount - 1, 0, pmi);
+        const int columnCount = m_model->columnCount(lmi);
+        showModelChildItems(m_items.at(row), 0, rowCount - 1, false /*doInsertRows*/);
+        const int lastRow = lastChildIndex(lmi);
+        emit dataChanged(index(row + 1, 0), index(lastRow, columnCount - 1));
     }
 
-    if (shouldEmitLayoutChanged)
-        emit layoutChanged();
+    emit layoutChanged();
 
     ASSERT_CONSISTENCY();
 }
@@ -845,7 +901,7 @@ void QQmlTreeModelToTableModel::modelRowsAboutToBeMoved(const QModelIndex & sour
             }
             bufferCopyOffset = destIndex;
         }
-        for (int i = 0; i < buffer.length(); i++) {
+        for (int i = 0; i < buffer.size(); i++) {
             TreeItem item = buffer.at(i);
             item.depth += depthDifference;
             m_items.replace(bufferCopyOffset + i, item);
@@ -914,7 +970,7 @@ void QQmlTreeModelToTableModel::dump() const
 {
     if (!m_model)
         return;
-    int count = m_items.count();
+    int count = m_items.size();
     if (count == 0)
         return;
     int countWidth = floor(log10(double(count))) + 1;
@@ -946,7 +1002,7 @@ bool QQmlTreeModelToTableModel::testConsistency(bool dumpOnFail) const
     QModelIndex parent = m_rootIndex;
     QStack<QModelIndex> ancestors;
     QModelIndex idx = m_model->index(0, 0, parent);
-    for (int i = 0; i < m_items.count(); i++) {
+    for (int i = 0; i < m_items.size(); i++) {
         bool isConsistent = true;
         const TreeItem &item = m_items.at(i);
         if (item.index != idx) {
@@ -959,9 +1015,9 @@ bool QQmlTreeModelToTableModel::testConsistency(bool dumpOnFail) const
             qWarning() << "    stored index parent" << item.index.parent() << "model parent" << parent;
             isConsistent = false;
         }
-        if (item.depth != ancestors.count()) {
+        if (item.depth != ancestors.size()) {
             qWarning() << "Depth inconsistency" << i << item.index;
-            qWarning() << "    item depth" << item.depth << "ancestors stack" << ancestors.count();
+            qWarning() << "    item depth" << item.depth << "ancestors stack" << ancestors.size();
             isConsistent = false;
         }
         if (item.expanded && !m_expandedItems.contains(item.index)) {
@@ -1026,7 +1082,7 @@ void QQmlTreeModelToTableModel::emitQueuedSignals()
      * We don't merge adjacent updates, because they are typically filed with a
      * different role (a parent row is next to its children).
      */
-    for (const DataChangedParams &dataChange : qAsConst(m_queuedDataChanged)) {
+    for (const DataChangedParams &dataChange : std::as_const(m_queuedDataChanged)) {
         int startRow = dataChange.topLeft.row();
         int endRow = dataChange.bottomRight.row();
         bool merged = false;

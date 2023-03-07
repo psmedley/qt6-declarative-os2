@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 Research In Motion.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 Research In Motion.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlinstantiator_p.h"
 #include "qqmlinstantiator_p_p.h"
@@ -75,10 +39,10 @@ void QQmlInstantiatorPrivate::clear()
     Q_Q(QQmlInstantiator);
     if (!instanceModel)
         return;
-    if (!objects.count())
+    if (!objects.size())
         return;
 
-    for (int i=0; i < objects.count(); i++) {
+    for (int i=0; i < objects.size(); i++) {
         q->objectRemoved(i, objects[i]);
         instanceModel->release(objects[i]);
     }
@@ -139,7 +103,7 @@ void QQmlInstantiatorPrivate::_q_createdItem(int idx, QObject* item)
     if (QObject *o = objects.at(idx))
         instanceModel->release(o);
     objects.replace(idx, item);
-    if (objects.count() == 1)
+    if (objects.size() == 1)
         q->objectChanged();
     q->objectAdded(idx, item);
 }
@@ -162,8 +126,8 @@ void QQmlInstantiatorPrivate::_q_modelUpdated(const QQmlChangeSet &changeSet, bo
     QHash<int, QVector<QPointer<QObject> > > moved;
     const QVector<QQmlChangeSet::Change> &removes = changeSet.removes();
     for (const QQmlChangeSet::Change &remove : removes) {
-        int index = qMin(remove.index, objects.count());
-        int count = qMin(remove.index + remove.count, objects.count()) - index;
+        int index = qMin(remove.index, objects.size());
+        int count = qMin(remove.index + remove.count, objects.size()) - index;
         if (remove.isMove()) {
             moved.insert(remove.moveId, objects.mid(index, count));
             objects.erase(
@@ -182,7 +146,7 @@ void QQmlInstantiatorPrivate::_q_modelUpdated(const QQmlChangeSet &changeSet, bo
 
     const QVector<QQmlChangeSet::Change> &inserts = changeSet.inserts();
     for (const QQmlChangeSet::Change &insert : inserts) {
-        int index = qMin(insert.index, objects.count());
+        int index = qMin(insert.index, objects.size());
         if (insert.isMove()) {
             QVector<QPointer<QObject> > movedObjects = moved.value(insert.moveId);
             objects = objects.mid(0, index) + movedObjects + objects.mid(index);
@@ -324,7 +288,7 @@ void QQmlInstantiator::setAsync(bool newVal)
 int QQmlInstantiator::count() const
 {
     Q_D(const QQmlInstantiator);
-    return d->objects.count();
+    return d->objects.size();
 }
 
 /*!
@@ -456,7 +420,7 @@ void QQmlInstantiator::setModel(const QVariant &v)
 QObject *QQmlInstantiator::object() const
 {
     Q_D(const QQmlInstantiator);
-    if (d->objects.count())
+    if (d->objects.size())
         return d->objects[0];
     return nullptr;
 }
@@ -469,7 +433,7 @@ QObject *QQmlInstantiator::object() const
 QObject *QQmlInstantiator::objectAt(int index) const
 {
     Q_D(const QQmlInstantiator);
-    if (index >= 0 && index < d->objects.count())
+    if (index >= 0 && index < d->objects.size())
         return d->objects[index];
     return nullptr;
 }

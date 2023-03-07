@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -334,7 +309,7 @@ void tst_qqmlbinding::warningOnUnknownProperty()
     QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
 
-    QCOMPARE(messageHandler.messages().count(), 1);
+    QCOMPARE(messageHandler.messages().size(), 1);
 
     const QString expectedMessage = c.url().toString() + QLatin1String(":6:5: QML Binding: Property 'unknown' does not exist on Item.");
     QCOMPARE(messageHandler.messages().first(), expectedMessage);
@@ -349,7 +324,7 @@ void tst_qqmlbinding::warningOnReadOnlyProperty()
     QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
 
-    QCOMPARE(messageHandler.messages().count(), 1);
+    QCOMPARE(messageHandler.messages().size(), 1);
 
     const QString expectedMessage = c.url().toString() + QLatin1String(":8:5: QML Binding: Property 'name' on Item is read-only.");
     QCOMPARE(messageHandler.messages().first(), expectedMessage);
@@ -364,7 +339,7 @@ void tst_qqmlbinding::disabledOnUnknownProperty()
     QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
 
-    QCOMPARE(messageHandler.messages().count(), 0);
+    QCOMPARE(messageHandler.messages().size(), 0);
 }
 
 void tst_qqmlbinding::disabledOnReadonlyProperty()
@@ -375,7 +350,7 @@ void tst_qqmlbinding::disabledOnReadonlyProperty()
     QQmlComponent c(&engine, testFileUrl("disabledReadonly.qml"));
     QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
-    QCOMPARE(messageHandler.messages().count(), 0);
+    QCOMPARE(messageHandler.messages().size(), 0);
 }
 
 void tst_qqmlbinding::delayed()
@@ -472,7 +447,7 @@ void tst_qqmlbinding::bindingOverwriting()
     QVERIFY(item);
 
     QLoggingCategory::setFilterRules(QString());
-    QCOMPARE(messageHandler.messages().count(), 2);
+    QCOMPARE(messageHandler.messages().size(), 2);
 }
 
 void tst_qqmlbinding::bindToQmlComponent()

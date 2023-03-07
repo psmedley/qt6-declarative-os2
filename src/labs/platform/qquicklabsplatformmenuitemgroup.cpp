@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the Qt Labs Templates module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquicklabsplatformmenuitemgroup_p.h"
 #include "qquicklabsplatformmenuitem_p.h"
@@ -167,7 +131,7 @@ void QQuickLabsPlatformMenuItemGroup::setEnabled(bool enabled)
     m_enabled = enabled;
     emit enabledChanged();
 
-    for (QQuickLabsPlatformMenuItem *item : qAsConst(m_items)) {
+    for (QQuickLabsPlatformMenuItem *item : std::as_const(m_items)) {
         if (item->m_enabled) {
             item->sync();
             emit item->enabledChanged();
@@ -196,7 +160,7 @@ void QQuickLabsPlatformMenuItemGroup::setVisible(bool visible)
     m_visible = visible;
     emit visibleChanged();
 
-    for (QQuickLabsPlatformMenuItem *item : qAsConst(m_items)) {
+    for (QQuickLabsPlatformMenuItem *item : std::as_const(m_items)) {
         if (item->m_visible) {
             item->sync();
             emit item->visibleChanged();
@@ -225,7 +189,7 @@ void QQuickLabsPlatformMenuItemGroup::setExclusive(bool exclusive)
     m_exclusive = exclusive;
     emit exclusiveChanged();
 
-    for (QQuickLabsPlatformMenuItem *item : qAsConst(m_items))
+    for (QQuickLabsPlatformMenuItem *item : std::as_const(m_items))
         item->sync();
 }
 
@@ -320,7 +284,7 @@ void QQuickLabsPlatformMenuItemGroup::clear()
     if (m_items.isEmpty())
         return;
 
-    for (QQuickLabsPlatformMenuItem *item : qAsConst(m_items)) {
+    for (QQuickLabsPlatformMenuItem *item : std::as_const(m_items)) {
         item->setGroup(nullptr);
         disconnect(item, &QQuickLabsPlatformMenuItem::checkedChanged, this, &QQuickLabsPlatformMenuItemGroup::updateCurrent);
         disconnect(item, &QQuickLabsPlatformMenuItem::triggered, this, &QQuickLabsPlatformMenuItemGroup::activateItem);
@@ -375,7 +339,7 @@ void QQuickLabsPlatformMenuItemGroup::items_append(QQmlListProperty<QQuickLabsPl
 qsizetype QQuickLabsPlatformMenuItemGroup::items_count(QQmlListProperty<QQuickLabsPlatformMenuItem> *prop)
 {
     QQuickLabsPlatformMenuItemGroup *group = static_cast<QQuickLabsPlatformMenuItemGroup *>(prop->object);
-    return group->m_items.count();
+    return group->m_items.size();
 }
 
 QQuickLabsPlatformMenuItem *QQuickLabsPlatformMenuItemGroup::items_at(QQmlListProperty<QQuickLabsPlatformMenuItem> *prop, qsizetype index)

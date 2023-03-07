@@ -1,30 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include <qtest.h>
 #include <QDebug>
 
@@ -46,6 +21,8 @@
 #include <qsignalspy.h>
 
 #include <algorithm>
+
+using namespace Qt::StringLiterals;
 
 class WithQJSValue : public QObject
 {
@@ -157,6 +134,8 @@ private slots:
     void qmlErrorIsReported();
     void initJSValueProp();
     void qmlPropertySignalExists();
+    void componentTypes();
+    void boundComponent();
 
 private:
     QQmlEngine engine;
@@ -183,7 +162,7 @@ void tst_qqmlcomponent::loadEmptyUrl()
     c.loadUrl(QUrl());
 
     QVERIFY(c.isError());
-    QCOMPARE(c.errors().count(), 1);
+    QCOMPARE(c.errors().size(), 1);
     QQmlError error = c.errors().first();
     QCOMPARE(error.url(), QUrl());
     QCOMPARE(error.line(), -1);
@@ -209,6 +188,7 @@ void tst_qqmlcomponent::qmlCreateWindow()
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.loadUrl(testFileUrl("createWindow.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
     QVERIFY(!window.isNull());
 }
@@ -358,7 +338,7 @@ void tst_qqmlcomponent::qmlCreateObjectDirty()
     QQmlEngine engine;
     engine.setOutputWarningsToStandardError(false);
     QObject::connect(&engine, &QQmlEngine::warnings, [](const QList<QQmlError> &warnings) {
-        QCOMPARE(warnings.count(), 1);
+        QCOMPARE(warnings.size(), 1);
         QCOMPARE(warnings[0].description(),
                 "QML Component: Unsuitable arguments passed to createObject(). The first argument "
                 "should be a QObject* or null, and the second argument should be a JavaScript "
@@ -576,7 +556,7 @@ void tst_qqmlcomponent::onDestructionCount()
     engine.setOutputWarningsToStandardError(false);
     QCOMPARE(engine.outputWarningsToStandardError(), false);
 
-    QCOMPARE(warnings.count(), 0);
+    QCOMPARE(warnings.size(), 0);
 }
 
 void tst_qqmlcomponent::recursion()
@@ -1094,7 +1074,7 @@ void tst_qqmlcomponent::initJSValueProp()
     QQmlComponent component(&engine);
     component.setData("import ComponentTest\nWithQJSValue {}", QUrl());
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
-    QScopedPointer<QObject> o(component.createWithInitialProperties({{ u"v"_qs, 5}}));
+    QScopedPointer<QObject> o(component.createWithInitialProperties({{ u"v"_s, 5}}));
     QVERIFY(!o.isNull());
     WithQJSValue *withQJSValue = qobject_cast<WithQJSValue *>(o.data());
     QVERIFY(withQJSValue);
@@ -1115,8 +1095,117 @@ void tst_qqmlcomponent::qmlPropertySignalExists()
 
     QSignalSpy changeSignalSpy(o.get(), SIGNAL(pChanged()));
     QVERIFY(QMetaObject::invokeMethod(o.get(), "doStuff"));
-    QCOMPARE(changeSignalSpy.count(), 1);
+    QCOMPARE(changeSignalSpy.size(), 1);
     QCOMPARE(o->property("p").toInt(), 42);
+}
+
+void tst_qqmlcomponent::componentTypes()
+{
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        // not allowed: "Cannot create empty component specification"
+        component.setData("import QtQml; Component { }", QUrl());
+        QVERIFY(!component.isReady());
+    }
+
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.loadUrl(testFileUrl("ComponentType.qml"));
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY2(!o.isNull(), qPrintable(component.errorString()));
+        QQmlComponent *oComponent = qobject_cast<QQmlComponent *>(o.get());
+        QVERIFY(oComponent);
+        QScopedPointer<QObject> enclosed(oComponent->create());
+        QVERIFY(!enclosed.isNull());
+        QCOMPARE(enclosed->objectName(), u"enclosed"_s);
+    }
+
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.loadUrl(testFileUrl("componentTypes.qml"));
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY2(!o.isNull(), qPrintable(component.errorString()));
+
+        QQmlContext *ctx = engine.contextForObject(o.get());
+
+        QObject *normal = ctx->objectForName(u"normal"_s);
+        QVERIFY(normal);
+        QCOMPARE(normal->property("text").toString(), u"indirect component"_s);
+
+        // check (and thus "document" in code) various ways of how ids work
+        QVERIFY(ctx->objectForName(u"accessibleNormal"_s));
+        QVERIFY(!ctx->objectForName(u"inaccessibleNormal"_s));
+        QVERIFY(ctx->objectForName(u"accessible"_s));
+        QVERIFY(!ctx->objectForName(u"inaccessible"_s));
+        QVERIFY(ctx->objectForName(u"accessibleDelegate"_s));
+        QVERIFY(!ctx->objectForName(u"inaccessibleDelegate"_s));
+
+        QCOMPARE(qvariant_cast<QObject *>(o->property("p2"))->property("text").toString(),
+                 u"foo"_s);
+        auto p3Object = qvariant_cast<QObject *>(o->property("p3"));
+        QVERIFY(p3Object);
+        QVERIFY(p3Object->property("text").toString().isEmpty());
+
+        QQmlComponent *normalComponent = qobject_cast<QQmlComponent *>(normal);
+        QVERIFY(normalComponent);
+        QScopedPointer<QObject> enclosed(normalComponent->create());
+        QVERIFY(enclosed);
+        QCOMPARE(enclosed->objectName(), u"enclosed"_s);
+    }
+}
+
+void tst_qqmlcomponent::boundComponent()
+{
+    QQmlEngine engine;
+    {
+        QQmlComponent component(&engine, testFileUrl("nestedBoundComponent.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY(!o.isNull());
+
+        QQmlComponent *nestedComponent = o->property("c").value<QQmlComponent *>();
+        QVERIFY(nestedComponent != nullptr);
+
+        QObject *nestedObject = o->property("o").value<QObject *>();
+        QVERIFY(nestedObject != nullptr);
+        QCOMPARE(nestedObject->objectName(), QLatin1String("bound"));
+
+        QScopedPointer<QObject> contextedObject(nestedComponent->create(qmlContext(o.data())));
+        QVERIFY(!contextedObject.isNull());
+
+        QScopedPointer<QObject> uncontextedObject(nestedComponent->create());
+        QVERIFY(uncontextedObject.isNull());
+
+        QVERIFY(nestedComponent->errorString().contains(
+                QLatin1String("Cannot instantiate bound component outside its creation context")));
+    }
+
+    {
+        QQmlComponent component(&engine, testFileUrl("BoundInlineComponent.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY2(!o.isNull(), qPrintable(component.errorString()));
+
+        QObject *nestedObject = o->property("o").value<QObject *>();
+        QVERIFY(nestedObject != nullptr);
+
+        QCOMPARE(nestedObject->objectName(), QLatin1String("inline"));
+    }
+
+    {
+        QQmlComponent component(&engine, testFileUrl("boundInlineComponentUser.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> o(component.create());
+        QVERIFY(o.isNull());
+
+        QVERIFY(component.errorString().contains(
+                QLatin1String("Cannot instantiate bound inline component in different file")));
+    }
 }
 
 QTEST_MAIN(tst_qqmlcomponent)

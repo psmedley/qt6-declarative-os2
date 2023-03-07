@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickshape_p.h"
 #include "qquickshape_p_p.h"
@@ -939,7 +903,7 @@ void QQuickShape::itemChange(ItemChange change, const ItemChangeData &data)
     if (change == ItemVisibleHasChanged && data.boolValue)
         d->_q_shapePathChanged();
     else if (change == QQuickItem::ItemSceneChange) {
-        for (int i = 0; i < d->sp.count(); ++i)
+        for (int i = 0; i < d->sp.size(); ++i)
             QQuickShapePathPrivate::get(d->sp[i])->dirty = QQuickShapePathPrivate::DirtyAll;
         d->_q_shapePathChanged();
     }
@@ -1038,7 +1002,7 @@ void QQuickShapePrivate::sync()
         renderer->setAsyncCallback(asyncShapeReady, this);
     }
 
-    const int count = sp.count();
+    const int count = sp.size();
     bool countChanged = false;
     renderer->beginSync(count, &countChanged);
 
@@ -1476,6 +1440,7 @@ static void generateGradientColorTable(const QQuickShapeGradientCacheKey &gradie
 {
     int pos = 0;
     const QGradientStops &s = gradient.stops;
+    Q_ASSERT(!s.isEmpty());
     const bool colorInterpolation = true;
 
     uint alpha = qRound(opacity * 256);
@@ -1513,8 +1478,6 @@ static void generateGradientColorTable(const QQuickShapeGradientCacheKey &gradie
         current_color = next_color;
     }
 
-    Q_ASSERT(s.size() > 0);
-
     uint last_color = ARGB2RGBA(qPremultiply(ARGB_COMBINE_ALPHA(s[sLast].second.rgba(), alpha)));
     for ( ; pos < size; ++pos)
         colorTable[pos] = last_color;
@@ -1549,7 +1512,10 @@ QSGTexture *QQuickShapeGradientCache::get(const QQuickShapeGradientCacheKey &gra
     if (!tx) {
         static const int W = 1024; // texture size is 1024x1
         QImage gradTab(W, 1, QImage::Format_RGBA8888_Premultiplied);
-        generateGradientColorTable(grad, reinterpret_cast<uint *>(gradTab.bits()), W, 1.0f);
+        if (!grad.stops.isEmpty())
+            generateGradientColorTable(grad, reinterpret_cast<uint *>(gradTab.bits()), W, 1.0f);
+        else
+            gradTab.fill(Qt::black);
         tx = new QSGPlainTexture;
         tx->setImage(gradTab);
         switch (grad.spread) {

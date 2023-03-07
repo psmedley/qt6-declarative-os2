@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickpropertychanges_p.h"
 
@@ -274,7 +238,7 @@ void QQuickPropertyChangesPrivate::decode()
     if (decoded)
         return;
 
-    for (const QV4::CompiledData::Binding *binding : qAsConst(bindings))
+    for (const QV4::CompiledData::Binding *binding : std::as_const(bindings))
         decodeBinding(QString(), compilationUnit, binding);
 
     bindings.clear();
@@ -369,7 +333,7 @@ void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, 
 
 void QQuickPropertyChangesParser::verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
 {
-    for (int ii = 0; ii < props.count(); ++ii)
+    for (int ii = 0; ii < props.size(); ++ii)
         verifyList(compilationUnit, props.at(ii));
 }
 
@@ -394,7 +358,7 @@ QQuickPropertyChanges::QQuickPropertyChanges()
 QQuickPropertyChanges::~QQuickPropertyChanges()
 {
     Q_D(QQuickPropertyChanges);
-    for(int ii = 0; ii < d->signalReplacements.count(); ++ii)
+    for(int ii = 0; ii < d->signalReplacements.size(); ++ii)
         delete d->signalReplacements.at(ii);
 }
 
@@ -407,7 +371,10 @@ QObject *QQuickPropertyChanges::object() const
 void QQuickPropertyChanges::setObject(QObject *o)
 {
     Q_D(QQuickPropertyChanges);
-    d->object = o;
+    if (o != d->object) {
+        d->object = o;
+        emit objectChanged();
+    }
 }
 
 /*!
@@ -428,7 +395,10 @@ bool QQuickPropertyChanges::restoreEntryValues() const
 void QQuickPropertyChanges::setRestoreEntryValues(bool v)
 {
     Q_D(QQuickPropertyChanges);
-    d->restore = v;
+    if (v != d->restore) {
+        d->restore = v;
+        emit restoreEntryValuesChanged();
+    }
 }
 
 QQmlProperty
@@ -457,7 +427,7 @@ QQuickPropertyChanges::ActionList QQuickPropertyChanges::actions()
 
     ActionList list;
 
-    for (int ii = 0; ii < d->properties.count(); ++ii) {
+    for (int ii = 0; ii < d->properties.size(); ++ii) {
         QQmlProperty prop = d->property(d->properties.at(ii).first);
 
         QQuickStateAction a(d->object, prop, d->properties.at(ii).first,
@@ -469,7 +439,7 @@ QQuickPropertyChanges::ActionList QQuickPropertyChanges::actions()
         }
     }
 
-    for (int ii = 0; ii < d->signalReplacements.count(); ++ii) {
+    for (int ii = 0; ii < d->signalReplacements.size(); ++ii) {
         QQuickReplaceSignalHandler *handler = d->signalReplacements.at(ii);
 
         if (handler->property.isValid()) {
@@ -479,7 +449,7 @@ QQuickPropertyChanges::ActionList QQuickPropertyChanges::actions()
         }
     }
 
-    for (int ii = 0; ii < d->expressions.count(); ++ii) {
+    for (int ii = 0; ii < d->expressions.size(); ++ii) {
 
         QQuickPropertyChangesPrivate::ExpressionChange e = d->expressions.at(ii);
         const QString &property = e.name;
@@ -562,7 +532,10 @@ bool QQuickPropertyChanges::isExplicit() const
 void QQuickPropertyChanges::setIsExplicit(bool e)
 {
     Q_D(QQuickPropertyChanges);
-    d->isExplicit = e;
+    if (e != d->isExplicit) {
+        d->isExplicit = e;
+        emit isExplicitChanged();
+    }
 }
 
 bool QQuickPropertyChanges::containsValue(const QString &name) const

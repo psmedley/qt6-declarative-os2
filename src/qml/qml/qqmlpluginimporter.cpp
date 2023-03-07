@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2021 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQml module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlpluginimporter_p.h"
 
@@ -127,7 +91,7 @@ static QStringList versionUriList(const QString &uri, QTypeRevision version)
 {
     QStringList result;
     for (int mode = QQmlImports::FullyVersioned; mode <= QQmlImports::Unversioned; ++mode) {
-        int index = uri.length();
+        int index = uri.size();
         do {
             QString versionUri = uri;
             versionUri.insert(index, QQmlImports::versionString(
@@ -165,7 +129,7 @@ static bool unloadPlugin(const std::pair<const QString, QmlPlugin> &plugin)
 void qmlClearEnginePlugins()
 {
     PluginMapPtr plugins(qmlPluginsById());
-    for (const auto &plugin : qAsConst(*plugins))
+    for (const auto &plugin : std::as_const(*plugins))
         unloadPlugin(plugin);
     plugins->clear();
 }
@@ -431,7 +395,7 @@ QString QQmlPluginImporter::resolvePlugin(const QString &qmldirPluginPath, const
     if (!qmldirPluginPathIsRelative)
         searchPaths.prepend(qmldirPluginPath);
 
-    for (const QString &pluginPath : qAsConst(searchPaths)) {
+    for (const QString &pluginPath : std::as_const(searchPaths)) {
         QString resolvedBasePath;
         if (pluginPath == QLatin1String(".")) {
             if (qmldirPluginPathIsRelative && !qmldirPluginPath.isEmpty()
@@ -508,7 +472,7 @@ bool QQmlPluginImporter::populatePluginDataVector(QVector<StaticPluginData> &res
         QObject *instance = plugin.instance();
         if (qobject_cast<QQmlEngineExtensionPlugin *>(instance)
                 || qobject_cast<QQmlExtensionPlugin *>(instance)) {
-            QJsonArray metaTagsUriList = plugin.metaData().value(
+            const QJsonArray metaTagsUriList = plugin.metaData().value(
                         QStringLiteral("uri")).toArray();
             if (metaTagsUriList.isEmpty()) {
                 if (errors) {
@@ -524,7 +488,7 @@ bool QQmlPluginImporter::populatePluginDataVector(QVector<StaticPluginData> &res
                 return false;
             }
             // A plugin can be set up to handle multiple URIs, so go through the list:
-            for (const QJsonValueRef metaTagUri : metaTagsUriList) {
+            for (const QJsonValueConstRef metaTagUri : metaTagsUriList) {
                 if (versionUris.contains(metaTagUri.toString())) {
                     result.append({ plugin, metaTagsUriList });
                     break;
@@ -537,7 +501,7 @@ bool QQmlPluginImporter::populatePluginDataVector(QVector<StaticPluginData> &res
 
 QTypeRevision QQmlPluginImporter::importPlugins() {
     const auto qmldirPlugins = qmldir->plugins();
-    const int qmldirPluginCount = qmldirPlugins.count();
+    const int qmldirPluginCount = qmldirPlugins.size();
     QTypeRevision importVersion = version;
 
     // If the path contains a version marker or if we have more than one plugin,
@@ -586,8 +550,8 @@ QTypeRevision QQmlPluginImporter::importPlugins() {
                 return QTypeRevision();
 
             for (const QString &versionUri : versionUris) {
-                for (StaticPluginData &pair : pluginPairs) {
-                    for (QJsonValueRef metaTagUri : pair.uriList) {
+                for (const StaticPluginData &pair : std::as_const(pluginPairs)) {
+                    for (const QJsonValueConstRef metaTagUri : pair.uriList) {
                         if (versionUri == metaTagUri.toString()) {
                             staticPluginsFound++;
                             QObject *instance = pair.plugin.instance();

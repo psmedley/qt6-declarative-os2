@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickshapegenericrenderer_p.h"
 #include <QtGui/private/qtriangulator_p.h>
@@ -126,7 +90,7 @@ QQuickShapeGenericRenderer::~QQuickShapeGenericRenderer()
 
 void QQuickShapeGenericRenderer::beginSync(int totalCount, bool *countChanged)
 {
-    if (m_sp.count() != totalCount) {
+    if (m_sp.size() != totalCount) {
         m_sp.resize(totalCount);
         m_accDirty |= DirtyList;
         *countChanged = true;
@@ -272,7 +236,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
 
     bool didKickOffAsync = false;
 
-    for (int i = 0; i < m_sp.count(); ++i) {
+    for (int i = 0; i < m_sp.size(); ++i) {
         ShapePathData &d(m_sp[i]);
         if (!d.syncDirty)
             continue;
@@ -327,7 +291,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
                 QObject::connect(r, &QQuickShapeFillRunnable::done, qApp, [this, i](QQuickShapeFillRunnable *r) {
                     // Bail out when orphaned (meaning either another run was
                     // started after this one, or the renderer got destroyed).
-                    if (!r->orphaned && i < m_sp.count()) {
+                    if (!r->orphaned && i < m_sp.size()) {
                         ShapePathData &d(m_sp[i]);
                         d.fillVertices = r->fillVertices;
                         d.fillIndices = r->fillIndices;
@@ -362,7 +326,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
                 r->strokeColor = d.strokeColor;
                 r->clipSize = QSize(m_item->width(), m_item->height());
                 QObject::connect(r, &QQuickShapeStrokeRunnable::done, qApp, [this, i](QQuickShapeStrokeRunnable *r) {
-                    if (!r->orphaned && i < m_sp.count()) {
+                    if (!r->orphaned && i < m_sp.size()) {
                         ShapePathData &d(m_sp[i]);
                         d.strokeVertices = r->strokeVertices;
                         d.pendingStroke = nullptr;
@@ -391,7 +355,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
 
 void QQuickShapeGenericRenderer::maybeUpdateAsyncItem()
 {
-    for (const ShapePathData &d : qAsConst(m_sp)) {
+    for (const ShapePathData &d : std::as_const(m_sp)) {
         if (d.pendingFill || d.pendingStroke)
             return;
     }
@@ -413,7 +377,7 @@ void QQuickShapeGenericRenderer::triangulateFill(const QPainterPath &path,
     const QVectorPath &vp = qtVectorPathForPath(path);
 
     QTriangleSet ts = qTriangulate(vp, QTransform::fromScale(TRI_SCALE, TRI_SCALE), 1, supportsElementIndexUint);
-    const int vertexCount = ts.vertices.count() / 2; // just a qreal vector with x,y hence the / 2
+    const int vertexCount = ts.vertices.size() / 2; // just a qreal vector with x,y hence the / 2
     fillVertices->resize(vertexCount);
     ColoredVertex *vdst = reinterpret_cast<ColoredVertex *>(fillVertices->data());
     const qreal *vsrc = ts.vertices.constData();
@@ -624,13 +588,13 @@ void QQuickShapeGenericRenderer::updateFillNode(ShapePathData *d, QQuickShapeGen
     }
 
     const int indexCount = d->indexType == QSGGeometry::UnsignedShortType
-            ? d->fillIndices.count() * 2 : d->fillIndices.count();
+            ? d->fillIndices.size() * 2 : d->fillIndices.size();
     if (g->indexType() != d->indexType) {
         g = new QSGGeometry(QSGGeometry::defaultAttributes_ColoredPoint2D(),
-                            d->fillVertices.count(), indexCount, d->indexType);
+                            d->fillVertices.size(), indexCount, d->indexType);
         n->setGeometry(g);
     } else {
-        g->allocate(d->fillVertices.count(), indexCount);
+        g->allocate(d->fillVertices.size(), indexCount);
     }
     g->setDrawingMode(QSGGeometry::DrawTriangles);
     memcpy(g->vertexData(), d->fillVertices.constData(), g->vertexCount() * g->sizeOfVertex());
@@ -671,7 +635,7 @@ void QQuickShapeGenericRenderer::updateStrokeNode(ShapePathData *d, QQuickShapeG
         return;
     }
 
-    g->allocate(d->strokeVertices.count(), 0);
+    g->allocate(d->strokeVertices.size(), 0);
     g->setDrawingMode(QSGGeometry::DrawTriangleStrip);
     memcpy(g->vertexData(), d->strokeVertices.constData(), g->vertexCount() * g->sizeOfVertex());
 }
@@ -814,10 +778,10 @@ int QQuickShapeLinearGradientMaterial::compare(const QSGMaterial *other) const
     if (int d = ga->b.y() - gb->b.y())
         return d;
 
-    if (int d = ga->stops.count() - gb->stops.count())
+    if (int d = ga->stops.size() - gb->stops.size())
         return d;
 
-    for (int i = 0; i < ga->stops.count(); ++i) {
+    for (int i = 0; i < ga->stops.size(); ++i) {
         if (int d = ga->stops[i].first - gb->stops[i].first)
             return d;
         if (int d = ga->stops[i].second.rgba() - gb->stops[i].second.rgba())
@@ -843,7 +807,7 @@ bool QQuickShapeRadialGradientRhiShader::updateUniformData(RenderState &state,
                                                            QSGMaterial *newMaterial, QSGMaterial *oldMaterial)
 {
     Q_ASSERT(oldMaterial == nullptr || newMaterial->type() == oldMaterial->type());
-    QQuickShapeLinearGradientMaterial *m = static_cast<QQuickShapeLinearGradientMaterial *>(newMaterial);
+    QQuickShapeRadialGradientMaterial *m = static_cast<QQuickShapeRadialGradientMaterial *>(newMaterial);
     bool changed = false;
     QByteArray *buf = state.uniformData();
     Q_ASSERT(buf->size() >= 92);
@@ -903,7 +867,7 @@ void QQuickShapeRadialGradientRhiShader::updateSampledImage(RenderState &state, 
     if (binding != 1)
         return;
 
-    QQuickShapeLinearGradientMaterial *m = static_cast<QQuickShapeLinearGradientMaterial *>(newMaterial);
+    QQuickShapeRadialGradientMaterial *m = static_cast<QQuickShapeRadialGradientMaterial *>(newMaterial);
     QQuickShapeGenericStrokeFillNode *node = m->node();
     const QQuickShapeGradientCacheKey cacheKey(node->m_fillGradient.stops, node->m_fillGradient.spread);
     QSGTexture *t = QQuickShapeGradientCache::cacheForRhi(state.rhi())->get(cacheKey);
@@ -948,10 +912,10 @@ int QQuickShapeRadialGradientMaterial::compare(const QSGMaterial *other) const
     if (int d = ga->v1 - gb->v1)
         return d;
 
-    if (int d = ga->stops.count() - gb->stops.count())
+    if (int d = ga->stops.size() - gb->stops.size())
         return d;
 
-    for (int i = 0; i < ga->stops.count(); ++i) {
+    for (int i = 0; i < ga->stops.size(); ++i) {
         if (int d = ga->stops[i].first - gb->stops[i].first)
             return d;
         if (int d = ga->stops[i].second.rgba() - gb->stops[i].second.rgba())
@@ -977,7 +941,7 @@ bool QQuickShapeConicalGradientRhiShader::updateUniformData(RenderState &state,
                                                             QSGMaterial *newMaterial, QSGMaterial *oldMaterial)
 {
     Q_ASSERT(oldMaterial == nullptr || newMaterial->type() == oldMaterial->type());
-    QQuickShapeLinearGradientMaterial *m = static_cast<QQuickShapeLinearGradientMaterial *>(newMaterial);
+    QQuickShapeConicalGradientMaterial *m = static_cast<QQuickShapeConicalGradientMaterial *>(newMaterial);
     bool changed = false;
     QByteArray *buf = state.uniformData();
     Q_ASSERT(buf->size() >= 80);
@@ -1021,7 +985,7 @@ void QQuickShapeConicalGradientRhiShader::updateSampledImage(RenderState &state,
     if (binding != 1)
         return;
 
-    QQuickShapeLinearGradientMaterial *m = static_cast<QQuickShapeLinearGradientMaterial *>(newMaterial);
+    QQuickShapeConicalGradientMaterial *m = static_cast<QQuickShapeConicalGradientMaterial *>(newMaterial);
     QQuickShapeGenericStrokeFillNode *node = m->node();
     const QQuickShapeGradientCacheKey cacheKey(node->m_fillGradient.stops, node->m_fillGradient.spread);
     QSGTexture *t = QQuickShapeGradientCache::cacheForRhi(state.rhi())->get(cacheKey);
@@ -1057,10 +1021,10 @@ int QQuickShapeConicalGradientMaterial::compare(const QSGMaterial *other) const
     if (int d = ga->v0 - gb->v0)
         return d;
 
-    if (int d = ga->stops.count() - gb->stops.count())
+    if (int d = ga->stops.size() - gb->stops.size())
         return d;
 
-    for (int i = 0; i < ga->stops.count(); ++i) {
+    for (int i = 0; i < ga->stops.size(); ++i) {
         if (int d = ga->stops[i].first - gb->stops[i].first)
             return d;
         if (int d = ga->stops[i].second.rgba() - gb->stops[i].second.rgba())

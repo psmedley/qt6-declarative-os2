@@ -1,33 +1,9 @@
-/****************************************************************************
-**
-** Copyright (C) 2020 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <qtest.h>
 #include <QDebug>
+#include <QEvent>
 #include <QMimeData>
 #include <QTouchEvent>
 #include <QtQuick/QQuickItem>
@@ -445,6 +421,9 @@ public:
       , touchDevice(QTest::createTouchDevice())
       , touchDeviceWithVelocity(QTest::createTouchDevice(QInputDevice::DeviceType::TouchScreen,
             QInputDevice::Capability::Position | QPointingDevice::Capability::Velocity))
+      , tabletStylusDevice(QPointingDevicePrivate::tabletDevice(QInputDevice::DeviceType::Stylus,
+                                                                QPointingDevice::PointerType::Pen,
+                                                                QPointingDeviceUniqueId::fromNumericId(1234567890)))
     {
         QQuickWindow::setDefaultAlphaBuffer(true);
     }
@@ -555,6 +534,8 @@ private slots:
 
 #if QT_CONFIG(shortcut)
     void testShortCut();
+    void shortcutOverride_data();
+    void shortcutOverride();
 #endif
 
     void rendererInterface();
@@ -565,6 +546,7 @@ private slots:
 private:
     QPointingDevice *touchDevice;
     QPointingDevice *touchDeviceWithVelocity;
+    const QPointingDevice *tabletStylusDevice;
 };
 
 #if QT_CONFIG(opengl)
@@ -1619,9 +1601,8 @@ public:
 
 void tst_qquickwindow::earlyGrab()
 {
-    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
-        || (QGuiApplication::platformName() == QLatin1String("minimal")))
-        QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
+    if (QGuiApplication::platformName() == QLatin1String("minimal"))
+        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
 
     qmlRegisterType<Grabber>("Test", 1, 0, "Grabber");
     QQmlEngine engine;
@@ -1868,24 +1849,24 @@ void tst_qquickwindow::ignoreUnhandledMouseEvents()
     item->setParentItem(window->contentItem());
 
     {
-        QMouseEvent me(QEvent::MouseButtonPress, QPointF(50, 50), Qt::LeftButton, Qt::LeftButton,
-                       Qt::NoModifier);
+        QMouseEvent me(QEvent::MouseButtonPress, QPointF(50, 50), window->mapToGlobal(QPointF(50, 50)),
+                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         me.setAccepted(true);
         QVERIFY(QCoreApplication::sendEvent(window, &me));
         QVERIFY(!me.isAccepted());
     }
 
     {
-        QMouseEvent me(QEvent::MouseMove, QPointF(51, 51), Qt::LeftButton, Qt::LeftButton,
-                       Qt::NoModifier);
+        QMouseEvent me(QEvent::MouseMove, QPointF(51, 51), window->mapToGlobal(QPointF(51, 51)),
+                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         me.setAccepted(true);
         QVERIFY(QCoreApplication::sendEvent(window, &me));
         QVERIFY(!me.isAccepted());
     }
 
     {
-        QMouseEvent me(QEvent::MouseButtonRelease, QPointF(51, 51), Qt::LeftButton, Qt::LeftButton,
-                       Qt::NoModifier);
+        QMouseEvent me(QEvent::MouseButtonRelease, QPointF(51, 51), window->mapToGlobal(QPointF(51, 51)),
+                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         me.setAccepted(true);
         QVERIFY(QCoreApplication::sendEvent(window, &me));
         QVERIFY(!me.isAccepted());
@@ -3635,16 +3616,16 @@ void tst_qquickwindow::cleanupGrabsOnRelease()
 
 void tst_qquickwindow::subclassWithPointerEventVirtualOverrides_data()
 {
-    QTest::addColumn<QPointingDevice::DeviceType>("deviceType");
+    QTest::addColumn<const QPointingDevice *>("device");
 
-    QTest::newRow("mouse click") << QPointingDevice::DeviceType::Mouse;
-    QTest::newRow("touch tap") << QPointingDevice::DeviceType::TouchScreen;
-    QTest::newRow("stylus tap") << QPointingDevice::DeviceType::Stylus;
+    QTest::newRow("mouse click") << QPointingDevice::primaryPointingDevice();
+    QTest::newRow("touch tap") << touchDevice;
+    QTest::newRow("stylus tap") << tabletStylusDevice;
 }
 
 void tst_qquickwindow::subclassWithPointerEventVirtualOverrides() // QTBUG-97859
 {
-    QFETCH(QPointingDevice::DeviceType, deviceType);
+    QFETCH(const QPointingDevice *, device);
 
     PointerRecordingWindow window;
     window.resize(250, 250);
@@ -3652,32 +3633,23 @@ void tst_qquickwindow::subclassWithPointerEventVirtualOverrides() // QTBUG-97859
     window.setTitle(QTest::currentTestFunction());
     window.show();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    const qint64 stylusId = 1234567890;
-
     const QPoint pos(120, 120);
-    switch (static_cast<QPointingDevice::DeviceType>(deviceType)) {
+
+    QQuickTest::pointerPress(device, &window, 0, pos);
+    QQuickTest::pointerRelease(device, &window, 0, pos);
+
+    switch (device->type()) {
     case QPointingDevice::DeviceType::Mouse:
-        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, pos);
-        QTRY_COMPARE(window.m_mouseEvents.count(), 3); // separate move before press
-        QCOMPARE(window.m_events.count(), 3);
+        QTRY_COMPARE(window.m_mouseEvents.size(), 3); // separate move before press
+        QCOMPARE(window.m_events.size(), 3);
         break;
     case QPointingDevice::DeviceType::TouchScreen:
-        QTest::touchEvent(&window, touchDevice).press(0, pos, &window);
-        QTest::touchEvent(&window, touchDevice).release(0, pos, &window);
-        QTRY_COMPARE(window.m_touchEvents.count(), 2);
-        QCOMPARE(window.m_events.count(), 2);
+        QTRY_COMPARE(window.m_touchEvents.size(), 2);
+        QCOMPARE(window.m_events.size(), 2);
         break;
     case QPointingDevice::DeviceType::Stylus:
-        // press (pressure is 0.8)
-        QWindowSystemInterface::handleTabletEvent(&window, pos, window.mapToGlobal(pos),
-            int(QInputDevice::DeviceType::Stylus), int(QPointingDevice::PointerType::Pen),
-            Qt::LeftButton, 0.8, 0, 0, 0, 0, 0, stylusId, Qt::NoModifier);
-        // release (pressure is 0)
-        QWindowSystemInterface::handleTabletEvent(&window, pos, window.mapToGlobal(pos),
-            int(QInputDevice::DeviceType::Stylus), int(QPointingDevice::PointerType::Pen),
-            Qt::NoButton, 0, 0, 0, 0, 0, 0, stylusId, Qt::NoModifier);
-        QTRY_COMPARE(window.m_tabletEvents.count(), 2);
-        QVERIFY(window.m_events.count() >= window.m_tabletEvents.count()); // tablet + synth-mouse events
+        QTRY_COMPARE(window.m_tabletEvents.size(), 2);
+        QVERIFY(window.m_events.size() >= window.m_tabletEvents.size()); // tablet + synth-mouse events
         break;
     default:
         break;
@@ -3705,6 +3677,39 @@ void tst_qquickwindow::testShortCut()
     QCoreApplication::sendEvent(window, &keyEvent);
     QVERIFY(eventFilter.events.contains(int(QEvent::ShortcutOverride)));
     QVERIFY(window->property("received").value<bool>());
+}
+
+void tst_qquickwindow::shortcutOverride_data()
+{
+    QTest::addColumn<Qt::Key>("key");
+    QTest::addColumn<bool>("overridden");
+    QTest::addColumn<bool>("receivedA");
+    QTest::addColumn<bool>("receivedB");
+
+    QTest::addRow("Space") << Qt::Key_Space << false << false << false;
+    QTest::addRow("A") << Qt::Key_A << true << false << false;
+    QTest::addRow("B") << Qt::Key_B << false << false << true;
+}
+
+void tst_qquickwindow::shortcutOverride()
+{
+    QFETCH(Qt::Key, key);
+    QFETCH(bool, overridden);
+    QFETCH(bool, receivedA);
+    QFETCH(bool, receivedB);
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("shortcutOverride.qml"));
+
+    QScopedPointer<QWindow> window(qobject_cast<QQuickWindow *>(component.create()));
+    QVERIFY(window);
+    QVERIFY(QTest::qWaitForWindowActive(window.get()));
+
+    QTest::keyPress(window.get(), key);
+    QCOMPARE(window->property("overridden").value<bool>(), overridden);
+    QCOMPARE(window->property("receivedA").value<bool>(), receivedA);
+    QCOMPARE(window->property("receivedB").value<bool>(), receivedB);
 }
 #endif
 

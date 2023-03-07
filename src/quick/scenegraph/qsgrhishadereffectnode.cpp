@@ -1,41 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2019 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the QtQuick module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2019 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qsgrhishadereffectnode_p.h"
 #include "qsgdefaultrendercontext_p.h"
@@ -47,6 +11,7 @@
 #include <QQmlFile>
 #include <QFile>
 #include <QFileSelector>
+#include <QMutexLocker>
 
 QT_BEGIN_NAMESPACE
 
@@ -63,14 +28,18 @@ void QSGRhiShaderLinker::reset(const QShader &vs, const QShader &fs)
     m_samplers.clear();
     m_samplerNameMap.clear();
     m_subRectBindings.clear();
+
+    m_constants.reserve(8);
+    m_samplers.reserve(4);
+    m_samplerNameMap.reserve(4);
 }
 
 void QSGRhiShaderLinker::feedConstants(const QSGShaderEffectNode::ShaderData &shader, const QSet<int> *dirtyIndices)
 {
-    Q_ASSERT(shader.shaderInfo.variables.count() == shader.varData.count());
+    Q_ASSERT(shader.shaderInfo.variables.size() == shader.varData.size());
     if (!dirtyIndices) {
         m_constantBufferSize = qMax(m_constantBufferSize, shader.shaderInfo.constantDataSize);
-        for (int i = 0; i < shader.shaderInfo.variables.count(); ++i) {
+        for (int i = 0; i < shader.shaderInfo.variables.size(); ++i) {
             const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &var(shader.shaderInfo.variables.at(i));
             if (var.type == QSGGuiThreadShaderEffectManager::ShaderInfo::Constant) {
                 const QSGShaderEffectNode::VariableData &vd(shader.varData.at(i));
@@ -111,7 +80,7 @@ void QSGRhiShaderLinker::feedConstants(const QSGShaderEffectNode::ShaderData &sh
 void QSGRhiShaderLinker::feedSamplers(const QSGShaderEffectNode::ShaderData &shader, const QSet<int> *dirtyIndices)
 {
     if (!dirtyIndices) {
-        for (int i = 0; i < shader.shaderInfo.variables.count(); ++i) {
+        for (int i = 0; i < shader.shaderInfo.variables.size(); ++i) {
             const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &var(shader.shaderInfo.variables.at(i));
             const QSGShaderEffectNode::VariableData &vd(shader.varData.at(i));
             if (var.type == QSGGuiThreadShaderEffectManager::ShaderInfo::Sampler) {
@@ -178,11 +147,18 @@ struct QSGRhiShaderMaterialTypeCache
     void reset() { qDeleteAll(m_types); m_types.clear(); }
 
     struct Key {
-        QShader blob[2];
-        Key() { }
-        Key(const QShader &vs, const QShader &fs) { blob[0] = vs; blob[1] = fs; }
+        QShader vs;
+        QShader fs;
+        size_t hash;
+        Key(const QShader &vs, const QShader &fs)
+            : vs(vs),
+              fs(fs)
+        {
+            QtPrivate::QHashCombine hashGen;
+            hash = hashGen(hashGen(0, vs), fs);
+        }
         bool operator==(const Key &other) const {
-            return blob[0] == other.blob[0] && blob[1] == other.blob[1];
+            return vs == other.vs && fs == other.fs;
         }
     };
     QHash<Key, QSGMaterialType *> m_types;
@@ -190,10 +166,7 @@ struct QSGRhiShaderMaterialTypeCache
 
 size_t qHash(const QSGRhiShaderMaterialTypeCache::Key &key, size_t seed = 0)
 {
-    size_t hash = seed;
-    for (int i = 0; i < 2; ++i)
-        hash = hash * 31337 + qHash(key.blob[i]);
-    return hash;
+    return seed ^ key.hash;
 }
 
 QSGMaterialType *QSGRhiShaderMaterialTypeCache::get(const QShader &vs, const QShader &fs)
@@ -207,7 +180,8 @@ QSGMaterialType *QSGRhiShaderMaterialTypeCache::get(const QShader &vs, const QSh
     return t;
 }
 
-static QSGRhiShaderMaterialTypeCache shaderMaterialTypeCache;
+static QHash<void *, QSGRhiShaderMaterialTypeCache> shaderMaterialTypeCache;
+static QMutex shaderMaterialTypeCacheMutex;
 
 class QSGRhiShaderEffectMaterialShader : public QSGMaterialShader
 {
@@ -483,7 +457,7 @@ int QSGRhiShaderEffectMaterial::compare(const QSGMaterial *other) const
     if (int diff = m_cullMode - o->m_cullMode)
         return diff;
 
-    if (int diff = m_textureProviders.count() - o->m_textureProviders.count())
+    if (int diff = m_textureProviders.size() - o->m_textureProviders.size())
         return diff;
 
     if (m_linker.m_constants != o->m_linker.m_constants)
@@ -495,7 +469,7 @@ int QSGRhiShaderEffectMaterial::compare(const QSGMaterial *other) const
     if (hasAtlasTexture(o->m_textureProviders) && !o->m_geometryUsesTextureSubRect)
         return 1;
 
-    for (int binding = 0, count = m_textureProviders.count(); binding != count; ++binding) {
+    for (int binding = 0, count = m_textureProviders.size(); binding != count; ++binding) {
         QSGTextureProvider *tp1 = m_textureProviders.at(binding);
         QSGTextureProvider *tp2 = o->m_textureProviders.at(binding);
         if (tp1 && tp2) {
@@ -595,7 +569,7 @@ QRectF QSGRhiShaderEffectNode::updateNormalizedTextureSubRect(bool supportsAtlas
     bool geometryUsesTextureSubRect = false;
     if (supportsAtlasTextures) {
         QSGTextureProvider *tp = nullptr;
-        for (int binding = 0, count = m_material.m_textureProviders.count(); binding != count; ++binding) {
+        for (int binding = 0, count = m_material.m_textureProviders.size(); binding != count; ++binding) {
             if (QSGTextureProvider *candidate = m_material.m_textureProviders.at(binding)) {
                 if (!tp) {
                     tp = candidate;
@@ -663,7 +637,12 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
             m_material.m_fragmentShader = defaultFragmentShader;
         }
 
-        m_material.m_materialType = shaderMaterialTypeCache.get(m_material.m_vertexShader, m_material.m_fragmentShader);
+        {
+            QMutexLocker lock(&shaderMaterialTypeCacheMutex);
+            m_material.m_materialType = shaderMaterialTypeCache[syncData->materialTypeCacheKey].get(m_material.m_vertexShader,
+                                                                                                    m_material.m_fragmentShader);
+        }
+
         m_material.m_linker.reset(m_material.m_vertexShader, m_material.m_fragmentShader);
 
         if (m_material.m_hasCustomVertexShader) {
@@ -711,7 +690,7 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
             v.bindPoint = 1;
             v.type = QSGGuiThreadShaderEffectManager::ShaderInfo::Sampler;
             defaultSD.shaderInfo.variables.append(v);
-            for (const QSGShaderEffectNode::VariableData &extVarData : qAsConst(syncData->fragment.shader->varData)) {
+            for (const QSGShaderEffectNode::VariableData &extVarData : std::as_const(syncData->fragment.shader->varData)) {
                 if (extVarData.specialType == QSGShaderEffectNode::VariableData::Source) {
                     vd.value = extVarData.value;
                     break;
@@ -781,9 +760,10 @@ void QSGRhiShaderEffectNode::preprocess()
     }
 }
 
-void QSGRhiShaderEffectNode::cleanupMaterialTypeCache()
+void QSGRhiShaderEffectNode::cleanupMaterialTypeCache(void *materialTypeCacheKey)
 {
-    shaderMaterialTypeCache.reset();
+    QMutexLocker lock(&shaderMaterialTypeCacheMutex);
+    shaderMaterialTypeCache[materialTypeCacheKey].reset();
 }
 
 bool QSGRhiGuiThreadShaderEffectManager::hasSeparateSamplerAndTextureObjects() const
@@ -854,7 +834,7 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
 
     int ubufBinding = -1;
     const QVector<QShaderDescription::UniformBlock> ubufs = desc.uniformBlocks();
-    const int ubufCount = ubufs.count();
+    const int ubufCount = ubufs.size();
     for (int i = 0; i < ubufCount; ++i) {
         const QShaderDescription::UniformBlock &ubuf(ubufs[i]);
         if (ubufBinding == -1 && ubuf.binding >= 0) {
@@ -875,7 +855,7 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
     }
 
     const QVector<QShaderDescription::InOutVariable> combinedImageSamplers = desc.combinedImageSamplers();
-    const int samplerCount = combinedImageSamplers.count();
+    const int samplerCount = combinedImageSamplers.size();
     for (int i = 0; i < samplerCount; ++i) {
         const QShaderDescription::InOutVariable &combinedImageSampler(combinedImageSamplers[i]);
         ShaderInfo::Variable v;

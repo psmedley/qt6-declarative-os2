@@ -1,30 +1,6 @@
-/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:GPL-EXCEPT$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 as published by the Free Software
-** Foundation with exceptions as appearing in the file LICENSE.GPL3-EXCEPT
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+
 #include <qtest.h>
 #include <QDebug>
 
@@ -35,11 +11,39 @@
 #include <QtCore/QDateTime>
 #include <QtCore/qscopeguard.h>
 #include <QtCore/qscopedpointer.h>
-#include <QtCore/qtimezone.h>
 #include <qcolor.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <time.h>
+
+#undef QT_CAN_CHANGE_SYSTEM_ZONE
+/* See QTBUG-56899. We don't (yet) have a proper way to reset the system zone,
+   Testing Date.timeZoneUpdated() is only possible on systems where we have a
+   way to change the system zone in use.
+*/
+#ifdef Q_OS_ANDROID
+/* Android's time_t-related system functions don't seem to care about the TZ
+   environment variable. If we can find a way to change the zone those functions
+   use, try implementing it here.
+*/
+#elif defined(Q_OS_UNIX)
+static void setTimeZone(const QByteArray &tz)
+{
+    if (tz.isEmpty())
+        qunsetenv("TZ");
+    else
+        qputenv("TZ", tz);
+    ::tzset();
+}
+#define QT_CAN_CHANGE_SYSTEM_ZONE
+#else
+/* On Windows, adjusting the timezone (such that GetTimeZoneInformation() will
+   notice) requires additional privileges that aren't normally enabled for a
+   process. This can be achieved by calling AdjustTokenPrivileges() and then
+   SetTimeZoneInformation(), which will require linking to a different library
+   to access that API.
+*/
+#endif
 
 class tst_qqmllocale : public QQmlDataTest
 {
@@ -74,7 +78,7 @@ private slots:
     void dateTimeFormat();
     void timeFormat_data();
     void timeFormat();
-#if defined(Q_OS_UNIX) && QT_CONFIG(timezone)
+#ifdef QT_CAN_CHANGE_SYSTEM_ZONE
     void timeZoneUpdated();
 #endif
     void formattedDataSize_data();
@@ -494,9 +498,9 @@ void tst_qqmllocale::weekDays()
     QList<QVariant> qmlDays = val.toList();
     QList<Qt::DayOfWeek> days = QLocale(locale).weekdays();
 
-    QCOMPARE(days.count(), qmlDays.count());
+    QCOMPARE(days.size(), qmlDays.size());
 
-    for (int i = 0; i < days.count(); ++i) {
+    for (int i = 0; i < days.size(); ++i) {
         int day = int(days.at(i));
         if (day == 7) // JS Date days in range 0(Sunday) to 6(Saturday)
             day = 0;
@@ -536,9 +540,9 @@ void tst_qqmllocale::uiLanguages()
     QList<QVariant> qmlLangs = val.toList();
     QStringList langs = QLocale(locale).uiLanguages();
 
-    QCOMPARE(langs.count(), qmlLangs.count());
+    QCOMPARE(langs.size(), qmlLangs.size());
 
-    for (int i = 0; i < langs.count(); ++i) {
+    for (int i = 0; i < langs.size(); ++i) {
         QCOMPARE(langs.at(i), qmlLangs.at(i).toString());
     }
 
@@ -659,15 +663,15 @@ void tst_qqmllocale::addFormattedDataSizeDataForLocale(const QString &localeStr)
     expectedResult = locale.formattedDataSize(1000000, 3);
     QTest::newRow(qPrintable(makeTag())) << localeStr << functionCallScript << expectedResult << expectedErrorMessage;
 
-    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, localeType.DataSizeIecFormat)");
+    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, Locale.DataSizeIecFormat)");
     expectedResult = locale.formattedDataSize(1000000, 3, QLocale::DataSizeIecFormat);
     QTest::newRow(qPrintable(makeTag())) << localeStr << functionCallScript << expectedResult << expectedErrorMessage;
 
-    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, localeType.DataSizeTraditionalFormat)");
+    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, Locale.DataSizeTraditionalFormat)");
     expectedResult = locale.formattedDataSize(1000000, 3, QLocale::DataSizeTraditionalFormat);
     QTest::newRow(qPrintable(makeTag())) << localeStr << functionCallScript << expectedResult << expectedErrorMessage;
 
-    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, localeType.DataSizeSIFormat)");
+    functionCallScript = QLatin1String("locale.formattedDataSize(1000000, 3, Locale.DataSizeSIFormat)");
     expectedResult = locale.formattedDataSize(1000000, 3, QLocale::DataSizeSIFormat);
     QTest::newRow(qPrintable(makeTag())) << localeStr << functionCallScript << expectedResult << expectedErrorMessage;
 }
@@ -691,7 +695,7 @@ void tst_qqmllocale::formattedDataSize_data()
     QString errorMessage = ".*Locale: formattedDataSize\\(\\): Expected 1-3 arguments, but received 0";
     QTest::newRow("too few args") << "en_AU" << functionCallScript << QString() << errorMessage;
 
-    functionCallScript = "locale.formattedDataSize(10, 1, localeType.DataSizeIecFormat, \"foo\")";
+    functionCallScript = "locale.formattedDataSize(10, 1, Locale.DataSizeIecFormat, \"foo\")";
     errorMessage = ".*Locale: formattedDataSize\\(\\): Expected 1-3 arguments, but received 4";
     QTest::newRow("too many args") << "en_AU" << functionCallScript << QString() << errorMessage;
 
@@ -723,7 +727,9 @@ void tst_qqmllocale::formattedDataSize()
     QVERIFY(QMetaObject::invokeMethod(object.data(), "setLocale", Qt::DirectConnection,
         Q_ARG(QVariant, QVariant(localeStr))));
 
-    QQmlExpression qmlExpression(engine.rootContext(), object.data(), functionCallScript);
+    // Make sure that we use the object's context rather than the root context,
+    // so that e.g. enums from the Locale type are available (QTBUG-91747).
+    QQmlExpression qmlExpression(qmlContext(object.data()), object.data(), functionCallScript);
     const QVariant evaluationResult = qmlExpression.evaluate();
     if (expectedErrorMessagePattern.isEmpty()) {
         QVERIFY2(!qmlExpression.hasError(), qPrintable(qmlExpression.error().toString()));
@@ -1289,9 +1295,12 @@ void tst_qqmllocale::numberOptions()
             }
         }
     )", QUrl("testdata"));
-    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "Error: Locale: Number.fromLocaleString(): Invalid format");
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg,
+                         "Error: Locale: Number.fromLocaleString(): Invalid format");
     QScopedPointer<QObject> root {comp.create()};
-    qDebug() << comp.errorString();
+    const auto error = comp.errorString();
+    if (!error.isEmpty())
+        qDebug() << error;
     QVERIFY(root);
     QCOMPARE(root->property("formatted").toString(), QLatin1String("10000,0000"));
     QCOMPARE(root->property("caughtException").toBool(), true);
@@ -1370,6 +1379,7 @@ void tst_qqmllocale::localeAsCppProperty()
     QCOMPARE(item->property("testLocale").toLocale().name(), QLatin1String("nb_NO"));
 }
 
+#ifdef QT_CAN_CHANGE_SYSTEM_ZONE
 class DateFormatter : public QObject
 {
     Q_OBJECT
@@ -1386,49 +1396,21 @@ QString DateFormatter::getLocalizedForm(const QString &isoTimestamp)
     return locale.toString(input);
 }
 
-#if defined(Q_OS_UNIX) && QT_CONFIG(timezone)
-// Currently disabled on Windows as adjusting the timezone
-// requires additional privileges that aren't normally
-// enabled for a process. This can be achieved by calling
-// AdjustTokenPrivileges() and then SetTimeZoneInformation(),
-// which will require linking to a different library to access that API.
-static void setTimeZone(const QByteArray &tz)
-{
-    if (tz.isEmpty())
-        qunsetenv("TZ");
-    else
-        qputenv("TZ", tz);
-    ::tzset();
-
-// following left for future reference, see comment above
-// #if defined(Q_OS_WIN32)
-//     ::_tzset();
-// #endif
-}
-
 void tst_qqmllocale::timeZoneUpdated()
 {
-    // Note: This test may not reliably hit the QEXPECT_FAIL clauses below if the initial
-    //       system time zone is equivalent to either Australia/Brisbane or Asia/Kalkota.
-
-    // Initialize the system time zone, so that we actually _change_ something below.
-    QVERIFY2(QTimeZone::systemTimeZone().isValid(),
-             "You know, Toto, I do believe we're not in Kansas any more.");
-
     QByteArray original(qgetenv("TZ"));
-
-    // Set the timezone to Brisbane time, AEST-10:00
-    setTimeZone(QByteArray("Australia/Brisbane"));
-
     QScopedPointer<QObject> obj;
+
     auto cleanup = qScopeGuard([&original, &obj] {
         // Restore to original time zone
         setTimeZone(original);
         QMetaObject::invokeMethod(obj.data(), "resetTimeZone");
     });
 
-    DateFormatter formatter;
+    // Set the timezone to Brisbane time, AEST-10:00
+    setTimeZone(QByteArray("Australia/Brisbane"));
 
+    DateFormatter formatter;
     QQmlEngine e;
     e.rootContext()->setContextObject(&formatter);
 
@@ -1436,27 +1418,15 @@ void tst_qqmllocale::timeZoneUpdated()
     QVERIFY2(!c.isError(), qPrintable(c.errorString()));
     obj.reset(c.create());
     QVERIFY(obj);
-
-#if (!defined(Q_OS_LINUX) && !defined(Q_OS_QNX)) || defined(Q_OS_ANDROID)
-    QEXPECT_FAIL("",
-                 "Date.timeZoneUpdated() only works on non-Android Linux with QT_CONFIG(timezone).",
-                 Continue);
-#endif
     QVERIFY(obj->property("success").toBool());
 
     // Change to Indian time, IST-05:30
     setTimeZone(QByteArray("Asia/Kolkata"));
 
     QMetaObject::invokeMethod(obj.data(), "check");
-
-#if (!defined(Q_OS_LINUX) && !defined(Q_OS_QNX)) || defined(Q_OS_ANDROID)
-    QEXPECT_FAIL("",
-                 "Date.timeZoneUpdated() only works on non-Android Linux with QT_CONFIG(timezone).",
-                 Continue);
-#endif
     QVERIFY(obj->property("success").toBool());
 }
-#endif // Unix && timezone
+#endif // QT_CAN_CHANGE_SYSTEM_ZONE
 
 QTEST_MAIN(tst_qqmllocale)
 
