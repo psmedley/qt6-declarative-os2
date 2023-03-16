@@ -2,6 +2,7 @@
 
 #include <data/birthdayparty.h>
 #include <data/cppbaseclass.h>
+#include <data/enumproblems.h>
 #include <data/objectwithmethod.h>
 
 #include <QtQml/private/qqmlengine_p.h>
@@ -136,6 +137,11 @@ private slots:
     void typePropagationLoop();
     void nullComparison();
     void signalIndexMismatch();
+    void callWithSpread();
+    void enumConversion();
+    void enumProblems();
+    void storeElementSideEffects();
+    void undefinedToDouble();
 };
 
 void tst_QmlCppCodegen::simpleBinding()
@@ -1960,8 +1966,19 @@ void tst_QmlCppCodegen::typedArray()
              QList<int>({1, 2, 3, 4}));
     QCOMPARE(qvariant_cast<QList<QDateTime>>(o->property("values4")),
              QList<QDateTime>({date, date, date}));
-    QCOMPARE(qvariant_cast<QList<double>>(o->property("values5")),
-             QList<double>({1, 2, 3.4, 30, 0, 0}));
+    {
+        const QList<double> actual
+                = qvariant_cast<QList<double>>(o->property("values5"));
+        const QList<double> expected
+                = QList<double>({1, 2, 3.4, 30, std::numeric_limits<double>::quiet_NaN(), 0});
+        QCOMPARE(actual.size(), expected.size());
+        for (qsizetype i = 0, end = actual.size(); i != end; ++i) {
+            if (std::isnan(expected[i]))
+                QVERIFY(std::isnan(actual[i]));
+            else
+                QCOMPARE(actual[i], expected[i]);
+        }
+    }
     date = QDateTime::currentDateTime();
     o->setProperty("aDate", date);
     QCOMPARE(qvariant_cast<QList<QDateTime>>(o->property("values4")),
@@ -2370,6 +2387,7 @@ void tst_QmlCppCodegen::badSequence()
 
     other->setBarzles(barzles);
     QCOMPARE(self->barzles(), barzles);
+    QCOMPARE(self->property("l").toInt(), 2);
 }
 
 void tst_QmlCppCodegen::enumLookup()
@@ -2492,6 +2510,75 @@ void tst_QmlCppCodegen::signalIndexMismatch()
 
     QCOMPARE(visualIndexBeforeMoveList, QList<QVariant>({ 0, 1, 2 }));
     QCOMPARE(visualIndexAfterMoveList, QList<QVariant>({ 0, 1, 2 }));
+}
+
+void tst_QmlCppCodegen::callWithSpread()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, QUrl(u"qrc:/TestTypes/callWithSpread.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QTest::ignoreMessage(QtCriticalMsg, "That is great!");
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+};
+
+void tst_QmlCppCodegen::enumConversion()
+{
+    QQmlEngine engine;
+
+    QQmlComponent c(&engine, QUrl(u"qrc:/TestTypes/enumConversion.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("test").toInt(), 0x04);
+    QCOMPARE(o->property("test_1").toBool(), true);
+};
+
+void tst_QmlCppCodegen::enumProblems()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, QUrl(u"qrc:/TestTypes/enumProblems.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> outer(c.create());
+    QVERIFY(!outer.isNull());
+    QObject *inner = outer->property("o").value<QObject *>();
+    QVERIFY(inner);
+
+    Foo *bar = inner->property("bar").value<Foo *>();
+    QVERIFY(bar);
+    QCOMPARE(bar->type(), Foo::Component);
+
+    Foo *fighter = inner->property("fighter").value<Foo *>();
+    QVERIFY(fighter);
+    QCOMPARE(fighter->type(), Foo::Fighter);
+}
+
+void tst_QmlCppCodegen::storeElementSideEffects()
+{
+    QQmlEngine engine;
+
+    QQmlComponent c(&engine, QUrl(u"qrc:/TestTypes/storeElementSideEffects.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+
+    const QJSValue prop = o->property("myItem").value<QJSValue>();
+    QVERIFY(prop.isArray());
+    QCOMPARE(prop.property(0).toInt(), 10);
+};
+
+void tst_QmlCppCodegen::undefinedToDouble()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, QUrl(u"qrc:/TestTypes/undefinedToDouble.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+    const QVariant d = o->property("d");
+    QCOMPARE(d.metaType(), QMetaType::fromType<double>());
+    QVERIFY(std::isnan(d.toDouble()));
 }
 
 QTEST_MAIN(tst_QmlCppCodegen)

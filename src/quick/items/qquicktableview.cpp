@@ -859,13 +859,14 @@
 /*!
     \qmlmethod QModelIndex QtQuick::TableView::modelIndex(int column, int row)
     \since 6.4
+    \deprecated
 
-    Returns the \l QModelIndex that maps to \a column and \a row in the view.
+    Use \l index(row, column) instead.
 
-    \a row and \a column should be the row and column in the view (table row and
-    table column), and not a row and column in the model.
-
-    \sa rowAtIndex(), columnAtIndex()
+    \note Because of an API incompatible change between Qt 6.4.0 and Qt 6.4.2, the
+    order of \c row and \c column was specified in the opposite order. If you
+    rely on the order to be \c {modelIndex(column, row)}, you can set the
+    environment variable \c QT_QUICK_TABLEVIEW_COMPAT_VERSION to \c 6.4
 */
 
 /*!
@@ -878,8 +879,25 @@
     \endcode
 
     A cell is simply a \l point that combines row and column into
-    a single type. Note that \c point.x will map to the column, and
-    \c point.y will map to the row.
+    a single type.
+
+    \note \c {point.x} will map to the column, and \c {point.y} will map to the row.
+*/
+
+/*!
+    \qmlmethod QModelIndex QtQuick::TableView::index(int row, int column)
+    \since 6.4.3
+
+    Returns the \l QModelIndex that maps to \a row and \a column in the view.
+
+    \a row and \a column should be the row and column in the view (table row and
+    table column), and not a row and column in the model. For a plain
+    TableView, this is equivalent of calling \c {model.index(row, column).}
+    But for a subclass of TableView, like TreeView, where the data model is
+    wrapped inside an internal proxy model that flattens the tree structure
+    into a table, you need to use this function to resolve the model index.
+
+    \sa rowAtIndex(), columnAtIndex()
 */
 
 /*!
@@ -888,7 +906,7 @@
 
     Returns the row in the view that maps to \a modelIndex in the model.
 
-    \sa columnAtIndex(), modelIndex()
+    \sa columnAtIndex(), index()
 */
 
 /*!
@@ -897,7 +915,7 @@
 
     Returns the column in the view that maps to \a modelIndex in the model.
 
-    \sa rowAtIndex(), modelIndex()
+    \sa rowAtIndex(), index()
 */
 
 /*!
@@ -912,8 +930,10 @@
     \endcode
 
     A cell is simply a \l point that combines row and column into
-    a single type. Note that \c point.x will map to the column, and
-    \c point.y will map to the row.
+    a single type.
+
+    \note that \c {point.x} will map to the column, and
+    \c {point.y} will map to the row.
 */
 
 /*!
@@ -2754,11 +2774,6 @@ void QQuickTableViewPrivate::processRebuildTable()
 
     if (rebuildState == RebuildState::LayoutTable) {
         layoutAfterLoadingInitialTable();
-        if (!moveToNextRebuildState())
-            return;
-    }
-
-    if (rebuildState == RebuildState::LoadAndUnloadAfterLayout) {
         loadAndUnloadVisibleEdges();
         if (!moveToNextRebuildState())
             return;
@@ -2767,6 +2782,12 @@ void QQuickTableViewPrivate::processRebuildTable()
     if (rebuildState == RebuildState::CancelOvershoot) {
         cancelOvershootAfterLayout();
         loadAndUnloadVisibleEdges();
+        if (!moveToNextRebuildState())
+            return;
+    }
+
+    if (rebuildState == RebuildState::UpdateContentSize) {
+        updateContentSize();
         if (!moveToNextRebuildState())
             return;
     }
@@ -3028,12 +3049,8 @@ void QQuickTableViewPrivate::loadInitialTable()
     loadAndUnloadVisibleEdges();
 }
 
-void QQuickTableViewPrivate::layoutAfterLoadingInitialTable()
+void QQuickTableViewPrivate::updateContentSize()
 {
-    clearEdgeSizeCache();
-    relayoutTableItems();
-    syncLoadedTableRectFromLoadedTable();
-
     const bool allColumnsLoaded = atTableEnd(Qt::LeftEdge) && atTableEnd(Qt::RightEdge);
     if (rebuildOptions.testFlag(RebuildOption::CalculateNewContentWidth) || allColumnsLoaded) {
         updateAverageColumnWidth();
@@ -3047,6 +3064,16 @@ void QQuickTableViewPrivate::layoutAfterLoadingInitialTable()
     }
 
     updateExtents();
+}
+
+void QQuickTableViewPrivate::layoutAfterLoadingInitialTable()
+{
+    clearEdgeSizeCache();
+    relayoutTableItems();
+    syncLoadedTableRectFromLoadedTable();
+
+    updateContentSize();
+
     adjustViewportXAccordingToAlignment();
     adjustViewportYAccordingToAlignment();
 }
@@ -4919,7 +4946,26 @@ QPoint QQuickTableView::cellAtIndex(const QModelIndex &index) const
     return {index.column(), index.row()};
 }
 
-QModelIndex QQuickTableView::modelIndex(int column, int row) const
+#if QT_DEPRECATED_SINCE(6, 4)
+QModelIndex QQuickTableView::modelIndex(int row, int column) const
+{
+    static bool compat6_4 = qEnvironmentVariable("QT_QUICK_TABLEVIEW_COMPAT_VERSION") == QStringLiteral("6.4");
+    if (compat6_4) {
+        // In Qt 6.4.0 and 6.4.1, a source incompatible change led to row and column
+        // being documented to be specified in the opposite order.
+        // QT_QUICK_TABLEVIEW_COMPAT_VERSION can therefore be set to force tableview
+        // to continue accepting calls to modelIndex(column, row).
+        return modelIndex({row, column});
+    } else {
+        qmlWarning(this) << "modelIndex(row, column) is deprecated. "
+                            "Use index(row, column) instead. For more information, see "
+                            "https://doc.qt.io/qt-6/qml-qtquick-tableview-obsolete.html";
+        return modelIndex({column, row});
+    }
+}
+#endif
+
+QModelIndex QQuickTableView::index(int row, int column) const
 {
     return modelIndex({column, row});
 }
@@ -5026,7 +5072,7 @@ void QQuickTableView::keyPressEvent(QKeyEvent *e)
         case Qt::Key_Right:
             // Special case: the current index doesn't map to a cell in the view (perhaps
             // because it isn't set yet). In that case, we set it to be the top-left cell.
-            const QModelIndex topLeftIndex = modelIndex(leftColumn(), topRow());
+            const QModelIndex topLeftIndex = index(topRow(), leftColumn());
             d->selectionModel->setCurrentIndex(topLeftIndex, QItemSelectionModel::NoUpdate);
         }
         return;
