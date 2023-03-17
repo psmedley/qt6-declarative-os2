@@ -52,10 +52,10 @@ QList<QQuickPopup *> QQuickOverlayPrivate::stackingOrderPopups() const
     return popups;
 }
 
-QList<QQuickDrawer *> QQuickOverlayPrivate::stackingOrderDrawers() const
+QList<QQuickPopup *> QQuickOverlayPrivate::stackingOrderDrawers() const
 {
-    QList<QQuickDrawer *> sorted(allDrawers);
-    std::sort(sorted.begin(), sorted.end(), [](const QQuickDrawer *one, const QQuickDrawer *another) {
+    QList<QQuickPopup *> sorted(allDrawers);
+    std::sort(sorted.begin(), sorted.end(), [](const QQuickPopup *one, const QQuickPopup *another) {
         return one->z() > another->z();
     });
     return sorted;
@@ -83,8 +83,10 @@ bool QQuickOverlayPrivate::startDrag(QEvent *event, const QPointF &pos)
         }
     }
 
-    const QList<QQuickDrawer *> drawers = stackingOrderDrawers();
-    for (QQuickDrawer *drawer : drawers) {
+    const QList<QQuickPopup *> drawers = stackingOrderDrawers();
+    for (QQuickPopup *popup : drawers) {
+        QQuickDrawer *drawer = qobject_cast<QQuickDrawer *>(popup);
+        Q_ASSERT(drawer);
         QQuickDrawerPrivate *p = QQuickDrawerPrivate::get(drawer);
         if (p->startDrag(event)) {
             setMouseGrabberPopup(drawer);
@@ -240,7 +242,7 @@ void QQuickOverlayPrivate::removePopup(QQuickPopup *popup)
 {
     Q_Q(QQuickOverlay);
     allPopups.removeOne(popup);
-    if (allDrawers.removeOne(qobject_cast<QQuickDrawer *>(popup)))
+    if (allDrawers.removeOne(popup))
         q->setVisible(!allDrawers.isEmpty() || !q->childItems().isEmpty());
 }
 
@@ -566,13 +568,17 @@ bool QQuickOverlay::eventFilter(QObject *object, QEvent *event)
 
         QQuickItem * const topItem = targetItems.first();
         const auto popups = d->stackingOrderPopups();
+        // Eat the event if receiver topItem is not a child of a popup before
+        // the first modal popup.
         for (const auto &popup : popups) {
-            if (!popup->overlayEvent(topItem, we))
-                continue;
             const QQuickItem *popupItem = popup->popupItem();
             if (!popupItem)
                 continue;
-            if (!popupItem->isAncestorOf(topItem))
+            // if we reach a popup that contains the item, deliver the event
+            if (popupItem->isAncestorOf(topItem))
+                break;
+            // if the popup doesn't contain the item but is modal, eat the event
+            if (popup->overlayEvent(topItem, we))
                 return true;
         }
         break;

@@ -3,6 +3,8 @@ set(cpp_sources
     birthdayparty.cpp birthdayparty.h
     cppbaseclass.h
     dynamicmeta.h
+    enumProperty.h
+    enumproblems.h
     gadgetwithenum.h
     invisible.h
     objectwithmethod.h
@@ -50,6 +52,7 @@ set(qml_files
     blockComments.qml
     boundComponents.qml
     callContextPropertyLookupResult.qml
+    callWithSpread.qml
     childobject.qml
     colorAsVariant.qml
     colorString.qml
@@ -67,8 +70,10 @@ set(qml_files
     deadStoreLoop.qml
     dialog.qml
     dynamicscene.qml
+    enumConversion.qml
     enumInvalid.qml
     enumLookup.qml
+    enumProblems.qml
     enumScope.qml
     enumsInOtherObject.qml
     enumsUser.qml
@@ -139,6 +144,7 @@ set(qml_files
     signalHandler.qml
     signalIndexMismatch.qml
     specificParent.qml
+    storeElementSideEffects.qml
     stringLength.qml
     stringToByteArray.qml
     testlogger.js
@@ -151,6 +157,7 @@ set(qml_files
     typePropertyClash.qml
     typedArray.qml
     undefinedResets.qml
+    undefinedToDouble.qml
     unknownAttached.qml
     unknownParameter.qml
     unstoredUndefined.qml

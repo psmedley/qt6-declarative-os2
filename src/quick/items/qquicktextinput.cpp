@@ -937,10 +937,10 @@ void QQuickTextInput::select(int start, int end)
     It is equivalent to the following snippet, but is faster and easier
     to use.
 
-    \js
+    \qml
     myTextInput.text.toString().substring(myTextInput.selectionStart,
         myTextInput.selectionEnd);
-    \endjs
+    \endqml
 */
 QString QQuickTextInput::selectedText() const
 {
@@ -3511,6 +3511,7 @@ void QQuickTextInputPrivate::processInputMethodEvent(QInputMethodEvent *event)
                 }
                 selectionChange = true;
             } else {
+                selectionChange = m_selstart != m_selend;
                 m_selstart = m_selend = 0;
             }
             cursorPositionChanged = true;
