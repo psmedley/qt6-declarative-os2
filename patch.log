@@ -1,0 +1,5 @@
+patching file src/qml/CMakeLists.txt
+Hunk #10 FAILED at 582.
+Hunk #11 succeeded at 745 (offset 5 lines).
+1 out of 11 hunks FAILED -- saving rejects to file src/qml/CMakeLists.txt.rej
+

@@ -121,6 +121,8 @@ Creator.
         \li \l{Qt Quick Examples - Animation}{Animation}
         \li \l{Qt Quick Examples - Canvas}{Canvas API}
         \li \l{Qt Quick Examples - Shader Effects}{Shader Effects}
+        \li \l{Qt Quick Examples - MultiEffect Test Bed}{MultiEffect}
+        \li \l{Qt Quick Examples - MultiEffect Item Switcher}{MultiEffect-based Item Transitions}
         \endlist
     \enddiv
 \enddiv
@@ -140,6 +142,7 @@ Creator.
         \li \l{Qt Quick Examples - Accessibility}{Accessibility}
         \li \l{Qt Quick Examples - externaldraganddrop}{External Drag and Drop}
         \li \l{Qt Quick Examples - Drag and Drop}{Drag and Drop}
+        \li \l{Qt Quick Examples - Item Variable Refresh Rate}{Item Variable Refresh Rate}
         \endlist
     \enddiv
     \div {class="doc-column"}

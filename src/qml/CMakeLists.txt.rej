@@ -1,12 +1,18 @@
---- src/qml/CMakeLists.txt	2022-09-06 18:22:24.000000000 +0930
-+++ src/qml/CMakeLists.txt	2022-12-13 01:03:20.000000000 +1030
-@@ -543,11 +550,6 @@
-         debugger/qqmldebugtranslationprotocol_p.h
+--- src/qml/CMakeLists.txt	2023-03-12 08:53:17.000000000 +1030
++++ src/qml/CMakeLists.txt	2023-03-23 18:41:12.000000000 +1030
+@@ -582,16 +631,12 @@
+         debugger/qqmldebugservice.cpp debugger/qqmldebugservice_p.h
+         debugger/qqmldebugservicefactory.cpp debugger/qqmldebugservicefactory_p.h
+         debugger/qqmldebugserviceinterfaces.cpp
++        debugger/qqmldebugtranslationprotocol_p.h
+         debugger/qqmlprofiler.cpp
+         debugger/qqmlprofilerdefinitions_p.h
+         jsruntime/qv4profiling.cpp
  )
  
--qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_sequence_object
+-qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_debug AND QT_FEATURE_translation
 -    SOURCES
--        jsruntime/qv4sequenceobject.cpp jsruntime/qv4sequenceobject_p.h
+-        debugger/qqmldebugtranslationprotocol_p.h
 -)
 -
  qt_internal_extend_target(Qml CONDITION UNIX

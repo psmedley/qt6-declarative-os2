@@ -18,6 +18,7 @@
 #include <memory>
 
 Q_DECLARE_LOGGING_CATEGORY(DBG_DISK_CACHE)
+Q_LOGGING_CATEGORY(lcCycle, "qt.qml.typeresolution.cycle")
 
 QT_BEGIN_NAMESPACE
 
@@ -74,8 +75,7 @@ QV4::ExecutableCompilationUnit *QQmlTypeData::compilationUnitForInlineComponent(
             return m_inlineComponentToCompiledData[icIt->nameIndex].data();
         }
     }
-    Q_UNREACHABLE();
-    return nullptr; // make integrity happy
+    Q_UNREACHABLE_RETURN(nullptr);
 }
 
 void QQmlTypeData::registerCallback(TypeDataCallback *callback)
@@ -153,7 +153,8 @@ bool QQmlTypeData::tryLoadFromDiskCache()
                     && !import->version.hasMinorVersion()) {
                     QList<QQmlError> errors;
                     auto pendingImport = std::make_shared<PendingImport>(
-                                this, import, QQmlImports::ImportImplicit);
+                                this, import, QQmlImports::ImportNoFlag);
+                    pendingImport->precedence = QQmlImportInstance::Implicit;
                     if (!fetchQmldir(qmldirUrl, pendingImport, 1, &errors)) {
                         setError(errors);
                         return false;
@@ -535,7 +536,8 @@ bool QQmlTypeData::loadImplicitImport()
                 = QQmlMetaType::moduleImports(qmldir.typeNamespace(), QTypeRevision())
                 + qmldir.imports();
         loadDependentImports(moduleImports, QString(), QTypeRevision(),
-                             QQmlImports::ImportImplicit, &implicitImportErrors);
+                             QQmlImportInstance::Implicit + 1, QQmlImports::ImportNoFlag,
+                             &implicitImportErrors);
     }
 
     if (!implicitImportErrors.isEmpty()) {
@@ -699,7 +701,7 @@ void QQmlTypeData::allDependenciesDone()
                 for (auto keyIt = m_unresolvedImports.constBegin(),
                           keyEnd = m_unresolvedImports.constEnd();
                      keyIt != keyEnd; ++keyIt) {
-                    PendingImportPtr import = *keyIt;
+                    const PendingImportPtr &import = *keyIt;
                     QQmlError error;
                     error.setDescription(QQmlTypeLoader::tr("module \"%1\" is not installed").arg(import->uri));
                     error.setUrl(m_importCache->baseUrl());
@@ -812,8 +814,8 @@ void QQmlTypeData::resolveTypes()
         if (ref.type.isCompositeSingleton()) {
             ref.typeData = typeLoader()->getType(ref.type.sourceUrl());
             if (ref.typeData->isWaiting() || m_waitingOnMe.contains(ref.typeData.data())) {
-                qWarning() << "Cyclic dependency detected between" << ref.typeData->urlString()
-                           << "and" << urlString();
+                qCWarning(lcCycle) << "Cyclic dependency detected between"
+                                   << ref.typeData->urlString() << "and" << urlString();
                 continue;
             }
             addDependency(ref.typeData.data());

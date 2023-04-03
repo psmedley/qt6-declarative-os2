@@ -881,6 +881,15 @@ bool QQmlComponentAndAliasResolver::resolve(int root)
                 isExplicitComponent = true;
         }
 
+        if (isInlineComponentRoot && isExplicitComponent) {
+            qCWarning(lcQmlTypeCompiler).nospace().noquote()
+                    << compiler->url().toString() << ":" << obj->location.line() << ":"
+                    << obj->location.column()
+                    << ": Using a Component as the root of an inline component is deprecated: "
+                       "inline components are "
+                       "automatically wrapped into Components when needed.";
+        }
+
         if (root == 0) {
             // normal component root, skip over anything inline component related
             if (isInlineComponentRoot || isPartOfInlineComponent)
@@ -903,6 +912,17 @@ bool QQmlComponentAndAliasResolver::resolve(int root)
         }
 
         obj->flags |= QV4::CompiledData::Object::IsComponent;
+
+        // check if this object is the root
+        if (i == 0) {
+            if (isExplicitComponent)
+                qCWarning(lcQmlTypeCompiler).nospace().noquote()
+                        << compiler->url().toString() << ":" << obj->location.line() << ":"
+                        << obj->location.column()
+                        << ": Using a Component as the root of a qmldocument is deprecated: types "
+                           "defined in qml documents are "
+                           "automatically wrapped into Components when needed.";
+        }
 
         if (obj->functionCount() > 0)
             COMPILE_EXCEPTION(obj, tr("Component objects cannot declare new functions."));
@@ -1073,7 +1093,7 @@ QQmlComponentAndAliasResolver::resolveAliasesInObject(int objectIndex,
 
         seenUnresolvedAlias = true;
 
-        const int idIndex = alias->idIndex;
+        const int idIndex = alias->idIndex();
         const int targetObjectIndex = _idToObjectIndex.value(idIndex, -1);
         if (targetObjectIndex == -1) {
             *error = qQmlCompileError(
@@ -1136,7 +1156,7 @@ QQmlComponentAndAliasResolver::resolveAliasesInObject(int objectIndex,
                     }
 
                     // restore
-                    alias->idIndex = idIndex;
+                    alias->setIdIndex(idIndex);
                     // Try again later and resolve the target alias first.
                     break;
                 }

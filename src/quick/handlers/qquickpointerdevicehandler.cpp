@@ -139,7 +139,7 @@ void QQuickPointerDeviceHandler::setAcceptedDevices(QPointingDevice::DeviceTypes
     By default, this property is set to
     \l {QPointingDevice::PointerType} {PointerDevice.AllPointerTypes}.
     If you set it to an OR combination of device types, it will ignore events
-    from non-matching events.
+    from non-matching \l {PointerDevice}{devices}.
 
     For example, a control could be made to respond to mouse, touch, and stylus clicks
     in some way, but delete itself if tapped with an eraser tool on a graphics tablet,
@@ -270,7 +270,7 @@ bool QQuickPointerDeviceHandler::wantsPointerEvent(QPointerEvent *event)
     if (d->acceptedModifiers != Qt::KeyboardModifierMask && event->modifiers() != d->acceptedModifiers)
         return false;
     // Some handlers (HoverHandler, PinchHandler) set acceptedButtons to Qt::NoButton to indicate that button state is irrelevant.
-    if (event->pointingDevice()->pointerType() != QPointingDevice::PointerType::Finger &&
+    if (event->pointingDevice()->type() != QPointingDevice::DeviceType::TouchScreen &&
             acceptedButtons() != Qt::NoButton && event->type() != QEvent::Wheel &&
             (static_cast<QSinglePointEvent *>(event)->buttons() & acceptedButtons()) == 0 &&
             (static_cast<QSinglePointEvent *>(event)->button() & acceptedButtons()) == 0)

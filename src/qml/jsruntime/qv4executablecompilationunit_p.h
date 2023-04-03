@@ -166,6 +166,21 @@ public:
         return ListPropertyAssignBehavior::Append;
     }
 
+    bool enforcesFunctionSignature() const
+    {
+        return data->flags & CompiledData::Unit::FunctionSignaturesEnforced;
+    }
+
+    bool nativeMethodsAcceptThisObjects() const
+    {
+        return data->flags & CompiledData::Unit::NativeMethodsAcceptThisObject;
+    }
+
+    bool valueTypesAreCopied() const
+    {
+        return data->flags & CompiledData::Unit::ValueTypesCopied;
+    }
+
     int objectCount() const { return qmlData->nObjects; }
     const CompiledObject *objectAt(int index) const
     {
@@ -251,6 +266,14 @@ public:
     bool saveToDisk(const QUrl &unitUrl, QString *errorString);
 
     QString bindingValueAsString(const CompiledData::Binding *binding) const;
+
+    struct TranslationDataIndex
+    {
+        uint index;
+        bool byId;
+    };
+
+    QString translateFrom(TranslationDataIndex index) const;
 
     static bool verifyHeader(const CompiledData::Unit *unit, QDateTime expectedSourceTimeStamp,
                              QString *errorString);
