@@ -134,6 +134,7 @@ qt_internal_add_qml_module(QuickTemplates2
         Qt::Quick
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME Qt6QuiTe
 )
 
 qt_internal_extend_target(QuickTemplates2 CONDITION TARGET Qt::QmlModels

@@ -25,6 +25,7 @@ qt_internal_add_qml_module(QuickShapesPrivate
         Qt::QuickPrivate
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME Qt6QuiSh.dll
 )
 
 # We need to do additional initialization, so we have to provide our own

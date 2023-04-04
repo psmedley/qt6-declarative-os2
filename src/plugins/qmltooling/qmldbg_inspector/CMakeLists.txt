@@ -22,6 +22,7 @@ qt_internal_add_plugin(QQmlInspectorServiceFactoryPlugin
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME qmldbgin
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_inspector.pro:<TRUE>:

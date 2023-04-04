@@ -15,6 +15,7 @@ qt_internal_add_plugin(QQmlNativeDebugServiceFactoryPlugin
         Qt::Core
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME qmldbgnd
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_nativedebugger.pro:<TRUE>:
