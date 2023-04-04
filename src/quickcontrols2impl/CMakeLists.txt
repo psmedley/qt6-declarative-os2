@@ -45,6 +45,7 @@ qt_internal_add_qml_module(QuickControls2Impl
         Qt::Quick
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME Qt6QuiCI
 )
 
 qt_internal_extend_target(QuickControls2Impl CONDITION QT_FEATURE_quick_listview AND QT_FEATURE_quick_pathview
