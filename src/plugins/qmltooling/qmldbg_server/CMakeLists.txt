@@ -14,6 +14,7 @@ qt_internal_add_plugin(QQmlDebugServerFactoryPlugin
     LIBRARIES
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME qmldbgsf
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_server.pro:<TRUE>:

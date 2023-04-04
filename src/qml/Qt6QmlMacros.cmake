@@ -43,6 +43,7 @@ function(qt6_add_qml_module target)
         RESOURCE_EXPORT
         INSTALL_DIRECTORY
         INSTALL_LOCATION
+        OS2_SHORT_NAME
     )
 
     set(args_multi
@@ -451,6 +452,12 @@ function(qt6_add_qml_module target)
         # TODO: Check how this is used by qt6_android_generate_deployment_settings()
         QT_QML_IMPORT_PATH "${arg_IMPORT_PATH}"
     )
+
+        if(arg_OS2_SHORT_NAME)
+            set_target_properties(${target} PROPERTIES
+                TARGET_SHORT ${arg_OS2_SHORT_NAME}
+            )
+        endif()
 
     # Executables don't have a plugin target, so no need to export the properties.
     if(NOT backing_target_type STREQUAL "EXECUTABLE" AND NOT is_android_executable)

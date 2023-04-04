@@ -75,6 +75,7 @@ qt_internal_add_qml_module(QuickDialogs2QuickImpl
         Qt::Core
         Qt::Gui
         Qt::Quick
+    OS2_SHORT_NAME Qt6QuDQI
 )
 
 # Resources:

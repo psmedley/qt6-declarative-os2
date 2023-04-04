@@ -10,6 +10,7 @@ qt_internal_add_qml_module(LabsQmlModels
     PUBLIC_LIBRARIES
         Qt::QmlModelsPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME Qt6LabQM
 )
 
 qt_internal_extend_target(LabsQmlModels CONDITION QT_FEATURE_qml_table_model

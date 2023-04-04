@@ -30,6 +30,7 @@ qt_internal_add_module(QuickWidgets
         Qt::QmlPrivate
         Qt::QuickPrivate
         Qt::WidgetsPrivate
+    OS2_SHORT_NAME Qt6QuiWi.dll
 )
 
 qt_internal_extend_target(QuickWidgets CONDITION QT_FEATURE_accessibility

@@ -25,6 +25,7 @@ qt_internal_add_plugin(QQmlPreviewServiceFactoryPlugin
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME qmldbgpv
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_preview.pro:<TRUE>:

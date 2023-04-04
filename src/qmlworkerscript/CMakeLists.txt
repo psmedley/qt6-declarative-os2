@@ -48,6 +48,7 @@ qt_internal_add_qml_module(QmlWorkerScript
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME workersn
 )
 
 qt_internal_extend_target(QmlWorkerScript CONDITION WIN32
