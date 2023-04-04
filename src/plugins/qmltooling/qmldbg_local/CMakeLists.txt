@@ -15,6 +15,7 @@ qt_internal_add_plugin(QLocalClientConnectionFactoryPlugin
         qlocalclientconnection.cpp
     LIBRARIES
         Qt::QmlPrivate
+    OS2_SHORT_NAME qmldbglo
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_local.pro:<TRUE>:

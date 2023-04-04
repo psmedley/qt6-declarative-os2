@@ -464,7 +464,8 @@ qt_internal_add_resource(Qml "qmlMetaQmldir"
 #     import QtQuick 2.0
 #     ^
 if(QT_FEATURE_qml_worker_script)
-    _qt_internal_add_qml_static_plugin_dependency(qmlplugin workerscriptplugin)
+#    _qt_internal_add_qml_static_plugin_dependency(qmlplugin workerscriptplugin)
+    _qt_internal_add_qml_static_plugin_dependency(qmlplugin workersn)
 endif()
 
 # special case begin remove the block, handled manually

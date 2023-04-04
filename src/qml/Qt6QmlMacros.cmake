@@ -58,6 +58,7 @@ function(qt6_add_qml_module target)
         INSTALL_DIRECTORY
         INSTALL_LOCATION
         TYPE_COMPILER_NAMESPACE
+        OS2_SHORT_NAME
     )
 
     set(args_multi
@@ -499,6 +500,12 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     if(arg_TYPEINFO)
         set_target_properties(${target} PROPERTIES
             QT_QML_MODULE_TYPEINFO "${arg_TYPEINFO}"
+        )
+    endif()
+
+    if(arg_OS2_SHORT_NAME)
+        set_target_properties(${target} PROPERTIES
+            TARGET_SHORT ${arg_OS2_SHORT_NAME}
         )
     endif()
 

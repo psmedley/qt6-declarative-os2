@@ -55,6 +55,7 @@ qt_internal_add_qml_module(QmlWorkerScript
         Qt::QmlPrivate
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME workersn
 )
 
 qt_internal_extend_target(QmlWorkerScript CONDITION WIN32

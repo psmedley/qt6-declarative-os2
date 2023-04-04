@@ -32,6 +32,7 @@ macro(qt_internal_get_internal_add_qml_module_keywords
         TYPEINFO
         CLASS_NAME
         TYPE_COMPILER_NAMESPACE
+        OS2_SHORT_NAME
     )
     set(${multi_args}
         QML_FILES
@@ -230,14 +231,22 @@ function(qt_internal_add_qml_module target)
             string(APPEND plugin_basename "${QT_LIBINFIX}")
         endif()
 
+if (NOT OS2)
         # Add the "plugin" suffix after the infix.
         string(APPEND plugin_basename "plugin")
+endif()
 
         # Lowercase the whole thing and use it as the basename of the plugin library.
         string(TOLOWER "${plugin_basename}" plugin_basename)
         set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
             OUTPUT_NAME "${plugin_basename}"
         )
+
+        if(arg_OS2_SHORT_NAME)
+            set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
+                TARGET_SHORT ${arg_OS2_SHORT_NAME}
+            )
+        endif()
 
         get_target_property(export_name ${arg_PLUGIN_TARGET} EXPORT_NAME)
         if(export_name)

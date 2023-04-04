@@ -21,6 +21,7 @@ qt_internal_add_plugin(QQuickProfilerAdapterFactoryPlugin
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME qmldbgqp
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_quickprofiler.pro:<TRUE>:
