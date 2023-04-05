@@ -159,31 +159,37 @@ void QQuickWidgetPrivate::initOffscreenWindow()
 #endif
 }
 
-void QQuickWidgetPrivate::init(QQmlEngine* e)
+void QQuickWidgetPrivate::ensureBackingScene()
 {
-    Q_Q(QQuickWidget);
+    // This should initialize, if not already done, the absolute minimum set of
+    // mandatory backing resources, meaning the QQuickWindow and its
+    // QQuickRenderControl. This function may be called very early on upon
+    // construction, including before init() even.
 
-    renderControl = new QQuickWidgetRenderControl(q);
-    initOffscreenWindow();
+    Q_Q(QQuickWidget);
+    if (!renderControl)
+        renderControl = new QQuickWidgetRenderControl(q);
+    if (!offscreenWindow)
+        offscreenWindow = new QQuickWidgetOffscreenWindow(*new QQuickWidgetOffscreenWindowPrivate(), renderControl);
 
     // Check if the Software Adaptation is being used
     auto sgRendererInterface = offscreenWindow->rendererInterface();
     if (sgRendererInterface && sgRendererInterface->graphicsApi() == QSGRendererInterface::Software)
         useSoftwareRenderer = true;
+}
+
+void QQuickWidgetPrivate::init(QQmlEngine* e)
+{
+    Q_Q(QQuickWidget);
+
+    initOffscreenWindow();
 
     if (!useSoftwareRenderer) {
-#if QT_CONFIG(opengl)
-        if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::RasterGLSurface))
+        if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::RhiBasedRendering))
             setRenderToTexture();
         else
-#endif
             qWarning("QQuickWidget is not supported on this platform.");
     }
-
-#ifndef Q_OS_OS2 // OS/2 doesn't have OpenGL so suppress this warning
-    if (QSGRhiSupport::instance()->rhiBackend() != QRhi::OpenGLES2)
-        qWarning("QQuickWidget is only supported on OpenGL. Use QQuickWindow::setGraphicsApi() to override the default.");
-#endif
 
     engine = e;
 

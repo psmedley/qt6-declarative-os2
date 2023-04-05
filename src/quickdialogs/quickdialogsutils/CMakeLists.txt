@@ -26,4 +26,5 @@ qt_internal_add_module(QuickDialogs2Utils
         Qt::Core
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME Qt6QuDiU
 )

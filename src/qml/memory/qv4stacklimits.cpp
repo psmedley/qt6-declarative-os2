@@ -7,12 +7,15 @@
 
 #include <QtCore/qfile.h>
 
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIXLIKE)
 #  include <pthread.h>
 #endif
 
 #ifdef Q_OS_WIN
 #  include <QtCore/qt_windows.h>
+#elif defined(Q_OS_OS2)
+#define INCL_DOS
+#include <os2.h>
 #elif defined(Q_OS_FREEBSD_KERNEL) || defined(Q_OS_OPENBSD)
 #  include <pthread_np.h>
 #elif defined(Q_OS_LINUX)
@@ -163,6 +166,18 @@ StackProperties stackProperties()
 
     quint8 *stackLimit = reinterpret_cast<quint8 *>(mbi.AllocationBase);
     return createStackProperties(stackBase, qsizetype(stackBase - stackLimit));
+}
+
+#elif defined(Q_OS_OS2)
+
+StackProperties stackProperties()
+{
+    PTIB ptib;
+    DosGetInfoBlocks(&ptib, NULL);
+    // tib_pstacklimit is the high stack address - just what we need.
+    quint8 *stackLimit = reinterpret_cast<quint8 *>(ptib->tib_pstacklimit);
+    quint8 *stackBase = reinterpret_cast<quint8 *>(ptib->tib_pstack);
+    return createStackProperties(stackBase, qsizetype(stackBase - stackLimit - 0x1000 * 2));
 }
 
 #elif defined(Q_OS_OPENBSD)
