@@ -208,6 +208,7 @@ private slots:
     void testSelectableStartPosEndPosOutsideView();
     void testSelectableScrollTowardsPos();
     void setCurrentIndexFromSelectionModel();
+    void clearSelectionOnTap_data();
     void clearSelectionOnTap();
     void moveCurrentIndexUsingArrowKeys();
     void moveCurrentIndexUsingHomeAndEndKeys();
@@ -244,6 +245,7 @@ private slots:
     void deletedDelegate();
     void columnResizing_data();
     void columnResizing();
+    void tableViewInteractive();
     void rowResizing_data();
     void rowResizing();
     void rowAndColumnResizing_data();
@@ -267,6 +269,7 @@ private slots:
     void editWarning_nonEditableModelItem();
     void attachedPropertiesOnEditDelegate();
     void requiredPropertiesOnEditDelegate();
+    void resettingRolesRespected();
 };
 
 tst_QQuickTableView::tst_QQuickTableView()
@@ -2451,7 +2454,7 @@ void tst_QQuickTableView::checkChangingModelFromDelegate()
     // And since the QML code tried to add another row as well, we
     // expect rebuildScheduled to be true, and a polish event to be pending.
     QVERIFY(tableViewPrivate->scheduledRebuildOptions);
-    QCOMPARE(tableViewPrivate->polishScheduled, true);
+    QVERIFY(tableViewPrivate->polishScheduled);
     WAIT_UNTIL_POLISHED;
 
     // After handling the polish event, we expect also the third row to now be added
@@ -4744,12 +4747,25 @@ void tst_QQuickTableView::setCurrentIndexFromSelectionModel()
     QVERIFY(tableView->itemAtCell(cellAtEnd)->property(kCurrent).toBool());
 }
 
+void tst_QQuickTableView::clearSelectionOnTap_data()
+{
+    QTest::addColumn<bool>("selectionEnabled");
+    QTest::newRow("selections enabled") << true;
+    QTest::newRow("selections disabled") << false;
+}
+
 void tst_QQuickTableView::clearSelectionOnTap()
 {
+    // Check that we clear the current selection when tapping
+    // inside TableView. But only if TableView has selections
+    // enabled. Otherwise, TableView should not touch the selection model.
+    QFETCH(bool, selectionEnabled);
     LOAD_TABLEVIEW("tableviewwithselected2.qml");
 
     TestModel model(40, 40);
     tableView->setModel(QVariant::fromValue(&model));
+    if (!selectionEnabled)
+        tableView->setSelectionBehavior(QQuickTableView::SelectionDisabled);
 
     WAIT_UNTIL_POLISHED;
 
@@ -4758,13 +4774,14 @@ void tst_QQuickTableView::clearSelectionOnTap()
     tableView->selectionModel()->select(index, QItemSelectionModel::Select);
     QCOMPARE(tableView->selectionModel()->selectedIndexes().size(), 1);
 
-    // Click on a cell. This should remove the selection
+    // Click on a cell
     const auto item = tableView->itemAtIndex(tableView->index(0, 0));
     QVERIFY(item);
     QPoint localPos = QPoint(item->width() / 2, item->height() / 2);
     QPoint pos = item->window()->contentItem()->mapFromItem(item, localPos).toPoint();
     QTest::mouseClick(item->window(), Qt::LeftButton, Qt::NoModifier, pos);
-    QCOMPARE(tableView->selectionModel()->selectedIndexes().size(), 0);
+
+    QCOMPARE(tableView->selectionModel()->hasSelection(), !selectionEnabled);
 }
 
 void tst_QQuickTableView::moveCurrentIndexUsingArrowKeys()
@@ -6128,6 +6145,47 @@ void tst_QQuickTableView::deletedDelegate()
     QTRY_COMPARE(tv->delegate(), nullptr);
 }
 
+void tst_QQuickTableView::tableViewInteractive()
+{
+    LOAD_TABLEVIEW("tableviewinteractive.qml");
+
+    auto *root = view->rootObject();
+    QVERIFY(root);
+    auto *window = root->window();
+    QVERIFY(window);
+
+    int eventCount = root->property("eventCount").toInt();
+    QCOMPARE(eventCount, 0);
+
+    // Event though we make 'interactive' as false, the TableView has
+    // pointerNacigationEnabled set as true by default, which allows it to consume
+    // mouse events and thus, eventCount still be zero
+    tableView->setInteractive(false);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    eventCount = root->property("eventCount").toInt();
+    QCOMPARE(eventCount, 0);
+
+    // Making both 'interactive' and 'pointerNavigationEnabled' as false, doesn't
+    // allow TableView (and its parent Flickable)  to consume mouse event and it
+    // passes to the below visual item
+    tableView->setInteractive(false);
+    tableView->setPointerNavigationEnabled(false);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    eventCount = root->property("eventCount").toInt();
+    QCOMPARE(eventCount, 1);
+
+    // Making 'interactive' as true and 'pointerNavigationEnabled' as false,
+    // allows parent of TableView (i.e. Flickable) to consume mouse events
+    tableView->setInteractive(true);
+    tableView->setPointerNavigationEnabled(false);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+    eventCount = root->property("eventCount").toInt();
+    QCOMPARE(eventCount, 1);
+}
+
 void tst_QQuickTableView::columnResizing_data()
 {
     QTest::addColumn<int>("column");
@@ -6591,7 +6649,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
 
     if (editTriggers & QQuickTableView::SelectedTapped) {
         // select cell first, then tap on it
-        tableView->selectionModel()->setCurrentIndex(index1, QItemSelectionModel::NoUpdate);
+        tableView->selectionModel()->setCurrentIndex(index1, QItemSelectionModel::Select);
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, tapPos1);
         QCOMPARE(tableView->selectionModel()->currentIndex(), index1);
         const auto editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
@@ -6612,6 +6670,11 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
         QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
         QCOMPARE(tableView->selectionModel()->currentIndex(), index2);
+
+        // tap on the current cell. This alone should not start an edit (unless it's also selected)
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, tapPos1);
+        QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
+        QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
     }
 
     if (editTriggers & QQuickTableView::EditKeyPressed) {
@@ -7231,6 +7294,20 @@ void tst_QQuickTableView::requiredPropertiesOnEditDelegate()
     QCOMPARE(textInput->property("selected").toBool(), true);
     selectionModel.setCurrentIndex(index2, QItemSelectionModel::Select);
     QCOMPARE(textInput->property("current").toBool(), false);
+}
+
+void tst_QQuickTableView::resettingRolesRespected()
+{
+    LOAD_TABLEVIEW("resetModelData.qml");
+
+    TestModel model(1, 1);
+    tableView->setModel(QVariant::fromValue(&model));
+
+    WAIT_UNTIL_POLISHED;
+
+    QVERIFY(!tableView->property("success").toBool());
+    model.useCustomRoleNames(true);
+    QTRY_VERIFY(tableView->property("success").toBool());
 }
 
 QTEST_MAIN(tst_QQuickTableView)

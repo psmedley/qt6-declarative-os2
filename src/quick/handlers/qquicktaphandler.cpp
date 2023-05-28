@@ -13,7 +13,7 @@ QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcTapHandler, "qt.quick.handler.tap")
 
-qreal QQuickTapHandler::m_multiTapInterval(0.0);
+quint64 QQuickTapHandler::m_multiTapInterval(0);
 // single tap distance is the same as the drag threshold
 int QQuickTapHandler::m_mouseMultiClickDistanceSquared(-1);
 int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
@@ -50,14 +50,14 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
     QStyleHints::touchDoubleTapDistance() with touch, and the time between
     taps must not exceed QStyleHints::mouseDoubleClickInterval().
 
-    \sa MouseArea
+    \sa MouseArea, {Pointer Handlers Example}
 */
 
 QQuickTapHandler::QQuickTapHandler(QQuickItem *parent)
     : QQuickSinglePointHandler(parent)
 {
     if (m_mouseMultiClickDistanceSquared < 0) {
-        m_multiTapInterval = qApp->styleHints()->mouseDoubleClickInterval() / 1000.0;
+        m_multiTapInterval = qApp->styleHints()->mouseDoubleClickInterval();
         m_mouseMultiClickDistanceSquared = qApp->styleHints()->mouseDoubleClickDistance();
         m_mouseMultiClickDistanceSquared *= m_mouseMultiClickDistanceSquared;
         m_touchMultiTapDistanceSquared = qApp->styleHints()->touchDoubleTapDistance();
@@ -282,6 +282,8 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
             \snippet pointerHandlers/dragReleaseMenu.qml 1
     \endtable
 
+    The \l {Pointer Handlers Example} demonstrates some use cases for these.
+
     \note If you find that TapHandler is reacting in cases that conflict with
     some other behavior, the first thing you should try is to think about which
     \c gesturePolicy is appropriate. If you cannot fix it by changing \c gesturePolicy,
@@ -353,16 +355,6 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QPointerEvent *event,
         } else {
             m_longPressTimer.stop();
             m_holdTimer.invalidate();
-            if (m_exclusiveSignals == (SingleTap | DoubleTap)) {
-                if (m_tapCount == 0) {
-                    m_singleTapReleasedPoint = point;
-                    m_singleTapReleasedButton = event->isSinglePointEvent() ? static_cast<QSinglePointEvent *>(event)->button() : Qt::NoButton;
-                    qCDebug(lcTapHandler) << objectName() << "waiting to emit singleTapped:" << qApp->styleHints()->mouseDoubleClickInterval() << "ms";
-                    m_doubleTapTimer.start(qApp->styleHints()->mouseDoubleClickInterval(), this);
-                } else if (m_doubleTapTimer.isActive()) {
-                    qCDebug(lcTapHandler) << objectName() << "tap" << (m_tapCount + 1) << "after" << event->timestamp() / 1000.0 - m_lastTapTimestamp << "sec";
-                }
-            }
         }
         if (press) {
             // on press, grab before emitting changed signals
@@ -374,25 +366,48 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QPointerEvent *event,
         if (!cancel && !press && parentContains(point)) {
             if (point.timeHeld() < longPressThreshold()) {
                 // Assuming here that pointerEvent()->timestamp() is in ms.
-                const qreal ts = event->timestamp() / 1000.0;
-                const qreal interval = ts - m_lastTapTimestamp;
+                const quint64 ts = event->timestamp();
+                const quint64 interval = ts - m_lastTapTimestamp;
                 const auto distanceSquared = QVector2D(point.scenePosition() - m_lastTapPos).lengthSquared();
-                if (interval < m_multiTapInterval && distanceSquared <
+                const auto singleTapReleasedButton = event->isSinglePointEvent() ? static_cast<QSinglePointEvent *>(event)->button() : Qt::NoButton;
+                if ((interval < m_multiTapInterval && distanceSquared <
                         (event->device()->type() == QInputDevice::DeviceType::Mouse ?
                          m_mouseMultiClickDistanceSquared : m_touchMultiTapDistanceSquared))
+                      && m_singleTapReleasedButton == singleTapReleasedButton) {
                     ++m_tapCount;
-                else
+                } else {
+                    m_singleTapReleasedButton = singleTapReleasedButton;
+                    m_singleTapReleasedPoint = point;
                     m_tapCount = 1;
+                }
                 qCDebug(lcTapHandler) << objectName() << "tapped" << m_tapCount << "times; interval since last:" << interval
                                       << "sec; distance since last:" << qSqrt(distanceSquared);
                 auto button = event->isSinglePointEvent() ? static_cast<QSinglePointEvent *>(event)->button() : Qt::NoButton;
                 emit tapped(point, button);
                 emit tapCountChanged();
-                if (m_tapCount == 1 && !m_exclusiveSignals.testFlag(DoubleTap))
-                    emit singleTapped(point, button);
-                else if (m_tapCount == 2 && !m_exclusiveSignals.testFlag(SingleTap)) {
-                    emit doubleTapped(point, button);
+                switch (m_exclusiveSignals) {
+                case NotExclusive:
+                    if (m_tapCount == 1)
+                        emit singleTapped(point, button);
+                    else if (m_tapCount == 2)
+                        emit doubleTapped(point, button);
+                    break;
+                case SingleTap:
+                    if (m_tapCount == 1)
+                        emit singleTapped(point, button);
+                    break;
+                case DoubleTap:
+                    if (m_tapCount == 2)
+                        emit doubleTapped(point, button);
+                    break;
+                case (SingleTap | DoubleTap):
+                    if (m_tapCount == 1) {
+                        qCDebug(lcTapHandler) << objectName() << "waiting to emit singleTapped:" << m_multiTapInterval << "ms";
+                        m_doubleTapTimer.start(m_multiTapInterval, this);
+                    }
                 }
+                qCDebug(lcTapHandler) << objectName() << "tap" << m_tapCount << "after" << event->timestamp() - m_lastTapTimestamp << "ms";
+
                 m_lastTapTimestamp = ts;
                 m_lastTapPos = point.scenePosition();
             } else {
@@ -445,8 +460,8 @@ void QQuickTapHandler::updateTimeHeld()
     \readonly
 
     The number of taps which have occurred within the time and space
-    constraints to be considered a single gesture.  For example, to detect
-    a triple-tap, you can write:
+    constraints to be considered a single gesture. The counter is reset to 1
+    if the button changed. For example, to detect a triple-tap, you can write:
 
     \qml
     Rectangle {

@@ -23,6 +23,7 @@
 #include <QtGui/qstylehints.h>
 #include <QtWidgets/QBoxLayout>
 #include <QtWidgets/QLabel>
+#include <QtWidgets/private/qapplication_p.h>
 
 #include <QtQuickWidgets/QQuickWidget>
 
@@ -135,6 +136,8 @@ private slots:
 #if QT_CONFIG(graphicsview)
     void focusOnClickInProxyWidget();
 #endif
+    void focusPreserved();
+    void accessibilityHandlesViewChange();
 
 private:
     QPointingDevice *device = QTest::createTouchDevice();
@@ -938,6 +941,92 @@ void tst_qquickwidget::focusOnClickInProxyWidget()
     QVERIFY(!text2->hasActiveFocus());
 }
 #endif
+
+void tst_qquickwidget::focusPreserved()
+{
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window Activation is not supported.");
+    if (QGuiApplication::platformName() == "android")
+        QSKIP("Test doesn't exit cleanly on Android and generates many warnings - QTBUG-112696");
+
+    QScopedPointer<QWidget> widget(new QWidget());
+    QScopedPointer<QQuickWidget> quick(new QQuickWidget());
+    QQuickItem *root = new QQuickItem(); // will be owned by quick after setContent
+    QScopedPointer<QQuickItem> content(new QQuickItem());
+    content->setActiveFocusOnTab(true);
+    content->setFocus(true);
+    quick->setFocusPolicy(Qt::StrongFocus);
+    quick->setContent(QUrl(), nullptr, root);
+    root->setFlag(QQuickItem::ItemHasContents);
+    content->setParentItem(root);
+
+    quick->setGeometry(0, 0, 200, 200);
+    quick->show();
+    quick->setFocus();
+    quick->activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(quick.get()));
+    QTRY_VERIFY(quick->hasFocus());
+    QTRY_VERIFY(content->hasFocus());
+    QTRY_VERIFY(content->hasActiveFocus());
+
+    widget->show();
+    widget->setFocus();
+    widget->activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(widget.get()));
+    QTRY_VERIFY(widget->hasFocus());
+
+    quick->setParent(widget.get());
+
+    quick->show();
+    quick->setFocus();
+    quick->activateWindow();
+    QTRY_VERIFY(quick->hasFocus());
+    QTRY_VERIFY(content->hasFocus());
+    QTRY_VERIFY(content->hasActiveFocus());
+}
+
+/*
+    Reparenting the QQuickWidget recreates the offscreen QQuickWindow.
+    Since the accessible interface that is cached for the QQuickWidget dispatches
+    all calls to the offscreen QQuickWindow, it must fix itself when the offscreen
+    view changes. QTBUG-108226
+*/
+void tst_qquickwidget::accessibilityHandlesViewChange()
+{
+    if (QGuiApplication::platformName() == "offscreen")
+        QSKIP("Doesn't test anything on offscreen platform.");
+    if (QGuiApplication::platformName() == "android")
+        QSKIP("Test doesn't exit cleanly on Android and generates many warnings - QTBUG-112696");
+
+    QWidget window;
+
+    QPointer<QQuickWindow> backingScene;
+
+    QQuickWidget *childView = new QQuickWidget(&window);
+    childView->setSource(testFileUrl("rectangle.qml"));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    backingScene = childView->quickWindow();
+    QVERIFY(backingScene);
+
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(childView);
+    QVERIFY(iface);
+    (void)iface->child(0);
+
+    std::unique_ptr<QQuickWidget> quickWidget(childView);
+    childView->setParent(nullptr);
+    childView->show();
+    QVERIFY(QTest::qWaitForWindowExposed(childView));
+    QVERIFY(!backingScene); // the old QQuickWindow should be gone now
+    QVERIFY(childView->quickWindow()); // long live the new QQuickWindow
+
+    iface = QAccessible::queryAccessibleInterface(childView);
+    QVERIFY(iface);
+    // this would crash if QAccessibleQuickWidget hadn't repaired itself to
+    // delegate calls to the new (or at least not the old, destroyed) QQuickWindow.
+    (void)iface->child(0);
+}
+
 
 QTEST_MAIN(tst_qquickwidget)
 

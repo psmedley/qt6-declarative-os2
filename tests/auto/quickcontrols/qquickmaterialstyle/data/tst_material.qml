@@ -636,15 +636,15 @@ TestCase {
         return [
             {tag: "Button:pixelSize", type: "Button", attribute: "pixelSize", value: 14, window: 20, pane: 10},
             {tag: "Button:weight", type: "Button", attribute: "weight", value: Font.Medium, window: Font.Black, pane: Font.Bold},
-            {tag: "Button:capitalization", type: "Button", attribute: "capitalization", value: Font.AllUppercase, window: Font.Capitalize, pane: Font.AllLowercase},
+            {tag: "Button:capitalization", type: "Button", attribute: "capitalization", value: Font.MixedCase, window: Font.Capitalize, pane: Font.AllLowercase},
 
             {tag: "TabButton:pixelSize", type: "TabButton", attribute: "pixelSize", value: 14, window: 20, pane: 10},
             {tag: "TabButton:weight", type: "TabButton", attribute: "weight", value: Font.Medium, window: Font.Black, pane: Font.Bold},
-            {tag: "TabButton:capitalization", type: "TabButton", attribute: "capitalization", value: Font.AllUppercase, window: Font.Capitalize, pane: Font.AllLowercase},
+            {tag: "TabButton:capitalization", type: "TabButton", attribute: "capitalization", value: Font.MixedCase, window: Font.Capitalize, pane: Font.AllLowercase},
 
             {tag: "ToolButton:pixelSize", type: "ToolButton", attribute: "pixelSize", value: 14, window: 20, pane: 10},
             {tag: "ToolButton:weight", type: "ToolButton", attribute: "weight", value: Font.Medium, window: Font.Black, pane: Font.Bold},
-            {tag: "ToolButton:capitalization", type: "ToolButton", attribute: "capitalization", value: Font.AllUppercase, window: Font.Capitalize, pane: Font.AllLowercase},
+            {tag: "ToolButton:capitalization", type: "ToolButton", attribute: "capitalization", value: Font.MixedCase, window: Font.Capitalize, pane: Font.AllLowercase},
 
             {tag: "ItemDelegate:pixelSize", type: "ItemDelegate", attribute: "pixelSize", value: 14, window: 20, pane: 10},
             {tag: "ItemDelegate:weight", type: "ItemDelegate", attribute: "weight", value: Font.Medium, window: Font.Black, pane: Font.Bold},
@@ -964,7 +964,54 @@ TestCase {
         TextArea {}
     }
 
-    function test_placeholderText() {
+    function test_textFieldPlaceholderTextHorizontalAlignment_data() {
+        return [
+            { tag: "AlignLeft", horizontalAlignment: TextField.AlignLeft },
+            { tag: "AlignHCenter", horizontalAlignment: TextField.AlignHCenter },
+            { tag: "AlignRight", horizontalAlignment: TextField.AlignRight }
+        ]
+    }
+
+    function test_textFieldPlaceholderTextHorizontalAlignment(data) {
+        // The placeholder text should always be near the left side of the TextField, regardless of its horizontalAlignment.
+        let textField = createTemporaryObject(textFieldComponent, testCase, {
+            placeholderText: "TextField",
+            horizontalAlignment: data.horizontalAlignment
+        })
+        verify(textField)
+        let placeholderTextItem = textField.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        compare(placeholderTextItem.horizontalAlignment, TextField.AlignLeft)
+
+        textField.forceActiveFocus()
+        compare(placeholderTextItem.horizontalAlignment, TextField.AlignLeft)
+        textField.destroy()
+    }
+
+    function test_textAreaPlaceholderTextHorizontalAlignment_data() {
+        return [
+            { tag: "AlignLeft", horizontalAlignment: TextArea.AlignLeft },
+            { tag: "AlignHCenter", horizontalAlignment: TextArea.AlignHCenter },
+            { tag: "AlignRight", horizontalAlignment: TextArea.AlignRight }
+        ]
+    }
+
+    function test_textAreaPlaceholderTextHorizontalAlignment(data) {
+        // The placeholder text should always be near the left side of the TextArea, regardless of its horizontalAlignment.
+        let textArea = createTemporaryObject(textAreaComponent, testCase, {
+            placeholderText: "TextArea",
+            horizontalAlignment: data.horizontalAlignment
+        })
+        verify(textArea)
+        let placeholderTextItem = textArea.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        compare(placeholderTextItem.horizontalAlignment, TextArea.AlignLeft)
+
+        textArea.forceActiveFocus()
+        compare(placeholderTextItem.horizontalAlignment, TextArea.AlignLeft)
+    }
+
+    function test_placeholderTextPos() {
         {
             // The non-floating placeholder text should be in the middle of TextField regardless of its height.
             let textField = createTemporaryObject(textFieldComponent, testCase, { placeholderText: "TextField" })
@@ -978,15 +1025,61 @@ TestCase {
         }
 
         {
-            // The non-floating placeholder text should be near the top of TextArea while it has room, but when it
-            // doesn't have room, it should start behaving like TextField's.
+            // The non-floating placeholder text should be near the top of TextArea while it has room...
             let textArea = createTemporaryObject(textAreaComponent, testCase, { placeholderText: "TextArea" })
             verify(textArea)
             let placeholderTextItem = textArea.children[0]
             verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
             compare(placeholderTextItem.y, (placeholderTextItem.controlImplicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+
+            // ... also when it has a lot of room...
+            textArea.height = 200
+            compare(placeholderTextItem.y, (placeholderTextItem.controlImplicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+
+            // ... but when it doesn't have room, it should start behaving like TextField's.
             textArea.height = 10
             compare(placeholderTextItem.y, (textArea.height - placeholderTextItem.height) / 2)
         }
+    }
+
+    Component {
+        id: flickableTextAreaComponent
+
+        Flickable {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 20
+            width: 180
+            height: 100
+
+            TextArea.flickable: TextArea {
+                placeholderText: "Type something..."
+                text: "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn"
+            }
+        }
+    }
+
+    function test_placeholderTextInFlickable() {
+        let flickable = createTemporaryObject(flickableTextAreaComponent, testCase)
+        verify(flickable)
+
+        let textArea = flickable.TextArea.flickable
+        verify(textArea)
+        let placeholderTextItem = flickable.children[2]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+
+        // The placeholder text should always float at a fixed position at the top
+        // when text has been set, even when it's in a Flickable.
+        flickable.contentY = -50
+        compare(placeholderTextItem.y, -Math.floor(placeholderTextItem.largestHeight / 2))
+        flickable.contentY = 0
+
+        // When the text is cleared, it shouldn't float.
+        flickable.height = 160
+        textArea.text = ""
+        compare(placeholderTextItem.y, (placeholderTextItem.controlImplicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+        // The background outline gap should be closed.
+        let textContainer = flickable.children[1]
+        verify(textContainer as MaterialImpl.MaterialTextContainer)
+        compare(textContainer.focusAnimationProgress, 0)
     }
 }

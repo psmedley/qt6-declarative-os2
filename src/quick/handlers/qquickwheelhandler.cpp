@@ -46,7 +46,7 @@ Q_LOGGING_CATEGORY(lcWheelHandler, "qt.quick.handler.wheel")
     WheelHandler handles only a rotating mouse wheel by default; this
     can be changed by setting acceptedDevices.
 
-    \sa MouseArea, Flickable
+    \sa MouseArea, Flickable, {Pointer Handlers Example}
 */
 
 QQuickWheelHandler::QQuickWheelHandler(QQuickItem *parent)
@@ -84,7 +84,7 @@ void QQuickWheelHandler::setOrientation(Qt::Orientation orientation)
     \qmlproperty bool QtQuick::WheelHandler::invertible
 
     Whether or not to reverse the direction of property change if
-    QQuickPointerScrollEvent::inverted is true. The default is \c true.
+    \l QWheelEvent::inverted is \c true. The default is \c true.
 
     If the operating system has a "natural scrolling" setting that causes
     scrolling to be in the same direction as the finger movement, then if this
@@ -524,7 +524,7 @@ QMetaProperty &QQuickWheelHandlerPrivate::targetMetaProperty() const
 
     By default, this property is set to
     \l{QInputDevice::DeviceType}{PointerDevice.Mouse}, so as to react only to
-    events events from an actual mouse wheel.
+    events from an actual mouse wheel.
 
     WheelHandler can be made to respond to both mouse wheel and touchpad
     scrolling by setting acceptedDevices to

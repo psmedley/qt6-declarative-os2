@@ -166,6 +166,7 @@ private slots:
     void equalityQUrl();
     void undefinedToDouble();
     void variantMapLookup();
+    void enumFromBadSingleton();
     void ambiguousAs();
 };
 
@@ -3223,6 +3224,30 @@ void tst_QmlCppCodegen::variantMapLookup()
     QScopedPointer<QObject> o(c.create());
     QVERIFY(!o.isNull());
     QCOMPARE(o->property("i"), 42);
+}
+
+void tst_QmlCppCodegen::enumFromBadSingleton()
+{
+    QQmlEngine e;
+    const QUrl url(u"qrc:/qt/qml/TestTypes/enumFromBadSingleton.qml"_s);
+    QQmlComponent c(&e, url);
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+#if QT_DEPRECATED_SINCE(6,4)
+    QTest::ignoreMessage(
+                QtWarningMsg, qPrintable(
+                    url.toString()
+                    + u":5:5: TypeError: Cannot read property 'TestA' of undefined"_s));
+#else
+    QTest::ignoreMessage(
+                QtWarningMsg, qPrintable(
+                    url.toString()
+                    + u":5:5: ReferenceError: DummyObjekt is not defined"_s));
+#endif
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QVERIFY(o->objectName().isEmpty());
 }
 
 void tst_QmlCppCodegen::ambiguousAs()

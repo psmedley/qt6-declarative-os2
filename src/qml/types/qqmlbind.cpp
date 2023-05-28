@@ -463,10 +463,26 @@ void QQmlBind::setObject(QObject *obj)
         eval();
         d->when = true;
     }
+    /* if "when" and "target" depend on the same property, we might
+       end up here before we could have updated "when". So reevaluate
+       when manually here.
+     */
+    const QQmlProperty whenProp(this, QLatin1StringView("when"));
+    const auto potentialWhenBinding = QQmlAnyBinding::ofProperty(whenProp);
+    if (auto abstractBinding = potentialWhenBinding.asAbstractBinding()) {
+        QQmlBinding *binding = static_cast<QQmlBinding *>(abstractBinding);
+        if (binding->hasValidContext()) {
+            const auto boolType = QMetaType::fromType<bool>();
+            bool when;
+            binding->evaluate(&when, boolType);
+            d->when = when;
+        }
+    }
     d->obj = obj;
     if (d->componentComplete) {
         setTarget(QQmlProperty(d->obj, d->propName, qmlContext(this)));
-        d->validate(this);
+        if (d->when)
+            d->validate(this);
     }
     eval();
 }
@@ -520,7 +536,8 @@ void QQmlBind::setProperty(const QString &p)
     d->propName = p;
     if (d->componentComplete) {
         setTarget(QQmlProperty(d->obj, d->propName, qmlContext(this)));
-        d->validate(this);
+        if (d->when)
+            d->validate(this);
     }
     eval();
 }
@@ -625,14 +642,13 @@ void QQmlBind::setDelayed(bool delayed)
     be restored when the binding is disabled.
 
     The possible values are:
-    \list
-    \li Binding.RestoreNone The original value is not restored at all
-    \li Binding.RestoreBinding The original value is restored if it was another
-        binding. In that case the old binding is in effect again.
-    \li Binding.RestoreValue The original value is restored if it was a plain
-        value rather than a binding.
-    \li Binding.RestoreBindingOrValue The original value is always restored.
-    \endlist
+
+    \value Binding.RestoreNone      The original value is not restored at all
+    \value Binding.RestoreBinding   The original value is restored if it was another binding.
+                                    In that case the old binding is in effect again.
+    \value Binding.RestoreValue     The original value is restored if it was a plain
+                                    value rather than a binding.
+    \value Binding.RestoreBindingOrValue The original value is always restored.
 
     The default value is \c Binding.RestoreBindingOrValue.
 

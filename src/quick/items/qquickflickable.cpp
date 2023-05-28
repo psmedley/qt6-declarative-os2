@@ -769,8 +769,6 @@ void QQuickFlickablePrivate::updateBeginningEnd()
     \snippet qml/flickableScrollbar.qml 0
     \dots 8
     \snippet qml/flickableScrollbar.qml 1
-
-    \sa {customitems/scrollbar}{UI Components: Scrollbar Example}
 */
 QQuickFlickable::QQuickFlickable(QQuickItem *parent)
   : QQuickItem(*(new QQuickFlickablePrivate), parent)
@@ -1482,8 +1480,15 @@ void QQuickFlickablePrivate::handleReleaseEvent(QPointerEvent *event)
         fixupX();
 
     flickingStarted(flickedHorizontally, flickedVertically);
-    if (!isViewMoving())
+    if (!isViewMoving()) {
         q->movementEnding();
+    } else {
+        if (flickedVertically)
+            vMoved = true;
+        if (flickedHorizontally)
+            hMoved = true;
+        q->movementStarting();
+    }
 }
 
 void QQuickFlickable::mousePressEvent(QMouseEvent *event)
