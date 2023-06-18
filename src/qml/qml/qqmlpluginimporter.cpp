@@ -372,7 +372,7 @@ QTypeRevision QQmlPluginImporter::importDynamicPlugin(
 
   \table
   \header \li Platform   \li Prefix \li Valid suffixes
-  \row    \li Windows    \li        \li \c .dll, \c .d.dll
+  \row    \li Windows/OS/2 \li      \li \c .dll, \c .d.dll
   \row    \li Unix/Linux \li lib    \li \c .so
   \row    \li \macos     \li lib    \li \c .dylib, \c _debug.dylib \c .bundle, \c .so
   \row    \li Android    \li lib    \li \c .so, \c _<ABI>.so
@@ -392,7 +392,7 @@ QTypeRevision QQmlPluginImporter::importDynamicPlugin(
  */
 QString QQmlPluginImporter::resolvePlugin(const QString &qmldirPluginPath, const QString &baseName)
 {
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_WIN) || defined(Q_OS_OS2)
     static const QString prefix;
     static const QStringList suffixes = {
     # ifdef QT_DEBUG
