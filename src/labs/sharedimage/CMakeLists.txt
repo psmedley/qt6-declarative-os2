@@ -15,6 +15,7 @@ qt_internal_add_qml_module(LabsSharedImage
         Qt::CorePrivate
         Qt::GuiPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME sharedim
 )
 
 # We need to do additional initialization, so we have to provide our own

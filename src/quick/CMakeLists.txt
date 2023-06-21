@@ -222,6 +222,7 @@ qt_internal_add_qml_module(Quick
         Qt::GuiPrivate
         Qt::QmlModelsPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME qtquick2
 )
 
 # We need to do additional initialization, so we have to provide our own

@@ -394,6 +394,7 @@ qt_internal_add_qml_module(Qml
     EXTRA_CMAKE_INCLUDES
         "${INSTALL_CMAKE_NAMESPACE}QmlFindQmlscInternal.cmake"
         ${extra_cmake_includes}
+    OS2_SHORT_NAME qmlplugn
 )
 
 # Linking to the static qml plugin should also automatically link to the worker script

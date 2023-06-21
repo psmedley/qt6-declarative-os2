@@ -132,6 +132,7 @@ qt_internal_add_qml_module(qtquickcontrols2basicstyleplugin
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QtQuicke
 )
 
 # Resources:
