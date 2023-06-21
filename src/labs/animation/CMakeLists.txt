@@ -15,4 +15,5 @@ qt_internal_add_qml_module(LabsAnimation
         Qt::QuickPrivate
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME labsanim
 )

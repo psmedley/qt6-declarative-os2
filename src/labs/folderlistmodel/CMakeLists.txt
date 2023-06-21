@@ -15,4 +15,5 @@ qt_internal_add_qml_module(LabsFolderListModel
         Qt::QmlPrivate
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
+    OS2_SHORT_NAME qmlfolls
 )

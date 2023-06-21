@@ -466,6 +466,7 @@ function(qt6_add_qml_module target)
         if(arg_OS2_SHORT_NAME)
             set_target_properties(${target} PROPERTIES
                 TARGET_SHORT ${arg_OS2_SHORT_NAME}
+                QT_QML_MODULE_PLUGIN_TARGET "${arg_OS2_SHORT_NAME}"
             )
         endif()
 
