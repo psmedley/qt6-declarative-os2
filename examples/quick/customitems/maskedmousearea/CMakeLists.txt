@@ -15,20 +15,17 @@ set(INSTALL_EXAMPLEDIR "${INSTALL_EXAMPLESDIR}/quick/customitems/maskedmousearea
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick)
 
 qt_add_executable(maskedmousearea
+    WIN32
+    MACOSX_BUNDLE
     main.cpp
     maskedmousearea.cpp maskedmousearea.h
 )
 
-set_target_properties(maskedmousearea PROPERTIES
-    WIN32_EXECUTABLE TRUE
-    MACOSX_BUNDLE TRUE
-)
-
-target_link_libraries(maskedmousearea PUBLIC
-    Qt::Core
-    Qt::Gui
-    Qt::Qml
-    Qt::Quick
+target_link_libraries(maskedmousearea PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
 )
 
 qt_add_qml_module(maskedmousearea

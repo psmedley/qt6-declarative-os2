@@ -371,7 +371,7 @@ bool QQuickPopupPrivate::blockInput(QQuickItem *item, const QPointF &point) cons
     // a) outside a non-modal popup,
     // b) to popup children/content, or
     // b) outside a modal popups's background dimming
-    return modal && !popupItem->isAncestorOf(item) && (!dimmer || dimmer->contains(dimmer->mapFromScene(point)));
+    return modal && ((popupItem != item) && !popupItem->isAncestorOf(item)) && (!dimmer || dimmer->contains(dimmer->mapFromScene(point)));
 }
 
 bool QQuickPopupPrivate::handlePress(QQuickItem *item, const QPointF &point, ulong timestamp)
@@ -520,6 +520,10 @@ bool QQuickPopupPrivate::prepareEnterTransition()
         getPositioner()->setParentItem(parentItem);
         emit q->visibleChanged();
 
+        auto *overlayPrivate = QQuickOverlayPrivate::get(overlay);
+        if (overlayPrivate->lastActiveFocusItem.isNull())
+            overlayPrivate->lastActiveFocusItem = window->activeFocusItem();
+
         if (focus)
             popupItem->setFocus(true, Qt::PopupFocusReason);
     }
@@ -587,11 +591,17 @@ void QQuickPopupPrivate::finalizeExitTransition()
         if (nextFocusPopup) {
             nextFocusPopup->forceActiveFocus(Qt::PopupFocusReason);
         } else {
-            QQuickApplicationWindow *applicationWindow = qobject_cast<QQuickApplicationWindow*>(window);
-            if (applicationWindow)
-                applicationWindow->contentItem()->setFocus(true, Qt::PopupFocusReason);
-            else
-                window->contentItem()->setFocus(true, Qt::PopupFocusReason);
+            auto *appWindow = qobject_cast<QQuickApplicationWindow*>(window);
+            auto *contentItem = appWindow ? appWindow->contentItem() : window->contentItem();
+            auto *overlay = QQuickOverlay::overlay(window);
+            auto *overlayPrivate = QQuickOverlayPrivate::get(overlay);
+            if (!contentItem->scopedFocusItem()
+                && !overlayPrivate->lastActiveFocusItem.isNull()) {
+                overlayPrivate->lastActiveFocusItem->setFocus(true, Qt::OtherFocusReason);
+            } else {
+                contentItem->setFocus(true, Qt::PopupFocusReason);
+            }
+            overlayPrivate->lastActiveFocusItem = nullptr;
         }
     }
 

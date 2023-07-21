@@ -494,7 +494,8 @@ int QQmlPrivate::qmlregister(RegistrationType type, void *data)
         const char *elementName = (type.structVersion > 1 && type.forceAnonymous)
                 ? nullptr
                 : classElementName(type.classInfoMetaObject);
-        const bool creatable = (elementName != nullptr)
+        const bool isValueType = !(type.typeId.flags() & QMetaType::PointerToQObject);
+        const bool creatable = (elementName != nullptr || isValueType)
                 && boolClassInfo(type.classInfoMetaObject, "QML.Creatable", true);
 
         QString noCreateReason;
@@ -505,7 +506,7 @@ int QQmlPrivate::qmlregister(RegistrationType type, void *data)
                         classInfo(type.classInfoMetaObject, "QML.UncreatableReason"));
             if (noCreateReason.isEmpty())
                 noCreateReason = QLatin1String("Type cannot be created in QML.");
-        } else if (!(type.typeId.flags() & QMetaType::PointerToQObject)) {
+        } else if (isValueType) {
             const char *method = classInfo(type.classInfoMetaObject, "QML.CreationMethod");
             if (qstrcmp(method, "structured") == 0)
                 creationMethod = ValueTypeCreationMethod::Structured;
@@ -1106,13 +1107,25 @@ static bool initValueLookup(QV4::Lookup *l, QV4::ExecutableCompilationUnit *comp
 
 static void amendException(QV4::ExecutionEngine *engine)
 {
+    const int missingLineNumber = engine->currentStackFrame->missingLineNumber();
     const int lineNumber = engine->currentStackFrame->lineNumber();
-    engine->exceptionStackTrace.front().line = lineNumber;
+    Q_ASSERT(missingLineNumber != lineNumber);
+
+    auto amendStackTrace = [&](QV4::StackTrace *stackTrace) {
+        for (auto it = stackTrace->begin(), end = stackTrace->end(); it != end; ++it) {
+            if (it->line == missingLineNumber) {
+                it->line = lineNumber;
+                break;
+            }
+        }
+    };
+
+    amendStackTrace(&engine->exceptionStackTrace);
 
     QV4::Scope scope(engine);
     QV4::Scoped<QV4::ErrorObject> error(scope, *engine->exceptionValue);
     if (error) // else some other value was thrown
-        error->d()->stackTrace->front().line = lineNumber;
+        amendStackTrace(error->d()->stackTrace);
 }
 
 

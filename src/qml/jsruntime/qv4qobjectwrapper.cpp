@@ -551,14 +551,26 @@ void QObjectWrapper::setProperty(
 
     if (Q_UNLIKELY(lcBindingRemoval().isInfoEnabled())) {
         if (auto binding = QQmlPropertyPrivate::binding(object, QQmlPropertyIndex(property->coreIndex()))) {
-            Q_ASSERT(binding->kind() == QQmlAbstractBinding::QmlBinding);
-            const auto qmlBinding = static_cast<const QQmlBinding*>(binding);
             const auto stackFrame = engine->currentStackFrame;
-            qCInfo(lcBindingRemoval,
-                   "Overwriting binding on %s::%s at %s:%d that was initially bound at %s",
-                   object->metaObject()->className(), qPrintable(property->name(object)),
-                   qPrintable(stackFrame->source()), stackFrame->lineNumber(),
-                   qPrintable(qmlBinding->expressionIdentifier()));
+            switch (binding->kind()) {
+            case QQmlAbstractBinding::QmlBinding: {
+                const auto qmlBinding = static_cast<const QQmlBinding*>(binding);
+                qCInfo(lcBindingRemoval,
+                       "Overwriting binding on %s::%s at %s:%d that was initially bound at %s",
+                       object->metaObject()->className(), qPrintable(property->name(object)),
+                       qPrintable(stackFrame->source()), stackFrame->lineNumber(),
+                       qPrintable(qmlBinding->expressionIdentifier()));
+                break;
+            }
+            case QQmlAbstractBinding::ValueTypeProxy:
+            case QQmlAbstractBinding::PropertyToPropertyBinding: {
+                qCInfo(lcBindingRemoval,
+                       "Overwriting binding on %s::%s at %s:%d",
+                       object->metaObject()->className(), qPrintable(property->name(object)),
+                       qPrintable(stackFrame->source()), stackFrame->lineNumber());
+                break;
+            }
+            }
         }
     }
     QQmlPropertyPrivate::removeBinding(object, QQmlPropertyIndex(property->coreIndex()));
@@ -1476,7 +1488,7 @@ static ReturnedValue CallMethod(const QQmlObjectOrGadget &object, int index, QMe
                 const bool is_signal =
                         object.metaObject()->method(index).methodType() == QMetaMethod::Signal;
                 if (is_signal) {
-                    qWarning() << "Passing incomatible arguments to signals is not supported.";
+                    qWarning() << "Passing incompatible arguments to signals is not supported.";
                 } else {
                     return engine->throwTypeError(
                             QLatin1String("Passing incompatible arguments to C++ functions from "
@@ -1511,6 +1523,26 @@ static ReturnedValue CallMethod(const QQmlObjectOrGadget &object, int index, QMe
 
     }
 }
+
+template<typename Retrieve>
+int MatchVariant(QMetaType conversionMetaType, Retrieve &&retrieve) {
+    if (conversionMetaType == QMetaType::fromType<QVariant>())
+        return 0;
+
+    const QMetaType type = retrieve();
+    if (type == conversionMetaType)
+        return 0;
+
+    if (const QMetaObject *conversionMetaObject = conversionMetaType.metaObject()) {
+        if (const QMetaObject *mo = type.metaObject(); mo && mo->inherits(conversionMetaObject))
+            return 1;
+    }
+
+    if (QMetaType::canConvert(type, conversionMetaType))
+        return 5;
+
+    return 10;
+};
 
 /*
     Returns the match score for converting \a actual to be of type \a conversionType.  A
@@ -1625,13 +1657,10 @@ static int MatchScore(const Value &actual, QMetaType conversionMetaType)
         }
         }
     } else if (const Object *obj = actual.as<Object>()) {
-        if (obj->as<VariantObject>()) {
-            if (conversionType == qMetaTypeId<QVariant>())
-                return 0;
-            if (ExecutionEngine::toVariant(actual, QMetaType {}).metaType() == conversionMetaType)
-                return 0;
-            else
-                return 10;
+        if (const VariantObject *variantObject = obj->as<VariantObject>()) {
+            return MatchVariant(conversionMetaType, [variantObject]() {
+                return variantObject->d()->data().metaType();
+            });
         }
 
         if (obj->as<QObjectWrapper>()) {
@@ -1650,13 +1679,12 @@ static int MatchScore(const Value &actual, QMetaType conversionMetaType)
                 return 10;
         }
 
-        if (obj->as<QQmlValueTypeWrapper>()) {
-            const QVariant v = ExecutionEngine::toVariant(actual, QMetaType {});
-            if (v.userType() == conversionType)
-                return 0;
-            else if (v.canConvert(conversionMetaType))
-                return 5;
-            return 10;
+        if (const QQmlValueTypeWrapper *wrapper = obj->as<QQmlValueTypeWrapper>()) {
+            return MatchVariant(conversionMetaType, [wrapper]() {
+                return wrapper->d()->isVariant()
+                           ? wrapper->toVariant().metaType()
+                           : wrapper->type();
+            });
         }
 
         if (conversionType == QMetaType::QJsonObject)
@@ -2175,37 +2203,14 @@ bool CallArgument::fromValue(QMetaType metaType, ExecutionEngine *engine, const 
     }
 
     // Convert via QVariant through the QML engine.
-    qvariantPtr = new (&allocData) QVariant();
+    qvariantPtr = new (&allocData) QVariant(metaType);
     type = QVariantWrappedType;
 
-    QVariant v = ExecutionEngine::toVariant(value, metaType);
-
-    if (v.metaType() == metaType) {
-        *qvariantPtr = std::move(v);
+    if (ExecutionEngine::metaTypeFromJS(value, metaType, qvariantPtr->data()))
         return true;
-    }
 
-    if (v.canConvert(metaType)) {
-        *qvariantPtr = std::move(v);
-        qvariantPtr->convert(metaType);
-        return true;
-    }
-
-    const QQmlMetaObject mo = QQmlMetaType::rawMetaObjectForType(metaType);
-    if (!mo.isNull() && v.metaType().flags().testFlag(QMetaType::PointerToQObject)) {
-        QObject *obj = QQmlMetaType::toQObject(v);
-
-        if (obj != nullptr && !QQmlMetaObject::canConvert(obj, mo)) {
-            *qvariantPtr = QVariant(metaType, nullptr);
-            return false;
-        }
-
-        *qvariantPtr = QVariant(metaType, &obj);
-        return true;
-    }
-
-    *qvariantPtr = QVariant(metaType, (void *)nullptr);
-    return false;
+    const QVariant v = ExecutionEngine::toVariant(value, metaType);
+    return QMetaType::convert(v.metaType(), v.constData(), metaType, qvariantPtr->data());
 }
 
 ReturnedValue CallArgument::toValue(ExecutionEngine *engine)
@@ -2323,14 +2328,25 @@ ReturnedValue QObjectMethod::create(
     else
         method->d()->setObject(object);
 
-    if (cloneFrom->methodCount == 1) {
+    Q_ASSERT(method->d()->methods == nullptr);
+    switch (cloneFrom->methodCount) {
+    case 0:
+        Q_ASSERT(cloneFrom->methods == nullptr);
+        break;
+    case 1:
+        Q_ASSERT(cloneFrom->methods
+                 == reinterpret_cast<QQmlPropertyData *>(&cloneFrom->_singleMethod));
         method->d()->methods = reinterpret_cast<QQmlPropertyData *>(&method->d()->_singleMethod);
         *method->d()->methods = *cloneFrom->methods;
-    } else {
+        break;
+    default:
+        Q_ASSERT(cloneFrom->methods != nullptr);
         method->d()->methods = new QQmlPropertyData[cloneFrom->methodCount];
         memcpy(method->d()->methods, cloneFrom->methods,
                cloneFrom->methodCount * sizeof(QQmlPropertyData));
+        break;
     }
+
     return method.asReturnedValue();
 }
 
@@ -2456,8 +2472,10 @@ QString Heap::QObjectMethod::name() const
 
 void Heap::QObjectMethod::ensureMethodsCache(const QMetaObject *thisMeta)
 {
-    if (methods)
+    if (methods) {
+        Q_ASSERT(methodCount > 0);
         return;
+    }
 
     const QMetaObject *mo = metaObject();
 
@@ -2494,6 +2512,8 @@ void Heap::QObjectMethod::ensureMethodsCache(const QMetaObject *thisMeta)
         *methods = resolvedMethods.at(0);
         methodCount = 1;
     }
+
+    Q_ASSERT(methodCount > 0);
 }
 
 static QObject *qObject(const Value *v)
@@ -2620,6 +2640,7 @@ ReturnedValue QObjectMethod::callInternal(const Value *thisObject, const Value *
     };
 
     if (d()->methodCount != 1) {
+        Q_ASSERT(d()->methodCount > 0);
         method = ResolveOverloaded(object, d()->methods, d()->methodCount, v4, callData);
         if (method == nullptr)
             return Encode::undefined();

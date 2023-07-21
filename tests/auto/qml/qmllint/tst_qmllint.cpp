@@ -82,6 +82,8 @@ private Q_SLOTS:
 
     void additionalImplicitImport();
 
+    void qrcUrlImport();
+
     void attachedPropertyReuse();
 
     void missingBuiltinsNoCrash();
@@ -466,6 +468,12 @@ void TestQmllint::dirtyQmlCode_data()
                        QStringLiteral("Invalid alias expression. Only IDs and field member "
                                       "expressions can be aliased"),
                        5, 26 } } };
+    QTest::newRow("badAliasNotAnExpression")
+            << QStringLiteral("badAliasNotAnExpression.qml")
+            << Result { { Message {
+                                  QStringLiteral("Invalid alias expression. Only IDs and field member "
+                                                 "expressions can be aliased"),
+                                  4, 30 } } };
     QTest::newRow("aliasCycle1") << QStringLiteral("aliasCycle.qml")
                                  << Result { { Message {
                                             QStringLiteral("Alias \"b\" is part of an alias cycle"),
@@ -1681,7 +1689,16 @@ void TestQmllint::additionalImplicitImport()
     const auto guard = qScopeGuard([this]() {m_linter.clearCache(); });
     runTest("additionalImplicitImport.qml", Result::clean(), {}, {},
             { testFile("implicitImportResource.qrc") });
+}
 
+void TestQmllint::qrcUrlImport()
+{
+    const auto guard = qScopeGuard([this]() { m_linter.clearCache(); });
+
+    QJsonArray warnings;
+    callQmllint(testFile("untitled/main.qml"), true, &warnings, {}, {},
+                { testFile("untitled/qrcUrlImport.qrc") });
+    checkResult(warnings, Result::clean());
 }
 
 void TestQmllint::attachedPropertyReuse()
@@ -1992,6 +2009,7 @@ void TestQmllint::quickPlugin()
                       13, 31
                 }
             } });
+    runTest("pluginQuick_propertyChangesInvalidTarget.qml", Result {}); // we don't care about the specific warnings
 }
 #endif
 

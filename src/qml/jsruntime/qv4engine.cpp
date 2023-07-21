@@ -1234,7 +1234,7 @@ StackTrace ExecutionEngine::stackTrace(int frameLimit) const
         QV4::StackFrame frame;
         frame.source = f->source();
         frame.function = f->function();
-        frame.line = qAbs(f->lineNumber());
+        frame.line = f->lineNumber();
         frame.column = -1;
         stack.append(frame);
         if (f->isJSTypesFrame()) {
@@ -1272,7 +1272,7 @@ static inline char *v4StackTrace(const ExecutionContext *context)
             const QString fileName = url.isLocalFile() ? url.toLocalFile() : url.toString();
             str << "frame={level=\"" << i << "\",func=\"" << stackTrace.at(i).function
                 << "\",file=\"" << fileName << "\",fullname=\"" << fileName
-                << "\",line=\"" << stackTrace.at(i).line << "\",language=\"js\"}";
+                << "\",line=\"" << qAbs(stackTrace.at(i).line) << "\",language=\"js\"}";
         }
     }
     str << ']';
@@ -1467,7 +1467,7 @@ QQmlError ExecutionEngine::catchExceptionAsQmlError()
     if (!trace.isEmpty()) {
         QV4::StackFrame frame = trace.constFirst();
         error.setUrl(QUrl(frame.source));
-        error.setLine(frame.line);
+        error.setLine(qAbs(frame.line));
         error.setColumn(frame.column);
     }
     QV4::Scoped<QV4::ErrorObject> errorObj(scope, exception);
@@ -1634,14 +1634,16 @@ static QVariant toVariant(
         return *ld->d()->locale;
 #endif
     if (const QV4::DateObject *d = value.as<DateObject>()) {
-        auto dt = d->toQDateTime();
-        // See ExecutionEngine::metaTypeFromJS()'s handling of QMetaType::Date:
-        if (metaType == QMetaType::fromType<QDate>()) {
-            const auto utc = dt.toUTC();
-            if (utc.date() != dt.date() && utc.addSecs(-1).date() == dt.date())
-                dt = utc;
-        }
-        return dt;
+        if (metaType == QMetaType::fromType<QDate>())
+            return DateObject::dateTimeToDate(d->toQDateTime());
+
+        if (metaType == QMetaType::fromType<QTime>())
+            return d->toQDateTime().time();
+
+        if (metaType == QMetaType::fromType<QString>())
+            return d->toString();
+
+        return d->toQDateTime();
     }
     if (const QV4::UrlObject *d = value.as<UrlObject>())
         return d->toQUrl();
@@ -1709,10 +1711,7 @@ static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObject
         }
 
         result = list;
-    } else if (const FunctionObject *f = o->as<FunctionObject>()) {
-        // If it's a FunctionObject, we can only save it as QJSValue.
-        result = QVariant::fromValue(QJSValuePrivate::fromReturnedValue(f->asReturnedValue()));
-    } else {
+    } else if (o->getPrototypeOf() == o->engine()->objectPrototype()->d()) {
         QVariantMap map;
         QV4::Scope scope(o->engine());
         QV4::ObjectIterator it(scope, o, QV4::ObjectIterator::EnumerableOnly);
@@ -1730,6 +1729,9 @@ static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObject
         }
 
         result = map;
+    } else {
+        // If it's not a plain object, we can only save it as QJSValue.
+        result = QVariant::fromValue(QJSValuePrivate::fromReturnedValue(o->asReturnedValue()));
     }
 
     visitedObjects->remove(o->d());
@@ -2402,6 +2404,23 @@ void ExecutionEngine::setExtensionData(int index, Deletable *data)
     m_extensionData[index] = data;
 }
 
+template<typename Source>
+bool convertToIterable(QMetaType metaType, void *data, Source *sequence)
+{
+    QSequentialIterable iterable;
+    if (!QMetaType::view(metaType, data, QMetaType::fromType<QSequentialIterable>(), &iterable))
+        return false;
+
+    const QMetaType elementMetaType = iterable.valueMetaType();
+    QVariant element(elementMetaType);
+    for (qsizetype i = 0, end = sequence->getLength(); i < end; ++i) {
+        if (!ExecutionEngine::metaTypeFromJS(sequence->get(i), elementMetaType, element.data()))
+            element = QVariant(elementMetaType);
+        iterable.addValue(element, QSequentialIterable::AtEnd);
+    }
+    return true;
+}
+
 // Converts a JS value to a meta-type.
 // data must point to a place that can store a value of the given type.
 // Returns true if conversion succeeded, false otherwise.
@@ -2458,6 +2477,9 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
     case QMetaType::UChar:
         *reinterpret_cast<unsigned char*>(data) = (unsigned char)(value.toInt32());
         return true;
+    case QMetaType::SChar:
+        *reinterpret_cast<signed char*>(data) = (signed char)(value.toInt32());
+        return true;
     case QMetaType::QChar:
         if (String *s = value.stringValue()) {
             QString str = s->toQString();
@@ -2473,20 +2495,12 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
         } break;
     case QMetaType::QDate:
         if (const QV4::DateObject *d = value.as<DateObject>()) {
-            // If the Date object was parse()d from a string with no time part
-            // or zone specifier it's really the UTC start of the relevant day,
-            // but it's here represented as a local time, which may fall in the
-            // preceding day. See QTBUG-92466 for the gory details.
-            QDateTime dt = d->toQDateTime();
-            const QDateTime utc = dt.toUTC();
-            if (utc.date() != dt.date() && utc.addMSecs(-1).date() == dt.date())
-                dt = utc;
-            // This may, of course, be The Wrong Thing if the date was
-            // constructed as a full local date-time that happens to coincide
-            // with the start of a UTC day; however, that would be an odd value
-            // to give to something that, apparently, someone thinks belongs in
-            // a QDate.
-            *reinterpret_cast<QDate *>(data) = dt.date();
+            *reinterpret_cast<QDate *>(data) = DateObject::dateTimeToDate(d->toQDateTime());
+            return true;
+        } break;
+    case QMetaType::QTime:
+        if (const QV4::DateObject *d = value.as<DateObject>()) {
+            *reinterpret_cast<QTime *>(data) = d->toQDateTime().time();
             return true;
         } break;
     case QMetaType::QUrl:
@@ -2608,8 +2622,23 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
         const QMetaType valueType = vtw->type();
         if (valueType == metaType)
             return vtw->toGadget(data);
-        if (QMetaType::canConvert(valueType, metaType))
-            return QMetaType::convert(valueType, vtw->d()->gadgetPtr(), metaType, data);
+
+        Heap::QQmlValueTypeWrapper *d = vtw->d();
+        if (d->isReference())
+            d->readReference();
+
+        if (void *gadgetPtr = d->gadgetPtr()) {
+            if (QQmlValueTypeProvider::createValueType(valueType, gadgetPtr, metaType, data))
+                return true;
+            if (QMetaType::canConvert(valueType, metaType))
+                return QMetaType::convert(valueType, gadgetPtr, metaType, data);
+        } else {
+            QVariant empty(valueType);
+            if (QQmlValueTypeProvider::createValueType(valueType, empty.data(), metaType, data))
+                return true;
+            if (QMetaType::canConvert(valueType, metaType))
+                return QMetaType::convert(valueType, empty.data(), metaType, data);
+        }
     }
 
     // Try to use magic; for compatibility with qjsvalue_cast.
@@ -2618,43 +2647,62 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
         return true;
 
     const bool isPointer = (metaType.flags() & QMetaType::IsPointer);
-    if (value.as<QV4::VariantObject>() && isPointer) {
-        const QByteArray pointedToTypeName = QByteArray(metaType.name()).chopped(1);
-        const QMetaType valueType = QMetaType::fromName(pointedToTypeName);
-        QVariant &var = value.as<QV4::VariantObject>()->d()->data();
-        if (valueType == var.metaType()) {
-            // We have T t, T* is requested, so return &t.
-            *reinterpret_cast<void* *>(data) = var.data();
+    const QV4::VariantObject *variantObject = value.as<QV4::VariantObject>();
+    if (variantObject) {
+        // Actually a reference, because we're poking it for its data() below and we want
+        // the _original_ data, not some copy.
+        QVariant &var = variantObject->d()->data();
+
+        if (var.metaType() == metaType) {
+            metaType.destruct(data);
+            metaType.construct(data, var.data());
             return true;
-        } else if (Object *o = value.objectValue()) {
-            // Look in the prototype chain.
-            QV4::Scope scope(o->engine());
-            QV4::ScopedObject proto(scope, o->getPrototypeOf());
-            while (proto) {
-                bool canCast = false;
-                if (QV4::VariantObject *vo = proto->as<QV4::VariantObject>()) {
-                    const QVariant &v = vo->d()->data();
-                    canCast = (metaType == v.metaType());
-                }
-                else if (proto->as<QV4::QObjectWrapper>()) {
-                    QV4::ScopedObject p(scope, proto.getPointer());
-                    if (QObject *qobject = qtObjectFromJS(p)) {
-                        if (const QMetaObject *metaObject = metaType.metaObject())
-                            canCast = metaObject->cast(qobject) != nullptr;
-                        else
-                            canCast = qobject->qt_metacast(pointedToTypeName);
+        }
+
+        if (isPointer) {
+            const QByteArray pointedToTypeName = QByteArray(metaType.name()).chopped(1);
+            const QMetaType valueType = QMetaType::fromName(pointedToTypeName);
+
+            if (valueType == var.metaType()) {
+                // ### Qt7: Remove this. Returning pointers to potentially gc'd data is crazy.
+                // We have T t, T* is requested, so return &t.
+                *reinterpret_cast<const void **>(data) = var.data();
+                return true;
+            } else if (Object *o = value.objectValue()) {
+                // Look in the prototype chain.
+                QV4::Scope scope(o->engine());
+                QV4::ScopedObject proto(scope, o->getPrototypeOf());
+                while (proto) {
+                    bool canCast = false;
+                    if (QV4::VariantObject *vo = proto->as<QV4::VariantObject>()) {
+                        const QVariant &v = vo->d()->data();
+                        canCast = (metaType == v.metaType());
                     }
+                    else if (proto->as<QV4::QObjectWrapper>()) {
+                        QV4::ScopedObject p(scope, proto.getPointer());
+                        if (QObject *qobject = qtObjectFromJS(p)) {
+                            if (const QMetaObject *metaObject = metaType.metaObject())
+                                canCast = metaObject->cast(qobject) != nullptr;
+                            else
+                                canCast = qobject->qt_metacast(pointedToTypeName);
+                        }
+                    }
+                    if (canCast) {
+                        const QMetaType varType = var.metaType();
+                        if (varType.flags() & QMetaType::IsPointer) {
+                            *reinterpret_cast<const void **>(data)
+                                = *reinterpret_cast<void *const *>(var.data());
+                        } else {
+                            *reinterpret_cast<const void **>(data) = var.data();
+                        }
+                        return true;
+                    }
+                    proto = proto->getPrototypeOf();
                 }
-                if (canCast) {
-                    const QMetaType varType = var.metaType();
-                    if (varType.flags() & QMetaType::IsPointer)
-                        *reinterpret_cast<void* *>(data) = *reinterpret_cast<void* *>(var.data());
-                    else
-                        *reinterpret_cast<void* *>(data) = var.data();
-                    return true;
-                }
-                proto = proto->getPrototypeOf();
             }
+        } else if (QQmlValueTypeProvider::createValueType(
+                       var.metaType(), var.data(), metaType, data)) {
+            return true;
         }
     } else if (value.isNull() && isPointer) {
         *reinterpret_cast<void* *>(data) = nullptr;
@@ -2677,21 +2725,14 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
             metaType.construct(data, result.constData());
             return true;
         }
+
+        if (convertToIterable(metaType, data, sequence))
+            return true;
     }
 
     if (const QV4::ArrayObject *array = value.as<ArrayObject>()) {
-        QSequentialIterable iterable;
-        if (QMetaType::view(
-                    metaType, data, QMetaType::fromType<QSequentialIterable>(), &iterable)) {
-            const QMetaType elementMetaType = iterable.valueMetaType();
-            QVariant element(elementMetaType);
-            for (qsizetype i = 0, end = array->getLength(); i < end; ++i) {
-                if (!metaTypeFromJS(array->get(i), elementMetaType, element.data()))
-                    element = QVariant(elementMetaType);
-                iterable.addValue(element, QSequentialIterable::AtEnd);
-            }
+        if (convertToIterable(metaType, data, array))
             return true;
-        }
     }
 
     return false;

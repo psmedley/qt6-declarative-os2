@@ -434,6 +434,8 @@ void QQuickLayoutAttached::setAlignment(Qt::Alignment align)
 
     \note This requires that Layout::fillWidth is set to true
 
+    \since Qt 6.5
+
     \sa verticalStretchFactor
 */
 void QQuickLayoutAttached::setHorizontalStretchFactor(int factor)
@@ -468,6 +470,8 @@ void QQuickLayoutAttached::setHorizontalStretchFactor(int factor)
     The default value is \c -1, which means that no stretch factor is applied.
 
     \note This requires that Layout::fillHeight is set to true
+
+    \since Qt 6.5
 
     \sa horizontalStretchFactor
 */
@@ -837,7 +841,8 @@ void QQuickLayout::invalidate(QQuickItem * /*childItem*/)
             qCDebug(lcQuickLayouts) << "QQuickLayout::invalidate(), polish()";
             polish();
         } else {
-            qmlWarning(this) << "Qt Quick Layouts: Polish loop detected. Aborting after two iterations.";
+            qmlWarning(this).nospace() << "Layout polish loop detected for " << this
+                << ". Aborting after two iterations.";
         }
     }
 }
@@ -916,7 +921,7 @@ void QQuickLayout::geometryChange(const QRectF &newGeometry, const QRectF &oldGe
 {
     Q_D(QQuickLayout);
     QQuickItem::geometryChange(newGeometry, oldGeometry);
-    if (d->m_disableRearrange || !isReady() || !newGeometry.isValid())
+    if (d->m_disableRearrange || !isReady())
         return;
 
     qCDebug(lcQuickLayouts) << "QQuickLayout::geometryChange" << newGeometry << oldGeometry;
