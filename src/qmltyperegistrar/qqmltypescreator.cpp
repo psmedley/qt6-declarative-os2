@@ -183,7 +183,7 @@ void QmlTypesCreator::writeType(const QJsonObject &property, const QString &key)
 
     if (type == QLatin1String("qreal")) {
 #ifdef QT_COORD_TYPE_STRING
-        type = QLatin1String(QT_COORD_TYPE_STRING)
+        type = QLatin1String(QT_COORD_TYPE_STRING);
 #else
         type = QLatin1String("double");
 #endif
@@ -195,6 +195,8 @@ void QmlTypesCreator::writeType(const QJsonObject &property, const QString &key)
         type = QLatin1String("qlonglong");
     } else if (type == QLatin1String("quint64")) {
         type = QLatin1String("qulonglong");
+    } else if (type == QLatin1String("QList<QObject*>")) {
+        type = QLatin1String("QObjectList");
     }
 
     m_qml.writeScriptBinding(typeKey, enquote(type));

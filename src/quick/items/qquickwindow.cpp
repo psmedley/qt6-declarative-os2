@@ -1965,19 +1965,14 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
         itemPriv->itemNode()->setMatrix(matrix);
     }
 
-    bool clipEffectivelyChanged = (dirty & (QQuickItemPrivate::Clip | QQuickItemPrivate::Window)) &&
-                                  ((item->clip() == false) != (itemPriv->clipNode() == nullptr));
-    int effectRefCount = itemPriv->extra.isAllocated()?itemPriv->extra->effectRefCount:0;
-    bool effectRefEffectivelyChanged = (dirty & (QQuickItemPrivate::EffectReference | QQuickItemPrivate::Window)) &&
-                                  ((effectRefCount == 0) != (itemPriv->rootNode() == nullptr));
-
+    const bool clipEffectivelyChanged = dirty & (QQuickItemPrivate::Clip | QQuickItemPrivate::Window);
     if (clipEffectivelyChanged) {
-        QSGNode *parent = itemPriv->opacityNode() ? (QSGNode *) itemPriv->opacityNode() :
-                                                    (QSGNode *) itemPriv->itemNode();
+        QSGNode *parent = itemPriv->opacityNode() ? (QSGNode *)itemPriv->opacityNode()
+                                                  : (QSGNode *)itemPriv->itemNode();
         QSGNode *child = itemPriv->rootNode();
 
-        if (item->clip()) {
-            Q_ASSERT(itemPriv->clipNode() == nullptr);
+        if (bool initializeClipNode = item->clip() && itemPriv->clipNode() == nullptr;
+            initializeClipNode) {
             QQuickDefaultClipNode *clip = new QQuickDefaultClipNode(item->clipRect());
             itemPriv->extra.value().clipNode = clip;
             clip->update();
@@ -1991,9 +1986,14 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
                 parent->appendChildNode(clip);
             }
 
-        } else {
+        } else if (bool updateClipNode = item->clip() && itemPriv->clipNode() != nullptr;
+                   updateClipNode) {
             QQuickDefaultClipNode *clip = itemPriv->clipNode();
-            Q_ASSERT(clip);
+            clip->setClipRect(item->clipRect());
+            clip->update();
+        } else if (bool removeClipNode = !item->clip() && itemPriv->clipNode() != nullptr;
+                   removeClipNode) {
+            QQuickDefaultClipNode *clip = itemPriv->clipNode();
             parent->removeChildNode(clip);
             if (child) {
                 clip->removeChildNode(child);
@@ -2007,6 +2007,10 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
         }
     }
 
+    const int effectRefCount = itemPriv->extra.isAllocated() ? itemPriv->extra->effectRefCount : 0;
+    const bool effectRefEffectivelyChanged =
+            (dirty & (QQuickItemPrivate::EffectReference | QQuickItemPrivate::Window))
+            && ((effectRefCount == 0) != (itemPriv->rootNode() == nullptr));
     if (effectRefEffectivelyChanged) {
         if (dirty & QQuickItemPrivate::ChildrenUpdateMask)
             itemPriv->childContainerNode()->removeAllChildNodes();
@@ -2260,7 +2264,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::frameSwapped()
+    \qmlsignal QtQuick::Window::frameSwapped()
 
     This signal is emitted when a frame has been queued for presenting. With
     vertical synchronization enabled the signal is emitted at most once per
@@ -2276,7 +2280,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::sceneGraphInitialized()
+    \qmlsignal QtQuick::Window::sceneGraphInitialized()
     \internal
  */
 
@@ -2298,7 +2302,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::sceneGraphInvalidated()
+    \qmlsignal QtQuick::Window::sceneGraphInvalidated()
     \internal
  */
 
@@ -2318,7 +2322,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::sceneGraphError(SceneGraphError error, QString message)
+    \qmlsignal QtQuick::Window::sceneGraphError(SceneGraphError error, QString message)
 
     This signal is emitted when an \a error occurred during scene graph initialization.
 
@@ -2375,7 +2379,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::closing(CloseEvent close)
+    \qmlsignal QtQuick::Window::closing(CloseEvent close)
     \since 5.1
 
     This signal is emitted when the user tries to close the window.
@@ -2687,7 +2691,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::beforeSynchronizing()
+    \qmlsignal QtQuick::Window::beforeSynchronizing()
     \internal
 */
 
@@ -2714,7 +2718,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::afterSynchronizing()
+    \qmlsignal QtQuick::Window::afterSynchronizing()
     \internal
     \since 5.3
  */
@@ -2750,7 +2754,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::beforeRendering()
+    \qmlsignal QtQuick::Window::beforeRendering()
     \internal
 */
 
@@ -2785,7 +2789,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::afterRendering()
+    \qmlsignal QtQuick::Window::afterRendering()
     \internal
  */
 
@@ -2818,7 +2822,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::beforeRenderPassRecording()
+    \qmlsignal QtQuick::Window::beforeRenderPassRecording()
     \internal
     \since 5.14
 */
@@ -2873,7 +2877,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::beforeFrameBegin()
+    \qmlsignal QtQuick::Window::beforeFrameBegin()
     \internal
 */
 
@@ -2898,12 +2902,12 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::afterFrameEnd()
+    \qmlsignal QtQuick::Window::afterFrameEnd()
     \internal
 */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::afterRenderPassRecording()
+    \qmlsignal QtQuick::Window::afterRenderPassRecording()
     \internal
     \since 5.14
 */
@@ -2923,7 +2927,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::afterAnimating()
+    \qmlsignal QtQuick::Window::afterAnimating()
 
     This signal is emitted on the GUI thread before requesting the render thread to
     perform the synchronization of the scene graph.
@@ -2957,7 +2961,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
  */
 
 /*!
-    \qmlsignal QtQuick.Window::Window::sceneGraphAboutToStop()
+    \qmlsignal QtQuick::Window::sceneGraphAboutToStop()
     \internal
     \since 5.3
  */
@@ -3304,10 +3308,12 @@ void QQuickWindow::endExternalCommands()
     whether it's a dialog, popup, or a regular window, and whether it should
     have a title bar, etc.
 
-    The flags which you read from this property might differ from the ones
+    The flags that you read from this property might differ from the ones
     that you set if the requested flags could not be fulfilled.
 
-    \sa Qt::WindowFlags
+    \snippet qml/splashWindow.qml entire
+
+    \sa Qt::WindowFlags, {Qt Quick Examples - Window and Screen}
  */
 
 /*!
@@ -3378,6 +3384,7 @@ void QQuickWindow::endExternalCommands()
  */
 
 /*!
+    \keyword qml-window-visibility-prop
     \qmlproperty QWindow::Visibility Window::visibility
 
     The screen-occupation state of the window.
@@ -3391,15 +3398,18 @@ void QQuickWindow::endExternalCommands()
     visibility property you will always get the actual state, never
     \c AutomaticVisibility.
 
-    When a window is not visible its visibility is Hidden, and setting
+    When a window is not visible, its visibility is \c Hidden, and setting
     visibility to \l {QWindow::}{Hidden} is the same as setting \l visible to \c false.
 
-    \sa visible
+    \snippet qml/windowVisibility.qml entire
+
+    \sa visible, {Qt Quick Examples - Window and Screen}
     \since 5.1
  */
 
 /*!
     \qmlattachedproperty QWindow::Visibility Window::visibility
+    \readonly
     \since 5.4
 
     This attached property holds whether the window is currently shown
@@ -3407,7 +3417,7 @@ void QQuickWindow::endExternalCommands()
     hidden. The \c Window attached property can be attached to any Item. If the
     item is not shown in any window, the value will be \l {QWindow::}{Hidden}.
 
-    \sa visible, visibility
+    \sa visible, {qml-window-visibility-prop}{visibility}
 */
 
 /*!
@@ -3499,17 +3509,8 @@ void QQuickWindow::endExternalCommands()
     Item or Window within which it was declared, you can remove that
     relationship by setting \c transientParent to \c null:
 
-    \qml
-    import QtQuick.Window 2.13
-
-    Window {
-        // visible is false by default
-        Window {
-            transientParent: null
-            visible: true
-        }
-    }
-    \endqml
+    \snippet qml/nestedWindowTransientParent.qml 0
+    \snippet qml/nestedWindowTransientParent.qml 1
 
     In order to cause the window to be centered above its transient parent by
     default, depending on the window manager, it may also be necessary to set
@@ -3555,6 +3556,9 @@ void QQuickWindow::endExternalCommands()
 
     The active status of the window.
 
+    \snippet qml/windowPalette.qml declaration-and-color
+    \snippet qml/windowPalette.qml closing-brace
+
     \sa requestActivate()
  */
 
@@ -3568,14 +3572,7 @@ void QQuickWindow::endExternalCommands()
     Here is an example which changes a label to show the active state of the
     window in which it is shown:
 
-    \qml
-    import QtQuick 2.4
-    import QtQuick.Window 2.2
-
-    Text {
-        text: Window.active ? "active" : "inactive"
-    }
-    \endqml
+    \snippet qml/windowActiveAttached.qml entire
 */
 
 /*!
@@ -4193,9 +4190,10 @@ void QQuickWindow::setTextRenderType(QQuickWindow::TextRenderType renderType)
     palette which serves as a default for all application windows. You can also set the default palette
     for windows by passing a custom palette to QGuiApplication::setPalette(), before loading any QML.
 
-    ApplicationWindow propagates explicit palette properties to child controls. If you change a specific
-    property on the window's palette, that property propagates to all child controls in the window,
+    Window propagates explicit palette properties to child items and controls,
     overriding any system defaults for that property.
+
+    \snippet qml/windowPalette.qml entire
 
     \sa Item::palette, Popup::palette, ColorGroup, SystemPalette
     //! internal \sa QQuickAbstractPaletteProvider, QQuickPalette

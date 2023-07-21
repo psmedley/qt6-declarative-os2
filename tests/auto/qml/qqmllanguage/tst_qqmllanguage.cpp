@@ -409,6 +409,10 @@ private slots:
 
     void longConversion();
 
+    void objectMethodClone();
+    void unregisteredValueTypeConversion();
+    void retainThis();
+
 private:
     QQmlEngine engine;
     QStringList defaultImportPathList;
@@ -1384,13 +1388,13 @@ void tst_qqmllanguage::rootItemIsComponent()
             QtWarningMsg,
             QRegularExpression(
                     ".*/rootItemIsComponent\\.qml:3:1: Using a Component as the root of "
-                    "a qmldocument is deprecated: types defined in qml documents are automatically "
-                    "wrapped into Components when needed\\."));
+                    "a QML document is deprecated: types defined in qml documents are "
+                    "automatically wrapped into Components when needed\\."));
     QTest::ignoreMessage(
             QtWarningMsg,
             QRegularExpression(
                     ".*/EvilComponentType\\.qml:3:1: Using a Component as the root of a "
-                    "qmldocument is deprecated: types defined in qml documents are automatically "
+                    "QML document is deprecated: types defined in qml documents are automatically "
                     "wrapped into Components when needed\\."));
     QTest::ignoreMessage(
             QtWarningMsg,
@@ -7896,6 +7900,63 @@ void tst_qqmllanguage::longConversion()
         QCOMPARE(val.metaType(), QMetaType::fromType<bool>());
         QVERIFY(!val.toBool());
     }
+}
+
+void tst_qqmllanguage::objectMethodClone()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("objectMethodClone.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+    QTRY_COMPARE(o->property("doneClicks").toInt(), 2);
+}
+
+void tst_qqmllanguage::unregisteredValueTypeConversion()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("unregisteredValueTypeConversion.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+    UnregisteredValueTypeHandler *handler = qobject_cast<UnregisteredValueTypeHandler *>(o.data());
+    Q_ASSERT(handler);
+    QCOMPARE(handler->consumed, 2);
+    QCOMPARE(handler->gadgeted, 1);
+}
+
+void tst_qqmllanguage::retainThis()
+{
+    QQmlEngine e;
+    const QUrl url = testFileUrl("retainThis.qml");
+    QQmlComponent c(&e, url);
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    const QString warning = u"Calling C++ methods with 'this' objects different "
+                            "from the one they were retrieved from is broken, due to "
+                            "historical reasons. The original object is used as 'this' "
+                            "object. You can allow the given 'this' object to be used "
+                            "by setting 'pragma NativeMethodBehavior: AcceptThisObject'"_s;
+
+    // Both cases objA because we retain the thisObject.
+    for (int i = 0; i < 2; ++i) {
+        QTest::ignoreMessage(QtWarningMsg, qPrintable(url.toString() + u":12: "_s + warning));
+        QTest::ignoreMessage(QtDebugMsg, "objA says hello");
+        QTest::ignoreMessage(QtWarningMsg, qPrintable(url.toString() + u":13: "_s + warning));
+        QTest::ignoreMessage(QtDebugMsg, "objA says 5 + 6 = 11");
+    }
+
+    QTest::ignoreMessage(QtWarningMsg, qPrintable(url.toString() + u":22: "_s + warning));
+    QTest::ignoreMessage(QtDebugMsg, "objA says hello");
+    QTest::ignoreMessage(QtWarningMsg, qPrintable(url.toString() + u":22: "_s + warning));
+    QTest::ignoreMessage(QtDebugMsg, "objB says hello");
+
+    QTest::ignoreMessage(QtDebugMsg, "objC says 7 + 7 = 14");
+    QTest::ignoreMessage(QtWarningMsg, qPrintable(url.toString() + u":32: "_s + warning));
+    QTest::ignoreMessage(QtDebugMsg, "objB says 7 + 7 = 14");
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
 }
 
 QTEST_MAIN(tst_qqmllanguage)

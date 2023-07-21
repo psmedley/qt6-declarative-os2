@@ -1247,7 +1247,7 @@ function(_qt_internal_qml_add_qmltc_file_mapping_resource qrc_file target qml_fi
     set(${qrc_file} ${generated_qrc_file} PARENT_SCOPE)
 endfunction()
 
-# Compile Qml files (.qml) to C++ source files with Qml Type Compiler (qmltc).
+# Compile Qml files (.qml) to C++ source files with QML type compiler (qmltc).
 function(_qt_internal_target_enable_qmltc target)
     set(args_option "")
     set(args_single NAMESPACE)
@@ -2129,6 +2129,12 @@ function(qt6_target_qml_sources target)
 
                 get_source_file_property(qml_file_singleton ${qml_file_src} QT_QML_SINGLETON_TYPE)
                 get_source_file_property(qml_file_internal  ${qml_file_src} QT_QML_INTERNAL_TYPE)
+
+                if (qml_file_singleton AND qml_file_internal)
+                   message(FATAL_ERROR
+                       "${qml_file_src} is marked as both internal and as a "
+                       "singleton, but singletons cannot be internal!")
+                endif()
 
                 if (NOT qml_file_versions)
                     set(qml_file_versions ${qml_module_files_versions})
@@ -3034,6 +3040,7 @@ function(qt6_generate_deploy_qml_app_script)
     set(no_value_options
         NO_UNSUPPORTED_PLATFORM_ERROR
         NO_TRANSLATIONS
+        NO_COMPILER_RUNTIME
         MACOS_BUNDLE_POST_BUILD
         DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
     )
@@ -3116,6 +3123,9 @@ function(qt6_generate_deploy_qml_app_script)
     set(common_deploy_args "")
     if(arg_NO_TRANSLATIONS)
         string(APPEND common_deploy_args "    NO_TRANSLATIONS\n")
+    endif()
+    if(arg_NO_COMPILER_RUNTIME)
+        string(APPEND common_deploy_args "    NO_COMPILER_RUNTIME\n")
     endif()
 
     # Forward the arguments that are exactly the same for qt_deploy_runtime_dependencies.

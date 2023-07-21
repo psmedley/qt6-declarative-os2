@@ -12,6 +12,7 @@
 #include "private/qv4globalobject_p.h"
 #include "private/qv4script_p.h"
 #include "private/qv4runtime_p.h"
+#include <private/qv4dateobject_p.h>
 #include <private/qqmlbuiltinfunctions_p.h>
 #include <private/qqmldebugconnector_p.h>
 #include <private/qv4qobjectwrapper_p.h>
@@ -529,7 +530,7 @@ QJSValue QJSEngine::evaluate(const QString& program, const QString& fileName, in
             for (auto &&frame: trace)
                 exceptionStackTrace->push_back(QString::fromLatin1("%1:%2:%3:%4").arg(
                                           frame.function,
-                                          QString::number(frame.line),
+                                          QString::number(qAbs(frame.line)),
                                           QString::number(frame.column),
                                           frame.source)
                                       );
@@ -947,6 +948,16 @@ QString QJSEngine::convertQObjectToString(QObject *object)
 {
     return QV4::QObjectWrapper::objectToString(
                 handle(), object ? object->metaObject() : nullptr, object);
+}
+
+QString QJSEngine::convertDateTimeToString(const QDateTime &dateTime)
+{
+    return QV4::DateObject::dateTimeToString(dateTime, handle());
+}
+
+QDate QJSEngine::convertDateTimeToDate(const QDateTime &dateTime)
+{
+    return QV4::DateObject::dateTimeToDate(dateTime);
 }
 
 /*! \fn template <typename T> QJSValue QJSEngine::toScriptValue(const T &value)

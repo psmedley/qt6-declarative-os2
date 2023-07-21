@@ -9,6 +9,7 @@
 #include <QtGui/qpa/qplatformintegration.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/qquickview.h>
+#include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuick/private/qquickpalette_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
@@ -25,6 +26,8 @@
 #include <QtQuickTemplates2/private/qquickstackview_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p_p.h>
 #include <QtQuickTemplates2/private/qquicktooltip_p.h>
+#include <QtQuickTemplates2/private/qquickdrawer_p.h>
+#include <QtQuick/private/qquicktextedit_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
 
@@ -92,6 +95,8 @@ private slots:
     void relativeZOrder();
     void mirroredCombobox();
     void rotatedCombobox();
+    void focusMultiplePopup();
+    void doubleClickInMouseArea();
 
 private:
     static bool hasWindowActivation();
@@ -2147,6 +2152,71 @@ void tst_QQuickPopup::rotatedCombobox()
 
         popup->close();
     }
+}
+
+void tst_QQuickPopup::focusMultiplePopup()
+{
+    QQuickApplicationHelper helper(this, "multiplepopup.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *rootItem = window->findChild<QQuickItem *>("rootItem");
+    QTRY_VERIFY(rootItem->hasFocus());
+
+    auto *buttonPopup = window->findChild<QQuickPopup *>("popup1");
+    buttonPopup->open();
+    QTRY_VERIFY(buttonPopup->isOpened());
+    QVERIFY(!rootItem->hasFocus());
+    QVERIFY(buttonPopup->hasFocus());
+
+    auto *textEditPopup = window->findChild<QQuickPopup *>("popup2");
+    textEditPopup->open();
+    QTRY_VERIFY(textEditPopup->isOpened());
+    QVERIFY(textEditPopup->hasFocus());
+
+    auto *drawerPopup = window->findChild<QQuickPopup *>("popup3");
+    drawerPopup->open();
+    QTRY_VERIFY(drawerPopup->isVisible());
+    QVERIFY(drawerPopup->hasFocus());
+
+    auto *drawer = window->findChild<QQuickDrawer *>("drawer");
+    drawer->close();
+    QTRY_VERIFY(!drawer->isVisible());
+    drawerPopup->close();
+    QTRY_VERIFY(!drawerPopup->isVisible());
+    QVERIFY(textEditPopup->hasFocus());
+
+    textEditPopup->close();
+    QTRY_VERIFY(!textEditPopup->isVisible());
+    QVERIFY(buttonPopup->hasFocus());
+
+    buttonPopup->close();
+    QTRY_VERIFY(!buttonPopup->isVisible());
+
+    QVERIFY(rootItem->hasFocus());
+}
+
+void tst_QQuickPopup::doubleClickInMouseArea()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("doubleClickInMouseArea.qml")));
+
+    auto *ma = window.rootObject()->findChild<QQuickMouseArea *>();
+    QVERIFY(ma);
+    QSignalSpy doubleClickSpy(ma, &QQuickMouseArea::doubleClicked);
+    QSignalSpy longPressSpy(ma, &QQuickMouseArea::pressAndHold);
+    QPoint p = ma->mapToScene(ma->boundingRect().center()).toPoint();
+
+    // check with normal double click
+    QTest::mouseDClick(&window, Qt::LeftButton, Qt::NoModifier, p);
+    QCOMPARE(doubleClickSpy.count(), 1);
+
+    // wait enough time for a wrong long press to happen
+    QTest::qWait(QGuiApplication::styleHints()->mousePressAndHoldInterval() + 10);
+    QCOMPARE(longPressSpy.count(), 0);
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickPopup)

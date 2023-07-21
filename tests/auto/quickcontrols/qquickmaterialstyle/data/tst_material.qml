@@ -1070,7 +1070,7 @@ TestCase {
         // The placeholder text should always float at a fixed position at the top
         // when text has been set, even when it's in a Flickable.
         flickable.contentY = -50
-        compare(placeholderTextItem.y, -Math.floor(placeholderTextItem.largestHeight / 2))
+        compare(placeholderTextItem.y, -placeholderTextItem.largestHeight / 2)
         flickable.contentY = 0
 
         // When the text is cleared, it shouldn't float.
@@ -1081,5 +1081,69 @@ TestCase {
         let textContainer = flickable.children[1]
         verify(textContainer as MaterialImpl.MaterialTextContainer)
         compare(textContainer.focusAnimationProgress, 0)
+    }
+
+    function test_outlinedTextAreaInFlickablePlaceholderTextClipping() {
+        let flickable = createTemporaryObject(flickableTextAreaComponent, testCase)
+        verify(flickable)
+
+        let textArea = flickable.TextArea.flickable
+        verify(textArea)
+        let placeholderTextItem = flickable.children[2]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        compare(textArea.Material.containerStyle, Material.Outlined)
+        // The Flickable doesn't clip at the moment so topInset should be 0.
+        compare(textArea.topInset, 0)
+        compare(textArea.topPadding, (textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+
+        // topInset should now be half the placeholder text's height,
+        // and topPadding adjusted accordingly.
+        flickable.clip = true
+        compare(textArea.topInset, placeholderTextItem.largestHeight / 2)
+        compare(textArea.topPadding, ((textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2) + textArea.topInset)
+
+        // When the text is cleared, the placeholder text shouldn't float, but it should still be accounted for
+        // to avoid it causing jumps in layout sizes, for example.
+        const initialText = textArea.text
+        textArea.text = ""
+        compare(textArea.topPadding, ((textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2) + textArea.topInset)
+
+        flickable.clip = false
+        compare(textArea.topInset, 0)
+        compare(textArea.topPadding, (textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+    }
+
+    function test_outlinedTextAreaPlaceholderTextClipping() {
+        let textArea = createTemporaryObject(textAreaComponent, testCase, {
+            placeholderText: "Type something",
+            text: "Text"
+        })
+        verify(textArea)
+        let placeholderTextItem = textArea.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        compare(textArea.topInset, 0)
+        compare(textArea.topPadding, (textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2)
+
+        // topInset should now be half the placeholder text's height, and topPadding adjusted accordingly.
+        textArea.clip = true
+        compare(textArea.topInset, placeholderTextItem.largestHeight / 2)
+        compare(textArea.topPadding, ((textArea.implicitBackgroundHeight - placeholderTextItem.largestHeight) / 2) + textArea.topInset)
+    }
+
+    function test_outlinedTextFieldPlaceholderTextClipping() {
+        let textField = createTemporaryObject(textFieldComponent, testCase, {
+            placeholderText: "Type something",
+            text: "Text"
+        })
+        verify(textField)
+        let placeholderTextItem = textField.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        compare(textField.topInset, 0)
+        compare(textField.topPadding, textField.Material.textFieldVerticalPadding)
+
+        // topInset should now be half the placeholder text's height, and topPadding adjusted accordingly.
+        textField.clip = true
+        compare(textField.topInset, placeholderTextItem.largestHeight / 2)
+        compare(textField.topPadding, textField.Material.textFieldVerticalPadding + textField.topInset)
     }
 }

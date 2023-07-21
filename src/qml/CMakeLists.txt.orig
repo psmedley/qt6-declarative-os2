@@ -267,6 +267,7 @@ qt_internal_add_qml_module(Qml
         qml/qqmlboundsignal.cpp qml/qqmlboundsignal_p.h
         qml/qqmlbuiltinfunctions.cpp qml/qqmlbuiltinfunctions_p.h
         qml/qqmlcomponent.cpp qml/qqmlcomponent.h qml/qqmlcomponent_p.h
+        qml/qqmlcomponentandaliasresolver_p.h
         qml/qqmlcomponentattached_p.h
         qml/qqmlcontext.cpp qml/qqmlcontext.h qml/qqmlcontext_p.h
         qml/qqmlcontextdata.cpp qml/qqmlcontextdata_p.h
@@ -378,6 +379,7 @@ qt_internal_add_qml_module(Qml
         WTFReportBacktrace=qmlWTFReportBacktrace
         WTF_EXPORT_PRIVATE= # special case
     INCLUDE_DIRECTORIES
+        ${CMAKE_CURRENT_BINARY_DIR}/.generated
         ${CMAKE_CURRENT_BINARY_DIR}/compiler
         ${CMAKE_CURRENT_BINARY_DIR}/jsruntime
         ${CMAKE_CURRENT_BINARY_DIR}/memory
@@ -392,7 +394,6 @@ qt_internal_add_qml_module(Qml
         ../3rdparty/masm/stubs/runtime
         ../3rdparty/masm/stubs/wtf
         ../3rdparty/masm/wtf
-        .generated
         compiler
         debugger
         jsruntime
@@ -467,6 +468,12 @@ if(QT_FEATURE_qml_worker_script)
 #    _qt_internal_add_qml_static_plugin_dependency(qmlplugin workerscriptplugin)
     _qt_internal_add_qml_static_plugin_dependency(qmlplugin workersn)
 endif()
+# Same for the QmlMeta qml plugin, otherwise you get
+#  module "QtQuick" version 6.6 cannot be imported because:
+#  module "QtQml" plugin "qmlmetaplugin" not found
+#     import QtQuick
+#     ^
+_qt_internal_add_qml_static_plugin_dependency(qmlplugin QmlMeta)
 
 # special case begin remove the block, handled manually
 # QLALR Grammars:
@@ -727,8 +734,15 @@ qt_internal_extend_target(Qml CONDITION (((NOT c++11 AND NOT ICC) AND (NOT (CLAN
         -Wno-c++0x-compat
 )
 
+qt_internal_generate_tracepoints(Qml qml
+    SOURCES
+        qml/qqmlobjectcreator.cpp
+        qml/qqmlboundsignal.cpp
+        qml/qqmlbinding.cpp
+        qml/qqmltypeloader.cpp
+        jsruntime/qv4vme_moth.cpp
+)
 
-qt_internal_create_tracepoints(Qml qtqml.tracepoints)
 qt_internal_add_docs(Qml
     doc/qtqml.qdocconf
 )
