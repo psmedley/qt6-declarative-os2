@@ -5,6 +5,7 @@
 \page qtqml-cppintegration-overview.html
 \title Overview - QML and C++ Integration
 \brief Highlights important points about integrating C++ with QML.
+\ingroup explanations-programminglanguages
 
 QML is designed to be easily extensible through C++ code. The classes in the \l {Qt QML} module
 enable QML objects to be loaded and manipulated from C++, and the nature of QML engine's
@@ -122,7 +123,8 @@ dynamically load and introspect objects through the Qt meta object system.
 \include warning.qdocinc
 
 For more information on accessing QML objects from C++, see the documentation on
-\l{qtqml-cppintegration-interactqmlfromcpp.html}{Interacting with QML Objects from C++}.
+\l{qtqml-cppintegration-interactqmlfromcpp.html}{Interacting with QML Objects from C++},
+and the \l {Exposing Data from C++ to QML} section of the Best Practices page.
 
 
 \section1 Data Type Conversion Between QML and C++

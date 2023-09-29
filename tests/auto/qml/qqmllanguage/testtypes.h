@@ -18,6 +18,8 @@
 #include <QtQml/qqmlpropertyvaluesource.h>
 #include <QtQml/qqmlscriptstring.h>
 #include <QtQml/qqmlproperty.h>
+
+#include <private/qqmlcomponentattached_p.h>
 #include <private/qqmlcustomparser_p.h>
 
 QVariant myCustomVariantTypeConverter(const QString &data);
@@ -2476,6 +2478,107 @@ public:
     Q_INVOKABLE void sum(int a, int b)
     {
         qDebug().noquote() << objectName() << QString("says %1 + %2 = %3").arg(a).arg(b).arg(a + b);
+    }
+};
+
+class Attachment : public QObject {
+    Q_OBJECT
+public:
+    Attachment(QObject *parent = nullptr) : QObject(parent) {}
+};
+
+class AttachedInCtor : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_ATTACHED(Attachment)
+
+public:
+    AttachedInCtor(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+        attached = qmlAttachedPropertiesObject<AttachedInCtor>(this, true);
+    }
+
+    static Attachment *qmlAttachedProperties(QObject *object) {
+        return new Attachment(object);
+    }
+
+    QObject *attached = nullptr;
+};
+
+class BirthdayParty : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QQmlListProperty<QObject> guests READ guests)
+    Q_CLASSINFO("DefaultProperty", "guests")
+    QML_ELEMENT
+
+public:
+    using QObject::QObject;
+    QQmlListProperty<QObject> guests() { return {this, &m_guests}; }
+    qsizetype guestCount() const { return m_guests.count(); }
+    QObject *guest(qsizetype i) const { return m_guests.at(i); }
+
+private:
+    QList<QObject *> m_guests;
+};
+
+class ByteArrayReceiver : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    QList<QByteArray> byteArrays;
+
+    Q_INVOKABLE void byteArrayTest(const QByteArray &ba)
+    {
+        byteArrays.push_back(ba);
+    }
+};
+
+class CounterAttachedBaseType: public QObject
+{
+    Q_OBJECT
+    QML_ANONYMOUS
+    Q_PROPERTY (int value READ value NOTIFY valueChanged)
+
+public:
+    CounterAttachedBaseType(QObject *parent = nullptr) : QObject(parent) {}
+
+    int value() { return m_value; }
+    Q_SIGNAL void valueChanged();
+
+protected:
+    int m_value = 98;
+};
+
+
+class CounterAttachedType: public CounterAttachedBaseType
+{
+    Q_OBJECT
+    QML_ANONYMOUS
+
+public:
+    CounterAttachedType(QObject *parent = nullptr) : CounterAttachedBaseType(parent) {}
+
+    Q_INVOKABLE void increase() {
+        ++m_value;
+        Q_EMIT valueChanged();
+    }
+};
+
+class Counter : public QObject
+{
+    Q_OBJECT
+    QML_ATTACHED(CounterAttachedBaseType)
+    QML_ELEMENT
+
+public:
+    static CounterAttachedBaseType *qmlAttachedProperties(QObject *o)
+    {
+        return new CounterAttachedType(o);
     }
 };
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
 //! [0]
-import QtQuick 2.0
+import QtQuick
 
 Rectangle {
     width: 240; height: 200
@@ -12,15 +12,20 @@ Rectangle {
         id: delegate
         Column {
             id: wrapper
+
+            required property url icon
+            required property string name
+
             opacity: PathView.isCurrentItem ? 1 : 0.5
+
             Image {
                 anchors.horizontalCenter: nameText.horizontalCenter
                 width: 64; height: 64
-                source: icon
+                source: wrapper.icon
             }
             Text {
                 id: nameText
-                text: name
+                text: wrapper.name
                 font.pointSize: 16
             }
         }

@@ -1089,7 +1089,8 @@ QQuickItem * QQuickListViewPrivate::getSectionItem(const QString &section)
             } else if (!reuseExistingContext) {
                 context->setContextProperty(QLatin1String("section"), section);
             }
-            QQml_setParent_noEvent(context, nobj);
+            if (!reuseExistingContext)
+                QQml_setParent_noEvent(context, nobj);
             sectionItem = qobject_cast<QQuickItem *>(nobj);
             if (!sectionItem) {
                 delete nobj;
@@ -2028,6 +2029,11 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     ListView are laid out horizontally or vertically. List views are inherently
     flickable because ListView inherits from \l Flickable.
 
+    \note ListView will only load as many delegate items as needed to fill up the view.
+    Items outside of the view will not be loaded unless a sufficient \l cacheBuffer has
+    been set. Hence, a ListView with zero width or height might not load any delegate
+    items at all.
+
     \section1 Example Usage
 
     The following example shows the definition of a simple list model defined
@@ -2207,6 +2213,10 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     \note While an item is in the pool, it might still be alive and respond
     to connected signals and bindings.
 
+    \note For an item to be pooled, it needs to be completely flicked out of the bounds
+    of the view, \e including the extra margins set with \l {ListView::}{cacheBuffer.}
+    Some items will also never be pooled or reused, such as \l currentItem.
+
     The following example shows a delegate that animates a spinning rectangle. When
     it is pooled, the animation is temporarily paused:
 
@@ -2217,14 +2227,14 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     \section1 Variable Delegate Size and Section Labels
 
     Variable delegate sizes might lead to resizing and skipping of any attached
-    \l Scrollbar. This is because ListView estimates its content size from
-    allocated items (usually only the visible items, the rest is assumed to be of
+    \l {ScrollBar}. This is because ListView estimates its content size from
+    allocated items (usually only the visible items, the rest are assumed to be of
     similar size), and variable delegate sizes prevent an accurate estimation. To
-    reduce this effect, \l ItemView::cacheBuffer can be set to higher values,
+    reduce this effect, \l {ListView::}{cacheBuffer} can be set to higher values,
     effectively creating more items and improving the size estimate of unallocated
-    items, at the expense of additional memory usage. Sections have the same effect
-    because they attach and elongate the section label to the first item within
-    the section.
+    items, at the expense of additional memory usage. \l{ListView::section}{Sections}
+    have the same effect because they attach and elongate the section label to the
+    first item within the section.
 */
 QQuickListView::QQuickListView(QQuickItem *parent)
     : QQuickItemView(*(new QQuickListViewPrivate), parent)
@@ -2539,17 +2549,11 @@ void QQuickListView::setSpacing(qreal spacing)
     Possible values:
 
     \value ListView.Horizontal  Items are laid out horizontally
+    \br
+    \inlineimage ListViewHorizontal.png
     \value ListView.Vertical    (default) Items are laid out vertically
-
-    \table
-    \row
-    \li Horizontal orientation:
-    \image ListViewHorizontal.png
-
-    \row
-    \li Vertical orientation:
-    \image listview-highlight.png
-    \endtable
+    \br
+    \inlineimage listview-highlight.png
 
     \sa {Flickable Direction}
 */

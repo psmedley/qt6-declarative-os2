@@ -367,8 +367,8 @@ void QQmlDelegateModelPrivate::connectToAbstractItemModel()
                       q, QQmlDelegateModel, SLOT(_q_dataChanged(QModelIndex,QModelIndex,QVector<int>)));
     qmlobject_connect(aim, QAbstractItemModel, SIGNAL(rowsMoved(QModelIndex,int,int,QModelIndex,int)),
                       q, QQmlDelegateModel, SLOT(_q_rowsMoved(QModelIndex,int,int,QModelIndex,int)));
-    qmlobject_connect(aim, QAbstractItemModel, SIGNAL(modelReset()),
-                      q, QQmlDelegateModel, SLOT(_q_modelReset()));
+
+    QObject::connect(aim, &QAbstractItemModel::modelAboutToBeReset, q, &QQmlDelegateModel::_q_modelAboutToBeReset);
     qmlobject_connect(aim, QAbstractItemModel, SIGNAL(layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
                       q, QQmlDelegateModel, SLOT(_q_layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
 }
@@ -397,8 +397,7 @@ void QQmlDelegateModelPrivate::disconnectFromAbstractItemModel()
                         q, SLOT(_q_dataChanged(QModelIndex,QModelIndex,QVector<int>)));
     QObject::disconnect(aim, SIGNAL(rowsMoved(QModelIndex,int,int,QModelIndex,int)),
                         q, SLOT(_q_rowsMoved(QModelIndex,int,int,QModelIndex,int)));
-    QObject::disconnect(aim, SIGNAL(modelReset()),
-                        q, SLOT(_q_modelReset()));
+    QObject::disconnect(aim, &QAbstractItemModel::modelAboutToBeReset, q, &QQmlDelegateModel::_q_modelAboutToBeReset);
     QObject::disconnect(aim, SIGNAL(layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)),
                         q, SLOT(_q_layoutChanged(QList<QPersistentModelIndex>,QAbstractItemModel::LayoutChangeHint)));
 }
@@ -1203,6 +1202,9 @@ QObject *QQmlDelegateModelPrivate::object(Compositor::Group group, int index, QQ
                 addCacheItem(cacheItem, it);
                 reuseItem(cacheItem, index, flags);
                 cacheItem->referenceObject();
+
+                if (index == m_compositor.count(group) - 1)
+                    requestMoreIfNecessary();
                 return cacheItem->object;
             }
 
@@ -1285,7 +1287,9 @@ QObject *QQmlDelegateModelPrivate::object(Compositor::Group group, int index, QQ
     if (cacheItem->object && (!cacheItem->incubationTask || isDoneIncubating(cacheItem->incubationTask->status())))
         return cacheItem->object;
 
-    cacheItem->releaseObject();
+    if (cacheItem->objectRef > 0)
+        cacheItem->releaseObject();
+
     if (!cacheItem->isReferenced()) {
         removeCacheItem(cacheItem);
         delete cacheItem;
@@ -1602,8 +1606,8 @@ void QQmlDelegateModelPrivate::itemsRemoved(
 
         if (movedItems && remove.isMove()) {
             movedItems->insert(remove.moveId, m_cache.mid(remove.cacheIndex(), remove.count));
-            QList<QQmlDelegateModelItem *>::iterator begin = m_cache.begin() + remove.cacheIndex();
-            QList<QQmlDelegateModelItem *>::iterator end = begin + remove.count;
+            QList<QQmlDelegateModelItem *>::const_iterator begin = m_cache.constBegin() + remove.cacheIndex();
+            QList<QQmlDelegateModelItem *>::const_iterator end = begin + remove.count;
             m_cache.erase(begin, end);
         } else {
             for (; cacheIndex < remove.cacheIndex() + remove.count - removedCache; ++cacheIndex) {
@@ -1617,7 +1621,7 @@ void QQmlDelegateModelPrivate::itemsRemoved(
                         emitDestroyingItem(object);
                     cacheItem->scriptRef -= 1;
                 }
-                if (!cacheItem->isReferenced()) {
+                if (!cacheItem->isReferenced() && !remove.inGroup(Compositor::Persisted)) {
                     m_compositor.clearFlags(Compositor::Cache, cacheIndex, 1, Compositor::CacheFlag);
                     m_cache.removeAt(cacheIndex);
                     delete cacheItem;
@@ -1845,7 +1849,29 @@ void QQmlDelegateModelPrivate::emitChanges()
     }
 }
 
-void QQmlDelegateModel::_q_modelReset()
+void QQmlDelegateModel::_q_modelAboutToBeReset()
+{
+    auto aim = static_cast<QAbstractItemModel *>(sender());
+    auto oldRoleNames = aim->roleNames();
+    // this relies on the fact that modelAboutToBeReset must be followed
+    // by a modelReset signal before any further modelAboutToBeReset can occur
+    QObject::connect(aim, &QAbstractItemModel::modelReset, this, [&, oldRoleNames](){
+        auto aim = static_cast<QAbstractItemModel *>(sender());
+        if (oldRoleNames == aim->roleNames()) {
+            // if the rolenames stayed the same (most common case), then we don't have
+            // to throw away all the setup that we did
+            handleModelReset();
+        } else {
+            // If they did change, we give up and just start from scratch via setMode
+            setModel(QVariant::fromValue(model()));
+            // but we still have to call handleModelReset, otherwise views will
+            // not refresh
+            handleModelReset();
+        }
+    }, Qt::SingleShotConnection);
+}
+
+void QQmlDelegateModel::handleModelReset()
 {
     Q_D(QQmlDelegateModel);
     if (!d->m_delegate)
@@ -2010,7 +2036,7 @@ void QQmlDelegateModel::_q_layoutChanged(const QList<QPersistentModelIndex> &par
         // Ignored
     } else {
         // We don't know what's going on, so reset the model
-        _q_modelReset();
+        handleModelReset();
     }
 }
 

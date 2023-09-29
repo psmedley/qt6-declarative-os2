@@ -635,13 +635,6 @@ void QQuickWindowPrivate::renderSceneGraph()
     emit q->beforeRendering();
     runAndClearJobs(&beforeRenderingJobs);
 
-    QSGAbstractRenderer::MatrixTransformFlags matrixFlags;
-    bool flipY = rhi ? !rhi->isYUpInNDC() : false;
-    if (!customRenderTarget.isNull() && customRenderTarget.mirrorVertically())
-        flipY = !flipY;
-    if (flipY)
-        matrixFlags |= QSGAbstractRenderer::MatrixTransformFlipY;
-
     const qreal devicePixelRatio = q->effectiveDevicePixelRatio();
     QSize pixelSize;
     if (redirect.rt.renderTarget)
@@ -656,7 +649,16 @@ void QQuickWindowPrivate::renderSceneGraph()
     renderer->setDevicePixelRatio(devicePixelRatio);
     renderer->setDeviceRect(QRect(QPoint(0, 0), pixelSize));
     renderer->setViewportRect(QRect(QPoint(0, 0), pixelSize));
-    renderer->setProjectionMatrixToRect(QRectF(QPointF(0, 0), pixelSize / devicePixelRatio), matrixFlags);
+
+    QSGAbstractRenderer::MatrixTransformFlags matrixFlags;
+    bool flipY = rhi ? !rhi->isYUpInNDC() : false;
+    if (!customRenderTarget.isNull() && customRenderTarget.mirrorVertically())
+        flipY = !flipY;
+    if (flipY)
+        matrixFlags |= QSGAbstractRenderer::MatrixTransformFlipY;
+
+    const QRectF rect(QPointF(0, 0), pixelSize / devicePixelRatio);
+    renderer->setProjectionMatrixToRect(rect, matrixFlags, rhi && !rhi->isYUpInNDC());
 
     context->renderNextFrame(renderer);
 
@@ -1338,6 +1340,41 @@ QObject *QQuickWindow::focusObject() const
     return const_cast<QQuickWindow*>(this);
 }
 
+/*!
+    \internal
+
+    Clears all exclusive and passive grabs for the points in \a pointerEvent.
+
+    We never allow any kind of grab to persist after release, unless we're waiting
+    for a synth event from QtGui (as with most tablet events), so for points that
+    are fully released, the grab is cleared.
+
+    Called when QQuickWindow::event dispatches events, or when the QQuickOverlay
+    has filtered an event so that it bypasses normal delivery.
+*/
+void QQuickWindowPrivate::clearGrabbers(QPointerEvent *pointerEvent)
+{
+    if (pointerEvent->isEndEvent()
+        && !(QQuickDeliveryAgentPrivate::isTabletEvent(pointerEvent)
+             && (qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents)
+                 || QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse))) {
+        if (pointerEvent->isSinglePointEvent()) {
+            if (static_cast<QSinglePointEvent *>(pointerEvent)->buttons() == Qt::NoButton) {
+                auto &firstPt = pointerEvent->point(0);
+                pointerEvent->setExclusiveGrabber(firstPt, nullptr);
+                pointerEvent->clearPassiveGrabbers(firstPt);
+            }
+        } else {
+            for (auto &point : pointerEvent->points()) {
+                if (point.state() == QEventPoint::State::Released) {
+                    pointerEvent->setExclusiveGrabber(point, nullptr);
+                    pointerEvent->clearPassiveGrabbers(point);
+                }
+            }
+        }
+    }
+}
+
 /*! \reimp */
 bool QQuickWindow::event(QEvent *event)
 {
@@ -1480,26 +1517,7 @@ bool QQuickWindow::event(QEvent *event)
         // or fix QTBUG-90851 so that the event always has points?
         bool ret = (da && da->event(event));
 
-        // failsafe: never allow any kind of grab to persist after release,
-        // unless we're waiting for a synth event from QtGui (as with most tablet events)
-        if (pe->isEndEvent() && !(QQuickDeliveryAgentPrivate::isTabletEvent(pe) &&
-                                  (qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents) ||
-                                   QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse))) {
-            if (pe->isSinglePointEvent()) {
-                if (static_cast<QSinglePointEvent *>(pe)->buttons() == Qt::NoButton) {
-                    auto &firstPt = pe->point(0);
-                    pe->setExclusiveGrabber(firstPt, nullptr);
-                    pe->clearPassiveGrabbers(firstPt);
-                }
-            } else {
-                for (auto &point : pe->points()) {
-                    if (point.state() == QEventPoint::State::Released) {
-                        pe->setExclusiveGrabber(point, nullptr);
-                        pe->clearPassiveGrabbers(point);
-                    }
-                }
-            }
-        }
+        d->clearGrabbers(pe);
 
         if (ret)
             return true;
@@ -3056,6 +3074,10 @@ QSGTexture *QQuickWindowPrivate::createTextureFromNativeTexture(quint64 nativeOb
     The background color for the window.
 
     Setting this property is more efficient than using a separate Rectangle.
+
+    \note If you set the color to \c "transparent" or to a color with alpha translucency,
+    you should also set suitable \l flags such as \c {flags: Qt.FramelessWindowHint}.
+    Otherwise, window translucency may not be enabled consistently on all platforms.
 */
 
 /*!

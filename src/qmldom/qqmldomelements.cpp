@@ -713,7 +713,7 @@ void QmlObject::writeOut(DomItem &self, OutWriter &ow, QString onTarget) const
         code = qmlFilePtr->code();
     ow.writeRegion(u"name", name());
     if (!onTarget.isEmpty())
-        ow.space().writeRegion(u"on", u"on").space().writeRegion(u"onTarget", onTarget).space();
+        ow.space().writeRegion(u"on", u"on").space().writeRegion(u"onTarget", onTarget);
     ow.writeRegion(u"leftBrace", u" {").newline();
     int baseIndent = ow.increaseIndent();
     int spacerId = 0;
@@ -1891,6 +1891,10 @@ void Pragma::writeOut(DomItem &, OutWriter &ow) const
 {
     ow.ensureNewline();
     ow.writeRegion(u"pragma").space().writeRegion(u"name", name);
+    if (!value.isEmpty()) {
+        ow.writeRegion(u"colon", u": ");
+        ow.writeRegion(u"value", value);
+    }
     ow.ensureNewline();
 }
 

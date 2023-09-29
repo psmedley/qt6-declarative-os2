@@ -34,6 +34,32 @@ namespace QQuickVisualTestUtils
     void moveMouseAway(QQuickWindow *window);
     void centerOnScreen(QQuickWindow *window);
 
+    template<typename F>
+    void forEachStep(int steps, F &&func)
+    {
+        for (int i = 0; i < steps; ++i) {
+            const qreal progress = qreal(i) / steps;
+            func(progress);
+        }
+    }
+
+    [[nodiscard]] QPoint lerpPoints(const QPoint &point1, const QPoint &point2, qreal t);
+
+    class [[nodiscard]] PointLerper
+    {
+    public:
+        PointLerper(QQuickWindow *window,
+            const QPointingDevice *pointingDevice = QPointingDevice::primaryPointingDevice());
+
+        void move(const QPoint &pos, int steps = 10, int delayInMilliseconds = 1);
+        void move(int x, int y, int steps = 10, int delayInMilliseconds = 1);
+
+    private:
+        QQuickWindow *mWindow = nullptr;
+        const QPointingDevice *mPointingDevice = nullptr;
+        QPoint mFrom;
+    };
+
     [[nodiscard]] bool delegateVisible(QQuickItem *item);
 
     /*
@@ -189,6 +215,10 @@ namespace QQuickVisualTestUtils
         QPointer<QWindow> m_window;
         Qt::KeyboardModifiers m_modifiers;
     };
+
+    QPoint mapCenterToWindow(const QQuickItem *item);
+    QPoint mapToWindow(const QQuickItem *item, qreal relativeX, qreal relativeY);
+    QPoint mapToWindow(const QQuickItem *item, const QPointF &relativePos);
 }
 
 #define QQUICK_VERIFY_POLISH(item) \

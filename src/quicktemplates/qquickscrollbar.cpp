@@ -409,13 +409,11 @@ void QQuickScrollBar::setSize(qreal size)
     size = qBound(0.0, size, 1.0);
     if (qFuzzyCompare(d->size, size))
         return;
-    d->size = size;
 
-    auto oldVisualArea = d->visualArea();
-    d->size = qBound(0.0, size, 1.0);
+    const auto oldVisualArea = d->visualArea();
+    d->size = size;
     if (d->size + d->position > 1.0) {
-        setPosition(1.0 - d->size);
-        oldVisualArea = d->visualArea();
+        d->setPosition(1.0 - d->size, false);
     }
 
     if (isComponentComplete())
@@ -450,15 +448,22 @@ qreal QQuickScrollBar::position() const
 void QQuickScrollBar::setPosition(qreal position)
 {
     Q_D(QQuickScrollBar);
-    if (!qt_is_finite(position) || qFuzzyCompare(d->position, position))
+    d->setPosition(position);
+}
+
+void QQuickScrollBarPrivate::setPosition(qreal newPosition, bool notifyVisualChange)
+{
+    Q_Q(QQuickScrollBar);
+    if (!qt_is_finite(newPosition) || qFuzzyCompare(position, newPosition))
         return;
 
-    auto oldVisualArea = d->visualArea();
-    d->position = position;
-    if (isComponentComplete())
-        d->resizeContent();
-    emit positionChanged();
-    d->visualAreaChange(d->visualArea(), oldVisualArea);
+    auto oldVisualArea = visualArea();
+    position = newPosition;
+    if (q->isComponentComplete())
+        resizeContent();
+    emit q->positionChanged();
+    if (notifyVisualChange)
+        visualAreaChange(visualArea(), oldVisualArea);
 }
 
 /*!
@@ -656,7 +661,17 @@ void QQuickScrollBar::resetInteractive()
 
     The following example keeps the vertical scroll bar always visible:
 
-    \snippet qtquickcontrols-scrollbar-policy.qml 1
+    \snippet qtquickcontrols-scrollbar-policy-alwayson.qml 1
+
+    Styles may use this property in combination with the \l active property
+    in order to implement transient scroll bars. Transient scroll bars are
+    hidden shortly after the last interaction event (hover or press). This
+    is typically done by animating the opacity of the scroll bar. To override
+    this behavior, set the policy to \c ScrollBar.AlwaysOn or
+    \c ScrollBar.AlwaysOff, depending on the size of the content compared to
+    its view. For example, for a vertical \l ListView:
+
+    \snippet qtquickcontrols-scrollbar-policy-alwayson-when-needed.qml 1
 */
 QQuickScrollBar::Policy QQuickScrollBar::policy() const
 {

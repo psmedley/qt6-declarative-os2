@@ -516,21 +516,6 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
         )
     endif()
 
-    set(ensure_set_properties
-        QT_QML_MODULE_PLUGIN_TYPES_FILE
-        QT_QML_MODULE_RESOURCES       # Original files as provided by the project (absolute)
-        QT_QML_MODULE_RESOURCE_PATHS  # By qmlcachegen (resource paths)
-        QT_QMLCACHEGEN_DIRECT_CALLS
-        QT_QMLCACHEGEN_EXECUTABLE
-        QT_QMLCACHEGEN_ARGUMENTS
-    )
-    foreach(prop IN LISTS ensure_set_properties)
-        get_target_property(val ${target} ${prop})
-        if("${val}" MATCHES "-NOTFOUND$")
-            set_target_properties(${target} PROPERTIES ${prop} "")
-        endif()
-    endforeach()
-
     if(NOT arg_NO_GENERATE_QMLTYPES)
         set(type_registration_extra_args "")
         if(arg_NAMESPACE)
@@ -683,6 +668,23 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     if(arg_OUTPUT_TARGETS)
         set(${arg_OUTPUT_TARGETS} ${output_targets} PARENT_SCOPE)
     endif()
+
+
+    set(ensure_set_properties
+        QT_QML_MODULE_PLUGIN_TYPES_FILE
+        QT_QML_MODULE_QML_FILES
+        QT_QML_MODULE_RESOURCES       # Original files as provided by the project (absolute)
+        QT_QML_MODULE_RESOURCE_PATHS  # By qmlcachegen (resource paths)
+        QT_QMLCACHEGEN_DIRECT_CALLS
+        QT_QMLCACHEGEN_EXECUTABLE
+        QT_QMLCACHEGEN_ARGUMENTS
+    )
+    foreach(prop IN LISTS ensure_set_properties)
+        get_target_property(val ${target} ${prop})
+        if("${val}" MATCHES "-NOTFOUND$")
+            set_target_properties(${target} PROPERTIES ${prop} "")
+        endif()
+    endforeach()
 
 endfunction()
 
@@ -1987,9 +1989,10 @@ function(qt6_target_qml_sources target)
         endif()
     endif()
 
-    set(non_qml_files)
-    set(output_targets)
-    set(copied_files)
+    set(non_qml_cpp_files "")
+    set(non_qml_files "")
+    set(output_targets "")
+    set(copied_files "")
 
     # We want to set source file properties in the target's own scope if we can.
     # That's the canonical place the properties will be read from.
@@ -2033,14 +2036,16 @@ function(qt6_target_qml_sources target)
                 get_filename_component(file_out_dir ${file_out} DIRECTORY)
                 file(MAKE_DIRECTORY ${file_out_dir})
 
-                if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
-                    # Significantly increases copying speed according to profiling, presumably
-                    # because we bypass process creation.
-                    file(COPY_FILE "${file_absolute}" "${file_out}" ONLY_IF_DIFFERENT)
-                else()
-                    execute_process(COMMAND
-                        ${CMAKE_COMMAND} -E copy_if_different ${file_absolute} ${file_out}
-                    )
+                if(EXISTS "${file_absolute}")
+                    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
+                        # Significantly increases copying speed according to profiling, presumably
+                        # because we bypass process creation.
+                        file(COPY_FILE "${file_absolute}" "${file_out}" ONLY_IF_DIFFERENT)
+                    else()
+                        execute_process(COMMAND
+                            ${CMAKE_COMMAND} -E copy_if_different ${file_absolute} ${file_out}
+                        )
+                    endif()
                 endif()
 
                 add_custom_command(OUTPUT ${file_out}
@@ -2059,7 +2064,11 @@ function(qt6_target_qml_sources target)
         # This is to facilitate updating code that used the earlier tech preview
         # API function qt6_target_qml_files()
         if(NOT qml_file_src MATCHES "\\.(js|mjs|qml)$")
-            list(APPEND non_qml_files ${qml_file_src})
+            if(qml_file_src MATCHES "\\.(cpp|cxx|cc|c|c\\+\\+|h|hh|hxx|hpp|h\\+\\+)")
+                list(APPEND non_qml_cpp_files "${qml_file_src}")
+            else()
+                list(APPEND non_qml_files "${qml_file_src}")
+            endif()
             continue()
         endif()
 
@@ -2247,13 +2256,19 @@ function(qt6_target_qml_sources target)
         _qt_internal_collect_qml_root_paths("${target}" ${arg_QML_FILES})
     endif()
 
-    if(non_qml_files)
-        list(JOIN non_qml_files "\n  " file_list)
-        message(WARNING
-            "Only .qml, .js or .mjs files should be added with QML_FILES. "
-            "The following files should be added with RESOURCES instead:"
-            "\n  ${file_list}"
-        )
+    if(non_qml_files OR non_qml_cpp_files)
+        if(non_qml_cpp_files)
+            list(JOIN non_qml_cpp_files "\n    " file_list)
+            set(wrong_sources "\nwith SOURCES:\n    ${file_list}"
+            )
+        endif()
+        if(non_qml_files)
+            list(JOIN non_qml_files "\n    " file_list)
+            set(wrong_resources "\nwith RESOURCES:\n    ${file_list}")
+        endif()
+
+        message(WARNING "Only .qml, .js or .mjs files should be added with QML_FILES. "
+            "The following files should be added${wrong_sources}${wrong_resources}")
     endif()
 
     if(copied_files OR generated_sources_other_scope)
@@ -2517,28 +2532,6 @@ function(_qt_internal_qml_type_registration target)
         message(FATAL_ERROR "Need target metatypes.json file")
     endif()
 
-    cmake_policy(PUSH)
-
-    _qt_internal_check_depfile_support(has_depfile_support)
-    set(registration_cpp_file_dep_args)
-    if(has_depfile_support)
-        if(POLICY CMP0116)
-            # Without explicitly setting this policy to NEW, we get a warning
-            # even though we ensure there's actually no problem here.
-            # See https://gitlab.kitware.com/cmake/cmake/-/issues/21959
-            cmake_policy(SET CMP0116 NEW)
-            set(relative_to_dir ${CMAKE_CURRENT_BINARY_DIR})
-        else()
-            set(relative_to_dir ${CMAKE_BINARY_DIR})
-        endif()
-        set(dependency_file_cpp "${target_binary_dir}/qmltypes/${type_registration_cpp_file_name}.d")
-        set(registration_cpp_file_dep_args DEPFILE ${dependency_file_cpp})
-        file(RELATIVE_PATH cpp_file_name "${relative_to_dir}" "${type_registration_cpp_file}")
-        file(GENERATE OUTPUT "${dependency_file_cpp}"
-            CONTENT "${cpp_file_name}: $<IF:$<BOOL:${genex_list}>,\\\n$<JOIN:${genex_list}, \\\n>, \\\n>"
-        )
-    endif()
-
     _qt_internal_get_tool_wrapper_script_path(tool_wrapper)
     add_custom_command(
         OUTPUT
@@ -2559,12 +2552,9 @@ function(_qt_internal_qml_type_registration target)
             ${CMAKE_COMMAND} -E make_directory "${generated_marker_dir}"
         COMMAND
             ${CMAKE_COMMAND} -E touch "${generated_marker_file}"
-        ${registration_cpp_file_dep_args}
         COMMENT "Automatic QML type registration for target ${target}"
         VERBATIM
     )
-
-    cmake_policy(POP)
 
     # The ${target}_qmllint targets need to depend on the generation of all
     # *.qmltypes files in the build. We have no way of reliably working out

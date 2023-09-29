@@ -522,6 +522,12 @@ bool QQuickOverlay::eventFilter(QObject *object, QEvent *event)
         // Make sure to accept the touch event in order to receive the consequent
         // touch events, to be able to close non-modal popups on release outside.
         event->accept();
+        // Since we eat the event, QQuickWindow::event never sees it to clean up the
+        // grabber states. So we have to do so explicitly.
+        if (QQuickWindow *window = parentItem() ? parentItem()->window() : nullptr) {
+            QQuickWindowPrivate *d = QQuickWindowPrivate::get(window);
+            d->clearGrabbers(static_cast<QPointerEvent *>(event));
+        }
         return true;
 #endif
 
@@ -567,7 +573,18 @@ bool QQuickOverlay::eventFilter(QObject *object, QEvent *event)
         if (targetItems.isEmpty())
             break;
 
+        QQuickItem * const dimmerItem = property("_q_dimmerItem").value<QQuickItem *>();
         QQuickItem * const topItem = targetItems.first();
+
+        QQuickItem *item = topItem;
+        while ((item = item->parentItem())) {
+            if (qobject_cast<QQuickPopupItem *>(item))
+                break;
+        }
+
+        if (!item && dimmerItem != topItem && isAncestorOf(topItem))
+            break;
+
         const auto popups = d->stackingOrderPopups();
         // Eat the event if receiver topItem is not a child of a popup before
         // the first modal popup.
@@ -575,8 +592,8 @@ bool QQuickOverlay::eventFilter(QObject *object, QEvent *event)
             const QQuickItem *popupItem = popup->popupItem();
             if (!popupItem)
                 continue;
-            // if we reach a popup that contains the item, deliver the event
-            if (popupItem->isAncestorOf(topItem))
+            // if current popup item matches with any popup in stack, deliver the event
+            if (popupItem == item)
                 break;
             // if the popup doesn't contain the item but is modal, eat the event
             if (popup->overlayEvent(topItem, we))

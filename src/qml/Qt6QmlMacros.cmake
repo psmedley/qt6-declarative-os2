@@ -839,8 +839,9 @@ function(_qt_internal_target_enable_qmllint target)
     )
     _qt_internal_assign_to_qmllint_targets_folder(${lint_target})
 
+    set(lint_args "--json" "${CMAKE_BINARY_DIR}/${lint_target}.json")
     add_custom_target(${lint_target_json}
-        COMMAND "$<${have_qmllint_files}:${cmd}>" --json ${CMAKE_BINARY_DIR}/${lint_target}.json
+        COMMAND "$<${have_qmllint_files}:${cmd};${lint_args}>"
         COMMAND_EXPAND_LISTS
         DEPENDS
             ${QT_CMAKE_EXPORT_NAMESPACE}::qmllint
@@ -1571,7 +1572,7 @@ function(qt6_add_qml_plugin target)
 
     if(NOT arg_CLASS_NAME)
         if(NOT "${arg_BACKING_TARGET}" STREQUAL "")
-            get_target_property(arg_CLASS_NAME ${target} QT_QML_MODULE_CLASS_NAME)
+            get_target_property(arg_CLASS_NAME ${arg_BACKING_TARGET} QT_QML_MODULE_CLASS_NAME)
         endif()
         if(NOT arg_CLASS_NAME)
             _qt_internal_compute_qml_plugin_class_name_from_uri("${arg_URI}" arg_CLASS_NAME)
@@ -2923,7 +2924,8 @@ function(qt6_import_qml_plugins target)
             # across those libraries to the end target (executable or shared library).
             # The plugin initializers will be linked via usage requirements from the plugin target.
             get_target_property(target_type ${target} TYPE)
-            if(target_type STREQUAL "EXECUTABLE" OR target_type STREQUAL "SHARED_LIBRARY")
+            if(target_type STREQUAL "EXECUTABLE" OR target_type STREQUAL "SHARED_LIBRARY"
+                OR target_type STREQUAL "MODULE_LIBRARY")
                 set(link_type "PRIVATE")
             else()
                 set(link_type "INTERFACE")

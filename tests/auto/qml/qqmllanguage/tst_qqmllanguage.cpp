@@ -413,6 +413,13 @@ private slots:
     void unregisteredValueTypeConversion();
     void retainThis();
 
+    void variantObjectList();
+
+    void attachedInCtor();
+    void byteArrayConversion();
+
+    void callMethodOfAttachedDerived();
+
 private:
     QQmlEngine engine;
     QStringList defaultImportPathList;
@@ -7841,6 +7848,15 @@ void tst_qqmllanguage::objectAndGadgetMethodCallsAcceptThisObject()
     QQmlComponent c(&engine, testFileUrl("objectAndGadgetMethodCallsAcceptThisObject.qml"));
     QVERIFY2(c.isReady(), qPrintable(c.errorString()));
 
+    // Explicitly retrieve the metaobject for the Qt singleton so that the proxy data is created.
+    // This way the inheritance analysis we do when figuring out what toString() means is somewhat
+    // more interesting. Also, we get a deterministic result for Qt.toString().
+    const QQmlType qtType = QQmlMetaType::qmlType(QStringLiteral("Qt"), QString(), QTypeRevision());
+    QVERIFY(qtType.isValid());
+    const QMetaObject *qtMeta = qtType.metaObject();
+    QVERIFY(qtMeta);
+    QCOMPARE(QString::fromUtf8(qtMeta->className()), QLatin1String("Qt"));
+
     QTest::ignoreMessage(
                 QtWarningMsg, QRegularExpression(
                     "objectAndGadgetMethodCallsAcceptThisObject.qml:16: Error: "
@@ -7871,7 +7887,7 @@ void tst_qqmllanguage::objectAndGadgetMethodCallsAcceptThisObject()
     QCOMPARE(o->property("goodString2"), QStringLiteral("27"));
     QCOMPARE(o->property("goodString3"), QStringLiteral("28"));
 
-    QVERIFY(o->property("goodString4").value<QString>().startsWith("QtObject"_L1));
+    QVERIFY(o->property("goodString4").value<QString>().startsWith("Qt("_L1));
     QCOMPARE(o->property("badString2"), QString());
 
     QCOMPARE(o->property("badInt"), 0);
@@ -7957,6 +7973,81 @@ void tst_qqmllanguage::retainThis()
 
     QScopedPointer<QObject> o(c.create());
     QVERIFY(!o.isNull());
+}
+
+void tst_qqmllanguage::variantObjectList()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("variantObjectList.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    BirthdayParty *party = o->property("q").value<BirthdayParty *>();
+    QCOMPARE(party->guestCount(), 3);
+    QCOMPARE(party->guest(0)->objectName(), "Leo Hodges");
+    QCOMPARE(party->guest(1)->objectName(), "Jack Smith");
+    QCOMPARE(party->guest(2)->objectName(), "Anne Brown");
+}
+
+void tst_qqmllanguage::attachedInCtor()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e);
+    c.setData(R"(
+        import Test
+        AttachedInCtor {}
+    )", QUrl());
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    AttachedInCtor *a = qobject_cast<AttachedInCtor *>(o.data());
+    QVERIFY(a->attached);
+    QCOMPARE(a->attached, qmlAttachedPropertiesObject<AttachedInCtor>(a, false));
+}
+
+void tst_qqmllanguage::byteArrayConversion()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e);
+    c.setData(R"(
+        import Test
+        import QtQml
+        ByteArrayReceiver {
+            Component.onCompleted: {
+                byteArrayTest([1, 2, 3]);
+                byteArrayTest(Array.from('456'));
+            }
+        }
+    )", QUrl());
+
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    ByteArrayReceiver *receiver = qobject_cast<ByteArrayReceiver *>(o.data());
+    QVERIFY(receiver);
+    QCOMPARE(receiver->byteArrays.length(), 2);
+    QCOMPARE(receiver->byteArrays[0], QByteArray("\1\2\3"));
+    QCOMPARE(receiver->byteArrays[1], QByteArray("\4\5\6"));
+}
+
+void tst_qqmllanguage::callMethodOfAttachedDerived()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine);
+    c.setData(R"(
+        import QtQml
+        import Test
+
+        QtObject {
+            Component.onCompleted: Counter.increase()
+            property int v: Counter.value
+        }
+    )", QUrl());
+
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->property("v").toInt(), 99);
 }
 
 QTEST_MAIN(tst_qqmllanguage)
