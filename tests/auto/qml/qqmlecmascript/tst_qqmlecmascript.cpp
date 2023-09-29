@@ -27,6 +27,8 @@
 #include <private/qqmlabstractbinding_p.h>
 #include <private/qqmlvaluetypeproxybinding_p.h>
 #include <QtCore/private/qproperty_p.h>
+#include <QtQuick/qquickwindow.h>
+#include <QtQuick/private/qquickitem_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 
@@ -376,6 +378,8 @@ private slots:
     void qpropertyBindingHandlesUndefinedCorrectly();
     void qpropertyBindingHandlesUndefinedWithoutResetCorrectly_data();
     void qpropertyBindingHandlesUndefinedWithoutResetCorrectly();
+    void qpropertyBindingRestoresObserverAfterReset();
+    void qpropertyBindingObserverCorrectlyLinkedAfterReset();
     void hugeRegexpQuantifiers();
     void singletonTypeWrapperLookup();
     void getThisObject();
@@ -415,6 +419,8 @@ private slots:
     void methodTypeMismatch();
 
     void doNotCrashOnReadOnlyBindable();
+
+    void resetGadet();
 
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
@@ -3189,6 +3195,17 @@ void tst_qqmlecmascript::callQtInvokables()
         QCOMPARE(o->invoked(), -1); // no function got called due to incompatible arguments
     }
 
+    {
+        o->reset();
+        QQmlComponent comp(&qmlengine, testFileUrl("qmlTypeWrapperArgs3.qml"));
+        QScopedPointer<QObject> root {comp.createWithInitialProperties({{"invokableObject", QVariant::fromValue(o)}}) };
+        QVERIFY(root);
+        QCOMPARE(o->error(), false);
+        QCOMPARE(o->actuals().size(), 2);
+        QCOMPARE(o->actuals().at(0).metaType(), QMetaType::fromType<QQmlComponentAttached *>());
+        QCOMPARE(o->actuals().at(1).metaType(), QMetaType::fromType<SingletonWithEnum *>());
+    }
+
     o->reset();
     QVERIFY(EVALUATE_VALUE("object.method_QObject(undefined)", QV4::Primitive::undefinedValue()));
     QCOMPARE(o->error(), false);
@@ -3520,6 +3537,27 @@ void tst_qqmlecmascript::callQtInvokables()
     QCOMPARE(o->error(), false);
     QCOMPARE(o->invoked(), -1);
     QCOMPARE(o->actuals(), QVariantList());
+
+    o->reset();
+    QVERIFY(EVALUATE_VALUE("object.method_component(object.someComponent())",
+                           QV4::Primitive::undefinedValue()));
+    QCOMPARE(o->error(), false);
+    QCOMPARE(o->invoked(), 42);
+    QCOMPARE(o->actuals(), QVariantList() << QVariant::fromValue(o->someComponent()));
+
+    o->reset();
+    QVERIFY(EVALUATE_VALUE("object.method_component(object.someTypeObject())",
+                           QV4::Primitive::undefinedValue()));
+    QCOMPARE(o->error(), false);
+    QCOMPARE(o->invoked(), 43);
+    QCOMPARE(o->actuals(), QVariantList() << QVariant::fromValue(o->someTypeObject()));
+
+    o->reset();
+    QVERIFY(EVALUATE_VALUE("object.method_component('qrc:/somewhere/else')",
+                           QV4::Primitive::undefinedValue()));
+    QCOMPARE(o->error(), false);
+    QCOMPARE(o->invoked(), 44);
+    QCOMPARE(o->actuals(), QVariantList() << QVariant::fromValue(QUrl("qrc:/somewhere/else")));
 }
 
 void tst_qqmlecmascript::resolveClashingProperties()
@@ -9392,6 +9430,32 @@ void tst_qqmlecmascript::qpropertyBindingHandlesUndefinedWithoutResetCorrectly()
     QCOMPARE(root->property("value2").toInt(), 2);
 }
 
+void tst_qqmlecmascript::qpropertyBindingRestoresObserverAfterReset()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("restoreObserverAfterReset.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+    QTRY_COMPARE(o->property("height").toDouble(), 60.0);
+    QVERIFY(o->property("steps").toInt() > 3);
+}
+
+void tst_qqmlecmascript::qpropertyBindingObserverCorrectlyLinkedAfterReset()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("qpropertyResetCorrectlyLinked.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    std::unique_ptr<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("width"), 200);
+    auto item = qobject_cast<QQuickItem *>(o.get());
+    auto itemPriv = QQuickItemPrivate::get(item);
+    QBindingStorage *storage = qGetBindingStorage(itemPriv);
+    QPropertyBindingDataPointer ptr { storage->bindingData(&itemPriv->width) };
+    QCOMPARE(ptr.observerCount(), 1);
+}
+
 void tst_qqmlecmascript::hugeRegexpQuantifiers()
 {
     QJSEngine engine;
@@ -10030,6 +10094,9 @@ public:
 
     Q_INVOKABLE void triggerSignal() { emit fooMember2Emitted(&m_fooMember2); }
 
+    Q_INVOKABLE const FrozenFoo *getConst() { return createFloating(); }
+    Q_INVOKABLE FrozenFoo *getNonConst() { return createFloating(); }
+
     FrozenFoo *fooMember() { return &m_fooMember; }
     FrozenFoo *fooMember2() { return &m_fooMember2; }
 
@@ -10039,6 +10106,16 @@ signals:
 private:
     const FrozenFoo *fooMemberConst() const { return &m_fooMember; }
 
+    FrozenFoo *createFloating()
+    {
+        if (!m_floating) {
+            m_floating = new FrozenFoo;
+            m_floating->setObjectName(objectName());
+        }
+        return m_floating;
+    }
+
+    FrozenFoo *m_floating = nullptr;
     FrozenFoo m_fooMember;
     FrozenFoo m_fooMember2;
 };
@@ -10061,6 +10138,17 @@ void tst_qqmlecmascript::frozenQObject()
     QVERIFY(frozenObjects->property("caughtSignal").toBool());
     QCOMPARE(frozenObjects->fooMember()->name(), QStringLiteral("Jane"));
     QCOMPARE(frozenObjects->fooMember2()->name(), QStringLiteral("Jane"));
+
+    QQmlComponent component3(&engine, testFileUrl("frozenQObject3.qml"));
+    QScopedPointer<QObject> root3(component3.create());
+    QCOMPARE(root3->objectName(), QLatin1String("a/b"));
+    QVERIFY(root3->property("objConst").value<QObject *>());
+    QVERIFY(root3->property("objNonConst").value<QObject *>());
+
+    QTRY_VERIFY(root3->property("gcs").toInt() > 8);
+
+    QVERIFY(root3->property("objConst").value<QObject *>());
+    QVERIFY(root3->property("objNonConst").value<QObject *>());
 }
 
 struct ConstPointer : QObject
@@ -10374,6 +10462,20 @@ void tst_qqmlecmascript::doNotCrashOnReadOnlyBindable()
     QScopedPointer<QObject> o(c.create());
     QVERIFY(o);
     QCOMPARE(o->property("x").toInt(), 7);
+}
+
+void tst_qqmlecmascript::resetGadet()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("resetGadget.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    auto resettableGadgetHolder = qobject_cast<ResettableGadgetHolder *>(o.get());
+    QVERIFY(resettableGadgetHolder);
+    QCOMPARE(resettableGadgetHolder->g().value(), 0);
+    resettableGadgetHolder->setProperty("trigger", QVariant::fromValue(true));
+    QCOMPARE(resettableGadgetHolder->g().value(), 42);
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

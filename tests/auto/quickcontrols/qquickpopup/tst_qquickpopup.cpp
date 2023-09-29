@@ -3,6 +3,7 @@
 
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
+#include <QtQuickTest/quicktest.h>
 
 #include <QtCore/qoperatingsystemversion.h>
 #include <QtGui/qpa/qwindowsysteminterface.h>
@@ -27,7 +28,9 @@
 #include <QtQuickTemplates2/private/qquickpopup_p_p.h>
 #include <QtQuickTemplates2/private/qquicktooltip_p.h>
 #include <QtQuickTemplates2/private/qquickdrawer_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquicktextedit_p.h>
+#include <QtQuick/private/qquickdroparea_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
 
@@ -69,6 +72,7 @@ private slots:
     void parentDestroyed();
     void nested();
     void nestedWheel();
+    void nestedWheelWithOverlayParent();
     void modelessOnModalOnModeless();
     void grabber();
     void cursorShape();
@@ -96,6 +100,7 @@ private slots:
     void mirroredCombobox();
     void rotatedCombobox();
     void focusMultiplePopup();
+    void contentChildrenChange();
     void doubleClickInMouseArea();
 
 private:
@@ -1188,6 +1193,41 @@ void tst_QQuickPopup::nestedWheel()
     QTRY_COMPARE_GT(vbar->property("position").toDouble(), startPosition);
 }
 
+void tst_QQuickPopup::nestedWheelWithOverlayParent()
+{
+    QQuickControlsApplicationHelper helper(this, QStringLiteral("nested-wheel-overlay-parent.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *drawer= window->property("_drawer").value<QQuickDrawer *>();
+    QVERIFY(drawer);
+
+    auto *dropArea = window->property("_dropArea").value<QQuickDropArea *>();
+    QVERIFY(dropArea);
+
+    drawer->open();
+    QCOMPARE(drawer->isVisible(), true);
+    QTRY_COMPARE(drawer->isOpened(), true);
+
+    QQuickListView *listView = window->property("_listView").value<QQuickListView *>();
+    QTRY_VERIFY(listView != nullptr);
+    QQuickItem *contentItem = listView->contentItem();
+    QTRY_VERIFY(contentItem != nullptr);
+
+    // Check parent is set as overlay
+    QTRY_COMPARE(dropArea->parentItem(), QQuickOverlay::overlay(window));
+    // Consider the center point of the control as event position to trigger wheel event
+    QVERIFY(sendWheelEvent(listView, -15));
+
+    if (QQuickTest::qIsPolishScheduled(listView))
+        QVERIFY(QQuickTest::qWaitForPolish(listView));
+
+    // Wheel over the list view, verify that it scrolls
+    QTRY_COMPARE(listView->contentY(), 72.);
+}
+
 void tst_QQuickPopup::modelessOnModalOnModeless()
 {
     QQuickControlsApplicationHelper helper(this, QStringLiteral("modelessOnModalOnModeless.qml"));
@@ -2197,6 +2237,25 @@ void tst_QQuickPopup::focusMultiplePopup()
     QTRY_VERIFY(!buttonPopup->isVisible());
 
     QVERIFY(rootItem->hasFocus());
+}
+
+void tst_QQuickPopup::contentChildrenChange()
+{
+    QQmlEngine engine;
+    QQmlComponent comp(&engine);
+    comp.loadFromModule("QtQuick.Controls", "Popup");
+    std::unique_ptr<QObject> root {comp.create()};
+    QVERIFY(root);
+    QQuickPopup *popup = qobject_cast<QQuickPopup *>(root.get());
+    QVERIFY(popup);
+    QSignalSpy spy(popup, &QQuickPopup::contentChildrenChanged);
+    auto contentItem = std::make_unique<QQuickItem>();
+    popup->setContentItem(contentItem.get());
+    QCOMPARE(spy.count(), 1);
+    auto newChild = std::make_unique<QQuickItem>();
+    QQmlProperty contentItemChildren(contentItem.get());
+    contentItemChildren.write(QVariant::fromValue(newChild.get()));
+    QCOMPARE(spy.count(), 2);
 }
 
 void tst_QQuickPopup::doubleClickInMouseArea()

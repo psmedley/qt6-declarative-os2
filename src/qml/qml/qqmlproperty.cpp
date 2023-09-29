@@ -380,6 +380,9 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
         return false;
     };
 
+    static constexpr QLatin1String On("on");
+    static constexpr qsizetype StrlenOn = On.size();
+
     const QString terminalString = terminal.toString();
     if (QmlIR::IRBuilder::isSignalPropertyName(terminalString)) {
         QString signalName = terminalString.mid(2);
@@ -412,6 +415,26 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
         } else if (findSignalInMetaObject(signalName.toUtf8())) {
             return;
         }
+    } else if (terminalString.size() > StrlenOn && terminalString.startsWith(On)) {
+        // This is quite wrong. But we need it for backwards compatibility.
+        QString signalName = terminalString.sliced(2);
+        signalName.front() = signalName.front().toLower();
+
+        QString handlerName = On + signalName;
+        const auto end = handlerName.end();
+        auto result = std::find_if(
+                std::next(handlerName.begin(), StrlenOn), end,
+                [](const QChar &c) { return c.isLetter(); });
+        if (result != end)
+            *result = result->toUpper();
+
+        qWarning()
+                << terminalString
+                << "is not a properly capitalized signal handler name."
+                << handlerName
+                << "would be correct.";
+        if (findSignalInMetaObject(signalName.toUtf8()))
+            return;
     }
 
     if (ddata && ddata->propertyCache) {
@@ -1378,6 +1401,18 @@ static ConvertAndAssignResult tryConvertAndAssign(
         return {false, false};
     }
 
+    if (variantMetaType == QMetaType::fromType<QJSValue>()) {
+        // Handle Qt.binding bindings here to avoid mistaken conversion below
+        const QJSValue &jsValue = *static_cast<const QJSValue *>(value.constData());
+        const QV4::FunctionObject *f
+                = QJSValuePrivate::asManagedType<QV4::FunctionObject>(&jsValue);
+        if (f && f->isBinding()) {
+            QV4::QObjectWrapper::setProperty(
+                    f->engine(), object, &property, f->asReturnedValue());
+            return {true, true};
+        }
+    }
+
     // common cases:
     switch (propertyMetaType.id()) {
     case QMetaType::Bool:
@@ -1575,6 +1610,11 @@ bool QQmlPropertyPrivate::write(
                 const QList<QObject *> &list = qvariant_cast<QList<QObject *> >(value);
                 for (qsizetype ii = 0; ii < list.size(); ++ii)
                     doAppend(list.at(ii));
+            } else if (variantMetaType == QMetaType::fromType<QList<QVariant>>()) {
+                const QList<QVariant> &list
+                    = *static_cast<const QList<QVariant> *>(value.constData());
+                for (const QVariant &entry : list)
+                    doAppend(QQmlMetaType::toQObject(entry));
             } else if (!iterateQObjectContainer(variantMetaType, value.data(), doAppend)) {
                 doAppend(QQmlMetaType::toQObject(value));
             }
@@ -1589,16 +1629,6 @@ bool QQmlPropertyPrivate::write(
                 sequence.addValue(list.data(), value.data());
             property.writeProperty(object, list.data(), flags);
         }
-    } else if (variantMetaType == QMetaType::fromType<QJSValue>()) {
-        QJSValue jsValue = qvariant_cast<QJSValue>(value);
-        const QV4::FunctionObject *f
-                = QJSValuePrivate::asManagedType<QV4::FunctionObject>(&jsValue);
-        if (f && f->isBinding()) {
-            QV4::QObjectWrapper::setProperty(
-                    f->engine(), object, &property, f->asReturnedValue());
-            return true;
-        }
-        return false;
     } else if (enginePriv && propertyMetaType == QMetaType::fromType<QJSValue>()) {
         // We can convert everything into a QJSValue if we have an engine.
         QJSValue jsValue = QJSValuePrivate::fromReturnedValue(

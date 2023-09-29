@@ -165,6 +165,27 @@ QQmlProperty QQuickAbstractAnimationPrivate::createProperty(QObject *obj, const 
     return prop;
 }
 
+void QQuickAbstractAnimationPrivate::animationGroupDirty()
+{
+    Q_ASSERT(group != nullptr);
+    if (!componentComplete)
+        return;
+
+    auto *animGroupPriv = static_cast<QQuickAnimationGroupPrivate *>(QQuickAnimationGroupPrivate::get(group));
+    if (animGroupPriv->running && !animGroupPriv->animationDirty) {
+        animGroupPriv->animationDirty = true;
+
+        if (animGroupPriv->animationInstance && group->currentTime() == 0) {
+            // restart if the animation didn't proceed yet.
+            animGroupPriv->restartFromCurrentLoop();
+        }
+    }
+
+    // check the animationGroup is one of another animationGroup members
+    if (animGroupPriv->group)
+        animGroupPriv->animationGroupDirty();
+}
+
 /*!
     \qmlsignal QtQuick::Animation::started()
 
@@ -696,6 +717,8 @@ void QQuickPauseAnimation::setDuration(int duration)
         return;
     d->duration = duration;
     emit durationChanged(duration);
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QAbstractAnimationJob* QQuickPauseAnimation::transition(QQuickStateActions &actions,
@@ -1076,6 +1099,8 @@ void QQuickPropertyAction::setTargetObject(QObject *o)
         return;
     d->target = o;
     emit targetChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QString QQuickPropertyAction::property() const
@@ -1091,6 +1116,8 @@ void QQuickPropertyAction::setProperty(const QString &n)
         return;
     d->propertyName = n;
     emit propertyChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 /*!
@@ -1121,6 +1148,8 @@ void QQuickPropertyAction::setProperties(const QString &p)
         return;
     d->properties = p;
     emit propertiesChanged(p);
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QQmlListProperty<QObject> QQuickPropertyAction::targets()
@@ -1722,6 +1751,36 @@ void QQuickAnimationGroupPrivate::removeLast_animation(QQmlListProperty<QQuickAb
         q->d_func()->animations.last()->setGroup(nullptr);
 }
 
+void QQuickAnimationGroupPrivate::restartFromCurrentLoop()
+{
+    Q_Q(QQuickAnimationGroup);
+    if (!animationDirty)
+        return;
+
+    animationDirty = false;
+
+    Q_ASSERT(animationInstance);
+    const int currentLoop = animationInstance->currentLoop();
+
+    QSignalBlocker signalBlocker(q);
+    q->stop();
+    q->start();
+
+    Q_ASSERT(animationInstance);
+    // Restarting adjusts animationInstance's loopCount
+    // Since we just want to start it from this loop,
+    // it will be restored again.
+    if (loopCount != -1)
+        animationInstance->setLoopCount(loopCount - currentLoop);
+}
+
+void QQuickAnimationGroupPrivate::animationCurrentLoopChanged(QAbstractAnimationJob *)
+{
+    if (!animationDirty)
+        return;
+    restartFromCurrentLoop();
+}
+
 QQuickAnimationGroup::~QQuickAnimationGroup()
 {
     Q_D(QQuickAnimationGroup);
@@ -2135,6 +2194,8 @@ void QQuickPropertyAnimation::setDuration(int duration)
     if (d->componentComplete && d->running)
         d->ourPropertiesDirty = true;
     emit durationChanged(duration);
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 /*!
@@ -2164,6 +2225,8 @@ void QQuickPropertyAnimation::setFrom(const QVariant &f)
     if (d->componentComplete && d->running)
         d->ourPropertiesDirty = true;
     emit fromChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 /*!
@@ -2193,6 +2256,8 @@ void QQuickPropertyAnimation::setTo(const QVariant &t)
     if (d->componentComplete && d->running)
         d->ourPropertiesDirty = true;
     emit toChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 /*!
@@ -2425,6 +2490,8 @@ void QQuickPropertyAnimation::setEasing(const QEasingCurve &e)
     if (d->componentComplete && d->running)
         d->ourPropertiesDirty = true;
     emit easingChanged(e);
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QObject *QQuickPropertyAnimation::target() const
@@ -2440,6 +2507,8 @@ void QQuickPropertyAnimation::setTargetObject(QObject *o)
         return;
     d->target = o;
     emit targetChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QString QQuickPropertyAnimation::property() const
@@ -2455,6 +2524,8 @@ void QQuickPropertyAnimation::setProperty(const QString &n)
         return;
     d->propertyName = n;
     emit propertyChanged();
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 QString QQuickPropertyAnimation::properties() const
@@ -2471,6 +2542,8 @@ void QQuickPropertyAnimation::setProperties(const QString &prop)
 
     d->properties = prop;
     emit propertiesChanged(prop);
+    if (d->group)
+        d->animationGroupDirty();
 }
 
 /*!
@@ -2576,7 +2649,38 @@ void QQuickPropertyAnimation::setProperties(const QString &prop)
 QQmlListProperty<QObject> QQuickPropertyAnimation::targets()
 {
     Q_D(QQuickPropertyAnimation);
-    return QQmlListProperty<QObject>(this, &(d->targets));
+    using ListPtr = QList<QPointer<QObject>> *;
+    using LP = QQmlListProperty<QObject>;
+    LP::AppendFunction appendFn = [](LP *prop, QObject *value)
+    {
+        static_cast<ListPtr>(prop->data)->append(value);
+    };
+    LP::CountFunction countFn = [](LP *prop)
+    {
+        return static_cast<ListPtr>(prop->data)->size();
+    };
+
+    LP::AtFunction atFn = [](LP *prop, qsizetype index) -> QObject *
+    {
+        return static_cast<ListPtr>(prop->data)->at(index);
+    };
+
+    LP::ClearFunction clearFN = [](LP *prop)
+    {
+        return static_cast<ListPtr>(prop->data)->clear();
+    };
+
+    LP::ReplaceFunction replaceFn = [](LP *prop, qsizetype index, QObject *value)
+    {
+        static_cast<ListPtr>(prop->data)->replace(index, value);
+    };
+
+    LP::RemoveLastFunction removeLastFn = [](LP *prop)
+    {
+        static_cast<ListPtr>(prop->data)->removeLast();
+    };
+
+    return QQmlListProperty<QObject>(this, &(d->targets), appendFn, countFn, atFn, clearFN, replaceFn, removeLastFn);
 }
 
 /*!
@@ -2648,7 +2752,7 @@ QQuickStateActions QQuickPropertyAnimation::createTransitionActions(QQuickStateA
     if (!d->propertyName.isEmpty())
         props << d->propertyName;
 
-    QList<QObject*> targets = d->targets;
+    QList<QPointer<QObject>> targets = d->targets;
     if (d->target)
         targets.append(d->target);
 
@@ -2677,10 +2781,14 @@ QQuickStateActions QQuickPropertyAnimation::createTransitionActions(QQuickStateA
 
         for (int i = 0; i < props.size(); ++i) {
             for (int j = 0; j < targets.size(); ++j) {
+                const auto& guarded = targets.at(j);
+                if (guarded.isNull())
+                    continue;
+                QObject *target = guarded.get();
                 QQuickStateAction myAction;
                 QString errorMessage;
                 const QString &propertyName = props.at(i);
-                myAction.property = d->createProperty(targets.at(j), propertyName, this, &errorMessage);
+                myAction.property = d->createProperty(target, propertyName, this, &errorMessage);
                 if (myAction.property.isValid()) {
                     if (usingDefaultProperties)
                         successfullyCreatedDefaultProperty = true;

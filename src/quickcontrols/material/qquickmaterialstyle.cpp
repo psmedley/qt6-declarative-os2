@@ -4,7 +4,9 @@
 #include "qquickmaterialstyle_p.h"
 
 #include <QtCore/qdebug.h>
+#if QT_CONFIG(settings)
 #include <QtCore/qsettings.h>
+#endif
 #include <QtQml/qqmlinfo.h>
 #include <QtQuickControls2/private/qquickstyle_p.h>
 
@@ -943,10 +945,7 @@ QColor QQuickMaterialStyle::iconDisabledColor() const
 QColor QQuickMaterialStyle::buttonColor(Theme theme, const QVariant &background, const QVariant &accent,
     bool enabled, bool flat, bool highlighted, bool checked) const
 {
-    if (flat)
-        return Qt::transparent;
-
-    if (!enabled) {
+    if (!enabled && !flat) {
         return QColor::fromRgba(m_theme == Light
             ? raisedButtonDisabledColorLight : raisedButtonDisabledColorDark);
     }
@@ -972,7 +971,11 @@ QColor QQuickMaterialStyle::buttonColor(Theme theme, const QVariant &background,
             // A highlighted + checked button should become darker.
             color = accentColor(checked ? Shade100 : shade);
         }
-    } else {
+        // Flat, highlighted buttons need to have a semi-transparent background,
+        // otherwise the text won't be visible.
+        if (flat)
+            color.setAlphaF(0.25);
+    } else if (!flat) {
         // Even if the elevation is zero, it should still have a background if it's not flat.
         color = QColor::fromRgba(m_theme == Light ? raisedButtonColorLight
                                                   : raisedButtonColorDark);
@@ -1297,6 +1300,31 @@ int QQuickMaterialStyle::menuItemHeight() const
 int QQuickMaterialStyle::menuItemVerticalPadding() const
 {
     return globalVariant == Dense ? 8 : 12;
+}
+
+int QQuickMaterialStyle::switchIndicatorWidth() const
+{
+    return globalVariant == Dense ? 40 : 52;
+}
+
+int QQuickMaterialStyle::switchIndicatorHeight() const
+{
+    return globalVariant == Dense ? 22 : 32;
+}
+
+int QQuickMaterialStyle::switchNormalHandleHeight() const
+{
+    return globalVariant == Dense ? 10 : 16;
+}
+
+int QQuickMaterialStyle::switchCheckedHandleHeight() const
+{
+    return globalVariant == Dense ? 16 : 24;
+}
+
+int QQuickMaterialStyle::switchLargestHandleHeight() const
+{
+    return globalVariant == Dense ? 18 : 28;
 }
 
 int QQuickMaterialStyle::switchDelegateVerticalPadding() const

@@ -284,7 +284,7 @@ void tst_qqmlcomponent::qmlCreateObjectWithProperties()
     QTest::ignoreMessage(
             QtMsgType::QtWarningMsg,
             QRegularExpression(
-                    ".*createObjectWithScript.qml:42:13: Required property i was not initialized"));
+                    ".*createObjectWithScript.qml:45:13: Required property i was not initialized"));
 
     QQmlComponent component(&engine, testFileUrl("createObjectWithScript.qml"));
     QVERIFY2(component.errorString().isEmpty(), component.errorString().toUtf8());
@@ -343,6 +343,12 @@ void tst_qqmlcomponent::qmlCreateObjectWithProperties()
         QVERIFY(goodRequired);
         QCOMPARE(goodRequired->parent(), object.data());
         QCOMPARE(goodRequired->property("i").value<int>(), 42);
+    }
+
+    {
+        QScopedPointer<QObject> bindingAsInitial(object->property("bindingAsInitial").value<QObject *>());
+        QVERIFY(bindingAsInitial);
+        QVERIFY(object->property("bindingUsed").toBool());
     }
 }
 
@@ -1468,7 +1474,7 @@ void tst_qqmlcomponent::complexObjectArgument()
     QVERIFY2(c.isReady(), qPrintable(c.errorString()));
     QScopedPointer<QObject> o(c.create());
     QVERIFY(!o.isNull());
-    QCOMPARE(o->objectName(), QStringLiteral("26"));
+    QCOMPARE(o->objectName(), QStringLiteral("26 - 25"));
 }
 
 QTEST_MAIN(tst_qqmlcomponent)

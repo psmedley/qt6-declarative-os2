@@ -137,6 +137,7 @@ private slots:
     void argumentConversion();
     void badSequence();
     void enumLookup();
+    void enumMarkedAsFlag();
     void trivialSignalHandler();
     void stringToByteArray();
     void listPropertyAsModel();
@@ -172,6 +173,9 @@ private slots:
     void ambiguousAs();
     void topLevelComponent();
     void variantReturn();
+    void equalityTestsWithNullOrUndefined();
+    void basicBlocksWithBackJump();
+    void listOfInvisible();
 };
 
 void tst_QmlCppCodegen::initTestCase()
@@ -2583,6 +2587,17 @@ void tst_QmlCppCodegen::trivialSignalHandler()
     QCOMPARE(o->property("c").toDouble(), 2.5);
 }
 
+void tst_QmlCppCodegen::enumMarkedAsFlag()
+{
+    QQmlEngine engine;
+
+    QQmlComponent c(&engine, QUrl(u"qrc:/qt/qml/TestTypes/enumMarkedAsFlag.qml"_s));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+
+    QCOMPARE(o->property("flagValue").toInt(), 3);
+}
+
 void tst_QmlCppCodegen::stringToByteArray()
 {
     QQmlEngine engine;
@@ -2595,6 +2610,16 @@ void tst_QmlCppCodegen::stringToByteArray()
 
     QCOMPARE(person->dataBindable().value(), QByteArray("some data"));
     QCOMPARE(person->name(), u"some data"_s);
+}
+
+void tst_QmlCppCodegen::listOfInvisible()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, QUrl(u"qrc:/qt/qml/TestTypes/listOfInvisible.qml"_s));
+    QVERIFY2(component.isReady(), component.errorString().toUtf8());
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+    QCOMPARE(object->property("width").toDouble(), 27.0);
 }
 
 void tst_QmlCppCodegen::listPropertyAsModel()
@@ -2924,7 +2949,8 @@ void tst_QmlCppCodegen::nullComparison()
 void tst_QmlCppCodegen::consoleObject()
 {
     QQmlEngine engine;
-    QQmlComponent c(&engine, QUrl(u"qrc:/qt/qml/TestTypes/consoleObject.qml"_s));
+    static const QString urlString = u"qrc:/qt/qml/TestTypes/consoleObject.qml"_s;
+    QQmlComponent c(&engine, QUrl(urlString));
     QVERIFY2(c.isReady(), qPrintable(c.errorString()));
 
     QTest::ignoreMessage(QtDebugMsg, "b 4.55");
@@ -2957,6 +2983,16 @@ void tst_QmlCppCodegen::consoleObject()
 
     QScopedPointer<QObject> o(c.create());
     QVERIFY(!o.isNull());
+
+    auto oldHandler = qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &ctxt, const QString &) {
+                QCOMPARE(ctxt.file, urlString.toUtf8());
+                QCOMPARE(ctxt.function, QByteArray("expression for onCompleted"));
+                QVERIFY(ctxt.line > 0);
+            });
+    const auto guard = qScopeGuard([oldHandler]() { qInstallMessageHandler(oldHandler); });
+    QScopedPointer<QObject> p(c.create());
+    QVERIFY(!p.isNull());
 }
 
 void tst_QmlCppCodegen::multiForeign()
@@ -3366,6 +3402,44 @@ void tst_QmlCppCodegen::variantReturn()
     QObject *b = o->property("b").value<QObject *>();
     QVERIFY(b);
     QCOMPARE(b->property("z").toInt(), 2);
+}
+
+void tst_QmlCppCodegen::equalityTestsWithNullOrUndefined()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, QUrl(u"qrc:/qt/qml/TestTypes/equalityTestsWithNullOrUndefined.qml"_s));
+    QVERIFY2(component.isReady(), component.errorString().toUtf8());
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(o);
+}
+
+static bool expectingMessage = false;
+static void handler(QtMsgType type, const QMessageLogContext &, const QString &message)
+{
+    QVERIFY(expectingMessage);
+    QCOMPARE(type, QtDebugMsg);
+    QCOMPARE(message, u"false");
+    expectingMessage = false;
+}
+void tst_QmlCppCodegen::basicBlocksWithBackJump()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, QUrl(u"qrc:/qt/qml/TestTypes/basicBlocksWithBackJump.qml"_s));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+    const auto oldHandler = qInstallMessageHandler(&handler);
+    const auto guard = qScopeGuard([oldHandler]() { qInstallMessageHandler(oldHandler); });
+    // t1 does not log anything
+    QMetaObject::invokeMethod(o.data(), "t1");
+    // t2 logs "false" exactly once
+    expectingMessage = true;
+    QMetaObject::invokeMethod(o.data(), "t2");
+    QVERIFY(!expectingMessage);
+    // t3 logs "false" exactly once
+    expectingMessage = true;
+    QMetaObject::invokeMethod(o.data(), "t3");
+    QVERIFY(!expectingMessage);
 }
 
 QTEST_MAIN(tst_QmlCppCodegen)

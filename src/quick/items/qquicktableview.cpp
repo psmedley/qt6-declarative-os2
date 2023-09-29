@@ -44,6 +44,12 @@
     using the \l HorizontalHeaderView and \l VerticalHeaderView from
     Qt Quick Controls.
 
+    \note TableView will only \l {isRowLoaded()}{load} as many delegate items as
+    needed to fill up the view. There is no guarantee that items outside the view
+    will be loaded, although TableView will sometimes pre-load items for
+    optimization reasons. Hence, a TableView with zero width or height might not
+    load any delegate items at all.
+
     \section1 Example Usage
 
     \section2 C++ Models
@@ -5640,7 +5646,7 @@ int QQuickTableView::currentColumn() const
 void QQuickTableView::positionViewAtRow(int row, PositionMode mode, qreal offset, const QRectF &subRect)
 {
     Q_D(QQuickTableView);
-    if (row < 0 || row >= rows())
+    if (row < 0 || row >= rows() || d->loadedRows.isEmpty())
         return;
 
     // Note: PositionMode::Contain is from here on translated to (Qt::AlignTop | Qt::AlignBottom).
@@ -5706,7 +5712,7 @@ void QQuickTableView::positionViewAtRow(int row, PositionMode mode, qreal offset
 void QQuickTableView::positionViewAtColumn(int column, PositionMode mode, qreal offset, const QRectF &subRect)
 {
     Q_D(QQuickTableView);
-    if (column < 0 || column >= columns())
+    if (column < 0 || column >= columns() || d->loadedColumns.isEmpty())
         return;
 
     // Note: PositionMode::Contain is from here on translated to (Qt::AlignLeft | Qt::AlignRight).
@@ -6516,6 +6522,7 @@ QQuickTableViewResizeHandler::QQuickTableViewResizeHandler(QQuickTableView *view
     // Set a grab permission that stops the flickable, as well as
     // any drag handler inside the delegate, from stealing the drag.
     setGrabPermissions(QQuickPointerHandler::CanTakeOverFromAnything);
+    setObjectName("tableViewResizeHandler");
 }
 
 void QQuickTableViewResizeHandler::onGrabChanged(QQuickPointerHandler *grabber
@@ -6544,8 +6551,9 @@ void QQuickTableViewResizeHandler::onGrabChanged(QQuickPointerHandler *grabber
 
 bool QQuickTableViewResizeHandler::wantsEventPoint(const QPointerEvent *event, const QEventPoint &point)
 {
-    Q_UNUSED(event);
-    Q_UNUSED(point);
+    if (!QQuickSinglePointHandler::wantsEventPoint(event, point))
+        return false;
+
     // When the user is flicking, we disable resizing, so that
     // he doesn't start to resize by accident.
     auto tableView = static_cast<QQuickTableView *>(parentItem()->parent());
@@ -6628,7 +6636,7 @@ void QQuickTableViewResizeHandler::updateDrag(QPointerEvent *event, QEventPoint 
 #if QT_CONFIG(cursor)
         tableViewPrivate->updateCursor();
 #endif
-        // fallthrough
+        Q_FALLTHROUGH();
     case Dragging: {
         const qreal distX = point.position().x() - m_columnStartX;
         const qreal distY = point.position().y() - m_rowStartY;
@@ -6651,6 +6659,7 @@ void QQuickTableViewResizeHandler::updateDrag(QPointerEvent *event, QEventPoint 
 QQuickTableViewTapHandler::QQuickTableViewTapHandler(QQuickTableView *view)
     : QQuickTapHandler(view->contentItem())
 {
+    setObjectName("tableViewTapHandler");
 }
 
 bool QQuickTableViewTapHandler::wantsEventPoint(const QPointerEvent *event, const QEventPoint &point)
