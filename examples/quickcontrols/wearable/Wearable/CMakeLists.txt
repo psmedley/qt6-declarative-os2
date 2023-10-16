@@ -165,6 +165,7 @@ qt_add_qml_module(wearable
         images/world-clock-swissnightminute@2x.png
         walk_route.json
         weather.json
+    OS2_SHORT_NAME wearabl1
 )
 
 target_link_libraries(wearable PUBLIC

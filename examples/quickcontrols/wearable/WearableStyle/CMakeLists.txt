@@ -27,6 +27,7 @@ qt_add_qml_module(wearablestyle
         Slider.qml
         Switch.qml
         UIStyle.qml
+    OS2_SHORT_NAME wearstyl
 )
 
 target_link_libraries(wearablestyle PUBLIC
