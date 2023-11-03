@@ -435,7 +435,11 @@ function(qt6_add_qml_module target)
         QT_QML_MODULE_VERSION "${arg_VERSION}"
         QT_QML_MODULE_CLASS_NAME "${arg_CLASS_NAME}"
 
-        QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
+        if(arg_OS2_SHORT_NAME)
+            QT_QML_MODULE_PLUGIN_TARGET "${arg_OS2_SHORT_NAME}"
+        elseif()
+            QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
+        endif()
         QT_QML_MODULE_INSTALLED_PLUGIN_TARGET "${arg_INSTALLED_PLUGIN_TARGET}"
 
         # Also Save the PLUGIN_TARGET values in a separate property to circumvent
