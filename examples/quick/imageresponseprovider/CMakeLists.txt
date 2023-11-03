@@ -23,6 +23,7 @@ qt6_add_qml_module(qmlimageresponseproviderplugin
     NO_PLUGIN_OPTIONAL
     NO_GENERATE_PLUGIN_SOURCE
     CLASS_NAME ImageProviderExtensionPlugin
+    OS2_SHORT_NAME qmlimrep
 )
 
 target_sources(qmlimageresponseproviderplugin PRIVATE

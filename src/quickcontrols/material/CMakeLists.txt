@@ -123,6 +123,7 @@ qt_internal_add_qml_module(qtquickcontrols2materialstyleplugin
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoMaSt
 )
 
 qt_internal_add_resource(qtquickcontrols2materialstyleplugin "qtquickcontrols2materialstyleplugin"

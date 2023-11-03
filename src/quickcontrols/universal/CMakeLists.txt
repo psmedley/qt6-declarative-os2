@@ -121,6 +121,7 @@ qt_internal_add_qml_module(qtquickcontrols2universalstyleplugin
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoUnSt
 )
 
 qt_internal_add_resource(qtquickcontrols2universalstyleplugin "qtquickcontrols2universalstyleplugin"

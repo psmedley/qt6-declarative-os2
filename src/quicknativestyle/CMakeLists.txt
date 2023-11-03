@@ -79,6 +79,7 @@ qt_internal_add_qml_module(qtquickcontrols2nativestyleplugin
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoNaSt
 )
 
 qt_internal_extend_target(qtquickcontrols2nativestyleplugin CONDITION QT_FEATURE_quick_treeview
