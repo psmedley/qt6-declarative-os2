@@ -47,10 +47,6 @@
 #include <private/qqmlvaluetype_p.h>
 #include <private/qv4executablecompilationunit_p.h>
 
-#if QT_CONFIG(qml_itemmodel)
-#include <private/qqmlmodelindexvaluetype_p.h>
-#endif
-
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qloggingcategory.h>
@@ -230,7 +226,8 @@ static QQmlTypePrivate *createQQmlType(QQmlMetaTypeData *data, const QString &el
 }
 
 void QQmlMetaType::clone(QMetaObjectBuilder &builder, const QMetaObject *mo,
-                         const QMetaObject *ignoreStart, const QMetaObject *ignoreEnd)
+                         const QMetaObject *ignoreStart, const QMetaObject *ignoreEnd,
+                         QQmlMetaType::ClonePolicy policy)
 {
     // Set classname
     builder.setClassName(ignoreEnd->className());
@@ -247,41 +244,42 @@ void QQmlMetaType::clone(QMetaObjectBuilder &builder, const QMetaObject *mo,
         }
     }
 
-    // Clone Q_PROPERTY
-    for (int ii = mo->propertyOffset(); ii < mo->propertyCount(); ++ii) {
-        QMetaProperty property = mo->property(ii);
+    if (policy != QQmlMetaType::CloneEnumsOnly) {
+        // Clone Q_METHODS - do this first to avoid duplicating the notify signals.
+        for (int ii = mo->methodOffset(); ii < mo->methodCount(); ++ii) {
+            QMetaMethod method = mo->method(ii);
 
-        int otherIndex = ignoreEnd->indexOfProperty(property.name());
-        if (otherIndex >= ignoreStart->propertyOffset() + ignoreStart->propertyCount()) {
-            builder.addProperty(QByteArray("__qml_ignore__") + property.name(), QByteArray("void"));
-            // Skip
-        } else {
-            builder.addProperty(property);
-        }
-    }
+            // More complex - need to search name
+            QByteArray name = method.name();
 
-    // Clone Q_METHODS
-    for (int ii = mo->methodOffset(); ii < mo->methodCount(); ++ii) {
-        QMetaMethod method = mo->method(ii);
+            bool found = false;
 
-        // More complex - need to search name
-        QByteArray name = method.name();
+            for (int ii = ignoreStart->methodOffset() + ignoreStart->methodCount();
+                 !found && ii < ignoreEnd->methodOffset() + ignoreEnd->methodCount(); ++ii) {
 
+                QMetaMethod other = ignoreEnd->method(ii);
 
-        bool found = false;
+                found = name == other.name();
+            }
 
-        for (int ii = ignoreStart->methodOffset() + ignoreStart->methodCount();
-             !found && ii < ignoreEnd->methodOffset() + ignoreEnd->methodCount();
-             ++ii) {
-
-            QMetaMethod other = ignoreEnd->method(ii);
-
-            found = name == other.name();
+            QMetaMethodBuilder m = builder.addMethod(method);
+            if (found) // SKIP
+                m.setAccess(QMetaMethod::Private);
         }
 
-        QMetaMethodBuilder m = builder.addMethod(method);
-        if (found) // SKIP
-            m.setAccess(QMetaMethod::Private);
+        // Clone Q_PROPERTY
+        for (int ii = mo->propertyOffset(); ii < mo->propertyCount(); ++ii) {
+            QMetaProperty property = mo->property(ii);
+
+            int otherIndex = ignoreEnd->indexOfProperty(property.name());
+            if (otherIndex >= ignoreStart->propertyOffset() + ignoreStart->propertyCount()) {
+                builder.addProperty(QByteArray("__qml_ignore__") + property.name(),
+                                    QByteArray("void"));
+                // Skip
+            } else {
+                builder.addProperty(property);
+            }
+        }
     }
 
     // Clone Q_ENUMS
@@ -1525,7 +1523,8 @@ QList<QQmlProxyMetaObject::ProxyData> QQmlMetaType::proxyData(const QMetaObject 
             return;
 
         QMetaObjectBuilder builder;
-        clone(builder, extMetaObject, superdataBaseMetaObject, baseMetaObject);
+        clone(builder, extMetaObject, superdataBaseMetaObject, baseMetaObject,
+              extFunc ? QQmlMetaType::CloneAll : QQmlMetaType::CloneEnumsOnly);
         builder.setFlags(MetaObjectFlag::DynamicMetaObject);
         QMetaObject *mmo = builder.toMetaObject();
         mmo->d.superdata = baseMetaObject;
@@ -1601,17 +1600,7 @@ const QMetaObject *QQmlMetaType::metaObjectForValueType(QMetaType metaType)
     case QMetaType::QEasingCurve:
         return &QQmlEasingValueType::staticMetaObject;
 #endif
-#if QT_CONFIG(qml_itemmodel)
-    case QMetaType::QModelIndex:
-        return &QQmlModelIndexValueType::staticMetaObject;
-    case QMetaType::QPersistentModelIndex:
-        return &QQmlPersistentModelIndexValueType::staticMetaObject;
-#endif
     default:
-#if QT_CONFIG(qml_itemmodel)
-        if (metaType == QMetaType::fromType<QItemSelectionRange>())
-            return &QQmlItemSelectionRangeValueType::staticMetaObject;
-#endif
         break;
     }
 

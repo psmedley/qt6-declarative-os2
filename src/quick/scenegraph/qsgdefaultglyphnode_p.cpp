@@ -274,7 +274,8 @@ bool QSG24BitTextMaskRhiShader::updateGraphicsPipelineState(RenderState &state, 
     ps->srcColor = GraphicsPipelineState::ConstantColor;
     ps->dstColor = GraphicsPipelineState::OneMinusSrcColor;
 
-    QVector4D color = qsg_premultiply(mat->color(), state.opacity());
+    QVector4D color = mat->color();
+
     //        if (useSRGB())
     //            color = qt_sRGB_to_linear_RGB(color);
 
@@ -482,8 +483,12 @@ void QSGTextMaskMaterial::populate(const QPointF &p,
     QTextureGlyphCache *cache = glyphCache();
 
     QRawFontPrivate *fontD = QRawFontPrivate::get(m_font);
-    cache->populate(fontD->fontEngine, glyphIndexes.size(), glyphIndexes.constData(),
-                    fixedPointPositions.data());
+    cache->populate(fontD->fontEngine,
+                    glyphIndexes.size(),
+                    glyphIndexes.constData(),
+                    fixedPointPositions.data(),
+                    QPainter::RenderHints(),
+                    true);
     cache->fillInPendingGlyphs();
 
     int margin = fontD->fontEngine->glyphMargin(cache->glyphFormat());
@@ -505,7 +510,7 @@ void QSGTextMaskMaterial::populate(const QPointF &p,
          QPointF glyphPosition = glyphPositions.at(i) + position;
          QFixed subPixelPosition;
          if (supportsSubPixelPositions)
-             subPixelPosition = fontD->fontEngine->subPixelPositionForX(QFixed::fromReal(glyphPosition.x()));
+             subPixelPosition = fontD->fontEngine->subPixelPositionForX(QFixed::fromReal(glyphPosition.x() * glyphCacheScaleX));
 
          QTextureGlyphCache::GlyphAndSubPixelPosition glyph(glyphIndexes.at(i),
                                                             QFixedPoint(subPixelPosition, 0));

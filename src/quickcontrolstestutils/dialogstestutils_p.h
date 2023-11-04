@@ -74,6 +74,29 @@
     QCOMPARE(actualPaths, expectedPaths); \
 }
 
+#define OPEN_QUICK_DIALOG() \
+QVERIFY2(dialogHelper.isWindowInitialized(), dialogHelper.failureMessage()); \
+QVERIFY(dialogHelper.waitForWindowActive()); \
+QVERIFY(dialogHelper.openDialog()); \
+QTRY_VERIFY(dialogHelper.isQuickDialogOpen());
+
+#define CLOSE_QUICK_DIALOG() \
+    do { \
+        dialogHelper.dialog->close(); \
+        QVERIFY(!dialogHelper.dialog->isVisible()); \
+        QTRY_VERIFY(!dialogHelper.quickDialog->isVisible()); \
+    } while (false)
+
+QT_BEGIN_NAMESPACE
+class QWindow;
+
+class QQuickListView;
+
+class QQuickAbstractButton;
+
+class QQuickDialogButtonBox;
+class QQuickFolderBreadcrumbBar;
+
 namespace QQuickDialogTestUtils
 {
 
@@ -84,7 +107,7 @@ class DialogTestHelper
 public:
     DialogTestHelper(QQmlDataTest *testCase, const QString &testFilePath,
             const QStringList &qmlImportPaths = {}, const QVariantMap &initialProperties = {}) :
-        appHelper(testCase, testFilePath, qmlImportPaths, initialProperties)
+        appHelper(testCase, testFilePath, initialProperties, qmlImportPaths)
     {
         if (!appHelper.ready)
             return;
@@ -150,6 +173,15 @@ public:
     QuickDialogType *quickDialog = nullptr;
 };
 
+bool verifyFileDialogDelegates(QQuickListView *fileDialogListView, const QStringList &expectedFiles, QString &failureMessage);
+
+bool verifyBreadcrumbDelegates(QQuickFolderBreadcrumbBar *breadcrumbBar, const QUrl &expectedFolder, QString &failureMessage);
+
+QQuickAbstractButton *findDialogButton(QQuickDialogButtonBox *box, const QString &buttonText);
+
+void enterText(QWindow *window, const QString &textToEnter);
 }
+
+QT_END_NAMESPACE
 
 #endif // DIALOGSTESTUTILS_H

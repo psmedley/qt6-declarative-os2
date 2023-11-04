@@ -512,7 +512,7 @@ qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_debug
         debugger/qqmldebug.cpp
         debugger/qqmldebugconnector.cpp
         debugger/qqmldebugpluginmanager_p.h
-        debugger/qqmldebugserver_p.h
+        debugger/qqmldebugserver.cpp debugger/qqmldebugserver_p.h
         debugger/qqmldebugserverconnection_p.h
         debugger/qqmldebugservice.cpp debugger/qqmldebugservice_p.h
         debugger/qqmldebugservicefactory_p.h
@@ -576,11 +576,6 @@ qt_internal_extend_target(Qml CONDITION ANDROID
 qt_internal_extend_target(Qml CONDITION hpux-_x_ OR solaris-_x_ OR (QT_FEATURE_clock_gettime AND linux-_x_)
     LIBRARIES
         rt
-)
-
-qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_itemmodel
-    SOURCES
-        types/qqmlmodelindexvaluetype.cpp types/qqmlmodelindexvaluetype_p.h
 )
 
 qt_internal_extend_target(Qml CONDITION disassembler AND ((TEST_architecture_arch STREQUAL "i386") OR (TEST_architecture_arch STREQUAL "x86_64"))
@@ -681,8 +676,11 @@ qt_internal_add_docs(Qml
     doc/qtqml.qdocconf
 )
 
-# include snippet projects for developer builds
-if(QT_FEATURE_private_tests AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
+# include snippet projects for developer shared builds
+# static builds fail with
+#   CMake Error: AUTOMOC for target qt_target_qml_sources_example_resources_3:
+#   The "moc" executable does not exist
+if(QT_FEATURE_private_tests AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.19" AND QT_BUILD_SHARED_LIBS)
     add_subdirectory(doc/snippets/cmake/qt_target_qml_sources)
     qt_autogen_tools(qt_target_qml_sources_example ENABLE_AUTOGEN_TOOLS moc)
     qt_autogen_tools(qt_target_qml_sources_exampleplugin ENABLE_AUTOGEN_TOOLS moc)

@@ -395,10 +395,6 @@ endif()
     endif()
 
     if(arg_INSTALL_SOURCE_QMLTYPES)
-        message(AUTHOR_WARNING
-            "INSTALL_SOURCE_QMLTYPES option is deprecated and should not be used. "
-            "Please port your module to use declarative type registration.")
-
         set(files ${arg_INSTALL_SOURCE_QMLTYPES})
         if(QT_WILL_INSTALL)
             install(
@@ -414,10 +410,6 @@ endif()
     endif()
 
     if(arg_INSTALL_SOURCE_QMLDIR)
-        message(AUTHOR_WARNING
-            "INSTALL_SOURCE_QMLDIR option is deprecated and should not be used. "
-            "Please port your module to use declarative type registration.")
-
         set(files ${arg_INSTALL_SOURCE_QMLDIR})
         if(QT_WILL_INSTALL)
             install(

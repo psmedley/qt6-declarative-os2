@@ -345,6 +345,7 @@ void QQmlComponentPrivate::fromTypeData(const QQmlRefPointer<QQmlTypeData> &data
 
 RequiredProperties &QQmlComponentPrivate::requiredProperties()
 {
+    Q_ASSERT(state.creator);
     return state.creator->requiredProperties();
 }
 
@@ -418,7 +419,9 @@ QQmlComponent::~QQmlComponent()
                 qWarning().nospace().noquote() << QLatin1String("    ") << error;
         }
 
-        d->completeCreate();
+        // we might not have the creator anymore if the engine is gone
+        if (d->state.creator)
+            d->completeCreate();
     }
 
     if (d->typeData) {
@@ -830,8 +833,16 @@ QObject *QQmlComponent::create(QQmlContext *context)
     Q_D(QQmlComponent);
 
     QObject *rv = d->doBeginCreate(this, context);
-    if (rv)
+    if (rv) {
         completeCreate();
+    } else if (d->state.completePending) {
+        // overridden completCreate might assume that
+        // the object has actually been created
+        ++creationDepth.localData();
+        QQmlEnginePrivate *ep = QQmlEnginePrivate::get(d->engine);
+        d->complete(ep, &d->state);
+        --creationDepth.localData();
+    }
     if (rv && !d->requiredProperties().empty()) {
         delete  rv;
         return nullptr;
@@ -1449,8 +1460,10 @@ QQmlError QQmlComponentPrivate::unsetRequiredPropertyToQQmlError(const RequiredP
     }
     error.setDescription(description);
     error.setUrl(unsetRequiredProperty.fileUrl);
-    error.setLine(qmlConvertSourceCoordinate<quint32, int>(unsetRequiredProperty.location.line));
-    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(unsetRequiredProperty.location.column));
+    error.setLine(qmlConvertSourceCoordinate<quint32, int>(
+            unsetRequiredProperty.location.line()));
+    error.setColumn(qmlConvertSourceCoordinate<quint32, int>(
+            unsetRequiredProperty.location.column()));
     return  error;
 }
 
@@ -1788,3 +1801,4 @@ void QV4::QmlIncubatorObject::statusChanged(QQmlIncubator::Status s)
 QT_END_NAMESPACE
 
 #include "moc_qqmlcomponent.cpp"
+#include "moc_qqmlcomponentattached_p.cpp"

@@ -1,21 +1,21 @@
 # Generated from auto.pro.
 
 add_subdirectory(accessibility)
+if(NOT ANDROID) # temporarily disabled until QTBUG-100991 is fixed
 add_subdirectory(controls)
+endif()
 add_subdirectory(cursor)
 add_subdirectory(customization)
 add_subdirectory(designer)
-add_subdirectory(dialogs)
 if(NOT ANDROID) # QTBUG-100258
 add_subdirectory(focus)
 endif()
 add_subdirectory(font)
 add_subdirectory(palette)
 add_subdirectory(platform)
+add_subdirectory(pointerhandlers)
 add_subdirectory(pressandhold)
-if(NOT ANDROID) # QTBUG-100176
 add_subdirectory(qquickapplicationwindow)
-endif()
 add_subdirectory(qquickcolor)
 add_subdirectory(qquickdrawer)
 add_subdirectory(qquickheaderview)

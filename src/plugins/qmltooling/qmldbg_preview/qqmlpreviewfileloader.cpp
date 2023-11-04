@@ -60,7 +60,7 @@ QQmlPreviewFileLoader::QQmlPreviewFileLoader(QQmlPreviewServiceImpl *service) : 
 
     for (int loc = QLibraryInfo::PrefixPath; loc < QLibraryInfo::TestsPath; ++loc) {
         m_blacklist.blacklist(QLibraryInfo::path(
-                                  static_cast<QLibraryInfo::LibraryLocation>(loc)));
+                                  static_cast<QLibraryInfo::LibraryPath>(loc)));
     }
     m_blacklist.blacklist(QLibraryInfo::path(QLibraryInfo::SettingsPath));
 
@@ -195,3 +195,5 @@ void QQmlPreviewFileLoader::clearCache()
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qqmlpreviewfileloader.cpp"

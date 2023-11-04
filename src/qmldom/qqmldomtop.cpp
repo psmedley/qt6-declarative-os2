@@ -48,7 +48,6 @@
 #include <QtQml/private/qqmljsastvisitor_p.h>
 #include <QtQml/private/qqmljsast_p.h>
 
-#include <QtCore/QAtomicInt>
 #include <QtCore/QBasicMutex>
 #include <QtCore/QCborArray>
 #include <QtCore/QDebug>
@@ -157,11 +156,14 @@ DomUniverse::DomUniverse(QString universeName, Options options):
 
 std::shared_ptr<DomUniverse> DomUniverse::guaranteeUniverse(std::shared_ptr<DomUniverse> univ)
 {
-    static QAtomicInt counter(0);
+    const auto next = [] {
+        static std::atomic<int> counter(0);
+        return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    };
     if (univ)
         return univ;
     return std::shared_ptr<DomUniverse>(
-            new DomUniverse(QLatin1String("universe") + QString::number(++counter)));
+            new DomUniverse(QLatin1String("universe") + QString::number(next())));
 }
 
 DomItem DomUniverse::create(QString universeName, Options options)
@@ -286,11 +288,14 @@ void DomUniverse::loadFile(DomItem &self, QString canonicalFilePath, QString log
     case DomType::QmlFile:
     case DomType::QmltypesFile:
     case DomType::QmldirFile:
-    case DomType::QmlDirectory:
+    case DomType::QmlDirectory: {
+        // Protect the queue from concurrent access.
+        QMutexLocker l(mutex());
         m_queue.enqueue(ParsingTask { QDateTime::currentDateTime(), loadOptions, fType,
                                       canonicalFilePath, logicalPath, code, codeDate,
                                       self.ownerAs<DomUniverse>(), callback });
         break;
+    }
     default:
         self.addError(myErrors()
                               .error(tr("Ignoring request to load file %1 of unexpected type %2, "
@@ -349,7 +354,14 @@ updateEntry(DomItem &univ, std::shared_ptr<T> newItem,
 
 void DomUniverse::execQueue()
 {
-    ParsingTask t = m_queue.dequeue();
+    ParsingTask t;
+    {
+        // Protect the queue from concurrent access.
+        QMutexLocker l(mutex());
+        if (m_queue.isEmpty())
+            return;
+        t = m_queue.dequeue();
+    }
     shared_ptr<DomUniverse> topPtr = t.requestingUniverse.lock();
     if (!topPtr) {
         myErrors().error(tr("Ignoring callback for loading of %1: universe is not valid anymore").arg(t.canonicalPath)).handle();
@@ -2321,3 +2333,5 @@ bool RefCacheEntry::addForPath(DomItem &el, Path canonicalPath, const RefCacheEn
 } // end namespace QQmlJS
 
 QT_END_NAMESPACE
+
+#include "moc_qqmldomtop_p.cpp"

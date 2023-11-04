@@ -38,6 +38,8 @@
 #include <QtTest/qsignalspy.h>
 #include <QtGui/qcursor.h>
 #include <QtGui/qstylehints.h>
+#include <QtGui/qpa/qplatformintegration.h>
+#include <QtGui/private/qguiapplication_p.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlcontext.h>
@@ -105,11 +107,19 @@ private slots:
     void menuItemWidthAfterImplicitWidthChanged();
     void menuItemWidthAfterRetranslate();
     void giveMenuItemFocusOnButtonPress();
+
+private:
+    static bool hasWindowActivation();
 };
 
 tst_QQuickMenu::tst_QQuickMenu()
     : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
+}
+
+bool tst_QQuickMenu::hasWindowActivation()
+{
+    return (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation));
 }
 
 void tst_QQuickMenu::defaults()
@@ -155,6 +165,9 @@ void tst_QQuickMenu::count()
 
 void tst_QQuickMenu::mouse()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Mouse hovering not functional on offscreen/minimal platforms");
@@ -185,14 +198,14 @@ void tst_QQuickMenu::mouse()
     // Ensure that presses cause the current index to change,
     // so that the highlight acts as a way of illustrating press state.
     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier,
-        QPoint(menu->leftPadding() + firstItem->width() / 2, menu->topPadding() + firstItem->height() / 2));
+        QPoint(menu->x() + menu->leftPadding() + firstItem->width() / 2, menu->y() + menu->topPadding() + firstItem->height() / 2));
     QVERIFY(firstItem->hasActiveFocus());
     QCOMPARE(menu->currentIndex(), 0);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(0));
     QVERIFY(menu->isVisible());
 
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier,
-        QPoint(menu->leftPadding() + firstItem->width() / 2, menu->topPadding() + firstItem->height() / 2));
+        QPoint(menu->x() + menu->leftPadding() + firstItem->width() / 2, menu->y() + menu->topPadding() + firstItem->height() / 2));
     QCOMPARE(clickedSpy.count(), 1);
     QCOMPARE(triggeredSpy.count(), 1);
     QTRY_COMPARE(visibleSpy.count(), 1);
@@ -223,6 +236,8 @@ void tst_QQuickMenu::mouse()
     QVERIFY(overlay->childItems().contains(menu->contentItem()->parentItem()));
     QTRY_VERIFY(menu->isOpened());
 
+    // Hover-highlighting does not work on Android
+#ifndef Q_OS_ANDROID
     // Hover-highlight through the menu items one by one
     QQuickItem *prevHoverItem = nullptr;
     QQuickItem *listView = menu->contentItem();
@@ -232,13 +247,14 @@ void tst_QQuickMenu::mouse()
         if (!hoverItem || !hoverItem->isVisible() || hoverItem == prevHoverItem)
             continue;
         QTest::mouseMove(window, QPoint(
-            menu->leftPadding() + hoverItem->x() + hoverItem->width() / 2,
-            menu->topPadding() + hoverItem->y() + hoverItem->height() / 2));
+            menu->x() + menu->leftPadding() + hoverItem->x() + hoverItem->width() / 2,
+            menu->y() + menu->topPadding() + hoverItem->y() + hoverItem->height() / 2));
         QTRY_VERIFY(hoverItem->property("highlighted").toBool());
         if (prevHoverItem)
             QVERIFY(!prevHoverItem->property("highlighted").toBool());
         prevHoverItem = hoverItem;
     }
+#endif
 
     // Try pressing within the menu and releasing outside of it; it should close.
     // TODO: won't work until QQuickPopup::releasedOutside() actually gets emitted
@@ -264,7 +280,7 @@ void tst_QQuickMenu::pressAndHold()
 
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
@@ -281,6 +297,9 @@ void tst_QQuickMenu::pressAndHold()
 
 void tst_QQuickMenu::contextMenuKeyboard()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
         QSKIP("This platform only allows tab focus for text controls");
 
@@ -467,6 +486,9 @@ void tst_QQuickMenu::contextMenuKeyboard()
 // QTBUG-70181
 void tst_QQuickMenu::disabledMenuItemKeyNavigation()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
         QSKIP("This platform only allows tab focus for text controls");
 
@@ -531,6 +553,9 @@ void tst_QQuickMenu::disabledMenuItemKeyNavigation()
 
 void tst_QQuickMenu::mnemonics()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
 #ifdef Q_OS_MACOS
     QSKIP("Mnemonics are not used on macOS");
 #endif
@@ -586,6 +611,9 @@ void tst_QQuickMenu::mnemonics()
 
 void tst_QQuickMenu::menuButton()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
         QSKIP("This platform only allows tab focus for text controls");
 
@@ -620,7 +648,7 @@ void tst_QQuickMenu::addItem()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
     QVERIFY(menu);
@@ -638,6 +666,9 @@ void tst_QQuickMenu::addItem()
 
 void tst_QQuickMenu::menuSeparator()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     QQuickControlsApplicationHelper helper(this, QLatin1String("menuSeparator.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
@@ -662,6 +693,7 @@ void tst_QQuickMenu::menuSeparator()
     QVERIFY(saveMenuItem);
     QCOMPARE(saveMenuItem->text(), QStringLiteral("Save"));
     QTRY_VERIFY(!QQuickItemPrivate::get(saveMenuItem)->culled); // QTBUG-53262
+    QTRY_VERIFY(menu->isOpened());
 
     // Clicking on items should still close the menu.
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
@@ -669,7 +701,7 @@ void tst_QQuickMenu::menuSeparator()
     QTRY_VERIFY(!menu->isVisible());
 
     menu->open();
-    QVERIFY(menu->isVisible());
+    QTRY_VERIFY(menu->isOpened());
 
     // Clicking on a separator shouldn't close the menu.
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
@@ -720,7 +752,7 @@ void tst_QQuickMenu::repeater()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
     QVERIFY(menu);
@@ -765,7 +797,7 @@ void tst_QQuickMenu::order()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
     QVERIFY(menu);
@@ -783,13 +815,20 @@ void tst_QQuickMenu::order()
 
 void tst_QQuickMenu::popup()
 {
+    // Try moving the cursor from the current position
+    // Skip if it fails since the test relies on moving the cursor
+    const QPoint point = QCursor::pos() + QPoint(1, 1);
+    QCursor::setPos(point);
+    if (!QTest::qWaitFor([point]{ return QCursor::pos() == point; }))
+        QSKIP("Setting cursor position is not supported on this platform");
+
     QQuickControlsApplicationHelper helper(this, QLatin1String("popup.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
@@ -806,7 +845,8 @@ void tst_QQuickMenu::popup()
     QQuickItem *button = window->property("button").value<QQuickItem *>();
     QVERIFY(button);
 
-#if QT_CONFIG(cursor)
+    // Android does not support settings cursor position
+#if QT_CONFIG(cursor) && !defined(Q_OS_ANDROID)
     QPoint oldCursorPos = QCursor::pos();
     QPoint cursorPos = window->mapToGlobal(QPoint(11, 22));
     QCursor::setPos(cursorPos);
@@ -830,16 +870,16 @@ void tst_QQuickMenu::popup()
     QCOMPARE(menu->parentItem(), window->contentItem());
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex").toInt(), -1);
-    QTRY_VERIFY(qFuzzyCompare(menu->x(), 33));
-    QTRY_VERIFY(qFuzzyCompare(menu->y(), 44));
+    QTRY_VERIFY(qFuzzyCompare(menu->x(), qMax(qreal(33), menu->leftMargin())));
+    QTRY_VERIFY(qFuzzyCompare(menu->y(), qMax(qreal(44), menu->topMargin())));
     menu->close();
 
     QVERIFY(QMetaObject::invokeMethod(window, "popupAtCoord", Q_ARG(QVariant, 55), Q_ARG(QVariant, 66)));
     QCOMPARE(menu->parentItem(), window->contentItem());
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex").toInt(), -1);
-    QTRY_VERIFY(qFuzzyCompare(menu->x(), 55));
-    QTRY_VERIFY(qFuzzyCompare(menu->y(), 66));
+    QTRY_VERIFY(qFuzzyCompare(menu->x(), qMax(qreal(55), menu->leftMargin())));
+    QTRY_VERIFY(qFuzzyCompare(menu->y(), qMax(qreal(66), menu->topMargin())));
     menu->close();
 
     menu->setParentItem(nullptr);
@@ -944,7 +984,7 @@ void tst_QQuickMenu::actions()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
@@ -1013,7 +1053,7 @@ void tst_QQuickMenu::removeTakeItem()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
@@ -1073,7 +1113,7 @@ void tst_QQuickMenu::subMenuMouse()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *mainMenu = window->property("mainMenu").value<QQuickMenu *>();
     QVERIFY(mainMenu);
@@ -1082,12 +1122,18 @@ void tst_QQuickMenu::subMenuMouse()
 
     QQuickMenu *subMenu1 = window->property("subMenu1").value<QQuickMenu *>();
     QVERIFY(subMenu1);
+    subMenu1->setCascade(cascade);
+    QCOMPARE(subMenu1->cascade(), cascade);
 
     QQuickMenu *subMenu2 = window->property("subMenu2").value<QQuickMenu *>();
     QVERIFY(subMenu2);
+    subMenu2->setCascade(cascade);
+    QCOMPARE(subMenu2->cascade(), cascade);
 
     QQuickMenu *subSubMenu1 = window->property("subSubMenu1").value<QQuickMenu *>();
     QVERIFY(subSubMenu1);
+    subSubMenu1->setCascade(cascade);
+    QCOMPARE(subSubMenu1->cascade(), cascade);
 
     mainMenu->open();
     QVERIFY(mainMenu->isVisible());
@@ -1107,6 +1153,8 @@ void tst_QQuickMenu::subMenuMouse()
     QVERIFY(!subMenu2->isVisible());
     QVERIFY(!subSubMenu1->isVisible());
 
+    // on Android mouse hover will not open and close sub-menus
+#ifndef Q_OS_ANDROID
     // open the cascading sub-sub-menu with mouse hover
     QQuickMenuItem *subSubMenu1Item = qobject_cast<QQuickMenuItem *>(subMenu1->itemAt(2));
     QVERIFY(subSubMenu1Item);
@@ -1151,6 +1199,10 @@ void tst_QQuickMenu::subMenuMouse()
     QTRY_COMPARE(subMenu1->isVisible(), !cascade);
     QVERIFY(!subMenu2->isVisible());
     QVERIFY(!subSubMenu1->isVisible());
+#else
+    QQuickMenuItem *mainMenuItem1 = qobject_cast<QQuickMenuItem *>(mainMenu->itemAt(0));
+    QVERIFY(mainMenuItem1);
+#endif // !Q_OS_ANDROID
 
     // close all menus by click triggering an item
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, mainMenuItem1->mapToScene(QPoint(1, 1)).toPoint());
@@ -1180,7 +1232,7 @@ void tst_QQuickMenu::subMenuDisabledMouse()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *mainMenu = window->property("mainMenu").value<QQuickMenu *>();
     QVERIFY(mainMenu);
@@ -1194,16 +1246,22 @@ void tst_QQuickMenu::subMenuDisabledMouse()
     QVERIFY(subMenu);
 
     mainMenu->open();
-    QVERIFY(mainMenu->isVisible());
+    QTRY_VERIFY(mainMenu->isOpened());
     QVERIFY(!menuItem1->isHighlighted());
     QVERIFY(!subMenu->isVisible());
 
+    // Hover-highlighting does not work on Android
+#ifndef Q_OS_ANDROID
+    // Generate a hover event to set the current index
+    QTest::mouseMove(window, menuItem1->mapToScene(QPoint(2, 2)).toPoint());
+    QTRY_VERIFY(menuItem1->isHighlighted());
+#endif
     // Open the sub-menu with a mouse click.
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, menuItem1->mapToScene(QPoint(1, 1)).toPoint());
-    // Need to use the TRY variant here when cascade is false,
-    // as e.g. Material style menus have transitions and don't close immediately.
+    // Need to use the TRY variant here,
+    // as e.g. Material, iOS style menus have transitions and don't open/close immediately.
     QTRY_COMPARE(mainMenu->isVisible(), cascade);
-    QVERIFY(subMenu->isVisible());
+    QTRY_VERIFY(subMenu->isOpened());
     QTRY_VERIFY(menuItem1->isHighlighted());
     // Now the sub-menu is open. The current behavior is that the first menu item
     // in the new menu is highlighted; make sure that we choose the next item if
@@ -1234,6 +1292,9 @@ void tst_QQuickMenu::subMenuKeyboard_data()
 
 void tst_QQuickMenu::subMenuKeyboard()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     QFETCH(bool, cascade);
     QFETCH(bool, mirrored);
 
@@ -1360,6 +1421,9 @@ void tst_QQuickMenu::subMenuDisabledKeyboard_data()
 // QTBUG-69540
 void tst_QQuickMenu::subMenuDisabledKeyboard()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     QFETCH(bool, cascade);
     QFETCH(bool, mirrored);
 
@@ -1466,8 +1530,16 @@ void tst_QQuickMenu::subMenuPosition()
 
     centerOnScreen(window);
     moveMouseAway(window);
+#ifndef Q_OS_ANDROID
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+#else
+    // On Android the desired size does not fit into the screen, so we just
+    // call showNormal. This will make the window larger than the screen, but
+    // all the geometry calculations will be correct. Otherwise we'll get
+    // unpredictable results
+    window->showNormal();
+#endif
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     if (mirrored) {
         QQmlExpression mirroringExpression(qmlContext(window), window,
@@ -1581,7 +1653,7 @@ void tst_QQuickMenu::addRemoveSubMenus()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *mainMenu = window->property("mainMenu").value<QQuickMenu *>();
     QVERIFY(mainMenu);
@@ -1652,8 +1724,12 @@ void tst_QQuickMenu::scrollable()
     QQuickControlsApplicationHelper helper(this, qmlFilePath);
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
+#ifndef Q_OS_ANDROID
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+#else
+    window->showNormal();
+#endif
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
     menu->open();
@@ -1682,9 +1758,6 @@ void tst_QQuickMenu::disableWhenTriggered_data()
 // Tests that the menu is dismissed when a menu item sets "enabled = false" in onTriggered().
 void tst_QQuickMenu::disableWhenTriggered()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("Crashes on Android (QTBUG-100256)");
-#endif
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Mouse hovering not functional on offscreen/minimal platforms");
@@ -1696,7 +1769,7 @@ void tst_QQuickMenu::disableWhenTriggered()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->findChild<QQuickMenu*>("Menu");
     QVERIFY(menu);
@@ -1723,10 +1796,19 @@ void tst_QQuickMenu::disableWhenTriggered()
         QVERIFY(subMenuItem);
 
         // First, open the sub-menu.
+#ifndef Q_OS_ANDROID
         QTest::mouseMove(window, menuItem->mapToScene(QPoint(1, 1)).toPoint());
+#else
+        // On Android mouseHover does not open sub-menu, so just click on it
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+            menuItem->mapToScene(QPointF(menuItem->width() / 2, menuItem->height() / 2)).toPoint());
+#endif
+
         QTRY_VERIFY(subMenu->isVisible());
+#ifndef Q_OS_ANDROID
         QVERIFY(menuItem->isHovered());
         QTRY_VERIFY(subMenu->contentItem()->property("contentHeight").toReal() > 0.0);
+#endif
 
         // Click the item.
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
@@ -1752,7 +1834,7 @@ void tst_QQuickMenu::menuItemWidth()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     if (mirrored) {
         QQmlExpression mirroringExpression(qmlContext(window), window,
@@ -1784,7 +1866,7 @@ void tst_QQuickMenu::menuItemWidthAfterMenuWidthChanged()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     if (mirrored) {
         QQmlExpression mirroringExpression(qmlContext(window), window,
@@ -1832,7 +1914,7 @@ void tst_QQuickMenu::menuItemWidthAfterImplicitWidthChanged()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     if (mirrored) {
         QQmlExpression mirroringExpression(qmlContext(window), window,
@@ -1866,7 +1948,7 @@ void tst_QQuickMenu::menuItemWidthAfterRetranslate()
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    QVERIFY(QTest::qWaitForWindowActive(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
@@ -1894,6 +1976,9 @@ void tst_QQuickMenu::menuItemWidthAfterRetranslate()
 
 void tst_QQuickMenu::giveMenuItemFocusOnButtonPress()
 {
+    if (!hasWindowActivation())
+        QSKIP("Window activation is not supported");
+
     QQuickControlsApplicationHelper helper(this, QLatin1String("giveMenuItemFocusOnButtonPress.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;

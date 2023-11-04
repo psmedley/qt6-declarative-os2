@@ -123,16 +123,7 @@ QQuickLabsPlatformMenuItem::~QQuickLabsPlatformMenuItem()
         m_menu->removeItem(this);
     if (m_group)
         m_group->removeItem(this);
-#if QT_CONFIG(shortcut)
-    if (m_shortcutId != -1) {
-        QKeySequence sequence;
-        if (m_shortcut.metaType().id() == QMetaType::Int)
-            sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-        else
-            sequence = QKeySequence::fromString(m_shortcut.toString());
-        QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
-    }
-#endif
+    removeShortcut();
     delete m_iconLoader;
     m_iconLoader = nullptr;
     delete m_handle;
@@ -178,6 +169,10 @@ void QQuickLabsPlatformMenuItem::sync()
     m_handle->setText(m_text);
     m_handle->setFont(m_font);
     m_handle->setHasExclusiveGroup(m_group && m_group->isExclusive());
+
+    if (m_iconLoader)
+        m_handle->setIcon(m_iconLoader->toQIcon());
+
     if (m_subMenu) {
         // Sync first as dynamically created menus may need to get the
         // handle recreated
@@ -295,8 +290,15 @@ void QQuickLabsPlatformMenuItem::setEnabled(bool enabled)
     if (m_enabled == enabled)
         return;
 
+    if (!enabled)
+        removeShortcut();
+
     bool wasEnabled = isEnabled();
     m_enabled = enabled;
+
+    if (enabled)
+        addShortcut();
+
     sync();
     if (isEnabled() != wasEnabled)
         emit enabledChanged();
@@ -502,31 +504,10 @@ void QQuickLabsPlatformMenuItem::setShortcut(const QVariant& shortcut)
     if (m_shortcut == shortcut)
         return;
 
-#if QT_CONFIG(shortcut)
-    if (m_shortcutId != -1) {
-        QKeySequence sequence;
-        if (m_shortcut.metaType().id() == QMetaType::Int)
-            sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-        else
-            sequence = QKeySequence::fromString(m_shortcut.toString());
-        QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
-    }
-#endif
+    removeShortcut();
     m_shortcut = shortcut;
     sync();
-#if QT_CONFIG(shortcut)
-    QKeySequence sequence;
-    if (m_shortcut.metaType().id() == QMetaType::Int)
-        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
-    else
-        sequence = QKeySequence::fromString(m_shortcut.toString());
-    if (!sequence.isEmpty()) {
-        m_shortcutId = QGuiApplicationPrivate::instance()->shortcutMap.addShortcut(this, sequence,
-            Qt::WindowShortcut, QQuickShortcutContext::matcher);
-    } else {
-        m_shortcutId = -1;
-    }
-#endif
+    addShortcut();
     emit shortcutChanged();
 }
 
@@ -604,7 +585,7 @@ void QQuickLabsPlatformMenuItem::classBegin()
 
 void QQuickLabsPlatformMenuItem::componentComplete()
 {
-    if (m_handle && m_iconLoader)
+    if (m_iconLoader)
         m_iconLoader->setEnabled(true);
     m_complete = true;
     sync();
@@ -629,11 +610,39 @@ void QQuickLabsPlatformMenuItem::activate()
 
 void QQuickLabsPlatformMenuItem::updateIcon()
 {
-    if (!m_handle || !m_iconLoader)
+    sync();
+}
+
+void QQuickLabsPlatformMenuItem::addShortcut()
+{
+#if QT_CONFIG(shortcut)
+    QKeySequence sequence;
+    if (m_shortcut.metaType().id() == QMetaType::Int)
+        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
+    else
+        sequence = QKeySequence::fromString(m_shortcut.toString());
+    if (!sequence.isEmpty() && m_enabled) {
+        m_shortcutId = QGuiApplicationPrivate::instance()->shortcutMap.addShortcut(this, sequence,
+            Qt::WindowShortcut, QQuickShortcutContext::matcher);
+    } else {
+        m_shortcutId = -1;
+    }
+#endif
+}
+
+void QQuickLabsPlatformMenuItem::removeShortcut()
+{
+#if QT_CONFIG(shortcut)
+    if (m_shortcutId == -1)
         return;
 
-    m_handle->setIcon(m_iconLoader->toQIcon());
-    sync();
+    QKeySequence sequence;
+    if (m_shortcut.metaType().id() == QMetaType::Int)
+        sequence = QKeySequence(static_cast<QKeySequence::StandardKey>(m_shortcut.toInt()));
+    else
+        sequence = QKeySequence::fromString(m_shortcut.toString());
+    QGuiApplicationPrivate::instance()->shortcutMap.removeShortcut(m_shortcutId, this, sequence);
+#endif
 }
 
 QT_END_NAMESPACE

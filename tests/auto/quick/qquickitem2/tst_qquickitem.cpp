@@ -72,6 +72,7 @@ private slots:
     void activeFocusOnTab10();
     void activeFocusOnTab_infiniteLoop_data();
     void activeFocusOnTab_infiniteLoop();
+    void activeFocusOnTab_infiniteLoopControls();
 
     void nextItemInFocusChain();
     void nextItemInFocusChain2();
@@ -1160,6 +1161,17 @@ void tst_QQuickItem::activeFocusOnTab_infiniteLoop()
     QCOMPARE(item, window->rootObject());
     item = hiddenChild->nextItemInFocusChain(false);
     QCOMPARE(item, window->rootObject());
+}
+
+
+void tst_QQuickItem::activeFocusOnTab_infiniteLoopControls()
+{
+    auto source = testFileUrl("activeFocusOnTab_infiniteLoop3.qml");
+    QScopedPointer<QQuickView>window(new QQuickView());
+    window->setSource(source);
+    window->show();
+    QVERIFY(window->errors().isEmpty());
+    QTest::keyClick(window.get(), Qt::Key_Tab); // should not hang
 }
 
 void tst_QQuickItem::nextItemInFocusChain()
@@ -3769,11 +3781,13 @@ void tst_QQuickItem::colorGroup()
     QCOMPARE(palette->currentColorGroup(), QPalette::Inactive);
     QCOMPARE(foreground->property("color").value<QColor>(), palette->inactive()->base());
 
+    activationThief.hide();
     view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QCOMPARE(palette->currentColorGroup(), QPalette::Active);
     QCOMPARE(foreground->property("color").value<QColor>(), palette->active()->base());
 
+    activationThief.show();
     activationThief.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&activationThief));
     QCOMPARE(palette->currentColorGroup(), QPalette::Inactive);

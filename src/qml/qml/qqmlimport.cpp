@@ -47,7 +47,6 @@
 #include <QtCore/qpluginloader.h>
 #include <QtCore/qlibraryinfo.h>
 #include <QtCore/qloggingcategory.h>
-#include <QtCore/qreadwritelock.h>
 #include <QtQml/qqmlextensioninterface.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <private/qqmlextensionplugin_p.h>
@@ -1393,6 +1392,18 @@ QTypeRevision QQmlImportsPrivate::addFileImport(
         const QString& uri, const QString &prefix, QTypeRevision version, uint flags,
         QQmlImportDatabase *database, QList<QQmlError> *errors)
 {
+    if (uri.startsWith(Slash) || uri.startsWith(Colon)) {
+        QQmlError error;
+        const QString fix = uri.startsWith(Slash) ? QLatin1String("file:") + uri
+                                                  : QLatin1String("qrc") + uri;
+        error.setDescription(QQmlImportDatabase::tr(
+                                 "\"%1\" is not a valid import URL. "
+                                 "You can pass relative paths or URLs with schema, but not "
+                                 "absolute paths or resource paths. Try \"%2\".").arg(uri, fix));
+        errors->prepend(error);
+        return QTypeRevision();
+    }
+
     Q_ASSERT(errors);
 
     QQmlImportNamespace *nameSpace = importNamespace(prefix);
@@ -1621,7 +1632,7 @@ QTypeRevision QQmlImports::addLibraryImport(
 
     qCDebug(lcQmlImport)
             << "addLibraryImport:" << qPrintable(baseUrl().toString())
-            << uri << version << "as" << prefix;
+            << uri << "version '" << version << "'" << "as" << prefix;
 
     return d->addLibraryImport(uri, prefix, version, qmldirIdentifier, qmldirUrl, flags,
                                importDb, errors);

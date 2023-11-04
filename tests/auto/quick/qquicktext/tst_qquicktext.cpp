@@ -154,6 +154,7 @@ private slots:
     void growFromZeroWidth();
 
     void padding();
+    void paddingInLoader();
 
     void hintingPreference();
 
@@ -2366,6 +2367,10 @@ void tst_qquicktext::implicitSize_data()
 
 void tst_qquicktext::implicitSize()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("This segfaults on Android, QTBUG-103096");
+#endif
+
     QFETCH(QString, text);
     QFETCH(QString, width);
     QFETCH(QString, format);
@@ -3167,12 +3172,12 @@ void tst_qquicktext::imgTagsAlign_data()
     QTest::addColumn<QString>("src");
     QTest::addColumn<int>("imgHeight");
     QTest::addColumn<QString>("align");
-    QTest::newRow("heart-bottom") << "data/images/heart200.png" << 181 <<  "bottom";
-    QTest::newRow("heart-middle") << "data/images/heart200.png" << 181 <<  "middle";
-    QTest::newRow("heart-top") << "data/images/heart200.png" << 181 <<  "top";
-    QTest::newRow("starfish-bottom") << "data/images/starfish_2.png" << 217 <<  "bottom";
-    QTest::newRow("starfish-middle") << "data/images/starfish_2.png" << 217 <<  "middle";
-    QTest::newRow("starfish-top") << "data/images/starfish_2.png" << 217 <<  "top";
+    QTest::newRow("heart-bottom") << "images/heart200.png" << 181 <<  "bottom";
+    QTest::newRow("heart-middle") << "images/heart200.png" << 181 <<  "middle";
+    QTest::newRow("heart-top") << "images/heart200.png" << 181 <<  "top";
+    QTest::newRow("starfish-bottom") << "images/starfish_2.png" << 217 <<  "bottom";
+    QTest::newRow("starfish-middle") << "images/starfish_2.png" << 217 <<  "middle";
+    QTest::newRow("starfish-top") << "images/starfish_2.png" << 217 <<  "top";
 }
 
 void tst_qquicktext::imgTagsAlign()
@@ -3182,7 +3187,7 @@ void tst_qquicktext::imgTagsAlign()
     QFETCH(QString, align);
     QString componentStr = "import QtQuick 2.0\nText { text: \"This is a test <img src=\\\"" + src + "\\\" align=\\\"" + align + "\\\"> of image.\" }";
     QQmlComponent textComponent(&engine);
-    textComponent.setData(componentStr.toLatin1(), QUrl::fromLocalFile("."));
+    textComponent.setData(componentStr.toLatin1(), testFileUrl("."));
     QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
     QVERIFY(textObject != nullptr);
@@ -3204,10 +3209,10 @@ void tst_qquicktext::imgTagsAlign()
 
 void tst_qquicktext::imgTagsMultipleImages()
 {
-    QString componentStr = "import QtQuick 2.0\nText { text: \"This is a starfish<img src=\\\"data/images/starfish_2.png\\\" width=\\\"60\\\" height=\\\"60\\\" > and another one<img src=\\\"data/images/heart200.png\\\" width=\\\"85\\\" height=\\\"85\\\">.\" }";
+    QString componentStr = "import QtQuick 2.0\nText { text: \"This is a starfish<img src=\\\"images/starfish_2.png\\\" width=\\\"60\\\" height=\\\"60\\\" > and another one<img src=\\\"images/heart200.png\\\" width=\\\"85\\\" height=\\\"85\\\">.\" }";
 
     QQmlComponent textComponent(&engine);
-    textComponent.setData(componentStr.toLatin1(), QUrl::fromLocalFile("."));
+    textComponent.setData(componentStr.toLatin1(), testFileUrl("."));
     QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
     QVERIFY(textObject != nullptr);
@@ -3263,11 +3268,15 @@ void tst_qquicktext::imgTagsUpdates()
 
 void tst_qquicktext::imgTagsError()
 {
-    QString componentStr = "import QtQuick 2.0\nText { text: \"This is a starfish<img src=\\\"data/images/starfish_2.pn\\\" width=\\\"60\\\" height=\\\"60\\\">.\" }";
+    QString componentStr = "import QtQuick 2.0\nText { text: \"This is a starfish<img src=\\\"images/starfish_2.pn\\\" width=\\\"60\\\" height=\\\"60\\\">.\" }";
 
     QQmlComponent textComponent(&engine);
-    QTest::ignoreMessage(QtWarningMsg, "<Unknown File>:2:1: QML Text: Cannot open: file:data/images/starfish_2.pn");
-    textComponent.setData(componentStr.toLatin1(), QUrl("file:"));
+    const QString expectedMessage(
+            testFileUrl(".").toString()
+            + ":2:1: QML Text: Cannot open: "
+            + testFileUrl("images/starfish_2.pn").toString());
+    QTest::ignoreMessage(QtWarningMsg, expectedMessage.toLatin1());
+    textComponent.setData(componentStr.toLatin1(), testFileUrl("."));
     QQuickText *textObject = qobject_cast<QQuickText*>(textComponent.create());
 
     QVERIFY(textObject != nullptr);
@@ -3943,7 +3952,11 @@ static qreal expectedBaselineScaled(QQuickText *item)
 {
     QFont font = item->font();
     QTextLayout layout(item->text().replace(QLatin1Char('\n'), QChar::LineSeparator));
-    do {
+
+    qreal low = 0;
+    qreal high = 10000;
+
+    while (low < high) {
         layout.setFont(font);
         qreal width = 0;
         layout.beginLayout();
@@ -3953,12 +3966,23 @@ static qreal expectedBaselineScaled(QQuickText *item)
         }
         layout.endLayout();
 
-        if (width < item->width()) {
-            QFontMetricsF fm(layout.font());
-            return fm.ascent() + item->topPadding();
+        if (width > item->width()) {
+            high = font.pointSizeF();
+            font.setPointSizeF((high + low) / 2);
+        } else {
+            low = font.pointSizeF();
+
+            // When fontSizeMode != FixedSize, the font size will be scaled to a value
+            // The goal is to find a pointSize that uses as much space as possible while
+            // still fitting inside the available space. 0.01 is chosen as the threshold.
+            if ((high - low) < qreal(0.01)) {
+                QFontMetricsF fm(layout.font());
+                return fm.ascent() + item->topPadding();
+            }
+
+            font.setPointSizeF((high + low) / 2);
         }
-        font.setPointSize(font.pointSize() - 1);
-    } while (font.pointSize() > 0);
+    }
     return item->topPadding();
 }
 
@@ -4380,6 +4404,18 @@ void tst_qquicktext::padding()
     obj->setElideMode(QQuickText::ElideRight);
     QCOMPARE(obj->implicitWidth(), cw + obj->leftPadding() + obj->rightPadding());
     QCOMPARE(obj->implicitHeight(), ch + obj->topPadding() + obj->bottomPadding());
+
+    obj->setLeftPadding(0);
+    QCOMPARE(obj->implicitWidth(), cw + obj->leftPadding() + obj->rightPadding());
+
+    obj->setWidth(cw);
+    obj->setRightPadding(cw);
+    QCOMPARE(obj->contentWidth(), 0);
+
+    for (int incr = 1; incr < 50 && qFuzzyIsNull(obj->contentWidth()); ++incr)
+        obj->setWidth(cw + incr);
+    QVERIFY(obj->contentWidth() > 0);
+
     obj->setElideMode(QQuickText::ElideNone);
     obj->resetWidth();
 
@@ -4422,6 +4458,32 @@ void tst_qquicktext::padding()
     QCOMPARE(obj->bottomPadding(), 0.0);
 
     delete root;
+}
+
+void tst_qquicktext::paddingInLoader() // QTBUG-83413
+{
+    QQuickView view;
+    QVERIFY(QQuickTest::showView(view, testFileUrl("paddingInLoader.qml")));
+    QQuickText *qtext = view.rootObject()->findChild<QQuickText*>();
+    QVERIFY(qtext);
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(qtext);
+    QVERIFY(textPrivate);
+    QCOMPARE(qtext->contentWidth(), 0); // does not render text, because width == rightPadding
+    QCOMPARE(textPrivate->availableWidth(), 0);
+
+    qtext->setLeftPadding(qtext->width());
+    qtext->setRightPadding(0);
+    QCOMPARE(qtext->contentWidth(), 0); // does not render text, because width == leftPadding
+    QCOMPARE(textPrivate->availableWidth(), 0);
+
+    qtext->setRightPadding(qtext->width());
+    QCOMPARE(qtext->contentWidth(), 0); // does not render text: available space is negative
+    QCOMPARE(textPrivate->availableWidth(), -qtext->width());
+
+    qtext->setLeftPadding(2);
+    qtext->setRightPadding(2);
+    QVERIFY(qtext->contentWidth() > 0); // finally space is available to render text
+    QCOMPARE(textPrivate->availableWidth(), qtext->width() - 4);
 }
 
 void tst_qquicktext::hintingPreference()

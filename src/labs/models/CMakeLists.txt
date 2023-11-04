@@ -10,6 +10,8 @@ qt_internal_add_qml_module(LabsQmlModels
     PUBLIC_LIBRARIES
         Qt::QmlModelsPrivate
         Qt::QmlPrivate
+    DEPENDENCIES
+        QtQml.Models
     OS2_SHORT_NAME Qt6LabQM
 )
 

@@ -549,7 +549,8 @@ public:
 
         metaObject.reset(builder.toMetaObject());
         *static_cast<QMetaObject *>(this) = *metaObject;
-        propertyCache.adopt(new QQmlPropertyCache(metaObject.data(), model.modelItemRevision));
+        propertyCache = QQmlPropertyCache::createStandalone(
+                    metaObject.data(), model.modelItemRevision);
     }
 };
 
@@ -683,8 +684,8 @@ public:
     {
         VDMListDelegateDataType *dataType = const_cast<VDMListDelegateDataType *>(this);
         if (!propertyCache) {
-            dataType->propertyCache.adopt(new QQmlPropertyCache(
-                        &QQmlDMListAccessorData::staticMetaObject, model.modelItemRevision));
+            dataType->propertyCache = QQmlPropertyCache::createStandalone(
+                        &QQmlDMListAccessorData::staticMetaObject, model.modelItemRevision);
         }
 
         return new QQmlDMListAccessorData(
@@ -966,7 +967,9 @@ void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *)
 {
     accessors->cleanup(*this);
 
+    // Don't use variant anymore after this. list may transform it.
     list.setList(variant);
+
     modelStrongReference.clear();
 
     if (QObject *object = qvariant_cast<QObject *>(list.list())) {
@@ -978,7 +981,7 @@ void QQmlAdaptorModel::setModel(const QVariant &variant, QObject *)
         else
             accessors = new VDMObjectDelegateDataType;
     } else if (list.type() == QQmlListAccessor::ListProperty) {
-        auto object = static_cast<const QQmlListReference *>(variant.constData())->object();
+        auto object = static_cast<const QQmlListReference *>(list.list().constData())->object();
         if (QQmlData *ddata = QQmlData::get(object))
             modelStrongReference = ddata->jsWrapper;
         setObject(object);

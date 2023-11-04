@@ -390,6 +390,7 @@ void QQuickPinchArea::clearPinch(QTouchEvent *event)
         }
     }
     setKeepTouchGrab(false);
+    setKeepMouseGrab(false);
 }
 
 void QQuickPinchArea::cancelPinch(QTouchEvent *event)
@@ -431,6 +432,7 @@ void QQuickPinchArea::cancelPinch(QTouchEvent *event)
             event->setExclusiveGrabber(point, nullptr);
     }
     setKeepTouchGrab(false);
+    setKeepMouseGrab(false);
 }
 
 void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
@@ -463,6 +465,7 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
             pe.setStartPoint2(mapFromScene(d->sceneStartPoint2));
             pe.setPoint1(mapFromScene(d->lastPoint1));
             pe.setPoint2(mapFromScene(d->lastPoint2));
+            setKeepMouseGrab(false);
             emit pinchFinished(&pe);
             d->pinchStartDist = 0;
             d->pinchActivated = false;
@@ -561,6 +564,9 @@ void QQuickPinchArea::updatePinch(QTouchEvent *event, bool filtering)
                         event->setExclusiveGrabber(touchPoint1, this);
                         event->setExclusiveGrabber(touchPoint2, this);
                         setKeepTouchGrab(true);
+                        // So that PinchArea works in PathView, grab mouse events too.
+                        // We should be able to remove these setKeepMouseGrab calls when QTBUG-105567 is fixed.
+                        setKeepMouseGrab(true);
                         d->inPinch = true;
                         if (d->pinch && d->pinch->target()) {
                             auto targetParent = pinch()->target()->parentItem();
@@ -727,6 +733,8 @@ bool QQuickPinchArea::event(QEvent *event)
             clearPinch(nullptr);
             break;
         case Qt::ZoomNativeGesture: {
+            if (d->pinchRejected)
+                break;
             qreal scale = d->pinchLastScale * (1.0 + gesture->value());
             QQuickPinchEvent pe(d->pinchStartCenter, scale, d->pinchLastAngle, 0.0);
             pe.setStartCenter(d->pinchStartCenter);
@@ -744,7 +752,10 @@ bool QQuickPinchArea::event(QEvent *event)
             else
                 emit pinchStarted(&pe);
             d->inPinch = true;
-            updatePinchTarget();
+            if (pe.accepted())
+                updatePinchTarget();
+            else
+                d->pinchRejected = true;
         } break;
         case Qt::SmartZoomNativeGesture: {
             if (gesture->value() > 0.0 && d->pinch && d->pinch->target()) {
@@ -768,6 +779,8 @@ bool QQuickPinchArea::event(QEvent *event)
             emit smartZoom(&pe);
         } break;
         case Qt::RotateNativeGesture: {
+            if (d->pinchRejected)
+                break;
             qreal angle = d->pinchLastAngle + gesture->value();
             QQuickPinchEvent pe(d->pinchStartCenter, d->pinchLastScale, angle, 0.0);
             pe.setStartCenter(d->pinchStartCenter);
@@ -786,7 +799,10 @@ bool QQuickPinchArea::event(QEvent *event)
                 emit pinchStarted(&pe);
             d->inPinch = true;
             d->pinchRotation = angle;
-            updatePinchTarget();
+            if (pe.accepted())
+                updatePinchTarget();
+            else
+                d->pinchRejected = true;
         } break;
         default:
             return QQuickItem::event(event);
