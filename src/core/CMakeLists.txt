@@ -15,6 +15,7 @@ qt_internal_add_qml_module(QmlCore
     PUBLIC_LIBRARIES
         Qt::Core
         Qt::Qml
+    OS2_SHORT_NAME QtQmlcoe
 )
 
 qt_internal_add_docs(QmlCore
