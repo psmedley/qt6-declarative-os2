@@ -381,15 +381,26 @@ void QQuickControlPrivate::resizeBackground()
     resizingBackground = true;
 
     QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+    bool changeWidth = false;
+    bool changeHeight = false;
     if (((!p->widthValid() || !extra.isAllocated() || !extra->hasBackgroundWidth) && qFuzzyIsNull(background->x()))
             || (extra.isAllocated() && (extra->hasLeftInset || extra->hasRightInset))) {
         background->setX(getLeftInset());
-        background->setWidth(width - getLeftInset() - getRightInset());
+        changeWidth = !p->width.hasBinding();
     }
     if (((!p->heightValid() || !extra.isAllocated() || !extra->hasBackgroundHeight) && qFuzzyIsNull(background->y()))
             || (extra.isAllocated() && (extra->hasTopInset || extra->hasBottomInset))) {
         background->setY(getTopInset());
-        background->setHeight(height - getTopInset() - getBottomInset());
+        changeHeight = !p->height.hasBinding();
+    }
+    if (changeHeight || changeWidth) {
+        auto newWidth = changeWidth ?
+            width.valueBypassingBindings() - getLeftInset() - getRightInset() :
+            p->width.valueBypassingBindings();
+        auto newHeight = changeHeight ?
+            height.valueBypassingBindings() - getTopInset() - getBottomInset() :
+            p->height.valueBypassingBindings();
+        background->setSize({newWidth, newHeight});
     }
 
     resizingBackground = false;
@@ -757,6 +768,13 @@ void QQuickControlPrivate::executeBackground(bool complete)
         quickCompleteDeferred(q, backgroundName(), background);
 }
 
+/*
+    \internal
+
+    Hides an item that was replaced by a newer one, rather than
+    deleting it, as the item is typically created in QML and hence
+    we don't own it.
+*/
 void QQuickControlPrivate::hideOldItem(QQuickItem *item)
 {
     if (!item)
@@ -772,6 +790,29 @@ void QQuickControlPrivate::hideOldItem(QQuickItem *item)
     QQuickAccessibleAttached *accessible = accessibleAttached(item);
     if (accessible)
         accessible->setIgnored(true);
+#endif
+}
+
+/*
+    \internal
+
+    Named "unhide" because it's used for cases where an item
+    that was previously hidden by \l hideOldItem() wants to be
+    shown by a control again, such as a ScrollBar in ScrollView.
+*/
+void QQuickControlPrivate::unhideOldItem(QQuickControl *control, QQuickItem *item)
+{
+    Q_ASSERT(item);
+    qCDebug(lcItemManagement) << "unhiding old item" << item;
+
+    item->setVisible(true);
+    item->setParentItem(control);
+
+#if QT_CONFIG(accessibility)
+    // Add the item back in to the accessibility tree.
+    QQuickAccessibleAttached *accessible = accessibleAttached(item);
+    if (accessible)
+        accessible->setIgnored(false);
 #endif
 }
 
@@ -1954,21 +1995,20 @@ void QQuickControl::hoverEnterEvent(QHoverEvent *event)
 {
     Q_D(QQuickControl);
     setHovered(d->hoverEnabled);
-    event->setAccepted(d->hoverEnabled);
+    event->ignore();
 }
 
 void QQuickControl::hoverMoveEvent(QHoverEvent *event)
 {
     Q_D(QQuickControl);
     setHovered(d->hoverEnabled && contains(event->position()));
-    event->setAccepted(d->hoverEnabled);
+    event->ignore();
 }
 
 void QQuickControl::hoverLeaveEvent(QHoverEvent *event)
 {
-    Q_D(QQuickControl);
     setHovered(false);
-    event->setAccepted(d->hoverEnabled);
+    event->ignore();
 }
 #endif
 
@@ -2187,3 +2227,5 @@ bool QQuickControl::setAccessibleProperty(const char *propertyName, const QVaria
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickcontrol_p.cpp"

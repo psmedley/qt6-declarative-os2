@@ -89,6 +89,7 @@ Q_LOGGING_CATEGORY(lcFileDialog, "qt.quick.dialogs.filedialog")
 
     \list
     \li iOS
+    \li Android
     \li Linux (when running with the GTK+ platform theme)
     \li macOS
     \li Windows
@@ -597,8 +598,13 @@ QUrl QQuickFileDialog::addDefaultSuffix(const QUrl &file) const
     QUrl url = file;
     const QString path = url.path();
     const QString suffix = m_options->defaultSuffix();
-    if (!suffix.isEmpty() && !path.endsWith(QLatin1Char('/')) && path.lastIndexOf(QLatin1Char('.')) == -1)
+    // Urls with "content" scheme do not require suffixes. Such schemes are
+    // used on Android.
+    const bool isContentScheme = url.scheme() == u"content"_qs;
+    if (!isContentScheme && !suffix.isEmpty() && !path.endsWith(QLatin1Char('/'))
+        && path.lastIndexOf(QLatin1Char('.')) == -1) {
         url.setPath(path + QLatin1Char('.') + suffix);
+    }
     return url;
 }
 
@@ -612,3 +618,5 @@ QList<QUrl> QQuickFileDialog::addDefaultSuffixes(const QList<QUrl> &files) const
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickfiledialog_p.cpp"

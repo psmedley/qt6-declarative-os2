@@ -159,14 +159,23 @@ QQmlPropertyCache::QQmlPropertyCache()
 }
 
 /*!
-Creates a new QQmlPropertyCache of \a metaObject.
+    Creates a standalone QQmlPropertyCache of \a metaObject. It is separate from the usual
+    QQmlPropertyCache hierarchy. Its parent is not equal to any other QQmlPropertyCache
+    created from QObject::staticMetaObject, for example.
 */
-QQmlPropertyCache::QQmlPropertyCache(const QMetaObject *metaObject, QTypeRevision metaObjectRevision)
-    : QQmlPropertyCache()
+QQmlRefPointer<QQmlPropertyCache> QQmlPropertyCache::createStandalone(
+        const QMetaObject *metaObject, QTypeRevision metaObjectRevision)
 {
     Q_ASSERT(metaObject);
 
-    update(metaObject);
+    QQmlRefPointer<QQmlPropertyCache> result;
+    if (const QMetaObject *super = metaObject->superClass()) {
+        result.adopt(createStandalone(super, metaObjectRevision)
+                     ->copyAndAppend(metaObject, metaObjectRevision));
+    } else {
+        result.adopt(new QQmlPropertyCache());
+        result->update(metaObject);
+    }
 
     if (metaObjectRevision.isValid() && metaObjectRevision != QTypeRevision::zero()) {
         // Set the revision of the meta object that this cache describes to be
@@ -174,9 +183,13 @@ QQmlPropertyCache::QQmlPropertyCache(const QMetaObject *metaObject, QTypeRevisio
         // from a type that was created directly in C++, and not through QML. For such
         // types, the revision for each recorded QMetaObject would normally be zero, which
         // would exclude any revisioned properties.
-        for (int metaObjectOffset = 0; metaObjectOffset < allowedRevisionCache.size(); ++metaObjectOffset)
-            allowedRevisionCache[metaObjectOffset] = metaObjectRevision;
+        for (int metaObjectOffset = 0; metaObjectOffset < result->allowedRevisionCache.size();
+             ++metaObjectOffset) {
+            result->allowedRevisionCache[metaObjectOffset] = metaObjectRevision;
+        }
     }
+
+    return result;
 }
 
 QQmlPropertyCache::~QQmlPropertyCache()
@@ -593,16 +606,6 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
     }
 }
 
-void QQmlPropertyCache::updateRecur(const QMetaObject *metaObject)
-{
-    if (!metaObject)
-        return;
-
-    updateRecur(metaObject->superClass());
-
-    append(metaObject, QTypeRevision());
-}
-
 void QQmlPropertyCache::update(const QMetaObject *metaObject)
 {
     Q_ASSERT(metaObject);
@@ -622,7 +625,8 @@ void QQmlPropertyCache::update(const QMetaObject *metaObject)
     // cached in a parent cache.
     stringCache.reserve(pc + mc + sc);
 
-    updateRecur(metaObject);
+    if (metaObject)
+        append(metaObject, QTypeRevision());
 }
 
 /*! \internal
@@ -676,7 +680,8 @@ inline bool contextHasNoExtensions(const QQmlRefPointer<QQmlContextData> &contex
 {
     // This context has no extension if its parent is the engine's rootContext,
     // which has children but no imports
-    return (!context->parent() || !context->parent()->imports());
+    const QQmlRefPointer<QQmlContextData> parent = context->parent();
+    return (!parent || !parent->imports());
 }
 
 inline int maximumIndexForProperty(QQmlPropertyData *prop, const int methodCount, const int signalCount, const int propertyCount)
@@ -1062,6 +1067,7 @@ void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder)
         property.setWritable(data->isWritable());
         property.setResettable(data->isResettable());
         property.setBindable(data->isBindable());
+        property.setAlias(data->isAlias());
     }
 
     for (int ii = 0; ii < methods.count(); ++ii) {

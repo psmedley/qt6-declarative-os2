@@ -109,6 +109,7 @@ public:
             , fixingUp(false), inOvershoot(false), inRebound(false), moving(false), flicking(false)
             , dragging(false), extentsChanged(false)
             , explicitValue(false), minExtentDirty(true), maxExtentDirty(true)
+            , contentPositionChangedExternallyDuringDrag(false)
             , unused(0)
         {}
 
@@ -169,7 +170,8 @@ public:
         bool explicitValue : 1;
         mutable bool minExtentDirty : 1;
         mutable bool maxExtentDirty : 1;
-        uint unused : 19;
+        bool contentPositionChangedExternallyDuringDrag : 1;
+        uint unused : 18;
     };
 
     bool flickX(qreal velocity);
@@ -268,6 +270,7 @@ public:
               const QVector2D &deltas, bool overThreshold, bool momentum,
               bool velocitySensitiveOverBounds, const QVector2D &velocity);
 
+    QVector2D firstPointLocalVelocity(QPointerEvent *event);
     qint64 computeCurrentTime(QInputEvent *event) const;
     qreal devicePixelRatio() const;
 

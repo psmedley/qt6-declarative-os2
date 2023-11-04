@@ -620,6 +620,22 @@ void TestQmllint::dirtyQmlCode_data()
             << QStringLiteral("Method \"deprecatedInherited(c, d)\" is deprecated (Reason: This deprecation should be visible!)")
             << QString()
             << false;
+
+    QTest::newRow("string as id")
+        << QStringLiteral("stringAsId.qml")
+        << QStringLiteral("ids do not need quotation marks")
+        << QString()
+        << false;
+    QTest::newRow("stringIdUsedInWarning")
+        << QStringLiteral("stringIdUsedInWarning.qml")
+        << QStringLiteral("Component.onCompleted: console.log(stringy.i)")
+        << QString()
+        << false;
+    QTest::newRow("Invalid id (expression)")
+        << QStringLiteral("invalidId1.qml")
+        << QStringLiteral("Failed to parse id")
+        << QString()
+        << false;
     QTest::newRow("multilineString")
             << QStringLiteral("multilineString.qml")
             << QStringLiteral("String contains unescaped line terminator which is deprecated. Use "
@@ -824,6 +840,8 @@ void TestQmllint::cleanQmlCode_data()
     QTest::newRow("on binding in grouped property") << QStringLiteral("onBindingInGroupedProperty.qml");
     QTest::newRow("multipleGrouped") << QStringLiteral("multiGrouped.qml");
     QTest::newRow("ID overrides property") << QStringLiteral("accessibleId.qml");
+    QTest::newRow("qmodelIndex") << QStringLiteral("qmodelIndex.qml");
+    QTest::newRow("prefixedAttachedProperty") << QStringLiteral("prefixedAttachedProperty.qml");
 }
 
 void TestQmllint::cleanQmlCode()

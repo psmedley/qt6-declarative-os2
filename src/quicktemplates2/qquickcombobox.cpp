@@ -97,6 +97,19 @@ Q_LOGGING_CATEGORY(lcCalculateWidestTextWidth, "qt.quick.controls.combobox.calcu
 
     \snippet qtquickcontrols2-combobox-accepted.qml combobox
 
+    \section1 ComboBox's Popup
+
+    By default, clicking outside of ComboBox's popup will close it, and the
+    event is propagated to items lower in the stacking order. To prevent the
+    popup from closing, set its \l {Popup::}{closePolicy}:
+
+    \snippet qtquickcontrols2-combobox-popup.qml closePolicy
+
+    To prevent event propagation, set its \l {Popup::}{modal} property to
+    \c true:
+
+    \snippet qtquickcontrols2-combobox-popup.qml modal
+
     \section1 ComboBox Model Roles
 
     ComboBox is able to visualize standard \l {qml-data-models}{data models}
@@ -459,6 +472,7 @@ void QQuickComboBoxPrivate::updateEditText()
         const QString completed = tryComplete(text);
         if (completed.length() > text.length()) {
             input->setText(completed);
+            // This will select the text backwards.
             input->select(completed.length(), text.length());
             return;
         }
@@ -530,12 +544,22 @@ void QQuickComboBoxPrivate::acceptInput()
 {
     Q_Q(QQuickComboBox);
     int idx = q->find(extra.value().editText, Qt::MatchFixedString);
-    if (idx > -1)
+    if (idx > -1) {
+        // The item that was accepted already exists, so make it the current item.
         q->setCurrentIndex(idx);
+        // After accepting text that matches an existing entry, the selection should be cleared.
+        QQuickTextInput *input = qobject_cast<QQuickTextInput *>(contentItem);
+        if (input) {
+            const auto text = input->text();
+            input->select(text.size(), text.size());
+        }
+    }
 
     extra.value().accepting = true;
     emit q->accepted();
 
+    // The user might have added the item since it didn't exist, so check again
+    // to see if we can select that new item.
     if (idx == -1)
         q->setCurrentIndex(q->find(extra.value().editText, Qt::MatchFixedString));
     extra.value().accepting = false;

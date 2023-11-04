@@ -41,6 +41,7 @@
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickTemplates2/private/qquickbutton_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
+#include <QtQuick/private/qquicktext_p_p.h>
 
 using namespace QQuickVisualTestUtils;
 
@@ -54,6 +55,8 @@ public:
 private slots:
     void initTestCase() override;
     void flickable();
+    void fractionalFontSize();
+    void resizeBackgroundKeepsBindings();
 
 private:
     QScopedPointer<QPointingDevice> touchDevice;
@@ -99,6 +102,41 @@ void tst_QQuickControl::flickable()
     QTest::touchEvent(window, touchDevice.data()).release(0, QPoint(button->width() / 2, button->height() / 2));
     QTRY_COMPARE(buttonReleasedSpy.count(), 1);
     QTRY_COMPARE(buttonClickedSpy.count(), 1);
+}
+
+void tst_QQuickControl::fractionalFontSize()
+{
+    QQuickApplicationHelper helper(this, QStringLiteral("fractionalFontSize.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    const QQuickControl *control = window->property("control").value<QQuickControl *>();
+    QVERIFY(control);
+    QQuickText *contentItem = qobject_cast<QQuickText *>(control->contentItem());
+    QVERIFY(contentItem);
+
+    QVERIFY(!contentItem->truncated());
+
+    QVERIFY2(qFuzzyCompare(contentItem->contentWidth(),
+            QQuickTextPrivate::get(contentItem)->layout.boundingRect().width()),
+            "The QQuickText::contentWidth() doesn't match the layout's preferred text width");
+}
+
+void tst_QQuickControl::resizeBackgroundKeepsBindings()
+{
+    QTest::ignoreMessage(
+            QtMsgType::QtInfoMsg,
+            QRegularExpression("Binding on background is not deferred .*"));
+    QQuickApplicationHelper helper(this, QStringLiteral("resizeBackgroundKeepsBindings.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto ctxt = qmlContext(window);
+    QVERIFY(ctxt);
+    auto background = qobject_cast<QQuickItem *>(ctxt->objectForName("background"));
+    QVERIFY(background);
+    QCOMPARE(background->height(), 4);
+    QVERIFY(background->bindableHeight().hasBinding());
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickControl)

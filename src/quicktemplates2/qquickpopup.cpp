@@ -321,7 +321,8 @@ bool QQuickPopupPrivate::tryClose(const QPointF &pos, QQuickPopup::ClosePolicy f
 
     const bool onOutside = closePolicy & (flags & outsideFlags);
     const bool onOutsideParent = closePolicy & (flags & outsideParentFlags);
-    if (onOutside || onOutsideParent) {
+
+    if ((onOutside && outsidePressed) || (onOutsideParent && outsideParentPressed)) {
         if (!contains(pos) && (!dimmer || dimmer->contains(dimmer->mapFromScene(pos)))) {
             if (!onOutsideParent || !parentItem || !parentItem->contains(parentItem->mapFromScene(pos))) {
                 closeOrReject();
@@ -365,6 +366,8 @@ bool QQuickPopupPrivate::handlePress(QQuickItem *item, const QPointF &point, ulo
 {
     Q_UNUSED(timestamp);
     pressPoint = point;
+    outsidePressed = !contains(point);
+    outsideParentPressed = outsidePressed && parentItem && !parentItem->contains(parentItem->mapFromScene(point));
     tryClose(point, QQuickPopup::CloseOnPressOutside | QQuickPopup::CloseOnPressOutsideParent);
     return blockInput(item, point);
 }
@@ -381,6 +384,8 @@ bool QQuickPopupPrivate::handleRelease(QQuickItem *item, const QPointF &point, u
     if (item != popupItem && !contains(pressPoint))
         tryClose(point, QQuickPopup::CloseOnReleaseOutside | QQuickPopup::CloseOnReleaseOutsideParent);
     pressPoint = QPointF();
+    outsidePressed = false;
+    outsideParentPressed = false;
     touchId = -1;
     return blockInput(item, point);
 }
@@ -2052,6 +2057,11 @@ void QQuickPopup::setScale(qreal scale)
     \value Popup.CloseOnEscape The popup will close when the escape key is pressed while the popup
         has active focus.
 
+    The \c {CloseOnPress*} and \c {CloseOnRelease*} policies only apply for events
+    outside of popups. That is, if there are two popups open and the first has
+    \c Popup.CloseOnPressOutside as its policy, clicking on the second popup will
+    not result in the first closing.
+
     The default value is \c {Popup.CloseOnEscape | Popup.CloseOnPressOutside}.
     This default value may interfere with existing shortcuts in the application
     that makes use of the \e Escape key.
@@ -2479,7 +2489,7 @@ void QQuickPopup::classBegin()
 void QQuickPopup::componentComplete()
 {
     Q_D(QQuickPopup);
-    qCDebug(lcPopup) << "componentComplete";
+    qCDebug(lcPopup) << "componentComplete" << this;
     if (!parentItem())
         resetParentItem();
 
@@ -2537,22 +2547,19 @@ void QQuickPopup::keyReleaseEvent(QKeyEvent *event)
 void QQuickPopup::mousePressEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseMoveEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_D(QQuickPopup);
-    d->handleMouseEvent(d->popupItem, event);
-    event->accept();
+    event->setAccepted(d->handleMouseEvent(d->popupItem, event));
 }
 
 void QQuickPopup::mouseDoubleClickEvent(QMouseEvent *event)
@@ -2627,6 +2634,7 @@ void QQuickPopup::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
 
 void QQuickPopup::contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize)
 {
+    qCDebug(lcPopup) << "contentSizeChange called on" << this << "with newSize" << newSize << "oldSize" << oldSize;
     if (!qFuzzyCompare(newSize.width(), oldSize.width()))
         emit contentWidthChanged();
     if (!qFuzzyCompare(newSize.height(), oldSize.height()))
@@ -2643,6 +2651,7 @@ void QQuickPopup::fontChange(const QFont &newFont, const QFont &oldFont)
 void QQuickPopup::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickPopup);
+    qCDebug(lcPopup) << "geometryChange called on" << this << "with newGeometry" << newGeometry << "oldGeometry" << oldGeometry;
     d->reposition();
     if (!qFuzzyCompare(newGeometry.width(), oldGeometry.width())) {
         emit widthChanged();

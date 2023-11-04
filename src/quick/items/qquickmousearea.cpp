@@ -808,7 +808,8 @@ void QQuickMouseArea::mouseReleaseEvent(QMouseEvent *event)
             QQuickWindow *w = window();
             if (w && w->mouseGrabberItem() == this)
                 ungrabMouse();
-            setKeepMouseGrab(false);
+            if (!d->preventStealing)
+                setKeepMouseGrab(false);
         }
     }
     d->doubleClick = false;
@@ -827,7 +828,8 @@ void QQuickMouseArea::mouseDoubleClickEvent(QMouseEvent *event)
         emit this->doubleClicked(&me);
         if (!me.isAccepted())
             d->propagate(&me, QQuickMouseAreaPrivate::DoubleClick);
-        d->doubleClick = d->isDoubleClickConnected() || me.isAccepted();
+        if (d->pressed)
+            d->doubleClick = d->isDoubleClickConnected() || me.isAccepted();
     }
     QQuickItem::mouseDoubleClickEvent(event);
 }
@@ -849,14 +851,8 @@ void QQuickMouseArea::hoverEnterEvent(QHoverEvent *event)
         me.setPosition(d->lastPos);
     }
 
-    if (auto parentMouseArea = qobject_cast<QQuickMouseArea *>(parentItem())) {
-        if (parentMouseArea->acceptHoverEvents()) {
-            // Special legacy case: if our parent is another MouseArea, and we're
-            // hovered, the parent MouseArea should be hovered too. We achieve this
-            // by simply ignoring the event to not block propagation.
-            event->ignore();
-        }
-    }
+    // A MouseArea should not block hover events
+    event->ignore();
 }
 
 void QQuickMouseArea::hoverMoveEvent(QHoverEvent *event)
@@ -876,14 +872,8 @@ void QQuickMouseArea::hoverMoveEvent(QHoverEvent *event)
         emit positionChanged(&me);
     }
 
-    if (auto parentMouseArea = qobject_cast<QQuickMouseArea *>(parentItem())) {
-        if (parentMouseArea->acceptHoverEvents()) {
-            // Special legacy case: if our parent is another MouseArea, and we're
-            // hovered, the parent MouseArea should be hovered too. We achieve this
-            // by simply ignoring the event to not block propagation.
-            event->ignore();
-        }
-    }
+    // A MouseArea should not block hover events
+    event->ignore();
 }
 
 void QQuickMouseArea::hoverLeaveEvent(QHoverEvent *event)
@@ -894,14 +884,8 @@ void QQuickMouseArea::hoverLeaveEvent(QHoverEvent *event)
     else
         setHovered(false);
 
-    if (auto parentMouseArea = qobject_cast<QQuickMouseArea *>(parentItem())) {
-        if (parentMouseArea->acceptHoverEvents()) {
-            // Special legacy case: if our parent is another MouseArea, and we're
-            // hovered, the parent MouseArea should be hovered too. We achieve this
-            // by simply ignoring the event to not block propagation.
-            event->ignore();
-        }
-    }
+    // A MouseArea should not block hover events
+    event->ignore();
 }
 
 #if QT_CONFIG(wheelevent)

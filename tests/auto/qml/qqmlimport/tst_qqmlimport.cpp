@@ -59,6 +59,8 @@ private slots:
     void cleanup();
     void envResourceImportPath();
     void preferResourcePath();
+    void invalidFileImport_data();
+    void invalidFileImport();
 };
 
 void tst_QQmlImport::cleanup()
@@ -104,6 +106,36 @@ void tst_QQmlImport::preferResourcePath()
     QCOMPARE(o->objectName(), "right");
 }
 
+void tst_QQmlImport::invalidFileImport_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("import");
+    QTest::addRow("file absolute")
+            << QStringLiteral("absoluteImport.qml")
+            << QStringLiteral("/foo/bar/baz");
+    QTest::addRow("resource absolute")
+            << QStringLiteral("absoluteResourceImport.qml")
+            << QStringLiteral(":/absolute/resource/path");
+    QTest::addRow("resource relative")
+            << QStringLiteral("relativeResourceImport.qml")
+            << QStringLiteral(":relative/resource/path");
+}
+
+void tst_QQmlImport::invalidFileImport()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, import);
+
+    QQmlEngine engine;
+
+    QQmlComponent component(&engine, testFileUrl(file));
+    QVERIFY(component.isError());
+    QVERIFY(component.errorString().contains(
+                QStringLiteral("\"%1\" is not a valid import URL. "
+                               "You can pass relative paths or URLs with schema, "
+                               "but not absolute paths or resource paths.").arg(import)));
+}
+
 void tst_QQmlImport::testDesignerSupported()
 {
     QQuickView *window = new QQuickView();
@@ -128,7 +160,7 @@ void tst_QQmlImport::testDesignerSupported()
     QVERIFY(window->errors().isEmpty());
 
     QString warningString("%1:30:1: module does not support the designer \"MyPluginUnsupported\" \n     import MyPluginUnsupported 1.0\r \n     ^ ");
-#if !defined(Q_OS_DOSLIKE) && !defined(Q_OS_ANDROID)
+#if !defined(Q_OS_DOSLIKE)
     warningString.remove('\r');
 #endif
     warningString = warningString.arg(testFileUrl("testfile_unsupported.qml").toString());
@@ -365,10 +397,9 @@ void tst_QQmlImport::removeDynamicPlugin()
     QQmlEngine engine;
     {
         // Load something that adds a dynamic plugin
-        QQmlComponent component(&engine);
+        QQmlComponent component(&engine, testFileUrl("importQtQuickTooling.qml"));
         // Make sure to use something other than QtTest here, since the !plugins.isEmpty()
         // check will fail if we do.
-        component.setData(QByteArray("import QtQuick.tooling; Property{}"), QUrl());
         QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     }
     QQmlImportDatabase *imports = &QQmlEnginePrivate::get(&engine)->importDatabase;

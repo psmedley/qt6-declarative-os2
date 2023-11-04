@@ -82,6 +82,7 @@ void QQuickDeliveryAgentPrivate::touchToMouseEvent(QEvent::Type type, const QEve
                                  (type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton),
                                  touchEvent->modifiers(), Qt::MouseEventSynthesizedByQt);
     ret.setAccepted(true); // this now causes the persistent touchpoint to be accepted too
+    ret.setTimestamp(touchEvent->timestamp());
     *mouseEvent = ret;
 }
 
@@ -578,9 +579,6 @@ void QQuickDeliveryAgentPrivate::notifyFocusChangesRecur(QQuickItem **items, int
 {
     QPointer<QQuickItem> item(*items);
 
-    if (remaining)
-        notifyFocusChangesRecur(items + 1, remaining - 1, reason);
-
     if (item) {
         QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);
 
@@ -597,6 +595,9 @@ void QQuickDeliveryAgentPrivate::notifyFocusChangesRecur(QQuickItem **items, int
             emit item->activeFocusChanged(itemPrivate->activeFocus);
         }
     }
+
+    if (remaining)
+        notifyFocusChangesRecur(items + 1, remaining - 1, reason);
 }
 
 bool QQuickDeliveryAgentPrivate::clearHover(ulong timestamp)
@@ -990,6 +991,7 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEvent(
     // list at the end of this function and look for items with an old hoverId,
     // remove them from the list, and update their state accordingly.
     currentHoverId++;
+    hoveredLeafItemFound = false;
 
     const bool itemsWasHovered = !hoverItems.isEmpty();
     deliverHoverEventRecursive(rootItem, scenePos, lastScenePos, modifiers, timestamp);
@@ -1037,6 +1039,11 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEvent(
     end up as the only one hovered. Any other HoverHandler that may be a child
     of an item that is stacked underneath, will not. Note that since siblings
     can overlap, there can be more than one leaf item under the mouse.
+
+    For legacy reasons (Qt 6.1), as soon as we find a leaf item that has hover
+    enabled, and therefore receives the event, we stop recursing into the remaining
+    siblings (even if the event was ignored). This means that we only allow hover
+    events to propagate up the direct parent-child hierarchy, and not to siblings.
 */
 bool QQuickDeliveryAgentPrivate::deliverHoverEventRecursive(
         QQuickItem *item, const QPointF &scenePos, const QPointF &lastScenePos,
@@ -1065,6 +1072,10 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventRecursive(
         if (accepted) {
             // Stop propagation / recursion
             return true;
+        }
+        if (hoveredLeafItemFound) {
+            // Don't propagate to siblings, only to ancestors
+            break;
         }
     }
 
@@ -1097,6 +1108,9 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventToItem(
 
     qCDebug(lcHoverTrace) << "item:" << item << "scene pos:" << scenePos << "localPos:" << localPos
                           << "wasHovering:" << wasHovering << "isHovering:" << isHovering;
+
+    if (isHovering)
+        hoveredLeafItemFound = true;
 
     // Send enter/move/leave event to the item
     bool accepted = false;
@@ -1295,6 +1309,15 @@ bool QQuickDeliveryAgentPrivate::anyPointGrabbed(const QPointerEvent *ev)
     return false;
 }
 
+bool QQuickDeliveryAgentPrivate::allPointsGrabbed(const QPointerEvent *ev)
+{
+    for (const auto &point : ev->points()) {
+        if (!ev->exclusiveGrabber(point) && ev->passiveGrabbers(point).isEmpty())
+            return false;
+    }
+    return true;
+}
+
 bool QQuickDeliveryAgentPrivate::isMouseEvent(const QPointerEvent *ev)
 {
     switch (ev->type()) {
@@ -1387,6 +1410,11 @@ QQuickPointingDeviceExtra *QQuickDeliveryAgentPrivate::deviceExtra(const QInputD
 */
 bool QQuickDeliveryAgentPrivate::compressTouchEvent(QTouchEvent *event)
 {
+    // If this is a subscene agent, don't store any events, because
+    // flushFrameSynchronousEvents() is only called on the window's DA.
+    if (isSubsceneAgent)
+        return false;
+
     QEventPoint::States states = event->touchPointStates();
     if (states.testFlag(QEventPoint::State::Pressed) || states.testFlag(QEventPoint::State::Released)) {
         qCDebug(lcTouchCmprs) << "no compression" << event;
@@ -1741,9 +1769,17 @@ void QQuickDeliveryAgentPrivate::deliverPointerEvent(QPointerEvent *event)
     if (event->isEndEvent())
         deliverPressOrReleaseEvent(event, true);
 
-    // failsafe: never allow touch->mouse synthesis to persist after release
-    if (event->isEndEvent() && isTouchEvent(event))
-        cancelTouchMouseSynthesis();
+    // failsafe: never allow touch->mouse synthesis to persist after all touchpoints are released,
+    // or after the touchmouse is released
+    if (isTouchEvent(event) && touchMouseId >= 0) {
+        if (static_cast<QTouchEvent *>(event)->touchPointStates() == QEventPoint::State::Released) {
+            cancelTouchMouseSynthesis();
+        } else {
+            auto touchMousePoint = event->pointById(touchMouseId);
+            if (touchMousePoint && touchMousePoint->state() == QEventPoint::State::Released)
+                cancelTouchMouseSynthesis();
+        }
+    }
 
     eventsInDelivery.pop();
     if (sceneTransform) {
@@ -1885,7 +1921,7 @@ void QQuickDeliveryAgentPrivate::deliverUpdatedPoints(QPointerEvent *event)
         return;
 
     // If some points weren't grabbed, deliver only to non-grabber PointerHandlers in reverse paint order
-    if (!event->allPointsGrabbed()) {
+    if (!allPointsGrabbed(event)) {
         QVector<QQuickItem *> targetItems;
         for (auto &point : event->points()) {
             // Presses were delivered earlier; not the responsibility of deliverUpdatedTouchPoints.
@@ -1905,7 +1941,7 @@ void QQuickDeliveryAgentPrivate::deliverUpdatedPoints(QPointerEvent *event)
             QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);
             localizePointerEvent(event, item);
             itemPrivate->handlePointerEvent(event, true); // avoid re-delivering to grabbers
-            if (event->allPointsGrabbed())
+            if (allPointsGrabbed(event))
                 break;
         }
     }

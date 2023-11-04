@@ -8,8 +8,6 @@ qt_internal_add_test(tst_qquicklistview2
     SOURCES
         typerolemodel.h typerolemodel.cpp
         tst_qquicklistview2.cpp
-    DEFINES
-        QT_QMLTEST_DATADIR=\\\"${CMAKE_CURRENT_SOURCE_DIR}/data\\\"
     PUBLIC_LIBRARIES
         Qt::CorePrivate
         Qt::Gui
@@ -23,7 +21,7 @@ qt_internal_add_test(tst_qquicklistview2
 )
 
 qt6_add_qml_module(tst_qquicklistview2
-    URI Test
+    URI TestQQuickListViewTwo
     VERSION 1.0
 )
 
