@@ -1096,7 +1096,11 @@ QQuickWindow::QQuickWindow(QQuickWindowPrivate &dd, QWindow *parent)
 }
 
 /*!
-    \internal
+    Constructs a window for displaying a QML scene, whose rendering will
+    be controlled by the \a control object.
+    Please refer to QQuickRenderControl's documentation for more information.
+
+    \since 5.4
 */
 QQuickWindow::QQuickWindow(QQuickRenderControl *control)
     : QWindow(*(new QQuickWindowPrivate), nullptr)
@@ -3834,7 +3838,7 @@ QSGRendererInterface *QQuickWindow::rendererInterface() const
     graphics API based on the platform and other conditions, set \a api to
     QSGRendererInterface::Unknown.
 
-    \since 5.8
+    \since 6.0
  */
 void QQuickWindow::setGraphicsApi(QSGRendererInterface::GraphicsApi api)
 {

@@ -81,7 +81,7 @@ Q_LOGGING_CATEGORY(lcWheelHandler, "qt.quick.handler.wheel")
     WheelHandler handles only a rotating mouse wheel by default; this
     can be changed by setting acceptedDevices.
 
-    \sa MouseArea, Flickable
+    \sa MouseArea, Flickable, {Pointer Handlers Example}
 */
 
 QQuickWheelHandler::QQuickWheelHandler(QQuickItem *parent)
@@ -91,7 +91,7 @@ QQuickWheelHandler::QQuickWheelHandler(QQuickItem *parent)
 }
 
 /*!
-    \qmlproperty enum QtQuick::WheelHandler::orientation
+    \qmlproperty enumeration QtQuick::WheelHandler::orientation
 
     Which wheel to react to.  The default is \c Qt.Vertical.
 

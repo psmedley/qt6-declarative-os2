@@ -47,6 +47,7 @@
 #include <QQmlFile>
 #include <QFile>
 #include <QFileSelector>
+#include <QMutexLocker>
 
 QT_BEGIN_NAMESPACE
 
@@ -116,6 +117,12 @@ void QSGRhiShaderLinker::feedSamplers(const QSGShaderEffectNode::ShaderData &sha
             const QSGShaderEffectNode::VariableData &vd(shader.varData.at(i));
             if (var.type == QSGGuiThreadShaderEffectManager::ShaderInfo::Sampler) {
                 Q_ASSERT(vd.specialType == QSGShaderEffectNode::VariableData::Source);
+
+#ifndef QT_NO_DEBUG
+                int existingBindPoint = m_samplerNameMap.value(var.name, -1);
+                Q_ASSERT(existingBindPoint < 0 || existingBindPoint == var.bindPoint);
+#endif
+
                 m_samplers.insert(var.bindPoint, vd.value);
                 m_samplerNameMap.insert(var.name, var.bindPoint);
             }
@@ -124,6 +131,12 @@ void QSGRhiShaderLinker::feedSamplers(const QSGShaderEffectNode::ShaderData &sha
         for (int idx : *dirtyIndices) {
             const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &var(shader.shaderInfo.variables.at(idx));
             const QSGShaderEffectNode::VariableData &vd(shader.varData.at(idx));
+
+#ifndef QT_NO_DEBUG
+            int existingBindPoint = m_samplerNameMap.value(var.name, -1);
+            Q_ASSERT(existingBindPoint < 0 || existingBindPoint == var.bindPoint);
+#endif
+
             m_samplers.insert(var.bindPoint, vd.value);
             m_samplerNameMap.insert(var.name, var.bindPoint);
         }
@@ -207,7 +220,8 @@ QSGMaterialType *QSGRhiShaderMaterialTypeCache::get(const QShader &vs, const QSh
     return t;
 }
 
-static QSGRhiShaderMaterialTypeCache shaderMaterialTypeCache;
+static QHash<void *, QSGRhiShaderMaterialTypeCache> shaderMaterialTypeCache;
+static QMutex shaderMaterialTypeCacheMutex;
 
 class QSGRhiShaderEffectMaterialShader : public QSGMaterialShader
 {
@@ -657,7 +671,12 @@ void QSGRhiShaderEffectNode::syncMaterial(SyncData *syncData)
             m_material.m_fragmentShader = defaultFragmentShader;
         }
 
-        m_material.m_materialType = shaderMaterialTypeCache.get(m_material.m_vertexShader, m_material.m_fragmentShader);
+        {
+            QMutexLocker lock(&shaderMaterialTypeCacheMutex);
+            m_material.m_materialType = shaderMaterialTypeCache[syncData->materialTypeCacheKey].get(m_material.m_vertexShader,
+                                                                                                    m_material.m_fragmentShader);
+        }
+
         m_material.m_linker.reset(m_material.m_vertexShader, m_material.m_fragmentShader);
 
         if (m_material.m_hasCustomVertexShader) {
@@ -775,9 +794,10 @@ void QSGRhiShaderEffectNode::preprocess()
     }
 }
 
-void QSGRhiShaderEffectNode::cleanupMaterialTypeCache()
+void QSGRhiShaderEffectNode::cleanupMaterialTypeCache(void *materialTypeCacheKey)
 {
-    shaderMaterialTypeCache.reset();
+    QMutexLocker lock(&shaderMaterialTypeCacheMutex);
+    shaderMaterialTypeCache[materialTypeCacheKey].reset();
 }
 
 bool QSGRhiGuiThreadShaderEffectManager::hasSeparateSamplerAndTextureObjects() const

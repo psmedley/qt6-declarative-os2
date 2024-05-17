@@ -752,7 +752,8 @@ void QQuickFlickablePrivate::updateBeginningEnd()
 /*!
     \qmlsignal QtQuick::Flickable::flickEnded()
 
-    This signal is emitted when the view stops moving due to a flick.
+    This signal is emitted when the view stops moving after a flick
+    or a series of flicks.
 */
 
 /*!
@@ -1150,7 +1151,9 @@ void QQuickFlickablePrivate::maybeBeginDrag(qint64 currentTimestamp, const QPoin
     pressPos = pressPosn;
     hData.pressPos = hData.move.value();
     vData.pressPos = vData.move.value();
-    bool wasFlicking = hData.flicking || vData.flicking;
+    const bool wasFlicking = hData.flicking || vData.flicking;
+    hData.flickingWhenDragBegan = hData.flicking;
+    vData.flickingWhenDragBegan = vData.flicking;
     if (hData.flicking) {
         hData.flicking = false;
         emit q->flickingHorizontallyChanged();
@@ -2254,11 +2257,9 @@ void QQuickFlickable::setContentWidth(qreal w)
         d->contentItem->setWidth(w);
     d->hData.markExtentsDirty();
     // Make sure that we're entirely in view.
-    if ((!d->pressed && !d->hData.moving && !d->vData.moving) || d->hData.dragging) {
-        d->hData.contentPositionChangedExternallyDuringDrag = d->hData.dragging;
+    if (!d->pressed && !d->hData.moving && !d->vData.moving) {
         d->fixupMode = QQuickFlickablePrivate::Immediate;
         d->fixupX();
-        d->hData.contentPositionChangedExternallyDuringDrag = false;
     } else if (!d->pressed && d->hData.fixingUp) {
         d->fixupMode = QQuickFlickablePrivate::ExtentChanged;
         d->fixupX();
@@ -2285,11 +2286,9 @@ void QQuickFlickable::setContentHeight(qreal h)
         d->contentItem->setHeight(h);
     d->vData.markExtentsDirty();
     // Make sure that we're entirely in view.
-    if ((!d->pressed && !d->hData.moving && !d->vData.moving) || d->vData.dragging) {
-        d->vData.contentPositionChangedExternallyDuringDrag = d->vData.dragging;
+    if (!d->pressed && !d->hData.moving && !d->vData.moving) {
         d->fixupMode = QQuickFlickablePrivate::Immediate;
         d->fixupY();
-        d->vData.contentPositionChangedExternallyDuringDrag = false;
     } else if (!d->pressed && d->vData.fixingUp) {
         d->fixupMode = QQuickFlickablePrivate::ExtentChanged;
         d->fixupY();
@@ -2955,7 +2954,7 @@ void QQuickFlickable::movementEnding(bool hMovementEnding, bool vMovementEnding)
     Q_D(QQuickFlickable);
 
     // emit flicking signals
-    bool wasFlicking = d->hData.flicking || d->vData.flicking;
+    const bool wasFlicking = d->hData.flicking || d->vData.flicking;
     if (hMovementEnding && d->hData.flicking) {
         d->hData.flicking = false;
         emit flickingHorizontallyChanged();
@@ -2966,6 +2965,10 @@ void QQuickFlickable::movementEnding(bool hMovementEnding, bool vMovementEnding)
     }
     if (wasFlicking && (!d->hData.flicking || !d->vData.flicking)) {
         emit flickingChanged();
+        emit flickEnded();
+    } else if (d->hData.flickingWhenDragBegan || d->vData.flickingWhenDragBegan) {
+        d->hData.flickingWhenDragBegan = !hMovementEnding;
+        d->vData.flickingWhenDragBegan = !vMovementEnding;
         emit flickEnded();
     }
 
