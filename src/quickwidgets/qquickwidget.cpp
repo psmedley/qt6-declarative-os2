@@ -1468,6 +1468,8 @@ void QQuickWidget::mouseMoveEvent(QMouseEvent *e)
     // top-level window always.
     QMouseEvent mappedEvent(e->type(), e->position(), e->position(), e->globalPosition(),
                             e->button(), e->buttons(), e->modifiers(), e->source());
+    // It's not just the timestamp but also the globalPressPosition, velocity etc.
+    mappedEvent.setTimestamp(e->timestamp());
     QCoreApplication::sendEvent(d->offscreenWindow, &mappedEvent);
     e->setAccepted(mappedEvent.isAccepted());
 }
@@ -1483,10 +1485,12 @@ void QQuickWidget::mouseDoubleClickEvent(QMouseEvent *e)
     // See QTBUG-25831
     QMouseEvent pressEvent(QEvent::MouseButtonPress, e->position(), e->position(), e->globalPosition(),
                            e->button(), e->buttons(), e->modifiers(), e->source());
+    pressEvent.setTimestamp(e->timestamp());
     QCoreApplication::sendEvent(d->offscreenWindow, &pressEvent);
     e->setAccepted(pressEvent.isAccepted());
     QMouseEvent mappedEvent(e->type(), e->position(), e->position(), e->globalPosition(),
                             e->button(), e->buttons(), e->modifiers(), e->source());
+    mappedEvent.setTimestamp(e->timestamp());
     QCoreApplication::sendEvent(d->offscreenWindow, &mappedEvent);
 }
 
@@ -1546,6 +1550,7 @@ void QQuickWidget::mousePressEvent(QMouseEvent *e)
 
     QMouseEvent mappedEvent(e->type(), e->position(), e->position(), e->globalPosition(),
                             e->button(), e->buttons(), e->modifiers(), e->source());
+    mappedEvent.setTimestamp(e->timestamp());
     QCoreApplication::sendEvent(d->offscreenWindow, &mappedEvent);
     e->setAccepted(mappedEvent.isAccepted());
 }
@@ -1559,6 +1564,7 @@ void QQuickWidget::mouseReleaseEvent(QMouseEvent *e)
 
     QMouseEvent mappedEvent(e->type(), e->position(), e->position(), e->globalPosition(),
                             e->button(), e->buttons(), e->modifiers(), e->source());
+    mappedEvent.setTimestamp(e->timestamp());
     QCoreApplication::sendEvent(d->offscreenWindow, &mappedEvent);
     e->setAccepted(mappedEvent.isAccepted());
 }
