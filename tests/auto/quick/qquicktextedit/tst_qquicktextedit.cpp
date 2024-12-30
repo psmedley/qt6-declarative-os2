@@ -6,6 +6,7 @@
 #include <math.h>
 #include <QFile>
 #include <QtQuick/QQuickTextDocument>
+#include <QtQuickTest/QtQuickTest>
 #include <QTextDocument>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
@@ -211,6 +212,7 @@ private slots:
 
     void rtlAlignmentInColumnLayout_QTBUG_112858();
 
+    void resizeTextEditPolish();
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
 #if QT_CONFIG(shortcut)
@@ -2243,29 +2245,25 @@ void tst_qquicktextedit::dragMouseSelection()
 
 void tst_qquicktextedit::mouseSelectionMode_data()
 {
-    QTest::addColumn<QString>("qmlfile");
+    QTest::addColumn<QUrl>("qmlfile");
     QTest::addColumn<bool>("selectWords");
 
     // import installed
-    QTest::newRow("SelectWords") << testFile("mouseselectionmode_words.qml") << true;
-    QTest::newRow("SelectCharacters") << testFile("mouseselectionmode_characters.qml") << false;
-    QTest::newRow("default") << testFile("mouseselectionmode_default.qml") << false;
+    QTest::newRow("SelectWords") << testFileUrl("mouseselectionmode_words.qml") << true;
+    QTest::newRow("SelectCharacters") << testFileUrl("mouseselectionmode_characters.qml") << false;
+    QTest::newRow("default") << testFileUrl("mouseselectionmode_default.qml") << false;
 }
 
 void tst_qquicktextedit::mouseSelectionMode()
 {
-    QFETCH(QString, qmlfile);
+    QFETCH(QUrl, qmlfile);
     QFETCH(bool, selectWords);
 
-    QString text = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const QString text = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-    QQuickView window(QUrl::fromLocalFile(qmlfile));
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, qmlfile));
 
-    window.show();
-    window.requestActivate();
-    QVERIFY(QTest::qWaitForWindowActive(&window));
-
-    QVERIFY(window.rootObject() != nullptr);
     QQuickTextEdit *textEditObject = qobject_cast<QQuickTextEdit *>(window.rootObject());
     QVERIFY(textEditObject != nullptr);
     textEditObject->setSelectByMouse(true);
@@ -3766,16 +3764,16 @@ void tst_qquicktextedit::largeTextObservesViewport_data()
     // by default, the root item acts as the viewport:
     // QQuickTextEdit doesn't populate lines of text beyond the bottom of the window
     // cursor position 1000 is on line 121
-    QTest::newRow("default plain text") << text << QQuickTextEdit::PlainText << false << 1000 << 0
-                                        << 1 << 118 << 142 << 2400 << 3000;
+    QTest::newRow("default plain text") << text << QQuickTextEdit::PlainText << false << 1000 << 2
+                                        << 3 << 118 << 144 << 2150 << 3000;
     // make the rectangle into a viewport item, and move the text upwards:
     // QQuickTextEdit doesn't populate lines of text beyond the bottom of the viewport rectangle
     QTest::newRow("clipped plain text") << text << QQuickTextEdit::PlainText << true << 1000 << 0
-                                        << 1 << 123 << 137 << 2550 << 3000;
+                                        << 3 << 123 << 137 << 2200 << 3000;
 
     // scroll backwards
     QTest::newRow("scroll backwards in plain text") << text << QQuickTextEdit::PlainText << true << 1000 << 600
-                                                    << 1 << 93 << 108 << 1475 << 2300;
+                                                    << 3 << 91 << 108 << 1475 << 2300;
 
     {
         QStringList lines;
@@ -3799,20 +3797,20 @@ void tst_qquicktextedit::largeTextObservesViewport_data()
     // by default, the root item acts as the viewport:
     // QQuickTextEdit doesn't populate blocks beyond the bottom of the window
     QTest::newRow("default styled text") << text << QQuickTextEdit::RichText << false << 1000 << 0
-                                         << 1 << 124 << 139 << 3900 << 4500;
+                                         << 3 << 122 << 139 << 3600 << 4500;
     // make the rectangle into a viewport item, and move the text upwards:
     // QQuickTextEdit doesn't populate blocks that don't intersect the viewport rectangle
     QTest::newRow("clipped styled text") << text << QQuickTextEdit::RichText << true << 1000 << 0
-                                         << 1 << 127 << 136 << 4000 << 4360;
+                                         << 3 << 127 << 136 << 3700 << 4360;
     // get the "chapter 2" heading into the viewport
     QTest::newRow("heading visible") << text << QQuickTextEdit::RichText << true << 800 << 0
-                                     << 1 << 105 << 113 << 3300 << 3600;
+                                     << 3 << 105 << 113 << 3050 << 3600;
     // get the "chapter 2" heading into the viewport, and then scroll backwards
     QTest::newRow("scroll backwards") << text << QQuickTextEdit::RichText << true << 800 << 20
-                                     << 1 << 104 << 113 << 3200 << 3600;
+                                     << 3 << 104 << 113 << 3000 << 3600;
     // get the "chapter 2" heading into the viewport, and then scroll forwards
     QTest::newRow("scroll forwards") << text << QQuickTextEdit::RichText << true << 800 << -50
-                                     << 1 << 106 << 115 << 3300 << 3670;
+                                     << 3 << 106 << 115 << 3000 << 3670;
 }
 
 void tst_qquicktextedit::largeTextObservesViewport()
@@ -6589,6 +6587,35 @@ void tst_qquicktextedit::rtlAlignmentInColumnLayout_QTBUG_112858()
 
         currentLineStartPos += lines.at(i).size() + 1;
     }
+}
+
+void tst_qquicktextedit::resizeTextEditPolish()
+{
+    QQuickView window(testFileUrl("resizeTextEditPolish.qml"));
+    QVERIFY(window.rootObject() != nullptr);
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto *edit = window.rootObject()->findChild<QQuickTextEdit *>();
+    QVERIFY(edit != nullptr);
+    QCOMPARE(edit->lineCount(), 1);
+
+    QSignalSpy spy(edit, SIGNAL(lineCountChanged()));
+
+    // Resize item and check for item polished
+    auto *item = edit->parentItem();
+    item->setWidth(item->width() - (item->width() / 2));
+
+    QVERIFY(QQuickTest::qIsPolishScheduled(edit));
+    QVERIFY(QQuickTest::qWaitForPolish(edit));
+
+    QTRY_COMPARE(spy.size(), 1);
+    QVERIFY(edit->lineCount() > 1);
+    QCOMPARE(edit->state(), QString("multi-line"));
+    auto *editPriv = QQuickTextEditPrivate::get(edit);
+    QCOMPARE(editPriv->xoff, 0);
+    QCOMPARE(editPriv->yoff, 0);
 }
 
 QTEST_MAIN(tst_qquicktextedit)

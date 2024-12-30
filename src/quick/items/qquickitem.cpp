@@ -319,10 +319,10 @@ QVariant QQuickItemKeyFilter::inputMethodQuery(Qt::InputMethodQuery query) const
 }
 #endif // im
 
-void QQuickItemKeyFilter::shortcutOverride(QKeyEvent *event)
+void QQuickItemKeyFilter::shortcutOverrideEvent(QKeyEvent *event)
 {
     if (m_next)
-        m_next->shortcutOverride(event);
+        m_next->shortcutOverrideEvent(event);
     else
         event->ignore();
 }
@@ -1380,7 +1380,7 @@ QVariant QQuickKeysAttached::inputMethodQuery(Qt::InputMethodQuery query) const
 }
 #endif // im
 
-void QQuickKeysAttached::shortcutOverride(QKeyEvent *event)
+void QQuickKeysAttached::shortcutOverrideEvent(QKeyEvent *event)
 {
     Q_D(QQuickKeysAttached);
     QQuickKeyEvent &keyEvent = d->theKeyEvent;
@@ -3045,8 +3045,8 @@ void QQuickItemPrivate::derefWindow()
     paintNode = nullptr;
 
     for (int ii = 0; ii < childItems.size(); ++ii) {
-        QQuickItem *child = childItems.at(ii);
-        QQuickItemPrivate::get(child)->derefWindow();
+        if (QQuickItem *child = childItems.at(ii))
+            QQuickItemPrivate::get(child)->derefWindow();
     }
 
     dirty(Window);
@@ -3058,7 +3058,7 @@ void QQuickItemPrivate::derefWindow()
 
 
 /*!
-Returns a transform that maps points from window space into item space.
+    Returns a transform that maps points from window space into item space.
 */
 QTransform QQuickItemPrivate::windowToItemTransform() const
 {
@@ -3067,21 +3067,21 @@ QTransform QQuickItemPrivate::windowToItemTransform() const
 }
 
 /*!
-Returns a transform that maps points from item space into window space.
+    Returns a transform that maps points from item space into window space.
 */
 QTransform QQuickItemPrivate::itemToWindowTransform() const
 {
     // item's parent must not be itself, otherwise calling itemToWindowTransform() on it is infinite recursion
     Q_ASSERT(!parentItem || QQuickItemPrivate::get(parentItem) != this);
     QTransform rv = parentItem ? QQuickItemPrivate::get(parentItem)->itemToWindowTransform() : QTransform();
-    itemToParentTransform(rv);
+    itemToParentTransform(&rv);
     return rv;
 }
 
 /*!
-Motifies \a t with this items local transform relative to its parent.
+    Modifies \a t with this item's local transform relative to its parent.
 */
-void QQuickItemPrivate::itemToParentTransform(QTransform &t) const
+void QQuickItemPrivate::itemToParentTransform(QTransform *t) const
 {
     /* Read the current x and y values. As this is an internal method,
        we don't care about it being usable in bindings. Instead, we
@@ -3093,21 +3093,21 @@ void QQuickItemPrivate::itemToParentTransform(QTransform &t) const
     qreal x = this->x.valueBypassingBindings();
     qreal y = this->y.valueBypassingBindings();
     if (x || y)
-        t.translate(x, y);
+        t->translate(x, y);
 
     if (!transforms.isEmpty()) {
-        QMatrix4x4 m(t);
+        QMatrix4x4 m(*t);
         for (int ii = transforms.size() - 1; ii >= 0; --ii)
             transforms.at(ii)->applyTo(&m);
-        t = m.toTransform();
+        *t = m.toTransform();
     }
 
     if (scale() != 1. || rotation() != 0.) {
         QPointF tp = computeTransformOrigin();
-        t.translate(tp.x(), tp.y());
-        t.scale(scale(), scale());
-        t.rotate(rotation());
-        t.translate(-tp.x(), -tp.y());
+        t->translate(tp.x(), tp.y());
+        t->scale(scale(), scale());
+        t->rotate(rotation());
+        t->translate(-tp.x(), -tp.y());
     }
 }
 
@@ -4314,7 +4314,11 @@ void QQuickItem::dropEvent(QDropEvent *event)
     This method will only be called if filtersChildMouseEvents() is \c true.
 
     Return \c true if the specified \a event should not be passed on to the
-    specified child \a item, and \c false otherwise.
+    specified child \a item, and \c false otherwise. If you return \c true, you
+    should also \l {QEvent::accept()}{accept} or \l {QEvent::ignore()}{ignore}
+    the \a event, to signal if event propagation should stop or continue.
+    The \a event will, however, always be sent to all childMouseEventFilters
+    up the parent chain.
 
     \note Despite the name, this function filters all QPointerEvent instances
     during delivery to all children (typically mouse, touch, and tablet
@@ -4653,7 +4657,7 @@ static bool unwrapMapFromToFromItemArgs(QQmlV4Function *args, const QQuickItem *
     \input item.qdocinc mapping
 
     If \a item is a \c null value, this maps the point or rect from the coordinate system of
-    the root QML view.
+    the \l{Scene Coordinates}{scene}.
 
     The versions accepting point and rect are since Qt 5.15.
 */
@@ -4711,7 +4715,7 @@ QTransform QQuickItem::itemTransform(QQuickItem *other, bool *ok) const
     \input item.qdocinc mapping
 
     If \a item is a \c null value, this maps the point or rect to the coordinate system of the
-    root QML view.
+    \l{Scene Coordinates}{scene}.
 
     The versions accepting point and rect are since Qt 5.15.
 */
@@ -5022,12 +5026,17 @@ void QQuickItemPrivate::dumpItemTree(int indent) const
 {
     Q_Q(const QQuickItem);
 
-    qDebug().nospace().noquote() << QString(indent * 4, QLatin1Char(' ')) <<
+    const auto indentStr = QString(indent * 4, QLatin1Char(' '));
+    qDebug().nospace().noquote() << indentStr <<
 #if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
                                     const_cast<QQuickItem *>(q);
 #else
                                     q;
 #endif
+    if (extra.isAllocated()) {
+        for (const auto handler : extra->pointerHandlers)
+            qDebug().nospace().noquote() << indentStr << u"  \u26ee " << handler;
+    }
     for (const QQuickItem *ch : childItems) {
         auto itemPriv = QQuickItemPrivate::get(ch);
         itemPriv->dumpItemTree(indent + 1);
@@ -5610,7 +5619,7 @@ void QQuickItemPrivate::deliverInputMethodEvent(QInputMethodEvent *e)
 void QQuickItemPrivate::deliverShortcutOverrideEvent(QKeyEvent *event)
 {
     if (extra.isAllocated() && extra->keyHandler)
-        extra->keyHandler->shortcutOverride(event);
+        extra->keyHandler->shortcutOverrideEvent(event);
     else
         event->ignore();
 }
@@ -7068,15 +7077,17 @@ void QQuickItem::setX(qreal v)
     if (qt_is_nan(v))
         return;
 
-    const qreal oldx = d->x;
+    const qreal oldx = d->x.valueBypassingBindings();
     if (oldx == v)
         return;
 
-    d->x = v;
+    d->x.setValueBypassingBindings(v);
 
     d->dirty(QQuickItemPrivate::Position);
 
-    const qreal y = d->y, w = d->width, h = d->height;
+    const qreal y = d->y.valueBypassingBindings();
+    const qreal w = d->width.valueBypassingBindings();
+    const qreal h = d->height.valueBypassingBindings();
     geometryChange(QRectF(v, y, w, h), QRectF(oldx, y, w, h));
 }
 
@@ -7087,17 +7098,19 @@ void QQuickItem::setY(qreal v)
     if (qt_is_nan(v))
         return;
 
-    const qreal oldy = d->y;
+    const qreal oldy = d->y.valueBypassingBindings();
     if (oldy == v)
         return;
 
-    d->y = v;
+    d->y.setValueBypassingBindings(v);
 
     d->dirty(QQuickItemPrivate::Position);
 
     // we use v instead of d->y, as that avoid a method call
     // and we have v anyway in scope
-    const qreal x = d->x, w = d->width, h = d->height;
+    const qreal x = d->x.valueBypassingBindings();
+    const qreal w = d->width.valueBypassingBindings();
+    const qreal h = d->height.valueBypassingBindings();
     geometryChange(QRectF(x, v, w, h), QRectF(x, oldy, w, h));
 }
 
@@ -7107,11 +7120,12 @@ void QQuickItem::setY(qreal v)
 void QQuickItem::setPosition(const QPointF &pos)
 {
     Q_D(QQuickItem);
-    if (QPointF(d->x, d->y) == pos)
-        return;
 
-    const qreal oldx = d->x;
-    const qreal oldy = d->y;
+    const qreal oldx = d->x.valueBypassingBindings();
+    const qreal oldy = d->y.valueBypassingBindings();
+
+    if (QPointF(oldx, oldy) == pos)
+        return;
 
     /* This preserves the bindings, because that was what the code used to do
        The effect of this is that you can have
@@ -7131,7 +7145,8 @@ void QQuickItem::setPosition(const QPointF &pos)
 
     d->dirty(QQuickItemPrivate::Position);
 
-    const qreal w = d->width, h = d->height;
+    const qreal w = d->width.valueBypassingBindings();
+    const qreal h = d->height.valueBypassingBindings();
     geometryChange(QRectF(pos.x(), pos.y(), w, h), QRectF(oldx, oldy, w, h));
 }
 
@@ -7167,15 +7182,17 @@ void QQuickItem::setWidth(qreal w)
         return;
 
     d->widthValidFlag = true;
-    const qreal oldWidth = d->width;
+    const qreal oldWidth = d->width.valueBypassingBindings();
     if (oldWidth == w)
         return;
 
-    d->width = w;
+    d->width.setValueBypassingBindings(w);
 
     d->dirty(QQuickItemPrivate::Size);
 
-    const qreal x = d->x, y = d->y, h = d->height;
+    const qreal x = d->x.valueBypassingBindings();
+    const qreal y = d->y.valueBypassingBindings();
+    const qreal h = d->height.valueBypassingBindings();
     geometryChange(QRectF(x, y, w, h), QRectF(x, y, oldWidth, h));
 }
 
@@ -7373,15 +7390,17 @@ void QQuickItem::setHeight(qreal h)
         return;
 
     d->heightValidFlag = true;
-    const qreal oldHeight = d->height;
+    const qreal oldHeight = d->height.valueBypassingBindings();
     if (oldHeight == h)
         return;
 
-    d->height = h;
+    d->height.setValueBypassingBindings(h);
 
     d->dirty(QQuickItemPrivate::Size);
 
-    const qreal x = d->x, y = d->y, w = d->width;
+    const qreal x = d->x.valueBypassingBindings();
+    const qreal y = d->y.valueBypassingBindings();
+    const qreal w = d->width.valueBypassingBindings();
     geometryChange(QRectF(x, y, w, h), QRectF(x, y, w, oldHeight));
 }
 
@@ -7485,11 +7504,11 @@ void QQuickItem::setImplicitSize(qreal w, qreal h)
     const qreal oldHeight = height;
     if (!wDone) {
         width = w;
-        d->width = w;
+        d->width.setValueBypassingBindings(w);
     }
     if (!hDone) {
         height = h;
-        d->height = h;
+        d->height.setValueBypassingBindings(h);
     }
 
     d->dirty(QQuickItemPrivate::Size);
@@ -7545,17 +7564,19 @@ void QQuickItem::setSize(const QSizeF &size)
     d->heightValidFlag = true;
     d->widthValidFlag = true;
 
-    if (d->width == size.width() && d->height == size.height())
+    const qreal oldHeight = d->height.valueBypassingBindings();
+    const qreal oldWidth = d->width.valueBypassingBindings();
+
+    if (oldWidth == size.width() && oldHeight == size.height())
         return;
 
-    const qreal oldHeight = d->height;
-    const qreal oldWidth = d->width;
     d->height.setValueBypassingBindings(size.height());
     d->width.setValueBypassingBindings(size.width());
 
     d->dirty(QQuickItemPrivate::Size);
 
-    const qreal x = d->x, y = d->y;
+    const qreal x = d->x.valueBypassingBindings();
+    const qreal y = d->y.valueBypassingBindings();
     geometryChange(QRectF(x, y, size.width(), size.height()), QRectF(x, y, oldWidth, oldHeight));
 }
 
@@ -8569,7 +8590,7 @@ void QQuickItem::setContainmentMask(QObject *mask)
 
     \input item.qdocinc mapping
 
-    If \a item is 0, this maps \a point to the coordinate system of the
+    If \a item is \nullptr, this maps \a point to the coordinate system of the
     scene.
 
     \sa {Concepts - Visual Coordinates in Qt Quick}
@@ -8627,7 +8648,7 @@ QPointF QQuickItem::mapToGlobal(const QPointF &point) const
 
     \input item.qdocinc mapping
 
-    If \a item is 0, this maps \a rect to the coordinate system of the
+    If \a item is \nullptr, this maps \a rect to the coordinate system of the
     scene.
 
     \sa {Concepts - Visual Coordinates in Qt Quick}
@@ -8663,7 +8684,7 @@ QRectF QQuickItem::mapRectToScene(const QRectF &rect) const
 
     \input item.qdocinc mapping
 
-    If \a item is 0, this maps \a point from the coordinate system of the
+    If \a item is \nullptr, this maps \a point from the coordinate system of the
     scene.
 
     \sa {Concepts - Visual Coordinates in Qt Quick}
@@ -8730,7 +8751,7 @@ QPointF QQuickItem::mapFromGlobal(const QPointF &point) const
 
     \input item.qdocinc mapping
 
-    If \a item is 0, this maps \a rect from the coordinate system of the
+    If \a item is \nullptr, this maps \a rect from the coordinate system of the
     scene.
 
     \sa {Concepts - Visual Coordinates in Qt Quick}
@@ -8944,6 +8965,16 @@ QDebug operator<<(QDebug debug,
     const QRectF rect(item->position(), QSizeF(item->width(), item->height()));
 
     debug << item->metaObject()->className() << '(' << static_cast<void *>(item);
+
+    // Deferred properties will cause recursion when calling nameForObject
+    // before the component is completed, so guard against this situation.
+    if (item->isComponentComplete()) {
+        if (QQmlContext *context = qmlContext(item)) {
+            const auto objectId = context->nameForObject(item);
+            if (!objectId.isEmpty())
+                debug << ", id=" << objectId;
+        }
+    }
     if (!item->objectName().isEmpty())
         debug << ", name=" << item->objectName();
     debug << ", parent=" << static_cast<void *>(item->parentItem())

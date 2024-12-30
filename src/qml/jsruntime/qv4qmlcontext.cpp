@@ -19,6 +19,7 @@
 #include <private/qv4module_p.h>
 #include <private/qv4objectproto_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4stackframe_p.h>
 #include <private/qv4value_p.h>
 
 #include <QtCore/qloggingcategory.h>
@@ -196,7 +197,7 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
             return result->asReturnedValue();
     }
 
-    if (context->imports() && name->startsWithUpper()) {
+    if (context->imports() && (name->startsWithUpper() || context->valueTypesAreAddressable())) {
         // Search for attached properties, enums and imported scripts
         QQmlTypeNameCache::Result r = context->imports()->query<QQmlImport::AllowRecursion>(name);
 
@@ -268,9 +269,33 @@ ReturnedValue QQmlContextWrapper::getPropertyAndBase(const QQmlContextWrapper *r
         contextGetterFunction = QQmlContextWrapper::lookupScopeObjectProperty;
     }
 
+    QQmlRefPointer<QQmlContextData> outer = context;
     while (context) {
-        if (auto property = searchContextProperties(v4, context, name, hasProperty, base, lookup, originalLookup, ep))
-            return *property;
+        if (outer == context) {
+            if (auto property = searchContextProperties(
+                        v4, context, name, hasProperty, base, lookup, originalLookup, ep)) {
+                return *property;
+            }
+
+            outer = outer->parent();
+
+            if (const auto cu = context->typeCompilationUnit(); cu && cu->componentsAreBound()) {
+                // If components are bound in this CU, we can search the whole context hierarchy
+                // of the file. Bound components' contexts override their local properties.
+                // You also can't instantiate bound components outside of their creation
+                // context. Therefore this is safe.
+
+                for (;
+                     outer && outer->typeCompilationUnit() == cu;
+                     outer = outer->parent()) {
+                    if (auto property = searchContextProperties(
+                                v4, outer, name, hasProperty, base,
+                                nullptr, originalLookup, ep)) {
+                        return *property;
+                    }
+                }
+            }
+        }
 
         // Search scope object
         if (scopeObject) {
@@ -475,8 +500,8 @@ ReturnedValue QQmlContextWrapper::resolveQmlContextPropertyLookupGetter(Lookup *
 {
     Scope scope(engine);
     auto *func = engine->currentStackFrame->v4Function;
-    PropertyKey name =engine->identifierTable->asPropertyKey(
-                func->compilationUnit->runtimeStrings[l->nameIndex]);
+    ScopedPropertyKey name(scope, engine->identifierTable->asPropertyKey(
+                            func->compilationUnit->runtimeStrings[l->nameIndex]));
 
     // Special hack for bounded signal expressions, where the parameters of signals are injected
     // into the handler expression through the locals of the call context. So for onClicked: { ... }
@@ -490,7 +515,7 @@ ReturnedValue QQmlContextWrapper::resolveQmlContextPropertyLookupGetter(Lookup *
                     const auto location = func->sourceLocation();
                     qCWarning(lcQmlContext).nospace().noquote()
                             << location.sourceFile << ":" << location.line << ":" << location.column
-                            << " Parameter \"" << name.toQString() << "\" is not declared."
+                            << " Parameter \"" << name->toQString() << "\" is not declared."
                             << " Injection of parameters into signal handlers is deprecated."
                             << " Use JavaScript functions with formal parameters instead.";
 
@@ -526,7 +551,7 @@ ReturnedValue QQmlContextWrapper::resolveQmlContextPropertyLookupGetter(Lookup *
         }
     }
     if (!hasProperty)
-        return engine->throwReferenceError(name.toQString());
+        return engine->throwReferenceError(name->toQString());
     return result->asReturnedValue();
 }
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2016 The Qt Company Ltd.
+// Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlbind_p.h"
@@ -281,7 +281,7 @@ public:
             const QV4::CompiledData::Binding *binding,
             QQmlComponentPrivate::ConstructionState *immediateState);
     void createDelayedValues();
-    void onDelayedValueChanged(const QString &delayedName);
+    void onDelayedValueChanged(QString delayedName);
     void evalDelayed();
     void buildBindEntries(QQmlBind *q, QQmlComponentPrivate::DeferredState *deferredState);
 };
@@ -429,9 +429,9 @@ void QQmlBind::setWhen(bool v)
 /*!
     \qmlproperty QtObject QtQml::Binding::target
 
-    The object to be updated. You only need to use this property if you can't
-    supply the binding target declaratively. The following two pieces of code
-    are equivalent.
+    The object to be updated. You need to use this property if the binding target
+    does not have an \c id attribute (for example, when the target is a singleton).
+    Otherwise, the following two pieces of code are equivalent:
 
     \qml
     Binding { contactName.text: name }
@@ -898,14 +898,14 @@ void QQmlBindPrivate::createDelayedValues()
     delayedValues = std::make_unique<QQmlPropertyMap>();
     QObject::connect(
             delayedValues.get(), &QQmlPropertyMap::valueChanged,
-            delayedValues.get(), [this](const QString &delayedName, const QVariant &value) {
+            delayedValues.get(), [this](QString delayedName, const QVariant &value) {
                 Q_UNUSED(value);
-                onDelayedValueChanged(delayedName);
+                onDelayedValueChanged(std::move(delayedName));
             }
     );
 }
 
-void QQmlBindPrivate::onDelayedValueChanged(const QString &delayedName)
+void QQmlBindPrivate::onDelayedValueChanged(QString delayedName)
 {
     Q_ASSERT(delayed);
     Q_ASSERT(delayedValues);
@@ -916,7 +916,7 @@ void QQmlBindPrivate::onDelayedValueChanged(const QString &delayedName)
     else if (pending.contains(delayedName))
         return;
 
-    pending.append(delayedName);
+    pending.append(std::move(delayedName));
     (*delayedValues)[pendingName].setValue(std::move(pending));
 }
 
@@ -1026,6 +1026,7 @@ void QQmlBind::eval()
                 break;
             case QQmlBindEntryKind::V4Value:
                 if (d->restoreValue) {
+                    QQmlAnyBinding::takeFrom(entry.prop); // we don't want to have a binding active
                     auto propPriv = QQmlPropertyPrivate::get(entry.prop);
                     QQmlVMEMetaObject *vmemo = QQmlVMEMetaObject::get(propPriv->object);
                     Q_ASSERT(vmemo);
@@ -1036,6 +1037,7 @@ void QQmlBind::eval()
                 break;
             case QQmlBindEntryKind::Variant:
                 if (d->restoreValue) {
+                    QQmlAnyBinding::takeFrom(entry.prop); // we don't want to have a binding active
                     entry.prop.write(entry.previous.variant);
                     entry.clearPrev();
                 }

@@ -4,13 +4,14 @@
 
 #include "qv4module_p.h"
 
-#include <private/qv4mm_p.h>
-#include <private/qv4vme_moth_p.h>
 #include <private/qv4context_p.h>
-#include <private/qv4symbol_p.h>
 #include <private/qv4identifiertable_p.h>
+#include <private/qv4mm_p.h>
+#include <private/qv4stackframe_p.h>
+#include <private/qv4symbol_p.h>
+#include <private/qv4vme_moth_p.h>
 
-#include <QScopeGuard>
+#include <QtCore/qscopeguard.h>
 
 using namespace QV4;
 
@@ -222,9 +223,12 @@ OwnPropertyKeyIterator *Module::virtualOwnPropertyKeys(const Object *o, Value *t
     if (module->d()->unit->isESModule()) {
         names = module->d()->unit->exportedNames();
     } else {
-        Heap::InternalClass *scopeClass = module->d()->scope->internalClass;
-        for (uint i = 0; i < scopeClass->size; ++i)
-            names << scopeClass->keyAt(i);
+        QV4::Scope scope(module->engine());
+        QV4::Scoped<InternalClass> scopeClass(scope, module->d()->scope->internalClass);
+        for (uint i = 0, end = scopeClass->d()->size; i < end; ++i) {
+            QV4::ScopedValue key(scope, scopeClass->d()->keyAt(i));
+            names << key->toQString();
+        }
     }
 
     return new ModuleNamespaceIterator(names);

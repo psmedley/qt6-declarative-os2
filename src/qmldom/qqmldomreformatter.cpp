@@ -92,7 +92,14 @@ protected:
         }
     }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
     // we are not supposed to handle the ui
+    bool visit(UiPragmaValueList *) override
+    {
+        Q_ASSERT(false);
+        return false;
+    }
+#endif
     bool visit(UiPragma *) override
     {
         Q_ASSERT(false);
@@ -260,9 +267,16 @@ protected:
     {
         out(ast->lbracketToken);
         int baseIndent = lw.increaseIndent(1);
-        if (ast->elements)
+        if (ast->elements) {
             accept(ast->elements);
-        out(ast->commaToken);
+            out(ast->commaToken);
+            auto lastElement = lastListElement(ast->elements);
+            if (lastElement->element && cast<ObjectPattern *>(lastElement->element->initializer)) {
+                newLine();
+            }
+        } else {
+            out(ast->commaToken);
+        }
         lw.decreaseIndent(1, baseIndent);
         out(ast->rbracketToken);
         return false;
@@ -284,14 +298,22 @@ protected:
     bool visit(PatternElementList *ast) override
     {
         for (PatternElementList *it = ast; it; it = it->next) {
+            const bool isObjectInitializer =
+                    it->element && cast<ObjectPattern *>(it->element->initializer);
+            if (isObjectInitializer)
+                newLine();
+
             if (it->elision)
                 accept(it->elision);
             if (it->elision && it->element)
                 out(", ");
             if (it->element)
                 accept(it->element);
-            if (it->next)
+            if (it->next) {
                 out(", ");
+                if (isObjectInitializer)
+                    newLine();
+            }
         }
         return false;
     }
@@ -302,26 +324,37 @@ protected:
             PatternProperty *assignment = AST::cast<PatternProperty *>(it->property);
             if (assignment) {
                 preVisit(assignment);
-                bool isStringLike = AST::cast<StringLiteralPropertyName *>(assignment->name)
-                        || cast<IdentifierPropertyName *>(assignment->name);
-                if (isStringLike)
-                    out("\"");
                 accept(assignment->name);
-                if (isStringLike)
-                    out("\"");
-                out(": "); // assignment->colonToken
-                if (it->next)
-                    postOps[assignment->initializer].append([this] {
-                        out(","); // always invalid?
-                    });
-                accept(assignment->initializer);
-                if (it->next)
+                bool useInitializer = false;
+                const bool bindingIdentifierExist = !assignment->bindingIdentifier.isEmpty();
+                if (assignment->colonToken.length > 0) {
+                    out(": ");
+                    useInitializer = true;
+                    if (bindingIdentifierExist)
+                        out(assignment->bindingIdentifier);
+                    if (assignment->bindingTarget)
+                        accept(assignment->bindingTarget);
+                }
+
+                if (assignment->initializer) {
+                    if (bindingIdentifierExist) {
+                        out(" = ");
+                        useInitializer = true;
+                    }
+                    if (useInitializer)
+                        accept(assignment->initializer);
+                }
+
+                if (it->next) {
+                    out(",");
                     newLine();
+                }
                 postVisit(assignment);
                 continue;
             }
+
             PatternPropertyList *getterSetter = AST::cast<PatternPropertyList *>(it->next);
-            if (getterSetter->property) {
+            if (getterSetter && getterSetter->property) {
                 switch (getterSetter->property->type) {
                 case PatternElement::Getter:
                     out("get");
@@ -362,7 +395,7 @@ protected:
     }
     bool visit(StringLiteralPropertyName *ast) override
     {
-        out(ast->id.toString());
+        out(ast->propertyNameToken);
         return true;
     }
     bool visit(NumericLiteralPropertyName *ast) override
@@ -429,9 +462,7 @@ protected:
     {
         accept(ast->base);
         out(ast->lparenToken);
-        int baseIndent = lw.increaseIndent(1);
         accept(ast->arguments);
-        lw.decreaseIndent(1, baseIndent);
         out(ast->rparenToken);
         return false;
     }
@@ -536,10 +567,12 @@ protected:
     bool visit(Block *ast) override
     {
         out(ast->lbraceToken);
-        ++expressionDepth;
-        lnAcceptIndented(ast->statements);
-        newLine();
-        --expressionDepth;
+        if (ast->statements) {
+            ++expressionDepth;
+            lnAcceptIndented(ast->statements);
+            newLine();
+            --expressionDepth;
+        }
         out(ast->rbraceToken);
         return false;
     }
@@ -576,7 +609,6 @@ protected:
         if (ast->isForDeclaration) {
             outputScope(ast->scope);
         }
-        accept(ast->bindingTarget);
         switch (ast->type) {
         case PatternElement::Literal:
         case PatternElement::Method:
@@ -592,9 +624,12 @@ protected:
             out("...");
             break;
         }
-        out(ast->identifierToken);
+
+        accept(ast->bindingTarget);
+        if (!ast->destructuringPattern())
+            out(ast->identifierToken);
         if (ast->initializer) {
-            if (ast->isVariableDeclaration())
+            if (ast->isVariableDeclaration() || ast->type == AST::PatternElement::Binding)
                 out(" = ");
             accept(ast->initializer);
         }
@@ -949,7 +984,7 @@ protected:
     {
         for (FormalParameterList *it = ast; it; it = it->next) {
             // compare FormalParameterList::finish
-            if (auto id = it->element->bindingIdentifier.toString(); !id.startsWith(u"arg#"))
+            if (auto id = it->element->bindingIdentifier.toString(); !id.isEmpty())
                 out(id);
             if (it->element->bindingTarget)
                 accept(it->element->bindingTarget);
@@ -989,7 +1024,7 @@ protected:
     bool visit(YieldExpression *) override { return true; }
     bool visit(ClassExpression *) override { return true; }
 
-    // Return false because we want to omit default function calls in accept0 implementation.
+    // Return false because we want to omit default function calls in accept0 implementation.
     bool visit(ClassDeclaration *ast) override
     {
         preVisit(ast);
@@ -1059,17 +1094,15 @@ protected:
     bool visit(ESModule *) override { return true; }
     bool visit(DebuggerStatement *) override { return true; }
     bool visit(Type *) override { return true; }
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    bool visit(TypeArgument *) override { return true; }
-#else
-    bool visit(TypeArgumentList *) override { return true; }
-#endif
     bool visit(TypeAnnotation *) override { return true; }
 
     // overridden to use BasicVisitor (and ensure warnings about new added AST)
     void endVisit(UiProgram *) override { }
     void endVisit(UiImport *) override { }
     void endVisit(UiHeaderItemList *) override { }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    void endVisit(UiPragmaValueList *) override { }
+#endif
     void endVisit(UiPragma *) override { }
     void endVisit(UiPublicMember *) override { }
     void endVisit(UiSourceElement *) override { }
@@ -1180,11 +1213,6 @@ protected:
     void endVisit(ESModule *) override { }
     void endVisit(DebuggerStatement *) override { }
     void endVisit(Type *) override { }
-#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    void endVisit(TypeArgument *) override { }
-#else
-    void endVisit(TypeArgumentList *) override { }
-#endif
     void endVisit(TypeAnnotation *) override { }
 
     void throwRecursionDepthError() override

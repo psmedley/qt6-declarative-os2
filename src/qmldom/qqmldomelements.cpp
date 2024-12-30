@@ -5,6 +5,7 @@
 // but in this type of warning, it often isn't.
 //#if defined(Q_CC_GNU) && Q_CC_GNU >= 1100
 //QT_WARNING_DISABLE_GCC("-Wmaybe-uninitialized")
+#include "qqmldompath_p.h"
 #if defined(__GNUC__) && __GNUC__ >= 11
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -203,11 +204,7 @@ Version Version::fromString(QStringView v)
         return Version(Latest, Latest);
     QRegularExpression r(
             QRegularExpression::anchoredPattern(QStringLiteral(uR"(([0-9]*)(?:\.([0-9]*))?)")));
-#if QT_VERSION < QT_VERSION_CHECK(6, 4, 0)
-    auto m = r.match(v);
-#else
     auto m = r.matchView(v);
-#endif
     if (m.hasMatch()) {
         bool ok;
         int majorV = m.capturedView(1).toInt(&ok);
@@ -314,13 +311,39 @@ bool Import::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     return cont;
 }
 
-void Import::writeOut(DomItem &, OutWriter &ow) const
+void Import::writeOut(DomItem &self, OutWriter &ow) const
 {
     if (implicit)
         return;
-    ow.ensureNewline();
+
+    QString code;
+    const DomItem owner = self.owner();
+    if (std::shared_ptr<QmlFile> qmlFilePtr = self.ownerAs<QmlFile>())
+        code = qmlFilePtr->code();
+
+    // check for an empty line before the import, and preserve it
+    int preNewlines = 0;
+
+    const FileLocations::Tree elLoc = FileLocations::findAttachedInfo(self).foundTree;
+
+    quint32 start = elLoc->info().fullRegion.offset;
+    if (size_t(code.size()) >= start) {
+        while (start != 0) {
+            QChar c = code.at(--start);
+            if (c == u'\n') {
+                if (++preNewlines == 2)
+                    break;
+            } else if (!c.isSpace())
+                break;
+        }
+    }
+    if (preNewlines == 0)
+        ++preNewlines;
+
+    ow.ensureNewline(preNewlines);
     ow.writeRegion(u"import").space();
     ow.writeRegion(u"uri", uri.toString());
+
     if (uri.isModule()) {
         QString vString = version.stringValue();
         if (!vString.isEmpty())
@@ -339,6 +362,7 @@ bool Id::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     cont = cont && self.dvReferenceField(visitor, Fields::referredObject, referredObjectPath);
     cont = cont && self.dvWrapField(visitor, Fields::comments, comments);
     cont = cont && self.dvWrapField(visitor, Fields::annotations, annotations);
+    cont = cont && self.dvWrapField(visitor, Fields::value, value);
     return cont;
 }
 
@@ -714,7 +738,7 @@ void QmlObject::writeOut(DomItem &self, OutWriter &ow, QString onTarget) const
     ow.writeRegion(u"name", name());
     if (!onTarget.isEmpty())
         ow.space().writeRegion(u"on", u"on").space().writeRegion(u"onTarget", onTarget);
-    ow.writeRegion(u"leftBrace", u" {").newline();
+    ow.writeRegion(u"leftBrace", u" {");
     int baseIndent = ow.increaseIndent();
     int spacerId = 0;
     if (!idStr().isEmpty()) { // *always* put id first
@@ -730,8 +754,10 @@ void QmlObject::writeOut(DomItem &self, OutWriter &ow, QString onTarget) const
             == LineWriterOptions::AttributesSequence::Normalize) {
             ow.ensureNewline(2);
         }
-        if (myId)
+        if (myId) {
             myId.writeOutPost(ow);
+            ow.ensureNewline(1);
+        }
     }
     quint32 counter = ow.counter();
     DomItem component;
@@ -850,9 +876,10 @@ void QmlObject::writeOut(DomItem &self, OutWriter &ow, QString onTarget) const
             } else {
                 el.second.writeOut(ow);
             }
+            ow.ensureNewline();
         }
         ow.decreaseIndent(1, baseIndent);
-        ow.ensureNewline().write(u"}");
+        ow.write(u"}");
 
         return;
     }
@@ -1583,6 +1610,11 @@ bool ScriptExpression::iterateDirectSubpaths(DomItem &self, DirectVisitor visito
         return astRelocatableDump();
     });
     cont = cont && self.dvValueField(visitor, Fields::expressionType, int(expressionType()));
+    if (m_element) {
+        cont = cont && self.dvItemField(visitor, Fields::scriptElement, [this, &self]() {
+            return self.subScriptElementWrapperItem(m_element);
+        });
+    }
     return cont;
 }
 
@@ -1661,6 +1693,9 @@ void ScriptExpression::setCode(QString code, QString preCode, QString postCode)
         if (!m_preCode.isEmpty())
             m_ast = firstNodeInRange(m_ast, m_preCode.size(),
                                      m_preCode.size() + m_code.size());
+        if (auto *sList = AST::cast<AST::FormalParameterList *>(m_ast)) {
+            m_ast = sList->element;
+        }
         if (m_expressionType != ExpressionType::FunctionBody) {
             if (AST::StatementList *sList = AST::cast<AST::StatementList *>(m_ast)) {
                 if (!sList->next)
@@ -1717,7 +1752,7 @@ void ScriptExpression::writeOut(DomItem &self, OutWriter &lw) const
 
 SourceLocation ScriptExpression::globalLocation(DomItem &self) const
 {
-    if (const FileLocations *fLocPtr = FileLocations::fileLocationsPtr(self)) {
+    if (const FileLocations *fLocPtr = FileLocations::fileLocationsOf(self)) {
         return fLocPtr->regions.value(QString(), fLocPtr->fullRegion);
     }
     return SourceLocation();
@@ -1756,8 +1791,14 @@ bool MethodInfo::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
         cont = cont && self.dvValueField(visitor, Fields::postCode, postCode(self));
         cont = cont && self.dvValueField(visitor, Fields::isConstructor, isConstructor);
     }
+    if (returnType)
+        cont = cont && self.dvItemField(visitor, Fields::returnType, [this, &self]() {
+            return self.subOwnerItem(PathEls::Field(Fields::returnType), returnType);
+        });
     if (body)
-        cont = cont && self.dvWrapField(visitor, Fields::body, body);
+        cont = cont && self.dvItemField(visitor, Fields::body, [this, &self]() {
+            return self.subOwnerItem(PathEls::Field(Fields::body), body);
+        });
     return cont;
 }
 
@@ -1779,7 +1820,7 @@ QString MethodInfo::preCode(DomItem &self) const
             first = false;
         else
             ow.write(u", ");
-        ow.write(mp.name);
+        ow.write(mp.value->code());
     }
     ow.writeRegion(u"rightParen", u")");
     ow.ensureSpace().writeRegion(u"leftBrace", u"{");
@@ -1854,13 +1895,18 @@ bool MethodParameter::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor
     cont = cont && self.dvValueField(visitor, Fields::name, name);
     if (!typeName.isEmpty()) {
         cont = cont
-                && self.dvReferenceField(visitor, Fields::type, Paths::lookupCppTypePath(typeName));
+                && self.dvReferenceField(visitor, Fields::type, Paths::lookupTypePath(typeName));
         cont = cont && self.dvValueField(visitor, Fields::typeName, typeName);
     }
     cont = cont && self.dvValueField(visitor, Fields::isPointer, isPointer);
     cont = cont && self.dvValueField(visitor, Fields::isReadonly, isReadonly);
     cont = cont && self.dvValueField(visitor, Fields::isList, isList);
     cont = cont && self.dvWrapField(visitor, Fields::defaultValue, defaultValue);
+    cont = cont && self.dvWrapField(visitor, Fields::value, value);
+
+    cont = cont && self.dvValueField(visitor, Fields::preCode, u"function f("_s);
+    cont = cont && self.dvValueField(visitor, Fields::postCode, u") {}"_s);
+
     if (!annotations.isEmpty())
         cont = cont && self.dvWrapField(visitor, Fields::annotations, annotations);
     cont = cont && self.dvWrapField(visitor, Fields::comments, comments);
@@ -1869,12 +1915,20 @@ bool MethodParameter::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor
 
 void MethodParameter::writeOut(DomItem &self, OutWriter &ow) const
 {
-    ow.writeRegion(u"name", name);
-    if (!typeName.isEmpty())
-        ow.writeRegion(u"colon", u":").space().writeRegion(u"type", typeName);
-    if (defaultValue) {
-        ow.space().writeRegion(u"equal", u"=").space();
-        self.subOwnerItem(PathEls::Field(Fields::defaultValue), defaultValue).writeOut(ow);
+    if (!name.isEmpty()) {
+        if (isRestElement)
+            ow.writeRegion(u"ellipsis", u"...");
+        ow.writeRegion(u"name", name);
+        if (!typeName.isEmpty())
+            ow.writeRegion(u"colon", u":").space().writeRegion(u"type", typeName);
+        if (defaultValue) {
+            ow.space().writeRegion(u"equal", u"=").space();
+            self.subOwnerItem(PathEls::Field(Fields::defaultValue), defaultValue).writeOut(ow);
+        }
+    } else {
+        if (value) {
+            self.subOwnerItem(PathEls::Field(Fields::value), value).writeOut(ow);
+        }
     }
 }
 
@@ -1891,9 +1945,18 @@ void Pragma::writeOut(DomItem &, OutWriter &ow) const
 {
     ow.ensureNewline();
     ow.writeRegion(u"pragma").space().writeRegion(u"name", name);
-    if (!value.isEmpty()) {
-        ow.writeRegion(u"colon", u": ");
-        ow.writeRegion(u"value", value);
+
+    bool isFirst = true;
+    for (const auto &value : values) {
+        if (isFirst) {
+            isFirst = false;
+            ow.writeRegion(u"colon", u": ");
+            ow.writeRegion(u"values", value);
+            continue;
+        }
+
+        ow.writeRegion(u"comma", u", ");
+        ow.writeRegion(u"values", value);
     }
     ow.ensureNewline();
 }
@@ -2075,6 +2138,11 @@ QString QmlUri::toString() const
 QmlUri::Kind QmlUri::kind() const
 {
     return m_kind;
+}
+
+void ScriptExpression::setScriptElement(const ScriptElementVariant &p)
+{
+    m_element = p;
 }
 
 } // end namespace Dom

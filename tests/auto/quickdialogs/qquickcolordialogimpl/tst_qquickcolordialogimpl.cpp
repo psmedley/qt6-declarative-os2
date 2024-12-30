@@ -4,6 +4,7 @@
 #include <QtTest/qtest.h>
 #include <QtQuickTest/quicktest.h>
 #include <QtTest/qsignalspy.h>
+#include <QtQuick/qquickview.h>
 #include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/dialogstestutils_p.h>
@@ -53,6 +54,9 @@ private slots:
     void changeColorFromTextFields();
     void windowTitle_data();
     void windowTitle();
+    void workingInsideQQuickViewer_data();
+    void workingInsideQQuickViewer();
+    void dialogCanMoveBetweenWindows();
 
 private:
     bool closePopup(DialogTestHelper<QQuickColorDialog, QQuickColorDialogImpl> *dialogHelper,
@@ -352,17 +356,17 @@ void tst_QQuickColorDialogImpl::changeColorFromTextFields_data()
     QTest::newRow("rgbRed") << ColorSpec::Rgb << "255" << "100" << QColor(100, 255, 255);
     QTest::newRow("rgbGreen") << ColorSpec::Rgb << "255" << "0" << QColorConstants::Magenta;
     QTest::newRow("rgbBlue") << ColorSpec::Rgb << "255" << "200" << QColor(255, 255, 200);
-    QTest::newRow("rgbAlpha") << ColorSpec::Rgb << "100%" << "50%" << QColor::fromRgbF(1.0, 1.0, 1.0, 0.5);
+    QTest::newRow("rgbAlpha") << ColorSpec::Rgb << "100%" << "50%" << QColor::fromRgbF(1.0f, 1.0f, 1.0f, 0.5f);
 
-    QTest::newRow("hsvHue") << ColorSpec::Hsv << "0°" << "60°" << QColor::fromHsvF(.2, 0.0, 1.0);
-    QTest::newRow("hsvSaturation") << ColorSpec::Hsv << "0%" << "50%" << QColor::fromHsvF(0.0, 0.5, 1.0);
-    QTest::newRow("hsvValue") << ColorSpec::Hsv << "100%" << "90%" << QColor::fromHsvF(0.0, 0.0, 0.9, 1.0);
-    QTest::newRow("hsvAlpha") << ColorSpec::Hsv << "100%" << "40%" << QColor::fromHsvF(0.0, 0.0, 1.0, 0.4);
+    QTest::newRow("hsvHue") << ColorSpec::Hsv << "0°" << "60°" << QColor::fromHsvF(.2f, 0.0f, 1.0f);
+    QTest::newRow("hsvSaturation") << ColorSpec::Hsv << "0%" << "50%" << QColor::fromHsvF(0.0f, 0.5f, 1.0f);
+    QTest::newRow("hsvValue") << ColorSpec::Hsv << "100%" << "90%" << QColor::fromHsvF(0.0f, 0.0f, 0.9f, 1.0f);
+    QTest::newRow("hsvAlpha") << ColorSpec::Hsv << "100%" << "40%" << QColor::fromHsvF(0.0f, 0.0f, 1.0f, 0.4f);
 
-    QTest::newRow("hslHue") << ColorSpec::Hsl << "0°" << "90°" << QColor::fromHslF(.25, 1.0, 1.0);
-    QTest::newRow("hslSaturation") << ColorSpec::Hsl << "0%" << "40%" << QColor::fromHslF(0.0, 0.4, 1.0);
-    QTest::newRow("hslLightness") << ColorSpec::Hsl << "100%" << "80%" << QColor::fromHslF(0.0, 0.0, 0.8, 1.0);
-    QTest::newRow("hslAlpha") << ColorSpec::Hsl << "100%" << "60%" << QColor::fromHslF(0.0, 0.0, 1.0, 0.6);
+    QTest::newRow("hslHue") << ColorSpec::Hsl << "0°" << "90°" << QColor::fromHslF(.25f, 1.0f, 1.0f);
+    QTest::newRow("hslSaturation") << ColorSpec::Hsl << "0%" << "40%" << QColor::fromHslF(0.0f, 0.4f, 1.0f);
+    QTest::newRow("hslLightness") << ColorSpec::Hsl << "100%" << "80%" << QColor::fromHslF(0.0f, 0.0f, 0.8f, 1.0f);
+    QTest::newRow("hslAlpha") << ColorSpec::Hsl << "100%" << "60%" << QColor::fromHslF(0.0f, 0.0f, 1.0f, 0.6f);
 }
 
 void tst_QQuickColorDialogImpl::changeColorFromTextFields()
@@ -452,6 +456,60 @@ void tst_QQuickColorDialogImpl::windowTitle()
 
     // verify that the title was set correctly.
     QCOMPARE(titleText->text(), title);
+
+    CLOSE_DIALOG("Ok");
+}
+
+void tst_QQuickColorDialogImpl::workingInsideQQuickViewer_data()
+{
+    QTest::addColumn<bool>("initialVisible");
+    QTest::addColumn<QString>("urlToQmlFile");
+    QTest::newRow("visible: false") << false << "colorDialogWithoutWindow.qml";
+    QTest::newRow("visible: true") << true << "colorDialogWithoutWindowVisibleTrue.qml";
+}
+
+void tst_QQuickColorDialogImpl::workingInsideQQuickViewer() // QTBUG-106598
+{
+    QFETCH(bool, initialVisible);
+    QFETCH(QString, urlToQmlFile);
+
+    QQuickView dialogView;
+    dialogView.setSource(testFileUrl(urlToQmlFile));
+    dialogView.show();
+
+    auto dialog = dialogView.findChild<QQuickColorDialog *>("ColorDialog");
+    QVERIFY(dialog);
+    QCOMPARE(dialog->isVisible(), initialVisible);
+
+    dialog->open();
+    QVERIFY(dialog->isVisible());
+}
+
+void tst_QQuickColorDialogImpl::dialogCanMoveBetweenWindows()
+{
+    DialogTestHelper<QQuickColorDialog, QQuickColorDialogImpl> dialogHelper(this, "windowSwapping.qml");
+    QVERIFY2(dialogHelper.isWindowInitialized(), dialogHelper.failureMessage());
+    QVERIFY(dialogHelper.waitForWindowActive());
+
+    QVERIFY(dialogHelper.openDialog());
+    QTRY_VERIFY(dialogHelper.isQuickDialogOpen());
+
+    QCOMPARE(dialogHelper.quickDialog->parent(), dialogHelper.window());
+    QVariant subWindow1;
+    QVariant subWindow2;
+
+    QMetaObject::invokeMethod(dialogHelper.window(), "getSubWindow1", Q_RETURN_ARG(QVariant, subWindow1));
+    QMetaObject::invokeMethod(dialogHelper.window(), "getSubWindow2", Q_RETURN_ARG(QVariant, subWindow2));
+
+    // Confirm that the dialog can swap to different windows
+    QMetaObject::invokeMethod(dialogHelper.window(), "goToSubWindow1");
+    QCOMPARE(dialogHelper.dialog->parentWindow(), qvariant_cast<QQuickWindow *>(subWindow1));
+
+    QMetaObject::invokeMethod(dialogHelper.window(), "goToSubWindow2");
+    QCOMPARE(dialogHelper.dialog->parentWindow(), qvariant_cast<QQuickWindow *>(subWindow2));
+
+    QMetaObject::invokeMethod(dialogHelper.window(), "resetParentWindow");
+    QCOMPARE(dialogHelper.quickDialog->parent(), dialogHelper.window());
 
     CLOSE_DIALOG("Ok");
 }

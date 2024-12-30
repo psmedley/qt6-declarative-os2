@@ -381,6 +381,13 @@ QString QQuickTextInputPrivate::realText() const
     TextInput { text: "Some text"; font.preferShaping: false }
     \endqml
 */
+
+/*!
+    \qmlproperty object QtQuick::TextInput::font.features
+    \since 6.6
+
+    \include qquicktext.cpp qml-font-features
+*/
 QFont QQuickTextInput::font() const
 {
     Q_D(const QQuickTextInput);
@@ -533,9 +540,8 @@ QQuickTextInput::HAlignment QQuickTextInput::hAlign() const
 void QQuickTextInput::setHAlign(HAlignment align)
 {
     Q_D(QQuickTextInput);
-    bool forceAlign = d->hAlignImplicit && d->effectiveLayoutMirror;
-    d->hAlignImplicit = false;
-    if (d->setHAlign(align, forceAlign) && isComponentComplete()) {
+
+    if (d->setHAlign(align, true) && isComponentComplete()) {
         d->updateLayout();
         updateCursorRectangle();
     }
@@ -570,16 +576,33 @@ QQuickTextInput::HAlignment QQuickTextInput::effectiveHAlign() const
     return effectiveAlignment;
 }
 
-bool QQuickTextInputPrivate::setHAlign(QQuickTextInput::HAlignment alignment, bool forceAlign)
+bool QQuickTextInputPrivate::setHAlign(QQuickTextInput::HAlignment align, bool forceAlign)
 {
     Q_Q(QQuickTextInput);
-    if ((hAlign != alignment || forceAlign) && alignment <= QQuickTextInput::AlignHCenter) { // justify not supported
-        QQuickTextInput::HAlignment oldEffectiveHAlign = q->effectiveHAlign();
-        hAlign = alignment;
-        emit q->horizontalAlignmentChanged(alignment);
-        if (oldEffectiveHAlign != q->effectiveHAlign())
-            emit q->effectiveHorizontalAlignmentChanged();
+    if (align > QQuickTextInput::AlignHCenter)
+        return false; // justify is not supported
+
+    if (hAlign == align && !forceAlign)
+        return false;
+
+    const bool wasImplicit = hAlignImplicit;
+    const auto oldEffectiveHAlign = q->effectiveHAlign();
+
+    hAlignImplicit = !forceAlign;
+    if (hAlign != align) {
+        hAlign = align;
+        emit q->horizontalAlignmentChanged(align);
+    }
+
+    if (q->effectiveHAlign() != oldEffectiveHAlign) {
+        emit q->effectiveHorizontalAlignmentChanged();
         return true;
+    }
+
+    if (forceAlign && wasImplicit) {
+        // QTBUG-120052 - when horizontal text alignment is set explicitly,
+        // we need notify any other controls that may depend on it, like QQuickPlaceholderText
+        emit q->effectiveHorizontalAlignmentChanged();
     }
     return false;
 }
@@ -624,16 +647,19 @@ Qt::LayoutDirection QQuickTextInputPrivate::layoutDirection() const
 
 bool QQuickTextInputPrivate::determineHorizontalAlignment()
 {
-    if (hAlignImplicit) {
-        // if no explicit alignment has been set, follow the natural layout direction of the text
-        Qt::LayoutDirection direction = textDirection();
+    if (!hAlignImplicit)
+        return false;
+
+    // if no explicit alignment has been set, follow the natural layout direction of the text
+    Qt::LayoutDirection direction = textDirection();
 #if QT_CONFIG(im)
-        if (direction == Qt::LayoutDirectionAuto)
-            direction = QGuiApplication::inputMethod()->inputDirection();
+    if (direction == Qt::LayoutDirectionAuto)
+        direction = QGuiApplication::inputMethod()->inputDirection();
 #endif
-        return setHAlign(direction == Qt::RightToLeft ? QQuickTextInput::AlignRight : QQuickTextInput::AlignLeft);
-    }
-    return false;
+
+    const auto implicitHAlign = direction == Qt::RightToLeft ?
+            QQuickTextInput::AlignRight : QQuickTextInput::AlignLeft;
+    return setHAlign(implicitHAlign);
 }
 
 QQuickTextInput::VAlignment QQuickTextInput::vAlign() const
@@ -1567,7 +1593,11 @@ void QQuickTextInput::mousePressEvent(QMouseEvent *event)
         }
     }
 
-    if (isMouse) {
+    if (isMouse
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+        || d->selectByTouchDrag
+#endif
+        ) {
         bool mark = (event->modifiers() & Qt::ShiftModifier) && d->selectByMouse;
         int cursor = d->positionAt(event->position());
         d->moveCursor(cursor, mark);
@@ -1747,6 +1777,26 @@ void QQuickTextInput::geometryChange(const QRectF &newGeometry,
         updateCursorRectangle();
     }
     QQuickImplicitSizeItem::geometryChange(newGeometry, oldGeometry);
+}
+
+void QQuickTextInput::itemChange(ItemChange change, const ItemChangeData &value)
+{
+    Q_D(QQuickTextInput);
+    Q_UNUSED(value);
+    switch (change) {
+    case ItemDevicePixelRatioHasChanged:
+        if (d->renderType == NativeRendering) {
+            // Native rendering optimizes for a given pixel grid, so its results must not be scaled.
+            // Text layout code respects the current device pixel ratio automatically, we only need
+            // to rerun layout after the ratio changed.
+            d->updateLayout();
+        }
+        break;
+
+    default:
+        break;
+    }
+    QQuickImplicitSizeItem::itemChange(change, value);
 }
 
 void QQuickTextInputPrivate::ensureVisible(int position, int preeditCursor, int preeditLength)

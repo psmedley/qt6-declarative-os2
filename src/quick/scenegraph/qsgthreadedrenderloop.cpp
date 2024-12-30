@@ -280,6 +280,7 @@ public:
     };
 
     void ensureRhi();
+    void teardownGraphics();
     void handleDeviceLoss();
 
     QSGThreadedRenderLoop *wm;
@@ -309,6 +310,7 @@ public:
     bool rhiDeviceLost = false;
     bool rhiDoomed = false;
     bool guiNotifiedAboutRhiFailure = false;
+    bool swRastFallbackDueToSwapchainFailure = false;
 
     // Local event queue stuff...
     bool stopEventProcessing;
@@ -575,20 +577,25 @@ void QSGRenderThread::sync(bool inExpose)
     }
 }
 
+void QSGRenderThread::teardownGraphics()
+{
+    QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+    wd->cleanupNodesOnShutdown();
+    sgrc->invalidate();
+    wm->releaseSwapchain(window);
+    if (ownRhi)
+        QSGRhiSupport::instance()->destroyRhi(rhi, {});
+    rhi = nullptr;
+}
+
 void QSGRenderThread::handleDeviceLoss()
 {
     if (!rhi || !rhi->isDeviceLost())
         return;
 
     qWarning("Graphics device lost, cleaning up scenegraph and releasing RHI");
-    QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
-    wd->cleanupNodesOnShutdown();
-    sgrc->invalidate();
-    wm->releaseSwapchain(window);
+    teardownGraphics();
     rhiDeviceLost = true;
-    if (ownRhi)
-        QSGRhiSupport::instance()->destroyRhi(rhi, {});
-    rhi = nullptr;
 }
 
 void QSGRenderThread::syncAndRender()
@@ -620,6 +627,7 @@ void QSGRenderThread::syncAndRender()
     pendingUpdate = 0;
 
     QQuickWindowPrivate *cd = QQuickWindowPrivate::get(window);
+    QSGRhiSupport *rhiSupport = QSGRhiSupport::instance();
     // Begin the frame before syncing -> sync is where we may invoke
     // updatePaintNode() on the items and they may want to do resource updates.
     // Also relevant for applications that connect to the before/afterSynchronizing
@@ -641,10 +649,29 @@ void QSGRenderThread::syncAndRender()
                 qCDebug(QSG_LOG_RENDERLOOP, QSG_RT_PAD, "just became exposed");
 
             cd->hasActiveSwapchain = cd->swapchain->createOrResize();
-            if (!cd->hasActiveSwapchain && rhi->isDeviceLost()) {
-                handleDeviceLoss();
-                QCoreApplication::postEvent(window, new QEvent(QEvent::Type(QQuickWindowPrivate::FullUpdateRequest)));
-                return;
+            if (!cd->hasActiveSwapchain) {
+                bool bailOut = false;
+                if (rhi->isDeviceLost()) {
+                    handleDeviceLoss();
+                    bailOut = true;
+                } else if (previousOutputSize.isEmpty() && !swRastFallbackDueToSwapchainFailure && rhiSupport->attemptReinitWithSwRastUponFail()) {
+                    qWarning("Failed to create swapchain."
+                             " Retrying by requesting a software rasterizer, if applicable for the 3D API implementation.");
+                    swRastFallbackDueToSwapchainFailure = true;
+                    teardownGraphics();
+                    bailOut = true;
+                }
+                if (bailOut) {
+                    QCoreApplication::postEvent(window, new QEvent(QEvent::Type(QQuickWindowPrivate::FullUpdateRequest)));
+                    if (syncRequested) {
+                        // Lock like sync() would do. Note that exposeRequested always includes syncRequested.
+                        qCDebug(QSG_LOG_RENDERLOOP, QSG_RT_PAD, "- bailing out due to failed swapchain init, wake Gui");
+                        mutex.lock();
+                        waitCondition.wakeOne();
+                        mutex.unlock();
+                    }
+                    return;
+                }
             }
 
             cd->swapchainJustBecameRenderable = false;
@@ -726,7 +753,7 @@ void QSGRenderThread::syncAndRender()
     // Zero size windows do not initialize a swapchain and
     // rendercontext. So no sync or render can be done then.
     const bool canRender = d->renderer && hasValidSwapChain;
-
+    double lastCompletedGpuTime = 0;
     if (canRender) {
         if (!syncRequested) // else this was already done in sync()
             rhi->makeThreadLocalNativeContextCurrent();
@@ -748,6 +775,8 @@ void QSGRenderThread::syncAndRender()
                 qWarning("Failed to end frame");
             if (frameResult == QRhi::FrameOpDeviceLost || frameResult == QRhi::FrameOpSwapChainOutOfDate)
                 QCoreApplication::postEvent(window, new QEvent(QEvent::Type(QQuickWindowPrivate::FullUpdateRequest)));
+        } else {
+            lastCompletedGpuTime = cd->swapchain->currentFrameCommandBuffer()->lastCompletedGpuTime();
         }
         d->fireFrameSwapped();
     } else {
@@ -798,6 +827,12 @@ void QSGRenderThread::syncAndRender()
                 int((syncTime/1000000)),
                 int((renderTime - syncTime) / 1000000),
                 int((threadTimer.nsecsElapsed() - renderTime) / 1000000));
+        if (!qFuzzyIsNull(lastCompletedGpuTime) && cd->graphicsConfig.timestampsEnabled()) {
+            qCDebug(QSG_LOG_TIME_RENDERLOOP, "[window %p][render thread %p] syncAndRender: last retrieved GPU frame time was %.4f ms",
+                    window,
+                    QThread::currentThread(),
+                    lastCompletedGpuTime * 1000.0);
+        }
     }
 
     Q_TRACE(QSG_swap_exit);
@@ -843,7 +878,8 @@ void QSGRenderThread::ensureRhi()
         if (rhiDoomed) // no repeated attempts if the initial attempt failed
             return;
         QSGRhiSupport *rhiSupport = QSGRhiSupport::instance();
-        QSGRhiSupport::RhiCreateResult rhiResult = rhiSupport->createRhi(window, offscreenSurface);
+        const bool forcePreferSwRenderer = swRastFallbackDueToSwapchainFailure;
+        QSGRhiSupport::RhiCreateResult rhiResult = rhiSupport->createRhi(window, offscreenSurface, forcePreferSwRenderer);
         rhi = rhiResult.rhi;
         ownRhi = rhiResult.own;
         if (rhi) {
@@ -902,7 +938,7 @@ void QSGRenderThread::ensureRhi()
         }
         cd->swapchain->setWindow(window);
         cd->swapchain->setProxyData(scProxyData);
-        QSGRhiSupport::instance()->applySwapChainFormat(cd->swapchain);
+        QSGRhiSupport::instance()->applySwapChainFormat(cd->swapchain, window);
         qCDebug(QSG_LOG_INFO, "MSAA sample count for the swapchain is %d. Alpha channel requested = %s.",
                 rhiSampleCount, alpha ? "yes" : "no");
         cd->swapchain->setSampleCount(rhiSampleCount);
@@ -1312,6 +1348,9 @@ void QSGThreadedRenderLoop::handleExposure(QQuickWindow *window)
  */
 void QSGThreadedRenderLoop::handleObscurity(Window *w)
 {
+    if (!w)
+        return;
+
     qCDebug(QSG_LOG_RENDERLOOP) << "handleObscurity()" << w->window;
     if (w->thread->isRunning()) {
         if (!QQuickWindowPrivate::get(w->window)->updatesEnabled) {

@@ -1,0 +1,28 @@
+--- src/quickcontrols/material/CMakeLists.txt	2023-09-24 17:07:49.000000000 +0930
++++ src/quickcontrols/material/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
+@@ -121,12 +122,24 @@
+         Qt::GuiPrivate
+         Qt::QmlPrivate
+         Qt::QuickControls2ImplPrivate
++        Qt::QuickControls2MaterialStyleImpl
+         Qt::QuickControls2Private
+         Qt::QuickPrivate
+         Qt::QuickTemplates2Private
++    GENERATE_CPP_EXPORTS
++)
++
++target_sources(qtquickcontrols2materialstyleplugin
++    PRIVATE
++        qtquickcontrols2materialstyleplugin.cpp
+ )
+ 
+-qt_internal_add_resource(qtquickcontrols2materialstyleplugin "qtquickcontrols2materialstyleplugin"
++target_link_libraries(qtquickcontrols2materialstyleplugin
++    PRIVATE
++        Qt::QuickControls2Private
++)
++
++qt_internal_add_resource(QuickControls2Material "qtquickcontrols2materialstyle"
+     PREFIX
+         "/qt-project.org/imports/QtQuick/Controls/Material"
+     FILES

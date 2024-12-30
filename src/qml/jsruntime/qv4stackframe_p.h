@@ -14,6 +14,7 @@
 // We mean it.
 //
 
+#include <private/qv4scopedvalue_p.h>
 #include <private/qv4context_p.h>
 #include <private/qv4enginebase_p.h>
 #include <private/qv4calldata_p.h>
@@ -35,6 +36,8 @@ struct Q_QML_PRIVATE_EXPORT CppStackFrameBase
     int originalArgumentsCount;
     int instructionPointer;
 
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_MSVC(4201) // nonstandard extension used: nameless struct/union
     union {
         struct {
             Value *savedStackTop;
@@ -57,6 +60,7 @@ struct Q_QML_PRIVATE_EXPORT CppStackFrameBase
             bool returnValueIsUndefined;
         };
     };
+    QT_WARNING_POP
 
     Kind kind;
 };
@@ -286,6 +290,30 @@ inline ExecutionContext *CppStackFrame::context() const
     Q_ASSERT(isMetaTypesFrame());
     return static_cast<const MetaTypesStackFrame *>(this)->context();
 }
+
+struct ScopedStackFrame
+{
+    ScopedStackFrame(const Scope &scope, ExecutionContext *context)
+        : engine(scope.engine)
+    {
+        if (auto currentFrame = engine->currentStackFrame) {
+            frame.init(currentFrame->v4Function, nullptr, context, nullptr, nullptr, 0);
+            frame.instructionPointer = currentFrame->instructionPointer;
+        } else {
+            frame.init(nullptr, nullptr, context, nullptr, nullptr, 0);
+        }
+        frame.push(engine);
+    }
+
+    ~ScopedStackFrame()
+    {
+        frame.pop(engine);
+    }
+
+private:
+    ExecutionEngine *engine = nullptr;
+    MetaTypesStackFrame frame;
+};
 
 Q_STATIC_ASSERT(sizeof(CppStackFrame) == sizeof(JSTypesStackFrame));
 Q_STATIC_ASSERT(sizeof(CppStackFrame) == sizeof(MetaTypesStackFrame));

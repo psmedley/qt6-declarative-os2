@@ -1,0 +1,27 @@
+--- src/quickcontrols/universal/CMakeLists.txt	2023-09-24 17:07:49.000000000 +0930
++++ src/quickcontrols/universal/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
+@@ -120,11 +121,23 @@
+         Qt::QmlPrivate
+         Qt::QuickControls2ImplPrivate
+         Qt::QuickControls2Private
++        Qt::QuickControls2UniversalStyleImpl
+         Qt::QuickPrivate
+         Qt::QuickTemplates2Private
++    GENERATE_CPP_EXPORTS
++)
++
++target_sources(qtquickcontrols2universalstyleplugin
++    PRIVATE
++        qtquickcontrols2universalstyleplugin.cpp
+ )
+ 
+-qt_internal_add_resource(qtquickcontrols2universalstyleplugin "qtquickcontrols2universalstyleplugin"
++target_link_libraries(qtquickcontrols2universalstyleplugin
++    PRIVATE
++        Qt::QuickControls2Private
++)
++
++qt_internal_add_resource(QuickControls2Universal "qtquickcontrols2universalstyle"
+     PREFIX
+         "/qt-project.org/imports/QtQuick/Controls/Universal"
+     FILES

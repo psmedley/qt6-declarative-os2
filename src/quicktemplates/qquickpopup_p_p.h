@@ -93,12 +93,12 @@ public:
     void reposition();
 
     void createOverlay();
-    void destroyOverlay();
+    void destroyDimmer();
     void toggleOverlay();
     void updateContentPalettes(const QPalette& parentPalette);
-    virtual void showOverlay();
-    virtual void hideOverlay();
-    virtual void resizeOverlay();
+    virtual void showDimmer();
+    virtual void hideDimmer();
+    virtual void resizeDimmer();
 
     virtual bool prepareEnterTransition();
     virtual bool prepareExitTransition();
@@ -178,6 +178,7 @@ public:
     QList<QQuickStateAction> exitActions;
     QQuickPopupTransitionManager transitionManager;
     QQuickPopupAnchors *anchors = nullptr;
+    qreal explicitDimmerOpacity = 0;
     qreal prevOpacity = 0;
     qreal prevScale = 0;
 

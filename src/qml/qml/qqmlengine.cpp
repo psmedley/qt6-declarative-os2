@@ -215,22 +215,15 @@ void QQmlPrivate::qdeclarativeelement_destructor(QObject *o)
 {
     QObjectPrivate *p = QObjectPrivate::get(o);
     if (QQmlData *d = QQmlData::get(p)) {
+        const auto invalidate = [](QQmlContextData *c) {c->invalidate();};
         if (d->ownContext) {
-            for (QQmlRefPointer<QQmlContextData> lc = d->ownContext->linkedContext(); lc;
-                 lc = lc->linkedContext()) {
-                lc->invalidate();
-                if (lc->contextObject() == o)
-                    lc->setContextObject(nullptr);
-            }
-            d->ownContext->invalidate();
-            if (d->ownContext->contextObject() == o)
-                d->ownContext->setContextObject(nullptr);
+            d->ownContext->deepClearContextObject(o, invalidate, invalidate);
             d->ownContext.reset();
             d->context = nullptr;
+            Q_ASSERT(!d->outerContext || d->outerContext->contextObject() != o);
+        } else if (d->outerContext && d->outerContext->contextObject() == o) {
+            d->outerContext->deepClearContextObject(o, invalidate, invalidate);
         }
-
-        if (d->outerContext && d->outerContext->contextObject() == o)
-            d->outerContext->setContextObject(nullptr);
 
         if (d->hasVMEMetaObject || d->hasInterceptorMetaObject) {
             // This is somewhat dangerous because another thread might concurrently
@@ -407,9 +400,7 @@ void QQmlData::setQueuedForDeletion(QObject *object)
         if (QQmlData *ddata = QQmlData::get(object)) {
             if (ddata->ownContext) {
                 Q_ASSERT(ddata->ownContext.data() == ddata->context);
-                ddata->context->emitDestruction();
-                if (ddata->ownContext->contextObject() == object)
-                    ddata->ownContext->setContextObject(nullptr);
+                ddata->ownContext->deepClearContextObject(object);
                 ddata->ownContext.reset();
                 ddata->context = nullptr;
             }
@@ -444,34 +435,126 @@ void QQmlData::flushPendingBinding(int coreIndex)
 QQmlData::DeferredData::DeferredData() = default;
 QQmlData::DeferredData::~DeferredData() = default;
 
+template<>
+int qmlRegisterType<void>(const char *uri, int versionMajor, int versionMinor, const char *qmlName)
+{
+    QQmlPrivate::RegisterType type = {
+        QQmlPrivate::RegisterType::CurrentVersion,
+        QMetaType(),
+        QMetaType(),
+        0, nullptr, nullptr,
+        QString(),
+        nullptr,
+        uri,
+        QTypeRevision::fromVersion(versionMajor, versionMinor),
+        qmlName,
+        nullptr,
+        nullptr,
+        nullptr,
+        -1,
+        -1,
+        -1,
+        nullptr,
+        nullptr,
+        nullptr,
+        QTypeRevision::zero(),
+        -1,
+        QQmlPrivate::ValueTypeCreationMethod::None,
+    };
+
+    return QQmlPrivate::qmlregister(QQmlPrivate::TypeRegistration, &type);
+}
+
 bool QQmlEnginePrivate::baseModulesUninitialized = true;
 void QQmlEnginePrivate::init()
 {
     Q_Q(QQmlEngine);
 
     if (baseModulesUninitialized) {
+        // Named builtins
+        qmlRegisterType<void>("QML", 1, 0, "void");
 
-        // required for the Compiler.
+        const int varId = qmlRegisterType<QVariant>("QML", 1, 0, "var");
+        QQmlMetaType::registerTypeAlias(varId, QLatin1String("variant"));
+        qmlRegisterAnonymousSequentialContainer<QList<QVariant>>("QML", 1);
+
         qmlRegisterType<QObject>("QML", 1, 0, "QtObject");
         qmlRegisterType<QQmlComponent>("QML", 1, 0, "Component");
-        qmlRegisterAnonymousSequentialContainer<QList<QVariant>>("QML", 1);
-        qmlRegisterAnonymousSequentialContainer<QList<bool>>("QML", 1);
+
+        qmlRegisterType<int>("QML", 1, 0, "int");
         qmlRegisterAnonymousSequentialContainer<QList<int>>("QML", 1);
-        qmlRegisterAnonymousSequentialContainer<QList<float>>("QML", 1);
+
+        const int realId = qmlRegisterType<double>("QML", 1, 0, "real");
+        QQmlMetaType::registerTypeAlias(realId, QLatin1String("double"));
         qmlRegisterAnonymousSequentialContainer<QList<double>>("QML", 1);
+
+        qmlRegisterType<QString>("QML", 1, 0, "string");
         qmlRegisterAnonymousSequentialContainer<QList<QString>>("QML", 1);
-        qmlRegisterAnonymousSequentialContainer<QList<QUrl>>("QML", 1);
+
+        qmlRegisterType<bool>("QML", 1, 0, "bool");
+        qmlRegisterAnonymousSequentialContainer<QList<bool>>("QML", 1);
+
+        qmlRegisterType<QDateTime>("QML", 1, 0, "date");
         qmlRegisterAnonymousSequentialContainer<QList<QDateTime>>("QML", 1);
+
+        qmlRegisterType<QUrl>("QML", 1, 0, "url");
+        qmlRegisterAnonymousSequentialContainer<QList<QUrl>>("QML", 1);
+
+#if QT_CONFIG(regularexpression)
+        qmlRegisterType<QRegularExpression>("QML", 1, 0, "regexp");
         qmlRegisterAnonymousSequentialContainer<QList<QRegularExpression>>("QML", 1);
+#else
+        qmlRegisterType<void>("QML", 1, 0, "regexp");
+#endif
+
+        // Anonymous builtins
+        qmlRegisterAnonymousType<std::nullptr_t>("QML", 1);
+        qmlRegisterAnonymousType<QVariantMap>("QML", 1);
+
+        qmlRegisterAnonymousType<QJSValue>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<QJSValue>>("QML", 1);
+
+        qmlRegisterAnonymousType<qint8>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<qint8>>("QML", 1);
+
+        qmlRegisterAnonymousType<quint8>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<quint8>>("QML", 1);
+
+        qmlRegisterAnonymousType<short>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<short>>("QML", 1);
+
+        qmlRegisterAnonymousType<ushort>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<ushort>>("QML", 1);
+
+        qmlRegisterAnonymousType<uint>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<uint>>("QML", 1);
+
+        qmlRegisterAnonymousType<qlonglong>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<qlonglong>>("QML", 1);
+
+        qmlRegisterAnonymousType<qulonglong>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<qulonglong>>("QML", 1);
+
+        qmlRegisterAnonymousType<float>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<float>>("QML", 1);
+
+        qmlRegisterAnonymousType<QChar>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<QChar>>("QML", 1);
+
+        qmlRegisterAnonymousType<QDate>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<QDate>>("QML", 1);
+
+        qmlRegisterAnonymousType<QTime>("QML", 1);
+        qmlRegisterAnonymousSequentialContainer<QList<QTime>>("QML", 1);
+
+        qmlRegisterAnonymousType<QByteArray>("QML", 1);
         qmlRegisterAnonymousSequentialContainer<QList<QByteArray>>("QML", 1);
 
         // No need to specifically register those.
         static_assert(std::is_same_v<QStringList, QList<QString>>);
         static_assert(std::is_same_v<QVariantList, QList<QVariant>>);
 
-        qRegisterMetaType<QVariant>();
         qRegisterMetaType<QQmlScriptString>();
-        qRegisterMetaType<QJSValue>();
         qRegisterMetaType<QQmlComponent::Status>();
         qRegisterMetaType<QList<QObject*> >();
         qRegisterMetaType<QQmlBinding*>();
@@ -491,29 +574,16 @@ void QQmlEnginePrivate::init()
   \inmodule QtQml
   \brief The QQmlEngine class provides an environment for instantiating QML components.
 
-  Each QML component is instantiated in a QQmlContext.
-  QQmlContext's are essential for passing data to QML
-  components.  In QML, contexts are arranged hierarchically and this
-  hierarchy is managed by the QQmlEngine.
+  A QQmlEngine is used to manage \l{components}{QQmlComponent} and objects created from
+  them and execute their bindings and functions. QQmlEngine also inherits from
+  \l{QJSEngine} which allows seamless integration between your QML components and
+  JavaScript code.
 
-  Prior to creating any QML components, an application must have
-  created a QQmlEngine to gain access to a QML context.  The
-  following example shows how to create a simple Text item.
+  Each QML component is instantiated in a QQmlContext. In QML, contexts are arranged
+  hierarchically and this hierarchy is managed by the QQmlEngine. By default,
+  components are instantiated in the \l {QQmlEngine::rootContext()}{root context}.
 
-  \code
-  QQmlEngine engine;
-  QQmlComponent component(&engine);
-  component.setData("import QtQuick 2.0\nText { text: \"Hello world!\" }", QUrl());
-  QQuickItem *item = qobject_cast<QQuickItem *>(component.create());
-
-  //add item to view, etc
-  ...
-  \endcode
-
-  In this case, the Text item will be created in the engine's
-  \l {QQmlEngine::rootContext()}{root context}.
-
-  \sa QQmlComponent, QQmlContext, {QML Global Object}
+  \sa QQmlComponent, QQmlContext, {QML Global Object}, QQmlApplicationEngine
 */
 
 /*!
@@ -932,6 +1002,45 @@ void QQmlEngine::setOutputWarningsToStandardError(bool enabled)
 {
     Q_D(QQmlEngine);
     d->outputWarningsToMsgLog = enabled;
+}
+
+
+/*!
+  \since 6.6
+  If this method is called inside of a function that is part of
+  a binding in QML, the binding will be treated as a translation binding.
+
+  \code
+  class I18nAwareClass : public QObject {
+
+    //...
+
+     QString text() const
+     {
+          if (auto engine = qmlEngine(this))
+              engine->markCurrentFunctionAsTranslationBinding();
+          return tr("Hello, world!");
+     }
+  };
+  \endcode
+
+  \note This function is mostly useful if you wish to provide your
+  own alternative to the qsTr function. To ensure that properties
+  exposed from C++ classes are updated on language changes, it is
+  instead recommended to react to \c LanguageChange events. That
+  is a more general mechanism which also works when the class is
+  used in a non-QML context, and has slightly less overhead. However,
+  using \c markCurrentFunctionAsTranslationBinding can be acceptable
+  when the class is already closely tied to the QML engine.
+  For more details, see \l {Prepare for Dynamic Language Changes}
+
+  \sa QQmlEngine::retranslate
+*/
+void QQmlEngine::markCurrentFunctionAsTranslationBinding()
+{
+    Q_D(QQmlEngine);
+    if (auto propertyCapture = d->propertyCapture)
+        propertyCapture->captureTranslation();
 }
 
 /*!

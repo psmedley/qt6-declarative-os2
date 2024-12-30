@@ -23,6 +23,8 @@ QT_BEGIN_NAMESPACE
 class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSBasicBlocks : public QQmlJSCompilePass
 {
 public:
+    using Conversions = QSet<int>;
+
     struct BasicBlock {
         QList<int> jumpOrigins;
         QList<int> readRegisters;
@@ -39,14 +41,16 @@ public:
 
     ~QQmlJSBasicBlocks() = default;
 
-    InstructionAnnotations run(const Function *function, const InstructionAnnotations &annotations);
+    InstructionAnnotations run(
+            const Function *function, const InstructionAnnotations &annotations,
+            QQmlJS::DiagnosticMessage *error);
 
 private:
     struct RegisterAccess
     {
         QList<QQmlJSScope::ConstPtr> trackedTypes;
         QHash<int, QQmlJSScope::ConstPtr> typeReaders;
-        QHash<int, QList<int>> registerReadersAndConversions;
+        QHash<int, Conversions> registerReadersAndConversions;
         int trackedRegister;
     };
 
@@ -69,6 +73,7 @@ private:
     void populateBasicBlocks();
     void populateReaderLocations();
     void adjustTypes();
+    bool canMove(int instructionOffset, const RegisterAccess &access) const;
 
     InstructionAnnotations m_annotations;
     QFlatMap<int, BasicBlock> m_basicBlocks;

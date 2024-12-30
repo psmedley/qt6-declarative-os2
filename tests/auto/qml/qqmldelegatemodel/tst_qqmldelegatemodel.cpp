@@ -29,10 +29,13 @@ private slots:
     void contextAccessedByHandler();
     void redrawUponColumnChange();
     void nestedDelegates();
+    void universalModelData();
     void typedModelData();
+    void overriddenModelData();
     void deleteRace();
     void persistedItemsStayInCache();
     void doNotUnrefObjectUnderConstruction();
+    void clearCacheDuringInsertion();
 };
 
 class AbstractItemModel : public QAbstractItemModel
@@ -269,6 +272,99 @@ void tst_QQmlDelegateModel::nestedDelegates()
     QFAIL("Loader not found");
 }
 
+void tst_QQmlDelegateModel::universalModelData()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("universalModelData.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+
+    QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel *>(o.data());
+    QVERIFY(delegateModel);
+
+    for (int i = 0; i < 6; ++i) {
+        delegateModel->setProperty("n", i);
+        QObject *delegate = delegateModel->object(0);
+        QObject *modelItem = delegate->property("modelSelf").value<QObject *>();
+        QVERIFY(modelItem != nullptr);
+        switch (i) {
+        case 0: {
+            // list model with 1 role
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            QCOMPARE(delegate->property("modelDataSelf"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelModelData"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelAnonymous"), QStringLiteral("a"));
+            break;
+        }
+        case 1: {
+            // list model with 2 roles
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelItem));
+            break;
+        }
+        case 2: {
+            // JS array of objects
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+
+            // Do the comparison in QVariantMap. The values get converted back and forth a
+            // few times, making any JavaScript equality comparison impossible.
+            // This is only due to test setup, though.
+            const QVariantMap modelData = delegate->property("modelDataSelf").value<QVariantMap>();
+            QVERIFY(!modelData.isEmpty());
+            QCOMPARE(delegate->property("modelModelData").value<QVariantMap>(), modelData);
+            QCOMPARE(delegate->property("modelAnonymous").value<QVariantMap>(), modelData);
+            break;
+        }
+        case 3: {
+            // string list
+            QVERIFY(!delegate->property("modelA").isValid());
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            QCOMPARE(delegate->property("modelDataSelf"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelModelData"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelAnonymous"), QStringLiteral("a"));
+            break;
+        }
+        case 4: {
+            // single object
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+            QObject *modelData = delegate->property("modelDataSelf").value<QObject *>();
+            QVERIFY(modelData != nullptr);
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelData));
+            break;
+        }
+        case 5: {
+            // a number
+            QVERIFY(!delegate->property("modelA").isValid());
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            const QVariant modelData = delegate->property("modelDataSelf");
+
+            // This is int on 32bit systems because qsizetype fits into int there.
+            // On 64bit systems it's double because qsizetype doesn't fit into int.
+            if (sizeof(qsizetype) > sizeof(int))
+                QCOMPARE(modelData.metaType(), QMetaType::fromType<double>());
+            else
+                QCOMPARE(modelData.metaType(), QMetaType::fromType<int>());
+
+            QCOMPARE(modelData.value<int>(), 0);
+            QCOMPARE(delegate->property("modelModelData"), modelData);
+            QCOMPARE(delegate->property("modelAnonymous"), modelData);
+            break;
+        }
+        default:
+            QFAIL("wrong model number");
+            break;
+        }
+    }
+
+}
+
 void tst_QQmlDelegateModel::typedModelData()
 {
     QQmlEngine engine;
@@ -280,9 +376,9 @@ void tst_QQmlDelegateModel::typedModelData()
     QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel *>(o.data());
     QVERIFY(delegateModel);
 
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         if (i == 0) {
-            for (int j = 0; j < 2; ++j) {
+            for (int j = 0; j < 3; ++j) {
                 QTest::ignoreMessage(
                     QtWarningMsg,
                     "Could not find any constructor for value type QQmlPointFValueType "
@@ -291,16 +387,16 @@ void tst_QQmlDelegateModel::typedModelData()
 
             QTest::ignoreMessage(
                 QtWarningMsg,
-                qPrintable(url.toString() + ":48:9: Unable to assign double to QPointF"));
-        } else if (i == 1) {
+                qPrintable(url.toString() + ":62:9: Unable to assign double to QPointF"));
             QTest::ignoreMessage(
                 QtWarningMsg,
-                qPrintable(url.toString() + ":44:9: Unable to assign [undefined] to double"));
+                qPrintable(url.toString() + ":61:9: Unable to assign double to QPointF"));
         }
 
         delegateModel->setProperty("n", i);
         QObject *delegate = delegateModel->object(0);
         QVERIFY(delegate);
+        const QPointF modelItem = delegate->property("modelSelf").value<QPointF>();
         switch (i) {
         case 0: {
             // list model with 1 role.
@@ -310,17 +406,32 @@ void tst_QQmlDelegateModel::typedModelData()
             QCOMPARE(delegate->property("modelSelf"), QPointF(11.0, 0.0));
             QCOMPARE(delegate->property("modelDataSelf"), QPointF());
             QCOMPARE(delegate->property("modelModelData"), QPointF());
+            QCOMPARE(delegate->property("modelAnonymous"), QPointF());
             break;
         }
         case 1: {
-            // JS array of objects
-            QCOMPARE(delegate->property("modelDataX"), 17.0);
-            const QPointF modelData = delegate->property("modelDataSelf").value<QPointF>();
-            QCOMPARE(modelData, QPointF(17, 18));
-            QCOMPARE(delegate->property("modelModelData").value<QPointF>(), modelData);
+            // list model with 2 roles
+            QCOMPARE(delegate->property("modelX"), 13.0);
+            QCOMPARE(delegate->property("modelDataX"), 13.0);
+            QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelDataSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelItem));
             break;
         }
         case 2: {
+            // JS array of objects
+            QCOMPARE(delegate->property("modelX"), 17.0);
+            QCOMPARE(delegate->property("modelDataX"), 17.0);
+
+            const QPointF modelData = delegate->property("modelDataSelf").value<QPointF>();
+            QCOMPARE(modelData, QPointF(17, 18));
+            QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelModelData").value<QPointF>(), modelData);
+            QCOMPARE(delegate->property("modelAnonymous").value<QPointF>(), modelData);
+            break;
+        }
+        case 3: {
             // single object
             QCOMPARE(delegate->property("modelX"), 21);
             QCOMPARE(delegate->property("modelDataX"), 21);
@@ -328,6 +439,7 @@ void tst_QQmlDelegateModel::typedModelData()
             QCOMPARE(modelData, QPointF(21, 22));
             QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelData));
             QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelData));
             break;
         }
         default:
@@ -335,7 +447,37 @@ void tst_QQmlDelegateModel::typedModelData()
             break;
         }
     }
+}
 
+void tst_QQmlDelegateModel::overriddenModelData()
+{
+    QTest::failOnWarning(QRegularExpression(
+            "Final member [^ ]+ is overridden in class [^\\.]+. The override won't be used."));
+
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("overriddenModelData.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+
+    QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel *>(o.data());
+    QVERIFY(delegateModel);
+
+    for (int i = 0; i < 3; ++i) {
+        delegateModel->setProperty("n", i);
+        QObject *delegate = delegateModel->object(0);
+        QVERIFY(delegate);
+
+        if (i == 1 || i == 2) {
+            // Someone is certainly relying on this.
+            // We need to find a migration mechanism to fix it.
+            QEXPECT_FAIL(
+                    "",
+                    "You can actually not override if the model is a QObject or a JavaScript array",
+                    Continue);
+        }
+
+        QCOMPARE(delegate->objectName(), QLatin1String("a b c d e f"));
+    }
 }
 
 void tst_QQmlDelegateModel::deleteRace()
@@ -368,6 +510,16 @@ void tst_QQmlDelegateModel::doNotUnrefObjectUnderConstruction()
 {
     QQmlEngine engine;
     QQmlComponent component(&engine, testFileUrl("modifyObjectUnderConstruction.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY(object);
+    QTRY_COMPARE(object->property("testModel").toInt(), 0);
+}
+
+void tst_QQmlDelegateModel::clearCacheDuringInsertion()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("clearCacheDuringInsertion.qml"));
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     std::unique_ptr<QObject> object(component.create());
     QVERIFY(object);

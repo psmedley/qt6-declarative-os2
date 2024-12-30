@@ -55,7 +55,7 @@ using namespace Qt::StringLiterals;
     \l {supportedActions}{drop action} chosen by the recipient of the event,
     otherwise it will return Qt.IgnoreAction.
 
-    \sa {Qt Quick Examples - Drag and Drop}, {Qt Quick Examples - externaldraganddrop}
+    \sa {Qt Quick Examples - Drag and Drop}
 */
 
 void QQuickDragAttachedPrivate::itemGeometryChanged(QQuickItem *, QQuickGeometryChange change,
@@ -704,8 +704,7 @@ QMimeData *QQuickDragAttachedPrivate::createMimeData() const
                     mimeData->setData(mimeType, text.toUtf8().constData());
                 }
             } else {
-                qmlWarning(q) << "Mime data contains a string, but mime type " << mimeType
-                              << " is not a supported text type";
+                mimeData->setData(mimeType, text.toUtf8());
             }
             break;
         }

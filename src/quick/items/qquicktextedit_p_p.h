@@ -23,6 +23,10 @@
 #include <QtCore/qlist.h>
 #include <private/qlazilyallocated_p.h>
 
+#if QT_CONFIG(accessibility)
+#include <QtGui/qaccessible.h>
+#endif
+
 #include <limits>
 
 QT_BEGIN_NAMESPACE
@@ -33,6 +37,9 @@ class QQuickTextNode;
 class QQuickTextNodeEngine;
 
 class Q_QUICK_PRIVATE_EXPORT QQuickTextEditPrivate : public QQuickImplicitSizeItemPrivate
+#if QT_CONFIG(accessibility)
+    , public QAccessible::ActivationObserver
+#endif
 {
 public:
     Q_DECLARE_PUBLIC(QQuickTextEdit)
@@ -95,8 +102,18 @@ public:
         , focusOnPress(true), persistentSelection(false), requireImplicitWidth(false)
         , selectByMouse(true), canPaste(false), canPasteValid(false), hAlignImplicit(true)
         , textCached(true), inLayout(false), selectByKeyboard(false), selectByKeyboardSet(false)
-        , hadSelection(false), markdownText(false)
+        , hadSelection(false), markdownText(false), inResize(false)
     {
+#if QT_CONFIG(accessibility)
+        QAccessible::installActivationObserver(this);
+#endif
+    }
+
+    ~QQuickTextEditPrivate()
+    {
+#if QT_CONFIG(accessibility)
+        QAccessible::removeActivationObserver(this);
+#endif
     }
 
     static QQuickTextEditPrivate *get(QQuickTextEdit *item) {
@@ -126,6 +143,11 @@ public:
 
 #if QT_CONFIG(im)
     Qt::InputMethodHints effectiveInputMethodHints() const;
+#endif
+
+#if QT_CONFIG(accessibility)
+    void accessibilityActiveChanged(bool active) override;
+    QAccessible::Role accessibleRole() const override;
 #endif
 
     inline qreal padding() const { return extra.isAllocated() ? extra->padding : 0.0; }
@@ -162,7 +184,7 @@ public:
     int lastSelectionStart;
     int lastSelectionEnd;
     int lineCount;
-    int firstBlockInViewport = -1;   // only for the autotest; can be wrong after scrolling sometimes
+    int firstBlockInViewport = -1;   // can be wrong after scrolling sometimes
     int firstBlockPastViewport = -1; // only for the autotest
     QRectF renderedRegion;
 
@@ -202,6 +224,7 @@ public:
     bool selectByKeyboardSet:1;
     bool hadSelection : 1;
     bool markdownText : 1;
+    bool inResize : 1;
 
     static const int largeTextSizeThreshold;
 };

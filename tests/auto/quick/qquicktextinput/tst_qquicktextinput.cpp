@@ -6433,7 +6433,7 @@ void tst_qquicktextinput::setInputMask()
     // inputMaskChanged signal
     QString unescapedMask = mask;   // mask is escaped, because '\' is also escape in a JS string
     unescapedMask.replace(QLatin1String("\\\\"), QLatin1String("\\"));  // simple unescape
-    QSignalSpy spy(textInput, SIGNAL(inputMaskChanged(const QString &)));
+    QSignalSpy spy(textInput, SIGNAL(inputMaskChanged(QString)));
     textInput->setInputMask(unescapedMask);
     QCOMPARE(spy.size(), 0);
 
@@ -7182,6 +7182,20 @@ void tst_qquicktextinput::touchscreenDoesNotSelect()
     QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x2,y), &window);
     QQuickTouchUtils::flush(&window);
     QVERIFY(textInputObject->selectedText().isEmpty());
+
+    // select all text (which moves the cursor to the end), then tap:
+    // with old API, it deselects, and moves the cursor (QTBUG-116606)
+    // with new API, it remains selected, and the cursor remains at the end
+    textInputObject->selectAll();
+    const int cursorPos = textInputObject->cursorPosition();
+    QTest::touchEvent(&window, touchscreen.data()).press(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x2,y), &window);
+    QQuickTouchUtils::flush(&window);
+    QCOMPARE(textInputObject->selectedText().isEmpty(), !expectDefaultSelectByMouse);
+    if (expectDefaultSelectByMouse)
+        QCOMPARE(textInputObject->cursorPosition(), cursorPos);
+    else
+        QCOMPARE_NE(textInputObject->cursorPosition(), cursorPos);
 }
 
 void tst_qquicktextinput::touchscreenSetsFocusAndMovesCursor()

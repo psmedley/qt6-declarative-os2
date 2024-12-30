@@ -24,6 +24,10 @@
 #include <private/qtextengine_p.h>
 #include <private/qsgadaptationlayer_p.h>
 
+#if QT_CONFIG(accessibility)
+#include <private/qquickaccessibleattached_p.h>
+#endif
+
 #include "qquicktextdocument.h"
 
 #include <algorithm>
@@ -350,6 +354,13 @@ QString QQuickTextEdit::text() const
 */
 
 /*!
+    \qmlproperty object QtQuick::TextEdit::font.features
+    \since 6.6
+
+    \include qquicktext.cpp qml-font-features
+*/
+
+/*!
     \qmlproperty string QtQuick::TextEdit::text
 
     The text to display.  If the text format is AutoText the text edit will
@@ -468,7 +479,6 @@ QString QQuickTextEdit::preeditText() const
     \list
     \li code blocks use the \l {QFontDatabase::FixedFont}{default monospace font} but without a surrounding highlight box
     \li block quotes are indented, but there is no vertical line alongside the quote
-    \li horizontal rules are not rendered
     \endlist
 */
 QQuickTextEdit::TextFormat QQuickTextEdit::textFormat() const
@@ -704,9 +714,8 @@ QQuickTextEdit::HAlignment QQuickTextEdit::hAlign() const
 void QQuickTextEdit::setHAlign(HAlignment align)
 {
     Q_D(QQuickTextEdit);
-    bool forceAlign = d->hAlignImplicit && d->effectiveLayoutMirror;
-    d->hAlignImplicit = false;
-    if (d->setHAlign(align, forceAlign) && isComponentComplete()) {
+
+    if (d->setHAlign(align, true) && isComponentComplete()) {
         d->updateDefaultTextOption();
         updateSize();
     }
@@ -741,20 +750,33 @@ QQuickTextEdit::HAlignment QQuickTextEdit::effectiveHAlign() const
     return effectiveAlignment;
 }
 
-bool QQuickTextEditPrivate::setHAlign(QQuickTextEdit::HAlignment alignment, bool forceAlign)
+bool QQuickTextEditPrivate::setHAlign(QQuickTextEdit::HAlignment align, bool forceAlign)
 {
     Q_Q(QQuickTextEdit);
-    if (hAlign != alignment || forceAlign) {
-        QQuickTextEdit::HAlignment oldEffectiveHAlign = q->effectiveHAlign();
-        hAlign = alignment;
-        emit q->horizontalAlignmentChanged(alignment);
-        if (oldEffectiveHAlign != q->effectiveHAlign())
-            emit q->effectiveHorizontalAlignmentChanged();
+    if (hAlign == align && !forceAlign)
+        return false;
+
+    const bool wasImplicit = hAlignImplicit;
+    const auto oldEffectiveHAlign = q->effectiveHAlign();
+
+    hAlignImplicit = !forceAlign;
+    if (hAlign != align) {
+        hAlign = align;
+        emit q->horizontalAlignmentChanged(align);
+    }
+
+    if (q->effectiveHAlign() != oldEffectiveHAlign) {
+        emit q->effectiveHorizontalAlignmentChanged();
         return true;
+    }
+
+    if (forceAlign && wasImplicit) {
+        // QTBUG-120052 - when horizontal text alignment is set explicitly,
+        // we need notify any other controls that may depend on it, like QQuickPlaceholderText
+        emit q->effectiveHorizontalAlignmentChanged();
     }
     return false;
 }
-
 
 Qt::LayoutDirection QQuickTextEditPrivate::textDirection(const QString &text) const
 {
@@ -778,20 +800,22 @@ Qt::LayoutDirection QQuickTextEditPrivate::textDirection(const QString &text) co
 bool QQuickTextEditPrivate::determineHorizontalAlignment()
 {
     Q_Q(QQuickTextEdit);
-    if (hAlignImplicit && q->isComponentComplete()) {
-        Qt::LayoutDirection direction = contentDirection;
+    if (!hAlignImplicit || !q->isComponentComplete())
+        return false;
+
+    Qt::LayoutDirection direction = contentDirection;
 #if QT_CONFIG(im)
-        if (direction == Qt::LayoutDirectionAuto) {
-            const QString preeditText = control->textCursor().block().layout()->preeditAreaText();
-            direction = textDirection(preeditText);
-        }
-        if (direction == Qt::LayoutDirectionAuto)
-            direction = qGuiApp->inputMethod()->inputDirection();
+    if (direction == Qt::LayoutDirectionAuto) {
+        const QString preeditText = control->textCursor().block().layout()->preeditAreaText();
+        direction = textDirection(preeditText);
+    }
+    if (direction == Qt::LayoutDirectionAuto)
+        direction = qGuiApp->inputMethod()->inputDirection();
 #endif
 
-        return setHAlign(direction == Qt::RightToLeft ? QQuickTextEdit::AlignRight : QQuickTextEdit::AlignLeft);
-    }
-    return false;
+    const auto implicitHAlign = direction == Qt::RightToLeft ?
+            QQuickTextEdit::AlignRight : QQuickTextEdit::AlignLeft;
+    return setHAlign(implicitHAlign);
 }
 
 void QQuickTextEditPrivate::mirrorChange()
@@ -835,6 +859,25 @@ bool QQuickTextEditPrivate::transformChanged(QQuickItem *transformedItem)
 Qt::InputMethodHints QQuickTextEditPrivate::effectiveInputMethodHints() const
 {
     return inputMethodHints | Qt::ImhMultiLine;
+}
+#endif
+
+#if QT_CONFIG(accessibility)
+void QQuickTextEditPrivate::accessibilityActiveChanged(bool active)
+{
+    if (!active)
+        return;
+
+    Q_Q(QQuickTextEdit);
+    QQuickAccessibleAttached *accessibleAttached = qobject_cast<QQuickAccessibleAttached *>(qmlAttachedPropertiesObject<QQuickAccessibleAttached>(q, true));
+    Q_ASSERT(accessibleAttached);
+    accessibleAttached->setRole(effectiveAccessibleRole());
+    accessibleAttached->set_readOnly(q->isReadOnly());
+}
+
+QAccessible::Role QQuickTextEditPrivate::accessibleRole() const
+{
+    return QAccessible::EditableText;
 }
 #endif
 
@@ -1483,14 +1526,35 @@ void QQuickTextEdit::setInputMethodHints(Qt::InputMethodHints hints)
 void QQuickTextEdit::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickTextEdit);
-    if (!d->inLayout && ((newGeometry.width() != oldGeometry.width() && widthValid())
-        || (newGeometry.height() != oldGeometry.height() && heightValid()))) {
+    if (!d->inLayout && ((newGeometry.width() != oldGeometry.width())
+                         || (newGeometry.height() != oldGeometry.height()))) {
         updateSize();
         updateWholeDocument();
-        moveCursorDelegate();
+        if (widthValid() || heightValid())
+            moveCursorDelegate();
     }
     QQuickImplicitSizeItem::geometryChange(newGeometry, oldGeometry);
+}
 
+void QQuickTextEdit::itemChange(ItemChange change, const ItemChangeData &value)
+{
+    Q_D(QQuickTextEdit);
+    Q_UNUSED(value);
+    switch (change) {
+    case ItemDevicePixelRatioHasChanged:
+        if (d->renderType == NativeRendering) {
+            // Native rendering optimizes for a given pixel grid, so its results must not be scaled.
+            // Text layout code respects the current device pixel ratio automatically, we only need
+            // to rerun layout after the ratio changed.
+            updateSize();
+            updateWholeDocument();
+        }
+        break;
+
+    default:
+        break;
+    }
+    QQuickImplicitSizeItem::itemChange(change, value);
 }
 
 /*!
@@ -1531,6 +1595,11 @@ void QQuickTextEdit::componentComplete()
     if (d->cursorComponent && isCursorVisible())
         QQuickTextUtil::createCursor(d);
     polish();
+
+#if QT_CONFIG(accessibility)
+    if (QAccessible::isActive())
+        d->accessibilityActiveChanged(true);
+#endif
 }
 
 /*!
@@ -1688,6 +1757,13 @@ void QQuickTextEdit::setReadOnly(bool r)
     } else if (hasActiveFocus()) {
         setCursorVisible(true);
     }
+
+#if QT_CONFIG(accessibility)
+    if (QAccessible::isActive()) {
+        if (QQuickAccessibleAttached *accessibleAttached = QQuickAccessibleAttached::attachedProperties(this))
+            accessibleAttached->set_readOnly(r);
+    }
+#endif
 }
 
 bool QQuickTextEdit::isReadOnly() const
@@ -2260,7 +2336,6 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                                 }
                             }
                             qCDebug(lcVP) << "first block in viewport" << block.blockNumber() << "@" << nodeOffset.y() << coveredRegion;
-                            d->firstBlockInViewport = block.blockNumber();
                             if (block.layout())
                                 d->renderedRegion = coveredRegion;
                         } else {
@@ -2276,6 +2351,8 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                             if (inView && !block.text().isEmpty() && coveredRegion.isValid())
                                 d->renderedRegion = d->renderedRegion.united(coveredRegion);
                         }
+                        if (inView && d->firstBlockInViewport < 0)
+                            d->firstBlockInViewport = block.blockNumber();
                     }
 
                     bool createdNodeInView = false;
@@ -2721,7 +2798,12 @@ void QQuickTextEdit::updateSize()
     QSizeF size(newWidth, newHeight);
     if (d->contentSize != size) {
         d->contentSize = size;
-        emit contentSizeChanged();
+        // Note: inResize is a bitfield so QScopedValueRollback can't be used here
+        const bool wasInResize = d->inResize;
+        d->inResize = true;
+        if (!wasInResize)
+            emit contentSizeChanged();
+        d->inResize = wasInResize;
         updateTotalLines();
     }
 }

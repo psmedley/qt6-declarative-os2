@@ -52,9 +52,9 @@ private slots:
     void remote();
     void remote_data();
     void sourceSize();
+    void setSourceSize();
     void sourceSizeChanges();
     void sourceSizeChanges_intermediate();
-    void sourceSizeReadOnly();
     void invalidSource();
     void qtbug_16520();
     void progressAndStatusChanges();
@@ -62,6 +62,7 @@ private slots:
     void noCaching();
     void sourceChangesOnFrameChanged();
     void currentFrame();
+    void qtbug_120555();
 };
 
 void tst_qquickanimatedimage::cleanup()
@@ -287,12 +288,19 @@ void tst_qquickanimatedimage::sourceSize()
     delete anim;
 }
 
-void tst_qquickanimatedimage::sourceSizeReadOnly()
+void tst_qquickanimatedimage::setSourceSize()
 {
     QQmlEngine engine;
-    QQmlComponent component(&engine, testFileUrl("stickmanerror1.qml"));
-    QVERIFY(component.isError());
-    QCOMPARE(component.errors().at(0).description(), QString("Invalid property assignment: \"sourceSize\" is a read-only property"));
+    QQmlComponent component(&engine, testFileUrl("stickmansourcesized.qml"));
+    QScopedPointer<QQuickAnimatedImage> anim(qobject_cast<QQuickAnimatedImage *>(component.create()));
+    QVERIFY(anim);
+    QCOMPARE(anim->sourceSize(), QSize(80, 60));
+
+    anim->setSourceSize(QSize(40, 30));
+    QCOMPARE(anim->sourceSize(), QSize(40, 30));
+
+    anim->setSourceSize(QSize());
+    QCOMPARE(anim->sourceSize(), QSize(160, 120));
 }
 
 void tst_qquickanimatedimage::invalidSource()
@@ -637,6 +645,36 @@ void tst_qquickanimatedimage::currentFrame()
     QCOMPARE(currentFrameChangedSpy.size(), 2);
     QCOMPARE(anim->property("currentFrameChangeCount"), 2);
     QCOMPARE(anim->property("frameChangeCount"), 2);
+}
+
+void tst_qquickanimatedimage::qtbug_120555()
+{
+    TestHTTPServer server;
+    QVERIFY2(server.listen(), qPrintable(server.errorString()));
+    server.serveDirectory(dataDirectory());
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0\nAnimatedImage {}", {});
+
+    QQuickAnimatedImage *anim = qobject_cast<QQuickAnimatedImage*>(component.create());
+    QVERIFY(anim);
+
+    anim->setSource(server.url("/stickman.gif"));
+    QTRY_COMPARE(anim->status(), QQuickImage::Loading);
+
+    anim->setFillMode(QQuickImage::PreserveAspectFit);
+    QCOMPARE(anim->fillMode(), QQuickImage::PreserveAspectFit);
+    anim->setMipmap(true);
+    QCOMPARE(anim->mipmap(), true);
+    anim->setCache(false);
+    QCOMPARE(anim->cache(), false);
+    anim->setSourceSize(QSize(200, 200));
+    QCOMPARE(anim->sourceSize(), QSize(200, 200));
+
+    QTRY_COMPARE(anim->status(), QQuickImage::Ready);
+
+    delete anim;
 }
 
 QTEST_MAIN(tst_qquickanimatedimage)

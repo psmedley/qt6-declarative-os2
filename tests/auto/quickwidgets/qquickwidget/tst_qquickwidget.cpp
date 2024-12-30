@@ -11,6 +11,7 @@
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
+#include <QtQuick/private/qquicktaphandler_p.h>
 #include <QtQuickTemplates2/private/qquickbutton_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtGui/QWindow>
@@ -128,6 +129,8 @@ private slots:
     void synthMouseFromTouch();
     void touchTapMouseArea();
     void touchTapButton();
+    void touchTapHandler_data();
+    void touchTapHandler();
     void touchMultipleWidgets();
     void tabKey();
     void resizeOverlay();
@@ -138,6 +141,7 @@ private slots:
 #endif
     void focusPreserved();
     void accessibilityHandlesViewChange();
+    void cleanupRhi();
 
 private:
     QPointingDevice *device = QTest::createTouchDevice();
@@ -649,10 +653,10 @@ void tst_qquickwidget::touchTapMouseArea()
 
     QPoint p1 = QPoint(70, 70);
     QTest::touchEvent(&window, device).press(0, p1, &window);
-    QTRY_COMPARE(ma->pressed(), true);
+    QTRY_COMPARE(ma->isPressed(), true);
     QTest::touchEvent(&window, device).move(0, p1, &window);
     QTest::touchEvent(&window, device).release(0, p1, &window);
-    QTRY_COMPARE(ma->pressed(), false);
+    QTRY_COMPARE(ma->isPressed(), false);
     QVERIFY(rootItem->property("wasClicked").toBool());
 }
 
@@ -681,11 +685,54 @@ void tst_qquickwidget::touchTapButton()
     QTRY_VERIFY(rootItem->property("wasClicked").toBool());
 }
 
+void tst_qquickwidget::touchTapHandler_data()
+{
+    QTest::addColumn<bool>("guiSynthMouse"); // AA_SynthesizeMouseForUnhandledTouchEvents
+    QTest::addColumn<QQuickTapHandler::GesturePolicy>("gesturePolicy");
+
+    // QTest::newRow("nosynth: passive grab") << false << QQuickTapHandler::DragThreshold; // still failing
+    QTest::newRow("nosynth: exclusive grab") << false << QQuickTapHandler::ReleaseWithinBounds;
+    QTest::newRow("allowsynth: passive grab") << true << QQuickTapHandler::DragThreshold; // QTBUG-113558
+    QTest::newRow("allowsynth: exclusive grab") << true << QQuickTapHandler::ReleaseWithinBounds;
+}
+
+void tst_qquickwidget::touchTapHandler()
+{
+    QFETCH(bool, guiSynthMouse);
+    QFETCH(QQuickTapHandler::GesturePolicy, gesturePolicy);
+
+    QCoreApplication::setAttribute(Qt::AA_SynthesizeMouseForUnhandledTouchEvents, guiSynthMouse);
+    QQuickWidget quick;
+    if (!quick.testAttribute(Qt::WA_AcceptTouchEvents))
+        QSKIP("irrelevant on non-touch platforms");
+
+    quick.setSource(testFileUrl("tapHandler.qml"));
+    quick.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&quick));
+
+    QQuickItem *rootItem = quick.rootObject();
+    QVERIFY(rootItem);
+    QQuickTapHandler *th = rootItem->findChild<QQuickTapHandler *>();
+    QVERIFY(th);
+    th->setGesturePolicy(gesturePolicy);
+    QSignalSpy tappedSpy(th, &QQuickTapHandler::tapped);
+
+    const QPoint p(50, 50);
+    QTest::touchEvent(&quick, device).press(0, p, &quick);
+    QTRY_COMPARE(th->isPressed(), true);
+    QTest::touchEvent(&quick, device).release(0, p, &quick);
+    QTRY_COMPARE(tappedSpy.size(), 1);
+    QCOMPARE(th->isPressed(), false);
+}
+
 void tst_qquickwidget::touchMultipleWidgets()
 {
     QWidget window;
     QQuickWidget *leftQuick = new QQuickWidget;
     leftQuick->setSource(testFileUrl("button.qml"));
+    if (!leftQuick->testAttribute(Qt::WA_AcceptTouchEvents))
+        QSKIP("irrelevant on non-touch platforms");
+
     QQuickWidget *rightQuick = new QQuickWidget;
     rightQuick->setSource(testFileUrl("button.qml"));
 
@@ -1027,6 +1074,27 @@ void tst_qquickwidget::accessibilityHandlesViewChange()
     (void)iface->child(0);
 }
 
+class CreateDestroyWidget : public QWidget
+{
+public:
+    using QWidget::create;
+    using QWidget::destroy;
+};
+
+void tst_qquickwidget::cleanupRhi()
+{
+#ifdef Q_OS_ANDROID
+    QSKIP("This test crashes on Android (QTBUG-121133)");
+#endif
+    CreateDestroyWidget topLevel;
+    QQuickWidget quickWidget(&topLevel);
+    quickWidget.setSource(testFileUrl("rectangle.qml"));
+    topLevel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&topLevel));
+
+    topLevel.destroy();
+    topLevel.create();
+}
 
 QTEST_MAIN(tst_qquickwidget)
 

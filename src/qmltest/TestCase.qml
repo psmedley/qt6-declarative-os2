@@ -165,6 +165,15 @@ import "testlogger.js" as TestLogger
     and mouseMove() methods can be used to simulate mouse events in a
     similar fashion.
 
+    If your test creates other windows, it's possible that those windows
+    become active, stealing the focus from the TestCase's window. To ensure
+    that the TestCase's window is active, use the following code:
+
+    \code
+    testCase.Window.window.requestActivate()
+    tryCompare(testCase.Window.window, "active", true)
+    \endcode
+
     \b{Note:} keyboard and mouse events can only be delivered once the
     main window has been shown.  Attempts to deliver events before then
     will fail.  Use the \l when and windowShown properties to track
@@ -1304,7 +1313,16 @@ Item {
 
         Waits for \a ms milliseconds while processing Qt events.
 
-        \sa sleep(), waitForRendering()
+        \note This methods uses a precise timer to do the actual waiting. The
+              event you are waiting for may not. In particular, any animations as
+              well as the \l{Timer} QML type can use either precise or coarse
+              timers, depending on various factors. For a coarse timer you have
+              to expect a drift of around 5% in relation to the precise timer used
+              by TestCase::wait(). Qt cannot give hard guarantees on the drift,
+              though, because the operating system usually doesn't offer hard
+              guarantees on timers.
+
+        \sa sleep(), waitForRendering(), Qt::TimerType
     */
     function wait(ms) {
         qtest_results.wait(ms)
@@ -1895,10 +1913,12 @@ Item {
             qtest_results.finishTestData()
             qtest_runInternal("cleanup")
             qtest_destroyTemporaryObjects()
-            qtest_results.finishTestDataCleanup()
+
             // wait(0) will call processEvents() so objects marked for deletion
             // in the test function will be deleted.
             wait(0)
+
+            qtest_results.finishTestDataCleanup()
         }
     }
 

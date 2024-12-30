@@ -97,12 +97,17 @@ public:
     bool isQObjectSingleton() const;
     bool isQJSValueSingleton() const;
     bool isSequentialContainer() const;
+    bool isValueType() const;
 
     QMetaType typeId() const;
     QMetaType qListTypeId() const;
     QMetaSequence listMetaSequence() const;
 
     const QMetaObject *metaObject() const;
+
+    // Precondition: The type is actually a value type!
+    const QMetaObject *metaObjectForValueType() const;
+
     const QMetaObject *baseMetaObject() const;
     QTypeRevision metaObjectRevision() const;
     bool containsRevisionedAttributes() const;
@@ -119,7 +124,6 @@ public:
     int index() const;
 
     bool isInlineComponentType() const;
-    int inlineComponentId() const;
 
     struct Q_QML_PRIVATE_EXPORT SingletonInstanceInfo
     {
@@ -143,8 +147,6 @@ public:
     int scopedEnumValue(QQmlEnginePrivate *engine, int index, const QString &, bool *ok) const;
     int scopedEnumValue(QQmlEnginePrivate *engine, const QByteArray &, const QByteArray &, bool *ok) const;
     int scopedEnumValue(QQmlEnginePrivate *engine, QStringView, QStringView, bool *ok) const;
-    int inlineComponentObjectId() const;
-    void setInlineComponentObjectId(int id) const; // TODO: const setters are BAD
 
     const QQmlTypePrivate *priv() const { return d.data(); }
     static void refHandle(const QQmlTypePrivate *priv);
@@ -163,13 +165,6 @@ public:
     };
 
     QQmlType containingType() const;
-    int lookupInlineComponentIdByName(const QString &name) const;
-    QQmlType lookupInlineComponentById(int objectid) const;
-    int generatePlaceHolderICId() const;
-
-    void associateInlineComponent(const QString &name, int objectID, const CompositeMetaTypeIds &metaTypeIds, QQmlType existingType);
-    void setPendingResolutionName(const QString &name);
-    QString pendingResolutionName() const;
 
     void createProxy(QObject *instance) const;
 

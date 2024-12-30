@@ -26,16 +26,16 @@ class Q_AUTOTEST_EXPORT QQmlTypeData : public QQmlTypeLoader::Blob
 public:
     struct TypeReference
     {
-        TypeReference() : version(QTypeRevision::zero()), needsCreation(true) {}
-
         QV4::CompiledData::Location location;
         QQmlType type;
-        QTypeRevision version;
+        QTypeRevision version = QTypeRevision::zero();
         QQmlRefPointer<QQmlTypeData> typeData;
-        bool selfReference = false;
         QString prefix; // used by CompositeSingleton types
+        bool selfReference = false;
+        bool needsCreation = true;
+        bool errorWhenNotFound = true;
+
         QString qualifiedName() const;
-        bool needsCreation;
     };
 
     struct ScriptReference
@@ -68,7 +68,7 @@ public:
     void registerCallback(TypeDataCallback *);
     void unregisterCallback(TypeDataCallback *);
 
-    CompositeMetaTypeIds typeIds(int objectId = 0) const;
+    CompositeMetaTypeIds typeIds(const QString &inlineComponentName = QString()) const;
     QByteArray typeClassName() const { return m_typeClassName; }
     SourceCodeData backupSourceCode() const { return m_backupSourceCode; }
 
@@ -128,7 +128,7 @@ private:
 
     using ExecutableCompilationUnitPtr = QQmlRefPointer<QV4::ExecutableCompilationUnit>;
 
-    QHash<int, InlineComponentData> m_inlineComponentData;
+    QHash<QString, InlineComponentData> m_inlineComponentData;
 
     ExecutableCompilationUnitPtr m_compiledData;
 

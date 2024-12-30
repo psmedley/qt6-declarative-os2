@@ -14,8 +14,7 @@ Window {
     Rectangle {
         anchors.fill: parent
 
-        Behavior on opacity {
-        }
+        Behavior on opacity {}
 
         ListView {
             width: parent.width
@@ -35,7 +34,7 @@ Window {
                     function f(v = 4) {
                         let c = 0;
                         return {
-                            "a": function () {
+                            a: function () {
                                 if (b == 0)
                                     c += 78 * 5 * v;
                             }()

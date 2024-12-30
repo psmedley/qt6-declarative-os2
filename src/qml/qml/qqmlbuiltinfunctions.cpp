@@ -475,8 +475,9 @@ QVariant QtObject::font(const QJSValue &fontSpecifier) const
     }
 
     {
-        QVariant v((QMetaType(QMetaType::QFont)));
-        if (QQmlValueTypeProvider::constructFromJSValue(fontSpecifier, v.metaType(), v.data()))
+        const QVariant v = QQmlValueTypeProvider::createValueType(
+                    fontSpecifier, QMetaType(QMetaType::QFont));
+        if (v.isValid())
             return v;
     }
 
@@ -511,9 +512,8 @@ static QVariant constructFromJSValue(QJSEngine *e, QMetaType type, T... paramete
         return QVariant();
     QJSValue params = e->newArray(sizeof...(parameters));
     addParameters(e, params, 0, parameters...);
-    QVariant variant(type);
-    QQmlValueTypeProvider::constructFromJSValue(params, type, variant.data());
-    return variant;
+    const QVariant variant = QQmlValueTypeProvider::createValueType(params, type);
+    return variant.isValid() ? variant : QVariant(type);
 }
 
 /*!
@@ -563,10 +563,9 @@ QVariant QtObject::quaternion(double scalar, double x, double y, double z) const
  */
 QVariant QtObject::matrix4x4() const
 {
-    QVariant variant((QMetaType(QMetaType::QMatrix4x4)));
-    QQmlValueTypeProvider::constructFromJSValue(
-                QJSValue(), variant.metaType(), variant.data());
-    return variant;
+    const QMetaType metaType(QMetaType::QMatrix4x4);
+    const QVariant variant = QQmlValueTypeProvider::createValueType(QJSValue(), metaType);
+    return variant.isValid() ? variant : QVariant(metaType);
 }
 
 /*!
@@ -587,8 +586,9 @@ QVariant QtObject::matrix4x4() const
 QVariant QtObject::matrix4x4(const QJSValue &value) const
 {
     if (value.isObject()) {
-        QVariant v((QMetaType(QMetaType::QMatrix4x4)));
-        if (QQmlValueTypeProvider::constructFromJSValue(value, v.metaType(), v.data()))
+        QVariant v = QQmlValueTypeProvider::createValueType(
+                    value, QMetaType(QMetaType::QMatrix4x4));
+        if (v.isValid())
             return v;
     }
 
@@ -1300,9 +1300,14 @@ Each object in this array has the members \c lineNumber, \c columnNumber, \c fil
 For example, if the above snippet had misspelled color as 'colro' then the array would contain an object like the following:
 { "lineNumber" : 1, "columnNumber" : 32, "fileName" : "dynamicSnippet1", "message" : "Cannot assign to non-existent property \"colro\""}.
 
-Note that this function returns immediately, and therefore may not work if
+\note This function returns immediately, and therefore may not work if
 the \a qml string loads new components (that is, external QML files that have not yet been loaded).
 If this is the case, consider using \l{QtQml::Qt::createComponent()}{Qt.createComponent()} instead.
+
+\warning This function is extremely slow since it has to compile the passed QML string every time
+it is invoked. Furthermore, it's very easy to produce invalid QML when programmatically constructing
+QML code. It's much better to keep your QML components as separate files and add properties and
+methods to customize their behavior than to produce new components by string manipulation.
 
 See \l {Dynamic QML Object Creation from JavaScript} for more information on using this function.
 */
@@ -1749,19 +1754,21 @@ enum ConsoleLogTypes {
 static QString jsStack(QV4::ExecutionEngine *engine) {
     QString stack;
 
-    QVector<QV4::StackFrame> stackTrace = engine->stackTrace(10);
-
-    for (int i = 0; i < stackTrace.size(); i++) {
-        const QV4::StackFrame &frame = stackTrace.at(i);
-
+    int i = 0;
+    for (CppStackFrame *f = engine->currentStackFrame; f && i < 10; f = f->parentFrame(), ++i) {
         QString stackFrame;
-        if (frame.column >= 0) {
-            stackFrame = QStringLiteral("%1 (%2:%3:%4)").arg(
-                frame.function, frame.source,
-                QString::number(qAbs(frame.line)), QString::number(frame.column));
+
+        if (f->isJSTypesFrame() && static_cast<JSTypesStackFrame *>(f)->isTailCalling()) {
+            stackFrame = QStringLiteral("[elided tail calls]");
         } else {
-            stackFrame = QStringLiteral("%1 (%2:%3)").arg(
-                frame.function, frame.source, QString::number(qAbs(frame.line)));
+            const int line = f->lineNumber();
+            if (line != f->missingLineNumber()) {
+                stackFrame = QStringLiteral("%1 (%2:%3)").arg(
+                        f->function(), f->source(), QString::number(qAbs(line)));
+            } else {
+                stackFrame = QStringLiteral("%1 (%2)").arg(
+                        f->function(), f->source());
+            }
         }
 
         if (i)

@@ -179,7 +179,7 @@ void QQmlBoundSignalExpression::evaluate(void **a)
                     QMetaObjectPrivate::signal(targetMeta, m_index).methodIndex());
 
         int argCount = metaMethod.parameterCount();
-        QQmlMetaObject::ArgTypeStorage storage;
+        QQmlMetaObject::ArgTypeStorage<9> storage;
         storage.reserve(argCount + 1);
         storage.append(QMetaType()); // We're not interested in the return value
         for (int i = 0; i < argCount; ++i) {
@@ -187,7 +187,7 @@ void QQmlBoundSignalExpression::evaluate(void **a)
             if (!type.isValid())
                 argCount = 0;
             else if (type.flags().testFlag(QMetaType::IsEnumeration))
-                storage.append(QMetaType::fromType<int>());
+                storage.append(type.underlyingType());
             else
                 storage.append(type);
         }

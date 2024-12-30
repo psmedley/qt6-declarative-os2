@@ -556,7 +556,7 @@ bool QQuickPopupPrivate::prepareEnterTransition()
         }
         if (dim)
             createOverlay();
-        showOverlay();
+        showDimmer();
         emit q->aboutToShow();
         visible = true;
         transitionState = EnterTransition;
@@ -593,7 +593,7 @@ bool QQuickPopupPrivate::prepareExitTransition()
         if (focus)
             popupItem->setFocus(false, Qt::PopupFocusReason);
         transitionState = ExitTransition;
-        hideOverlay();
+        hideDimmer();
         emit q->aboutToHide();
         emit q->openedChanged();
     }
@@ -617,7 +617,7 @@ void QQuickPopupPrivate::finalizeExitTransition()
         popupItem->setParentItem(nullptr);
         popupItem->setVisible(false);
     }
-    destroyOverlay();
+    destroyDimmer();
 
     if (hadActiveFocusBeforeExitTransition && window) {
         // restore focus to the next popup in chain, or to the window content if there are no other popups open
@@ -837,7 +837,6 @@ static QQuickItem *createDimmer(QQmlComponent *component, QQuickPopup *popup, QQ
         item = new QQuickItem;
 
     if (item) {
-        item->setOpacity(popup->isVisible() ? 1.0 : 0.0);
         item->setParentItem(parent);
         item->stackBefore(popup->popupItem());
         item->setZ(popup->z());
@@ -879,12 +878,24 @@ void QQuickPopupPrivate::createOverlay()
     if (!component)
         component = modal ? overlay->modal() : overlay->modeless();
 
-    if (!dimmer)
+    if (!dimmer) {
         dimmer = createDimmer(component, q, overlay);
-    resizeOverlay();
+        if (!dimmer)
+            return;
+        // We cannot update explicitDimmerOpacity when dimmer's opacity changes,
+        // as it is expected to do so when we fade the dimmer in and out in
+        // show/hideDimmer, and any binding of the dimmer's opacity will be
+        // implicitly broken anyway.
+        explicitDimmerOpacity = dimmer->opacity();
+        // initially fully transparent, showDimmer fades the dimmer in.
+        dimmer->setOpacity(0);
+        if (q->isVisible())
+            showDimmer();
+    }
+    resizeDimmer();
 }
 
-void QQuickPopupPrivate::destroyOverlay()
+void QQuickPopupPrivate::destroyDimmer()
 {
     if (dimmer) {
         qCDebug(lcDimmer) << "destroying dimmer" << dimmer;
@@ -900,7 +911,7 @@ void QQuickPopupPrivate::destroyOverlay()
 
 void QQuickPopupPrivate::toggleOverlay()
 {
-    destroyOverlay();
+    destroyDimmer();
     if (dim)
         createOverlay();
 }
@@ -914,27 +925,29 @@ void QQuickPopupPrivate::updateContentPalettes(const QPalette& parentPalette)
     QQuickItemPrivate::get(popupItem)->updateChildrenPalettes(parentPalette);
 }
 
-void QQuickPopupPrivate::showOverlay()
+void QQuickPopupPrivate::showDimmer()
 {
     // use QQmlProperty instead of QQuickItem::setOpacity() to trigger QML Behaviors
     if (dim && dimmer)
-        QQmlProperty::write(dimmer, QStringLiteral("opacity"), 1.0);
+        QQmlProperty::write(dimmer, QStringLiteral("opacity"), explicitDimmerOpacity);
 }
 
-void QQuickPopupPrivate::hideOverlay()
+void QQuickPopupPrivate::hideDimmer()
 {
     // use QQmlProperty instead of QQuickItem::setOpacity() to trigger QML Behaviors
     if (dim && dimmer)
         QQmlProperty::write(dimmer, QStringLiteral("opacity"), 0.0);
 }
 
-void QQuickPopupPrivate::resizeOverlay()
+void QQuickPopupPrivate::resizeDimmer()
 {
     if (!dimmer)
         return;
 
-    qreal w = window ? window->width() : 0;
-    qreal h = window ? window->height() : 0;
+    const QQuickOverlay *overlay = QQuickOverlay::overlay(window);
+
+    qreal w = overlay ? overlay->width() : 0;
+    qreal h = overlay ? overlay->height() : 0;
     dimmer->setSize(QSizeF(w, h));
 }
 
@@ -1774,8 +1787,18 @@ void QQuickPopup::setParentItem(QQuickItem *parent)
     if (parent) {
         QObjectPrivate::connect(parent, &QQuickItem::windowChanged, d, &QQuickPopupPrivate::setWindow);
         QQuickItemPrivate::get(d->parentItem)->addItemChangeListener(d, QQuickItemPrivate::Destroyed);
-    } else if (!d->inDestructor) {
-        // NOTE: if setParentItem is called from the dtor, this bypasses virtual dispatch and calls QQuickPopup::close() directly
+    } else if (d->inDestructor) {
+        d->destroyDimmer();
+    } else {
+        // Reset transition manager state when its parent window destroyed
+        if (!d->window && d->transitionManager.isRunning()) {
+            if (d->transitionState == QQuickPopupPrivate::EnterTransition)
+                d->finalizeEnterTransition();
+            else if (d->transitionState == QQuickPopupPrivate::ExitTransition)
+                d->finalizeExitTransition();
+        }
+        // NOTE: if setParentItem is called from the dtor, this bypasses virtual dispatch and calls
+        // QQuickPopup::close() directly
         close();
     }
     d->setWindow(parent ? parent->window() : nullptr);
@@ -2079,14 +2102,15 @@ void QQuickPopup::setVisible(bool visible)
     if (d->visible == visible && d->transitionState != QQuickPopupPrivate::ExitTransition)
         return;
 
-    if (d->complete) {
-        if (visible)
-            d->transitionManager.transitionEnter();
-        else
-            d->transitionManager.transitionExit();
-    } else {
+    if (!d->complete || (visible && !d->window)) {
         d->visible = visible;
+        return;
     }
+
+    if (visible)
+        d->transitionManager.transitionEnter();
+    else
+        d->transitionManager.transitionExit();
 }
 
 /*!

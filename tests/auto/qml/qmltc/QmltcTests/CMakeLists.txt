@@ -20,6 +20,7 @@ set(cpp_sources
 
     cpptypes/typewithmanyproperties.h
     cpptypes/singletontype.h cpptypes/singletontype.cpp
+    cpptypes/typewithnamespace.h cpptypes/typewithnamespace.cpp
     cpptypes/typewithsignal.h
 )
 
@@ -108,6 +109,8 @@ set(qml_sources
     inlineComponentsFromDifferentFiles.qml
     singletons.qml
     mySignals.qml
+    myCheckBox.qml
+    signalConnections.qml
 
     # support types:
     DefaultPropertySingleChild.qml
@@ -122,6 +125,7 @@ set(qml_sources
     SingletonThing.qml
     InlineComponentProvider.qml
     InlineComponentReexporter.qml
+    NamespacedTypes.qml
 
     badFile.qml
 )
@@ -134,6 +138,7 @@ set(common_libraries
     Qt::Core
     Qt::QmlPrivate
     Qt::QuickPrivate
+    Qt::QuickTemplates2Private
     Qt::TestPrivate
     Qt::Gui # QColor, QMatrix4x4, ...
 )
@@ -180,7 +185,6 @@ qt6_add_qml_module(qmltc_test_module
     LIBRARIES
         qmltc_test_module_translation_by_id
     ENABLE_TYPE_COMPILER
-    TYPE_COMPILER_NAMESPACE QmltcTest
 )
 
 qt_autogen_tools_initial_setup(qmltc_test_moduleplugin)

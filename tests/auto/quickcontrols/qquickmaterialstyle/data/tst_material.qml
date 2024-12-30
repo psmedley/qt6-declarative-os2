@@ -24,6 +24,11 @@ TestCase {
     }
 
     Component {
+        id: signalSpyComponent
+        SignalSpy {}
+    }
+
+    Component {
         id: buttonComponent
         Button { }
     }
@@ -984,10 +989,10 @@ TestCase {
         verify(textField)
         let placeholderTextItem = textField.children[0]
         verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
-        compare(placeholderTextItem.horizontalAlignment, TextField.AlignLeft)
+        compare(placeholderTextItem.horizontalAlignment, data.horizontalAlignment)
 
         textField.forceActiveFocus()
-        compare(placeholderTextItem.horizontalAlignment, TextField.AlignLeft)
+        compare(placeholderTextItem.horizontalAlignment, data.horizontalAlignment)
         textField.destroy()
     }
 
@@ -995,7 +1000,8 @@ TestCase {
         return [
             { tag: "AlignLeft", horizontalAlignment: TextArea.AlignLeft },
             { tag: "AlignHCenter", horizontalAlignment: TextArea.AlignHCenter },
-            { tag: "AlignRight", horizontalAlignment: TextArea.AlignRight }
+            { tag: "AlignRight", horizontalAlignment: TextArea.AlignRight },
+            { tag: "AlignJustify", horizontalAlignment: TextArea.AlignJustify }
         ]
     }
 
@@ -1008,10 +1014,10 @@ TestCase {
         verify(textArea)
         let placeholderTextItem = textArea.children[0]
         verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
-        compare(placeholderTextItem.horizontalAlignment, TextArea.AlignLeft)
+        compare(placeholderTextItem.horizontalAlignment, data.horizontalAlignment)
 
         textArea.forceActiveFocus()
-        compare(placeholderTextItem.horizontalAlignment, TextArea.AlignLeft)
+        compare(placeholderTextItem.horizontalAlignment, data.horizontalAlignment)
     }
 
     function test_placeholderTextPos() {
@@ -1043,6 +1049,38 @@ TestCase {
             textArea.height = 10
             compare(placeholderTextItem.y, (textArea.height - placeholderTextItem.height) / 2)
         }
+    }
+
+    function test_outlinedPlaceholderTextPosWithPadding_data() {
+        return [
+            { tag: "TextField, leftPadding=0", component: textFieldComponent, leftPadding: 0 },
+            { tag: "TextField, rightPadding=0", component: textFieldComponent, rightPadding: 0 },
+            { tag: "TextField, leftPadding=20", component: textFieldComponent, leftPadding: 20 },
+            { tag: "TextField, rightPadding=20", component: textFieldComponent, rightPadding: 20 },
+            { tag: "TextArea, leftPadding=0", component: textAreaComponent, leftPadding: 0 },
+            { tag: "TextArea, rightPadding=0", component: textAreaComponent, rightPadding: 0 },
+            { tag: "TextArea, leftPadding=20", component: textAreaComponent, leftPadding: 20 },
+            { tag: "TextArea, rightPadding=20", component: textAreaComponent, rightPadding: 20 },
+        ]
+    }
+
+    function test_outlinedPlaceholderTextPosWithPadding(data) {
+        let control = createTemporaryObject(data.component, testCase, {
+            text: "Text",
+            placeholderText: "Enter text..."
+        })
+        verify(control)
+
+        // Work around QTBUG-99231.
+        if (data.leftPadding !== undefined)
+            control.leftPadding = data.leftPadding
+        if (data.rightPadding !== undefined)
+            control.rightPadding = data.rightPadding
+
+        let placeholderTextItem = control.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        // This is the default value returned by textFieldHorizontalPadding when using a non-dense variant.
+        compare(placeholderTextItem.x, 16)
     }
 
     Component {
@@ -1199,5 +1237,76 @@ TestCase {
         let comboBoxPopup = comboBox.popup
         tryCompare(comboBoxPopup, "opened", true)
         compare(comboBoxPopup.background.color, comboBoxPopup.Material.dialogColor)
+    }
+
+    function test_nullTextAreaBackground() {
+        let textArea = createTemporaryObject(textAreaComponent, testCase)
+        verify(textArea)
+        // Store the placeholder text item before we set the background to null,
+        // because it will be unparented at that point.
+        let placeholderTextItem = textArea.children[0]
+        verify(placeholderTextItem as MaterialImpl.FloatingPlaceholderText)
+        // Assigning null to the background shouldn't cause any warnings,
+        // it should just hide the placeholder text item, since it has nothing to anchor to.
+        // Note that we can't use the properties argument of createTemporaryObject due to QTBUG-117201.
+        textArea.background = null
+        verify(!placeholderTextItem.visible)
+    }
+
+    Component {
+        id: textFieldAndButtonComponent
+
+        FocusScope {
+            focus: true
+            anchors.fill: parent
+
+            property alias textField: textField
+            property alias button: button
+
+            Keys.onEscapePressed: function (event) {
+                event.accepted = true
+                button.forceActiveFocus()
+                textField.forceActiveFocus()
+            }
+
+            TextField {
+                id: textField
+                focus: true
+                placeholderText: "placeholderText"
+                anchors.fill: parent
+            }
+
+            Button {
+                id: button
+                anchors.right: parent.right
+                text: focus ? "focus" : "no focus"
+            }
+        }
+    }
+
+    // QTBUG-118889
+    function test_focusChanges() {
+        let focusScope = createTemporaryObject(textFieldAndButtonComponent, testCase)
+        verify(focusScope)
+        testCase.Window.window.requestActivate()
+        tryCompare(testCase.Window.window, "active", true)
+
+        let textField = focusScope.textField
+        verify(textField.activeFocus)
+        let textFieldActiveFocusSpy = signalSpyComponent.createObject(textField,
+            { target: textField, signalName: "activeFocusChanged" })
+        verify(textFieldActiveFocusSpy.valid)
+
+        let button = focusScope.button
+        let buttonActiveFocusSpy = signalSpyComponent.createObject(button,
+            { target: button, signalName: "activeFocusChanged" })
+        verify(buttonActiveFocusSpy.valid)
+
+        // Shouldn't assert after quickly switching focus.
+        keyClick(Qt.Key_Escape)
+        // true => false => true.
+        compare(textFieldActiveFocusSpy.count, 2)
+        // false => true => false.
+        compare(buttonActiveFocusSpy.count, 2)
     }
 }

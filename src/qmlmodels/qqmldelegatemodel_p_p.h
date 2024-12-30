@@ -37,7 +37,8 @@ typedef QQmlListCompositor Compositor;
 class QQmlDelegateModelAttachedMetaObject;
 class QQmlAbstractDelegateComponent;
 
-class Q_QMLMODELS_PRIVATE_EXPORT QQmlDelegateModelItemMetaType : public QQmlRefCount
+class Q_QMLMODELS_PRIVATE_EXPORT QQmlDelegateModelItemMetaType
+    : public QQmlRefCounted<QQmlDelegateModelItemMetaType>
 {
 public:
     QQmlDelegateModelItemMetaType(QV4::ExecutionEngine *engine, QQmlDelegateModel *model, const QStringList &groupNames);
@@ -301,7 +302,12 @@ public:
     void emitModelUpdated(const QQmlChangeSet &changeSet, bool reset) override;
     void delegateChanged(bool add = true, bool remove = true);
 
-    bool insert(Compositor::insert_iterator &before, const QV4::Value &object, int groups);
+    enum class InsertionResult {
+        Success,
+        Error,
+        Retry
+    };
+    InsertionResult insert(Compositor::insert_iterator &before, const QV4::Value &object, int groups);
 
     int adaptorModelCount() const;
 
@@ -354,7 +360,7 @@ public:
 class QQmlPartsModel : public QQmlInstanceModel, public QQmlDelegateModelGroupEmitter
 {
     Q_OBJECT
-    Q_PROPERTY(QString filterOnGroup READ filterGroup WRITE setFilterGroup NOTIFY filterGroupChanged RESET resetFilterGroup)
+    Q_PROPERTY(QString filterOnGroup READ filterGroup WRITE setFilterGroup NOTIFY filterGroupChanged RESET resetFilterGroup FINAL)
 public:
     QQmlPartsModel(QQmlDelegateModel *model, const QString &part, QObject *parent = nullptr);
     ~QQmlPartsModel();
@@ -419,7 +425,9 @@ public:
     QList<QQmlPartsModel *> models;
 };
 
-class QQmlDelegateModelAttachedMetaObject : public QAbstractDynamicMetaObject, public QQmlRefCount
+class QQmlDelegateModelAttachedMetaObject
+    : public QAbstractDynamicMetaObject,
+      public QQmlRefCounted<QQmlDelegateModelAttachedMetaObject>
 {
 public:
     QQmlDelegateModelAttachedMetaObject(

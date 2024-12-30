@@ -365,8 +365,8 @@ namespace QQmlPrivate
         struct Properties<Parent, void>
         {
             using Func = QQmlAttachedPropertiesFunc<QObject>;
-            static const QMetaObject *staticMetaObject() { return nullptr; };
-            static Func attachedPropertiesFunc() { return nullptr; };
+            static const QMetaObject *staticMetaObject() { return nullptr; }
+            static Func attachedPropertiesFunc() { return nullptr; }
         };
 
         using Type = typename std::conditional<
@@ -623,6 +623,7 @@ namespace QQmlPrivate
             qintptr extraData;
         };
 
+        QObject *thisObject() const;
         QQmlEngine *qmlEngine() const;
 
         QJSValue jsMetaType(int index) const;
@@ -644,7 +645,9 @@ namespace QQmlPrivate
                 QtMsgType type, const QString &message,
                 const QLoggingCategory *loggingCategory) const;
 
-        QString objectToString(QObject *object) const;
+        QVariant constructValueType(
+                QMetaType resultMetaType, const QMetaObject *resultMetaObject,
+                int ctorIndex, void *ctorArg) const;
 
         // All of these lookup functions should be used as follows:
         //
@@ -700,7 +703,10 @@ namespace QQmlPrivate
         bool getValueLookup(uint index, void *value, void *target) const;
         void initGetValueLookup(uint index, const QMetaObject *metaObject, QMetaType type) const;
 
+        bool getEnumLookup(uint index, void *target) const;
+#if QT_QML_REMOVED_SINCE(6, 6)
         bool getEnumLookup(uint index, int *target) const;
+#endif
         void initGetEnumLookup(uint index, const QMetaObject *metaObject,
                                const char *enumerator, const char *enumValue) const;
 
@@ -711,21 +717,21 @@ namespace QQmlPrivate
         void initSetValueLookup(uint index, const QMetaObject *metaObject, QMetaType type) const;
     };
 
-    struct TypedFunction {
+    struct AOTCompiledFunction {
         qintptr extraData;
         QMetaType returnType;
         QList<QMetaType> argumentTypes;
         void (*functionPtr)(const AOTCompiledContext *context, void *resultPtr, void **arguments);
     };
 
-#if QT_DEPRECATED_SINCE(6, 5)
-    QT_DEPRECATED_VERSION_X(6, 5, "Use TypedFunction instead")
-    typedef TypedFunction AOTCompiledFunction;
+#if QT_DEPRECATED_SINCE(6, 6)
+    QT_DEPRECATED_VERSION_X(6, 6, "Use AOTCompiledFunction instead")
+    typedef AOTCompiledFunction TypedFunction;
 #endif
 
     struct CachedQmlUnit {
         const QV4::CompiledData::Unit *qmlData;
-        const TypedFunction *aotCompiledFunctions;
+        const AOTCompiledFunction *aotCompiledFunctions;
         void *unused2;
     };
 

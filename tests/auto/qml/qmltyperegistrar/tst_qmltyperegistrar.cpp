@@ -566,11 +566,49 @@ void tst_qmltyperegistrar::uncreatable()
     qmlRegisterTypesAndRevisions<GoodUncreatableExtended>("A", 1);
 }
 
+void tst_qmltyperegistrar::singletonVersions()
+{
+    QQmlEngine engine;
+    qmlRegisterTypesAndRevisions<SingletonVesion0>("A", 0);
+    qmlRegisterTypesAndRevisions<SingletonVesion1>("B", 1);
+
+    QQmlComponent c(&engine);
+    c.setData("import QtQuick\n"
+              "import A\n"
+              "import B\n"
+              "QtObject {\n"
+              "    property QtObject v0: SingletonVesion0\n"
+              "    property QtObject v1: SingletonVesion1\n"
+              "}", QUrl());
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY2(!obj->property("v0").isNull(), "Singleton version 0 is not registered");
+    QVERIFY2(!obj->property("v1").isNull(), "Singleton version 1 is not registered");
+}
+
 void tst_qmltyperegistrar::baseVersionInQmltypes()
 {
     // Since it has no QML_ADDED_IN_VERSION, WithMethod was added in .0 of the current version.
     // The current version is 1.1, so it's 1.0.
     QVERIFY(qmltypesData.contains("exports: [\"QmlTypeRegistrarTest/WithMethod 1.0\"]"));
+}
+
+void tst_qmltyperegistrar::constructibleValueType()
+{
+    QVERIFY(qmltypesData.contains(
+    R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "Constructible"
+        accessSemantics: "value"
+        exports: ["QmlTypeRegistrarTest/constructible 1.0"]
+        exportMetaObjectRevisions: [256]
+        Method {
+            name: "Constructible"
+            isConstructor: true
+            Parameter { name: "i"; type: "int" }
+        }
+        Method { name: "Constructible"; isCloned: true; isConstructor: true }
+    })"));
 }
 
 void tst_qmltyperegistrar::anonymousAndUncreatable()
@@ -588,7 +626,40 @@ void tst_qmltyperegistrar::omitInvisible()
 {
     // If it cannot resolve the type a QML_FOREIGN refers to, it should not generate anything.
     QVERIFY(qmltypesData.contains(
-    R"(Component { file: "tst_qmltyperegistrar.h"; name: "Invisible"; accessSemantics: "none" })"));
+                R"(Component { file: "tst_qmltyperegistrar.h"; name: "Invisible"; accessSemantics: "none" })"));
+}
+
+void tst_qmltyperegistrar::typedEnum()
+{
+    QVERIFY(qmltypesData.contains(
+    R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "TypedEnum"
+        accessSemantics: "reference"
+        prototype: "QObject"
+        exports: ["QmlTypeRegistrarTest/TypedEnum 1.0"]
+        exportMetaObjectRevisions: [256]
+        Enum {
+            name: "S"
+            type: "short"
+            values: ["A", "B", "C"]
+        }
+        Enum {
+            name: "T"
+            type: "ushort"
+            values: ["D", "E", "F"]
+        }
+        Enum {
+            name: "U"
+            type: "qint8"
+            values: ["G", "H", "I"]
+        }
+        Enum {
+            name: "V"
+            type: "quint8"
+            values: ["J", "K", "L"]
+        }
+    })"));
 }
 
 void tst_qmltyperegistrar::listSignal()
@@ -604,6 +675,111 @@ void tst_qmltyperegistrar::listSignal()
             Parameter { type: "QObjectList" }
         }
     })"));
+}
+
+void tst_qmltyperegistrar::withNamespace()
+{
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "Bar"
+        accessSemantics: "reference"
+        prototype: "QObject"
+        Property {
+            name: "outerBarProp"
+            type: "int"
+            read: "bar"
+            index: 0
+            isReadonly: true
+            isConstant: true
+        }
+    })"));
+
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "Testing::Bar"
+        accessSemantics: "reference"
+        prototype: "Testing::Foo"
+        exports: ["QmlTypeRegistrarTest/Bar 1.0"]
+        exportMetaObjectRevisions: [256]
+        Property { name: "barProp"; type: "int"; read: "bar"; index: 0; isReadonly: true; isConstant: true }
+    })"));
+
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "Testing::Foo"
+        accessSemantics: "reference"
+        prototype: "QObject"
+        Property { name: "fooProp"; type: "int"; read: "foo"; index: 0; isReadonly: true; isConstant: true }
+    })"));
+
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "Testing::Inner::Baz"
+        accessSemantics: "reference"
+        prototype: "Testing::Bar"
+        extension: "Bar"
+        exports: ["QmlTypeRegistrarTest/Baz 1.0"]
+        exportMetaObjectRevisions: [256]
+        attachedType: "Testing::Foo"
+    })"));
+}
+
+void tst_qmltyperegistrar::sequenceRegistration()
+{
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "std::vector<QByteArray>"
+        accessSemantics: "sequence"
+        valueType: "QByteArray"
+    })"));
+}
+
+void tst_qmltyperegistrar::valueTypeSelfReference()
+{
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "QPersistentModelIndex"
+        accessSemantics: "value"
+        extension: "QPersistentModelIndexValueType"
+    })"));
+    QVERIFY(qmltypesData.contains(R"(Component {
+        file: "tst_qmltyperegistrar.h"
+        name: "QPersistentModelIndexValueType"
+        accessSemantics: "value"
+        Property { name: "row"; type: "int"; read: "row"; index: 0; isReadonly: true; isFinal: true }
+    })"));
+}
+
+void tst_qmltyperegistrar::foreignNamespaceFromGadget()
+{
+    QQmlEngine engine;
+    {
+        QQmlComponent c(&engine);
+        c.setData(QStringLiteral(R"(
+            import QtQml
+            import QmlTypeRegistrarTest
+            QtObject {
+                objectName: 'b' + NetworkManager.B
+            }
+        )").toUtf8(), QUrl("foreignNamespaceFromGadget.qml"));
+        QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+        QScopedPointer<QObject> o(c.create());
+        QCOMPARE(o->objectName(), QStringLiteral("b1"));
+    }
+
+    {
+        QQmlComponent c(&engine);
+        c.setData(QStringLiteral(R"(
+            import QtQml
+            import QmlTypeRegistrarTest
+            QtObject {
+                objectName: 'b' + NotNamespaceForeign.B
+            }
+        )").toUtf8(), QUrl("foreignNamespaceFromGadget2.qml"));
+        QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+        QScopedPointer<QObject> o(c.create());
+        QCOMPARE(o->objectName(), QStringLiteral("b1"));
+    }
 }
 
 QTEST_MAIN(tst_qmltyperegistrar)

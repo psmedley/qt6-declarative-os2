@@ -693,16 +693,47 @@
     \qmlproperty enumeration QtQuick::TableView::selectionBehavior
     \since 6.4
 
-    This property holds whether the user can select single cells, rows or columns.
+    This property holds whether the user can select cells, rows or columns.
 
-    \list
-    \li TableView.SelectionDisabled - the user cannot perform selections.
-    \li TableView.SelectCells (default) - the user can select individual cells.
-    \li TableView.SelectRows - the user can only select rows.
-    \li TableView.SelectColumns - the user can only select columns.
-    \endlist
+    \value TableView.SelectionDisabled
+           The user cannot perform selections
+    \value TableView.SelectCells
+           (Default value) The user can select individual cells
+    \value TableView.SelectRows
+           The user can only select rows
+    \value TableView.SelectColumns
+           The user can only select columns
 
-    \sa {Selecting items}, selectionModel, keyNavigationEnabled
+    \sa {Selecting items}, selectionMode, selectionModel, keyNavigationEnabled
+*/
+
+/*!
+    \qmlproperty enumeration QtQuick::TableView::selectionMode
+    \since 6.6
+
+    If \l selectionBehavior is set to \c {TableView.SelectCells}, this property holds
+    whether the user can select one cell at a time, or multiple cells.
+    If \l selectionBehavior is set to \c {TableView.SelectRows}, this property holds
+    whether the user can select one row at a time, or multiple rows.
+    If \l selectionBehavior is set to \c {TableView.SelectColumns}, this property holds
+    whether the user can select one column at a time, or multiple columns.
+
+    The following modes are available:
+
+    \value TableView.SingleSelection
+           The user can select a single cell, row or column.
+    \value TableView.ContiguousSelection
+           The user can select a single contiguous block of cells.
+           An existing selection can be made bigger or smaller by holding down
+           the \c Shift modifier while selecting.
+    \value TableView.ExtendedSelection
+           (Default value) The user can select multiple individual blocks of
+           cells. An existing selection can be made bigger or smaller by
+           holding down the \c Shift modifier while selecting. A new selection
+           block can be started without clearing the current selection by
+           holding down the \c Control modifier while selecting.
+
+    \sa {Selecting items}, selectionBehavior, selectionModel, keyNavigationEnabled
 */
 
 /*!
@@ -1601,6 +1632,13 @@ bool QQuickTableViewPrivate::startSelection(const QPointF &pos)
     if (resizeHandler->state() != QQuickTableViewResizeHandler::Listening)
         return false;
 
+    // For SingleSelection and ContiguousSelection, we should only allow one selection at a time
+    if (selectionMode == QQuickTableView::SingleSelection
+            || selectionMode == QQuickTableView::ContiguousSelection)
+        clearSelection();
+    else if (selectionModel)
+        existingSelection = selectionModel->selection();
+
     selectionStartCell = QPoint(-1, -1);
     selectionEndCell = QPoint(-1, -1);
     q->closeEditor();
@@ -1609,6 +1647,7 @@ bool QQuickTableViewPrivate::startSelection(const QPointF &pos)
 
 void QQuickTableViewPrivate::setSelectionStartPos(const QPointF &pos)
 {
+    Q_Q(QQuickTableView);
     if (loadedItems.isEmpty())
         return;
     if (!selectionModel) {
@@ -1621,12 +1660,25 @@ void QQuickTableViewPrivate::setSelectionStartPos(const QPointF &pos)
     if (!qaim)
         return;
 
+    if (selectionMode == QQuickTableView::SingleSelection
+            && cellIsValid(selectionStartCell)) {
+        return;
+    }
+
     const QRect prevSelection = selection();
-    const QPoint clampedCell = clampedCellAtPos(pos);
+
+    QPoint clampedCell;
+    if (pos.x() == -1) {
+        // Special case: use current cell as start cell
+        clampedCell = q->cellAtIndex(selectionModel->currentIndex());
+    } else {
+        clampedCell = clampedCellAtPos(pos);
+        if (cellIsValid(clampedCell))
+            setCurrentIndex(clampedCell);
+    }
+
     if (!cellIsValid(clampedCell))
         return;
-
-    setCurrentIndex(clampedCell);
 
     switch (selectionBehavior) {
     case QQuickTableView::SelectCells:
@@ -1664,9 +1716,15 @@ void QQuickTableViewPrivate::setSelectionEndPos(const QPointF &pos)
         return;
 
     const QRect prevSelection = selection();
-    const QPoint clampedCell = clampedCellAtPos(pos);
-    if (!cellIsValid(clampedCell))
-        return;
+
+    QPoint clampedCell;
+    if (selectionMode == QQuickTableView::SingleSelection) {
+        clampedCell = selectionStartCell;
+    } else {
+        clampedCell = clampedCellAtPos(pos);
+        if (!cellIsValid(clampedCell))
+            return;
+    }
 
     setCurrentIndex(clampedCell);
 
@@ -1718,39 +1776,49 @@ void QQuickTableViewPrivate::updateSelection(const QRect &oldSelection, const QR
     const QRect oldRect = oldSelection.normalized();
     const QRect newRect = newSelection.normalized();
 
+    QItemSelection select;
+    QItemSelection deselect;
+
     // Select cells inside the new selection rect
     {
         const QModelIndex startIndex = qaim->index(newRect.y(), newRect.x());
         const QModelIndex endIndex = qaim->index(newRect.y() + newRect.height(), newRect.x() + newRect.width());
-        selectionModel->select(QItemSelection(startIndex, endIndex), QItemSelectionModel::Select);
+        select = QItemSelection(startIndex, endIndex);
     }
 
     // Unselect cells in the new minus old rects
     if (oldRect.x() < newRect.x()) {
         const QModelIndex startIndex = qaim->index(oldRect.y(), oldRect.x());
         const QModelIndex endIndex = qaim->index(oldRect.y() + oldRect.height(), newRect.x() - 1);
-        selectionModel->select(QItemSelection(startIndex, endIndex), QItemSelectionModel::Deselect);
+        deselect.merge(QItemSelection(startIndex, endIndex), QItemSelectionModel::Select);
     } else if (oldRect.x() + oldRect.width() > newRect.x() + newRect.width()) {
         const QModelIndex startIndex = qaim->index(oldRect.y(), newRect.x() + newRect.width() + 1);
         const QModelIndex endIndex = qaim->index(oldRect.y() + oldRect.height(), oldRect.x() + oldRect.width());
-        selectionModel->select(QItemSelection(startIndex, endIndex), QItemSelectionModel::Deselect);
+        deselect.merge(QItemSelection(startIndex, endIndex), QItemSelectionModel::Select);
     }
 
     if (oldRect.y() < newRect.y()) {
         const QModelIndex startIndex = qaim->index(oldRect.y(), oldRect.x());
         const QModelIndex endIndex = qaim->index(newRect.y() - 1, oldRect.x() + oldRect.width());
-        selectionModel->select(QItemSelection(startIndex, endIndex), QItemSelectionModel::Deselect);
+        deselect.merge(QItemSelection(startIndex, endIndex), QItemSelectionModel::Select);
     } else if (oldRect.y() + oldRect.height() > newRect.y() + newRect.height()) {
         const QModelIndex startIndex = qaim->index(newRect.y() + newRect.height() + 1, oldRect.x());
         const QModelIndex endIndex = qaim->index(oldRect.y() + oldRect.height(), oldRect.x() + oldRect.width());
-        selectionModel->select(QItemSelection(startIndex, endIndex), QItemSelectionModel::Deselect);
+        deselect.merge(QItemSelection(startIndex, endIndex), QItemSelectionModel::Select);
     }
+
+    // Don't clear the selection that existed before the user started a new selection block
+    deselect.merge(existingSelection, QItemSelectionModel::Deselect);
+
+    selectionModel->select(deselect, QItemSelectionModel::Deselect);
+    selectionModel->select(select, QItemSelectionModel::Select);
 }
 
 void QQuickTableViewPrivate::clearSelection()
 {
     selectionStartCell = QPoint(-1, -1);
     selectionEndCell = QPoint(-1, -1);
+    existingSelection.clear();
 
     if (selectionModel)
         selectionModel->clearSelection();
@@ -2430,20 +2498,21 @@ void QQuickTableViewPrivate::forceLayout(bool immediate)
 
     const QSize actualTableSize = calculateTableSize();
     if (tableSize != actualTableSize) {
-        // This can happen if the app is calling forceLayout while
-        // the model is updated, but before we're notified about it.
-        rebuildOptions = RebuildOption::All;
-    } else {
-        // Resizing a column (or row) can result in the table going from being
-        // e.g completely inside the viewport to go outside. And in the latter
-        // case, the user needs to be able to scroll the viewport, also if
-        // flags such as Flickable.StopAtBounds is in use. So we need to
-        // update contentWidth/Height to support that case.
-        rebuildOptions = RebuildOption::LayoutOnly
-                | RebuildOption::CalculateNewContentWidth
-                | RebuildOption::CalculateNewContentHeight
-                | checkForVisibilityChanges();
+        // The table size will have changed if forceLayout is called after
+        // the row count in the model has changed, but before we received
+        // a rowsInsertedCallback about it (and vice versa for columns).
+        rebuildOptions |= RebuildOption::ViewportOnly;
     }
+
+    // Resizing a column (or row) can result in the table going from being
+    // e.g completely inside the viewport to go outside. And in the latter
+    // case, the user needs to be able to scroll the viewport, also if
+    // flags such as Flickable.StopAtBounds is in use. So we need to
+    // update contentWidth/Height to support that case.
+    rebuildOptions |= RebuildOption::LayoutOnly
+            | RebuildOption::CalculateNewContentWidth
+            | RebuildOption::CalculateNewContentHeight
+            | checkForVisibilityChanges();
 
     scheduleRebuildTable(rebuildOptions);
 
@@ -2724,21 +2793,6 @@ qreal QQuickTableViewPrivate::sizeHintForRow(int row) const
     for (const int column : loadedColumns)
         rowHeight = qMax(rowHeight, cellHeight(QPoint(column, row)));
     return rowHeight;
-}
-
-void QQuickTableViewPrivate::updateTableSize()
-{
-    // tableSize is the same as row and column count, and will always
-    // be the same as the number of rows and columns in the model.
-    Q_Q(QQuickTableView);
-
-    const QSize prevTableSize = tableSize;
-    tableSize = calculateTableSize();
-
-    if (prevTableSize.width() != tableSize.width())
-        emit q->columnsChanged();
-    if (prevTableSize.height() != tableSize.height())
-        emit q->rowsChanged();
 }
 
 QSize QQuickTableViewPrivate::calculateTableSize()
@@ -3283,6 +3337,7 @@ void QQuickTableViewPrivate::processRebuildTable()
                 Q_TABLEVIEW_UNREACHABLE(rebuildOptions);
         }
 
+        tableSizeBeforeRebuild = tableSize;
         edgesBeforeRebuild = loadedItems.isEmpty() ? QMargins()
             : QMargins(q->leftColumn(), q->topRow(), q->rightColumn(), q->bottomRow());
     }
@@ -3351,6 +3406,10 @@ void QQuickTableViewPrivate::processRebuildTable()
     }
 
     if (rebuildState == RebuildState::Done) {
+        if (tableSizeBeforeRebuild.width() != tableSize.width())
+            emit q->columnsChanged();
+        if (tableSizeBeforeRebuild.height() != tableSize.height())
+            emit q->rowsChanged();
         if (edgesBeforeRebuild.left() != q->leftColumn())
             emit q->leftColumnChanged();
         if (edgesBeforeRebuild.right() != q->rightColumn())
@@ -3500,7 +3559,7 @@ void QQuickTableViewPrivate::calculateTopLeft(QPoint &topLeftCell, QPointF &topL
 
 void QQuickTableViewPrivate::loadInitialTable()
 {
-    updateTableSize();
+    tableSize = calculateTableSize();
 
     if (positionXAnimation.isRunning()) {
         positionXAnimation.stop();
@@ -4022,12 +4081,37 @@ void QQuickTableViewPrivate::selectionChangedInSelectionModel(const QItemSelecti
 
 void QQuickTableViewPrivate::setSelectedOnDelegateItem(const QModelIndex &modelIndex, bool select)
 {
+    if (modelIndex.isValid() && modelIndex.model() != selectionSourceModel()) {
+        qmlWarning(q_func())
+                << "Cannot select cells: TableView.selectionModel.model is not "
+                << "compatible with the model displayed in the view";
+        return;
+    }
+
     const int cellIndex = modelIndexToCellIndex(modelIndex);
     if (!loadedItems.contains(cellIndex))
         return;
     const QPoint cell = cellAtModelIndex(cellIndex);
     QQuickItem *item = loadedTableItem(cell)->item;
     setRequiredProperty(kRequiredProperty_selected, QVariant::fromValue(select), cellIndex, item, false);
+}
+
+QAbstractItemModel *QQuickTableViewPrivate::selectionSourceModel()
+{
+    // TableView.selectionModel.model should always be the same as TableView.model.
+    // After all, when the user selects an index in the view, the same index should
+    // be selected in the selection model. We therefore set the model in
+    // selectionModel.model automatically.
+    // But it's not always the case that the model shown in the view is the same
+    // as TableView.model. Subclasses with a proxy model will instead show the
+    // proxy model (e.g TreeView and HeaderView). And then it's no longer clear if
+    // we should use the proxy model or the TableView.model as source model in
+    // TableView.selectionModel. It's up to the subclass. But in short, if the proxy
+    // model shares the same model items as TableView.model (just with e.g a filter
+    // applied, or sorted etc), then TableView.model should be used. If the proxy
+    // model is a completely different model that shares no model items with
+    // TableView.model, then the proxy model should be used (e.g HeaderView).
+    return qaim(modelImpl());
 }
 
 QAbstractItemModel *QQuickTableViewPrivate::qaim(QVariant modelAsVariant) const
@@ -4057,11 +4141,12 @@ void QQuickTableViewPrivate::updateSelectedOnAllDelegateItems()
 
 void QQuickTableViewPrivate::currentChangedInSelectionModel(const QModelIndex &current, const QModelIndex &previous)
 {
-    // Warn if the source models are not the same
-    const QAbstractItemModel *qaimInSelection = selectionModel ? selectionModel->model() : nullptr;
-    const QAbstractItemModel *qaimInTableView = qaim(modelImpl());
-    if (qaimInSelection && qaimInSelection != qaimInTableView)
-        qmlWarning(q_func()) << "TableView.selectionModel.model differs from TableView.model";
+    if (current.isValid() && current.model() != selectionSourceModel()) {
+        qmlWarning(q_func())
+                << "Cannot change current index: TableView.selectionModel.model is not "
+                << "compatible with the model displayed in the view";
+        return;
+    }
 
     updateCurrentRowAndColumn();
     setCurrentOnDelegateItem(previous, false);
@@ -4224,9 +4309,6 @@ QVariant QQuickTableViewPrivate::modelImpl() const
 
 void QQuickTableViewPrivate::setModelImpl(const QVariant &newModel)
 {
-    if (newModel == assignedModel)
-        return;
-
     assignedModel = newModel;
     scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::All);
     emit q_func()->modelChanged();
@@ -4234,7 +4316,7 @@ void QQuickTableViewPrivate::setModelImpl(const QVariant &newModel)
 
 void QQuickTableViewPrivate::syncModel()
 {
-    if (modelVariant == assignedModel)
+    if (compareModel(modelVariant, assignedModel))
         return;
 
     if (model) {
@@ -4508,6 +4590,13 @@ void QQuickTableViewPrivate::modelResetCallback()
     Q_Q(QQuickTableView);
     q->closeEditor();
     scheduleRebuildTable(RebuildOption::All);
+}
+
+bool QQuickTableViewPrivate::compareModel(const QVariant& model1, const QVariant& model2) const
+{
+    return (model1 == model2 ||
+            (model1.userType() == qMetaTypeId<QJSValue>() && model2.userType() == qMetaTypeId<QJSValue>() &&
+                                 model1.value<QJSValue>().strictlyEquals(model2.value<QJSValue>())));
 }
 
 void QQuickTableViewPrivate::positionViewAtRow(int row, Qt::Alignment alignment, qreal offset, const QRectF subRect)
@@ -4943,7 +5032,7 @@ bool QQuickTableViewPrivate::setCurrentIndexFromKeyEvent(QKeyEvent *e)
         return false;
     }
 
-    auto beginMoveCurrentIndex = [=](){
+    auto beginMoveCurrentIndex = [&](){
         if (!select) {
             clearSelection();
         } else if (selectionRectangle().isEmpty()) {
@@ -4955,7 +5044,7 @@ bool QQuickTableViewPrivate::setCurrentIndexFromKeyEvent(QKeyEvent *e)
         }
     };
 
-    auto endMoveCurrentIndex = [=](const QPoint &cell){
+    auto endMoveCurrentIndex = [&](const QPoint &cell){
         if (select) {
             if (polishScheduled)
                 forceLayout(true);
@@ -5373,12 +5462,13 @@ QVariant QQuickTableView::model() const
 void QQuickTableView::setModel(const QVariant &newModel)
 {
     Q_D(QQuickTableView);
+    if (d->compareModel(newModel, d->assignedModel))
+        return;
 
     closeEditor();
     d->setModelImpl(newModel);
-
     if (d->selectionModel)
-        d->selectionModel->setModel(d->qaim(newModel));
+        d->selectionModel->setModel(d->selectionSourceModel());
 }
 
 QQmlComponent *QQuickTableView::delegate() const
@@ -5545,7 +5635,7 @@ void QQuickTableView::setSelectionModel(QItemSelectionModel *selectionModel)
     d->selectionModel = selectionModel;
 
     if (d->selectionModel) {
-        d->selectionModel->setModel(d->qaim(d->modelImpl()));
+        d->selectionModel->setModel(d->selectionSourceModel());
         QQuickTableViewPrivate::connect(d->selectionModel, &QItemSelectionModel::selectionChanged,
                                         d, &QQuickTableViewPrivate::selectionChangedInSelectionModel);
         QQuickTableViewPrivate::connect(d->selectionModel, &QItemSelectionModel::currentChanged,
@@ -6427,6 +6517,21 @@ void QQuickTableView::setSelectionBehavior(SelectionBehavior selectionBehavior)
     emit selectionBehaviorChanged();
 }
 
+QQuickTableView::SelectionMode QQuickTableView::selectionMode() const
+{
+    return d_func()->selectionMode;
+}
+
+void QQuickTableView::setSelectionMode(SelectionMode selectionMode)
+{
+    Q_D(QQuickTableView);
+    if (d->selectionMode == selectionMode)
+        return;
+
+    d->selectionMode = selectionMode;
+    emit selectionModeChanged();
+}
+
 bool QQuickTableView::resizableColumns() const
 {
     return d_func()->resizableColumns;
@@ -6552,6 +6657,10 @@ void QQuickTableViewResizeHandler::onGrabChanged(QQuickPointerHandler *grabber
 bool QQuickTableViewResizeHandler::wantsEventPoint(const QPointerEvent *event, const QEventPoint &point)
 {
     if (!QQuickSinglePointHandler::wantsEventPoint(event, point))
+        return false;
+
+    // If we have a mouse wheel event then we do not want to do anything related to resizing.
+    if (event->type() == QEvent::Type::Wheel)
         return false;
 
     // When the user is flicking, we disable resizing, so that

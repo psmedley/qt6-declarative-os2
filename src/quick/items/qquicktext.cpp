@@ -204,7 +204,7 @@ void QQuickTextPrivate::setBottomPadding(qreal value, bool reset)
     Used to decide if the Text should use antialiasing or not. Only Text
     with renderType of Text.NativeRendering can disable antialiasing.
 
-    The default is true.
+    The default is \c true.
 */
 
 void QQuickText::q_updateLayout()
@@ -1301,8 +1301,8 @@ void QQuickTextPrivate::updateDocumentText()
     \inherits Item
     \brief Specifies how to add formatted text to a scene.
 
-    Text items can display both plain and rich text. For example, red text with
-    a specific font and size can be defined like this:
+    Text items can display both plain and rich text. For example, you can define
+    red text with a specific font and size like this:
 
     \qml
     Text {
@@ -1313,25 +1313,47 @@ void QQuickTextPrivate::updateDocumentText()
     }
     \endqml
 
-    Rich text is defined using HTML-style markup:
+    Use HTML-style markup or Markdown to define rich text:
 
+    \if defined(onlinedocs)
+      \tab {build-qt-app}{tab-html}{HTML-style}{checked}
+      \tab {build-qt-app}{tab-md}{Markdown}{}
+      \tabcontent {tab-html}
+    \else
+      \section1 Using HTML-style
+    \endif
     \qml
     Text {
         text: "<b>Hello</b> <i>World!</i>"
     }
     \endqml
+    \if defined(onlinedocs)
+      \endtabcontent
+      \tabcontent {tab-md}
+    \else
+      \section1 Using Markdown
+    \endif
+    \qml
+    Text {
+        text: "**Hello** *World!*"
+    }
+    \endqml
+    \if defined(onlinedocs)
+      \endtabcontent
+    \endif
 
     \image declarative-text.png
 
-    If height and width are not explicitly set, Text will attempt to determine how
-    much room is needed and set it accordingly. Unless \l wrapMode is set, it will always
-    prefer width to height (all text will be placed on a single line).
+    If height and width are not explicitly set, Text will try to determine how
+    much room is needed and set it accordingly. Unless \l wrapMode is set, it
+    will always prefer width to height (all text will be placed on a single
+    line).
 
-    The \l elide property can alternatively be used to fit a single line of
-    plain text to a set width.
+    To fit a single line of plain text to a set width, you can use the \l elide
+    property.
 
-    Note that the \l{Supported HTML Subset} is limited. Also, if the text contains
-    HTML img tags that load remote images, the text is reloaded.
+    Note that the \l{Supported HTML Subset} is limited. Also, if the text
+    contains HTML img tags that load remote images, the text is reloaded.
 
     Text provides read-only text. For editable text, see \l TextEdit.
 
@@ -1359,7 +1381,7 @@ QQuickText::~QQuickText()
   \qmlproperty bool QtQuick::Text::clip
   This property holds whether the text is clipped.
 
-  Note that if the text does not fit in the bounding rectangle it will be abruptly chopped.
+  Note that if the text does not fit in the bounding rectangle, it will be abruptly chopped.
 
   If you want to display potentially long text in a limited space, you probably want to use \c elide instead.
 */
@@ -1448,7 +1470,8 @@ QQuickText::~QQuickText()
 
     Sets the family name of the font.
 
-    The family name is case insensitive and may optionally include a foundry name, e.g. "Helvetica [Cronyx]".
+    The family name is case insensitive and may optionally include a foundry
+    name, for example "Helvetica [Cronyx]".
     If the family is available from more than one foundry and the foundry isn't specified, an arbitrary foundry is chosen.
     If the family isn't available a family will be set using the font matching algorithm.
 */
@@ -1572,7 +1595,7 @@ QQuickText::~QQuickText()
     \value Font.PreferDefaultHinting    Use the default hinting level for the target platform.
     \value Font.PreferNoHinting         If possible, render text without hinting the outlines
            of the glyphs. The text layout will be typographically accurate, using the same metrics
-           as are used e.g. when printing.
+           as are used, for example, when printing.
     \value Font.PreferVerticalHinting   If possible, render text with no horizontal hinting,
            but align glyphs to the pixel grid in the vertical direction. The text will appear
            crisper on displays where the density is too low to give an accurate rendering
@@ -1609,7 +1632,7 @@ QQuickText::~QQuickText()
 
     Sometimes, a font will apply complex rules to a set of characters in order to
     display them correctly. In some writing systems, such as Brahmic scripts, this is
-    required in order for the text to be legible, but in e.g. Latin script, it is merely
+    required in order for the text to be legible, but in for example Latin script, it is merely
     a cosmetic feature. Setting the \c preferShaping property to false will disable all
     such features when they are not required, which will improve performance in most cases.
 
@@ -1618,6 +1641,74 @@ QQuickText::~QQuickText()
     \qml
     Text { text: "Some text"; font.preferShaping: false }
     \endqml
+*/
+
+/*!
+    \qmlproperty object QtQuick::Text::font.features
+    \since 6.6
+
+//! [qml-font-features]
+    Applies integer values to specific OpenType features when shaping the text based on the contents
+    in \a features. This provides advanced access to the font shaping process, and can be used
+    to support font features that are otherwise not covered in the API.
+
+    The font features are represented by a map from four-letter tags to integer values. This integer
+    value passed along with the tag in most cases represents a boolean value: A zero value means the
+    feature is disabled, and a non-zero value means it is enabled. For certain font features,
+    however, it may have other interpretations. For example, when applied to the \c salt feature, the
+    value is an index that specifies the stylistic alternative to use.
+
+    For example, the \c frac font feature will convert diagonal fractions separated with a slash
+    (such as \c 1/2) with a different representation. Typically this will involve baking the full
+    fraction into a single character width (such as \c ½).
+
+    If a font supports the \c frac feature, then it can be enabled in the shaper as in the following
+    code:
+
+    \qml
+    Text {
+        text: "One divided by two is 1/2"
+        font.family: "MyFractionFont"
+        font.features: { "frac": 1 }
+    }
+    \endqml
+
+    Multiple features can be assigned values in the same mapping. For instance,
+    if you would like to also disable kerning for the font, you can explicitly
+    disable this as follows:
+
+    \qml
+    Text {
+        text: "One divided by two is 1/2"
+        font.family: "MyFractionFont"
+        font.features: { "frac": 1, "kern": 0 }
+    }
+    \endqml
+
+    You can also collect the font properties in an object:
+
+    \qml
+    Text {
+        text: "One divided by two is 1/2"
+        font: {
+            family: "MyFractionFont"
+            features: { "frac": 1, "kern": 0 }
+        }
+    }
+    \endqml
+
+    \note By default, Qt will enable and disable certain font features based on other font
+    properties. In particular, the \c kern feature will be enabled/disabled depending on the
+    \l font.kerning property of the QFont. In addition, all ligature features (\c liga, \c clig,
+    \c dlig, \c hlig) will be disabled if a \l font.letterSpacing is set, but only for writing
+    systems where the use of ligature is cosmetic. For writing systems where ligatures are required,
+    the features will remain in their default state. The values set using \c font.features will
+    override the default behavior. If, for instance, \c{"kern"} is set to 1, then kerning will
+    always be enabled, regardless of whether the \l font.kerning property is set to false. Similarly,
+    if it is set to \c 0, it will always be disabled.
+
+    \sa QFont::setFeature()
+//! [qml-font-features]
 */
 QFont QQuickText::font() const
 {
@@ -2139,7 +2230,7 @@ void QQuickText::resetMaximumLineCount()
                                 \l {https://guides.github.com/features/mastering-markdown/}{GitHub}
                                 extensions for tables and task lists (since 5.14)
 
-    If the text format is \c Text.AutoText the Text item
+    If the text format is \c Text.AutoText, the Text item
     will automatically determine whether the text should be treated as
     styled text.  This determination is made using Qt::mightBeRichText(),
     which can detect the presence of an HTML tag on the first line of text,
@@ -2184,7 +2275,6 @@ void QQuickText::resetMaximumLineCount()
     \list
     \li code blocks use the \l {QFontDatabase::FixedFont}{default monospace font} but without a surrounding highlight box
     \li block quotes are indented, but there is no vertical line alongside the quote
-    \li horizontal rules are not rendered
     \endlist
 */
 QQuickText::TextFormat QQuickText::textFormat() const
@@ -2268,7 +2358,7 @@ void QQuickText::setElideMode(QQuickText::TextElideMode mode)
 /*!
     \qmlproperty url QtQuick::Text::baseUrl
 
-    This property specifies a base URL which is used to resolve relative URLs
+    This property specifies a base URL that is used to resolve relative URLs
     within the text.
 
     Urls are resolved to be within the same directory as the target of the base
@@ -2560,7 +2650,7 @@ void QQuickText::updatePolish()
     \qmlproperty real QtQuick::Text::contentWidth
 
     Returns the width of the text, including width past the width
-    which is covered due to insufficient wrapping if WrapMode is set.
+    that is covered due to insufficient wrapping if WrapMode is set.
 */
 qreal QQuickText::contentWidth() const
 {
@@ -2572,7 +2662,7 @@ qreal QQuickText::contentWidth() const
     \qmlproperty real QtQuick::Text::contentHeight
 
     Returns the height of the text, including height past the height
-    which is covered due to there being more text than fits in the set height.
+    that is covered due to there being more text than fits in the set height.
 */
 qreal QQuickText::contentHeight() const
 {
@@ -2983,7 +3073,7 @@ void QQuickText::invalidate()
 {
     Q_D(QQuickText);
     d->textHasChanged = true;
-    d->updateLayout();
+    QMetaObject::invokeMethod(this,[&]{q_updateLayout();});
 }
 
 bool QQuickTextPrivate::transformChanged(QQuickItem *transformedItem)
@@ -3310,7 +3400,7 @@ void QQuickText::resetBottomPadding()
 */
 
 /*!
-    \qmlproperty string QtQuick::Text::fontInfo.pixelSize
+    \qmlproperty int QtQuick::Text::fontInfo.pixelSize
     \since 5.9
 
     The pixel size of the font info that has been resolved for the current font
@@ -3347,7 +3437,7 @@ QJSValue QQuickText::fontInfo() const
     in a text flow.
 
     Note that the advance can be negative if the text flows from
-    the right to the left.
+    right to left.
 */
 QSizeF QQuickText::advance() const
 {

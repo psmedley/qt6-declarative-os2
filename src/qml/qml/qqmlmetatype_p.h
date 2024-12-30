@@ -143,6 +143,8 @@ public:
     static QQmlType qmlListType(QMetaType metaType);
 
     static QQmlType qmlType(const QUrl &unNormalizedUrl, bool includeNonFileImports = false);
+    static QQmlType inlineComponentType(const QQmlType &containingType, const QString &name);
+    static void associateInlineComponent(const QQmlType &containingType, const QString &name, const CompositeMetaTypeIds &metaTypeIds, QQmlType existingType);
 
     static QQmlPropertyCache::ConstPtr propertyCache(
             QObject *object, QTypeRevision version = QTypeRevision());
@@ -185,10 +187,13 @@ public:
     enum class CachedUnitLookupError {
         NoError,
         NoUnitFound,
-        VersionMismatch
+        VersionMismatch,
+        NotFullyTyped
     };
 
-    static const QQmlPrivate::CachedQmlUnit *findCachedCompilationUnit(const QUrl &uri, CachedUnitLookupError *status);
+    enum CacheMode { RejectAll, AcceptUntyped, RequireFullyTyped };
+    static const QQmlPrivate::CachedQmlUnit *findCachedCompilationUnit(
+            const QUrl &uri, CacheMode mode, CachedUnitLookupError *status);
 
     // used by tst_qqmlcachegen.cpp
     static void prependCachedUnitLookupFunction(QQmlPrivate::QmlUnitCacheLookupFunction handler);
@@ -209,6 +214,20 @@ public:
                 ++it;
         }
     }
+
+    template <typename InlineComponentContainer>
+    static void removeFromInlineComponents(
+        InlineComponentContainer &container, const QQmlTypePrivate *reference)
+    {
+        for (auto it = container.begin(), end = container.end(); it != end;) {
+            if (it.key().containingType == reference)
+                it = container.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    static void registerTypeAlias(int typeId, const QString &name);
 
     static int registerAutoParentFunction(const QQmlPrivate::RegisterAutoParent &autoparent);
     static void unregisterAutoParentFunction(const QQmlPrivate::AutoParentFunction &function);
@@ -240,26 +259,6 @@ public:
     static bool isValueType(QMetaType type);
     static QQmlValueType *valueType(QMetaType metaType);
     static const QMetaObject *metaObjectForValueType(QMetaType type);
-    static const QMetaObject *metaObjectForValueType(const QQmlType &qmlType)
-    {
-        // Prefer the extension meta object, if any.
-        // Extensions allow registration of non-gadget value types.
-        if (const QMetaObject *extensionMetaObject = qmlType.extensionMetaObject()) {
-            // This may be a namespace even if the original metaType isn't.
-            // You can do such things with QML_FOREIGN declarations.
-            if (extensionMetaObject->metaType().flags() & QMetaType::IsGadget)
-                return extensionMetaObject;
-        }
-
-        if (const QMetaObject *qmlTypeMetaObject = qmlType.metaObject()) {
-            // This may be a namespace even if the original metaType isn't.
-            // You can do such things with QML_FOREIGN declarations.
-            if (qmlTypeMetaObject->metaType().flags() & QMetaType::IsGadget)
-                return qmlTypeMetaObject;
-        }
-
-        return nullptr;
-    }
 
     static QQmlPropertyCache::ConstPtr findPropertyCacheInCompositeTypes(QMetaType t);
     static void registerInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);

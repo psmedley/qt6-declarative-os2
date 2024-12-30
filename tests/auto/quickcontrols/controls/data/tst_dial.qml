@@ -27,10 +27,13 @@ TestCase {
         SignalSpy {}
     }
 
-    function test_instance() {
+    function init() {
+        // Fail on any warning that we don't expect.
         failOnWarning(/.?/)
+    }
 
-        var dial = createTemporaryObject(dialComponent, testCase);
+    function test_instance() {
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
         compare(dial.value, 0.0);
         compare(dial.from, 0.0);
@@ -41,7 +44,7 @@ TestCase {
     }
 
     function test_value() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
         compare(dial.value, 0.0);
 
@@ -59,7 +62,7 @@ TestCase {
     }
 
     function test_range() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
         dial.from = 0;
@@ -94,7 +97,7 @@ TestCase {
     }
 
     function test_inverted() {
-        var dial = createTemporaryObject(dialComponent, testCase, { from: 1.0, to: -1.0 });
+        let dial = createTemporaryObject(dialComponent, testCase, { from: 1.0, to: -1.0 });
         verify(dial);
         compare(dial.from, 1.0);
         compare(dial.to, -1.0);
@@ -120,7 +123,7 @@ TestCase {
     }
 
     function test_pressed() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
         pressSpy.target = dial;
@@ -135,7 +138,7 @@ TestCase {
         verify(!dial.pressed);
         compare(pressSpy.count, 2);
 
-        var touch = touchEvent(dial);
+        let touch = touchEvent(dial);
         touch.press(0).commit();
         verify(dial.pressed);
         compare(pressSpy.count, 3);
@@ -160,7 +163,7 @@ TestCase {
     }
 
     function test_dragging(data) {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
         dial.wrap = true;
@@ -172,10 +175,10 @@ TestCase {
         valueSpy.target = dial;
         verify(valueSpy.valid);
 
-        var moveSpy = createTemporaryObject(signalSpy, testCase, {target: dial, signalName: "moved"});
+        let moveSpy = createTemporaryObject(signalSpy, testCase, {target: dial, signalName: "moved"});
         verify(moveSpy.valid);
 
-        var minimumExpectedValueCount = data.live ? 2 : 1;
+        let minimumExpectedValueCount = data.live ? 2 : 1;
 
         // drag to the left
         // we always add or subtract 1 to ensure we start the drag from the opposite side
@@ -217,55 +220,56 @@ TestCase {
     }
 
     function test_nonWrapping() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
         compare(dial.wrap, false);
         dial.value = 0;
 
         // Ensure that dragging from bottom left to bottom right doesn't work.
-        var yPos = dial.height * 0.75;
+        let yPos = dial.height * 0.75;
         mousePress(dial, dial.width * 0.25, yPos, Qt.LeftButton);
-        var positionAtPress = dial.position;
+        let positionAtPress = dial.position;
         mouseMove(dial, dial.width * 0.5, yPos);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
         mouseMove(dial, dial.width * 0.75, yPos);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
         mouseRelease(dial, dial.width * 0.75, yPos, Qt.LeftButton);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
 
         // Try the same thing, but a bit higher.
         yPos = dial.height * 0.6;
         mousePress(dial, dial.width * 0.25, yPos, Qt.LeftButton);
         positionAtPress = dial.position;
         mouseMove(dial, dial.width * 0.5, yPos);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
         mouseMove(dial, dial.width * 0.75, yPos);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
         mouseRelease(dial, dial.width * 0.75, yPos, Qt.LeftButton);
-        compare(dial.position, positionAtPress);
+        verify(dial.position < positionAtPress);
 
         // Going from below the center of the dial to above it should work (once it gets above the center).
         mousePress(dial, dial.width * 0.25, dial.height * 0.75, Qt.LeftButton);
         positionAtPress = dial.position;
         mouseMove(dial, dial.width * 0.5, dial.height * 0.6);
-        compare(dial.position, positionAtPress);
-        mouseMove(dial, dial.width * 0.75, dial.height * 0.4);
+        verify(dial.position < positionAtPress);
+        mouseMove(dial, dial.width * 0.5, dial.height * 0.4); //move over the top
+        mouseMove(dial, dial.width * 0.75, dial.height * 0.6); //and back down again
         verify(dial.position > positionAtPress);
         mouseRelease(dial, dial.width * 0.75, dial.height * 0.3, Qt.LeftButton);
         verify(dial.position > positionAtPress);
     }
 
     function test_touch() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
-        var touch = touchEvent(dial);
+        let touch = touchEvent(dial);
 
         // Ensure that dragging from bottom left to bottom right doesn't work.
-        var yPos = dial.height * 0.75;
+        let yPos = dial.height * 0.75;
         touch.press(0, dial, dial.width * 0.25, yPos).commit();
-        var positionAtPress = dial.position;
+        let positionAtPress = dial.position;
         touch.move(0, dial, dial.width * 0.5, yPos).commit();
         compare(dial.position, positionAtPress);
         touch.move(0, dial, dial.width * 0.75, yPos).commit();
@@ -289,22 +293,23 @@ TestCase {
         positionAtPress = dial.position;
         touch.move(0, dial, dial.width * 0.5, dial.height * 0.6).commit();
         compare(dial.position, positionAtPress);
-        touch.move(0, dial, dial.width * 0.75, dial.height * 0.4).commit();
+        touch.move(0, dial, dial.width * 0.5, dial.height * 0.4).commit(); //move over the top
+        touch.move(0, dial, dial.width * 0.75, dial.height * 0.6).commit(); //and back down again
         verify(dial.position > positionAtPress);
         touch.release(0, dial, dial.width * 0.75, dial.height * 0.3).commit();
         verify(dial.position > positionAtPress);
     }
 
     function test_multiTouch() {
-        var dial1 = createTemporaryObject(dialComponent, testCase);
+        let dial1 = createTemporaryObject(dialComponent, testCase);
         verify(dial1);
 
-        var touch = touchEvent(dial1);
+        let touch = touchEvent(dial1);
         touch.press(0, dial1).commit().move(0, dial1, dial1.width / 4, dial1.height / 4).commit();
         compare(dial1.pressed, true);
         verify(dial1.position > 0.0);
 
-        var pos1Before = dial1.position;
+        let pos1Before = dial1.position;
 
         // second touch point on the same control is ignored
         touch.stationary(0).press(1, dial1, 0, 0).commit()
@@ -313,7 +318,7 @@ TestCase {
         compare(dial1.pressed, true);
         compare(dial1.position, pos1Before);
 
-        var dial2 = createTemporaryObject(dialComponent, testCase, {y: dial1.height});
+        let dial2 = createTemporaryObject(dialComponent, testCase, {y: dial1.height});
         verify(dial2);
 
         // press the second dial
@@ -322,7 +327,7 @@ TestCase {
         compare(dial2.position, 0.0);
 
         pos1Before = dial1.position;
-        var pos2Before = dial2.position;
+        let pos2Before = dial2.position;
 
         // move both dials
         touch.move(0, dial1).move(2, dial2, dial2.width / 4, dial2.height / 4).commit();
@@ -354,19 +359,19 @@ TestCase {
     }
 
     function test_keyboardNavigation() {
-        var dial = createTemporaryObject(dialComponent, testCase);
+        let dial = createTemporaryObject(dialComponent, testCase);
         verify(dial);
 
-        var focusScope = createTemporaryObject(focusTest, testCase);
+        let focusScope = createTemporaryObject(focusTest, testCase);
         verify(focusScope);
 
-        var moveCount = 0;
+        let moveCount = 0;
 
         // Tests that we've accepted events that we're interested in.
         parentEventSpy.target = focusScope;
         parentEventSpy.signalName = "receivedKeyPress";
 
-        var moveSpy = createTemporaryObject(signalSpy, testCase, {target: dial, signalName: "moved"});
+        let moveSpy = createTemporaryObject(signalSpy, testCase, {target: dial, signalName: "moved"});
         verify(moveSpy.valid);
 
         dial.parent = focusScope;
@@ -382,10 +387,10 @@ TestCase {
         compare(moveSpy.count, moveCount);
         compare(dial.value, 0);
 
-        var oldValue = 0.0;
-        var keyPairs = [[Qt.Key_Left, Qt.Key_Right], [Qt.Key_Down, Qt.Key_Up]];
-        for (var keyPairIndex = 0; keyPairIndex < 2; ++keyPairIndex) {
-            for (var i = 1; i <= 10; ++i) {
+        let oldValue = 0.0;
+        let keyPairs = [[Qt.Key_Left, Qt.Key_Right], [Qt.Key_Down, Qt.Key_Up]];
+        for (let keyPairIndex = 0; keyPairIndex < 2; ++keyPairIndex) {
+            for (let i = 1; i <= 10; ++i) {
                 oldValue = dial.value;
                 keyClick(keyPairs[keyPairIndex][1]);
                 compare(parentEventSpy.count, 0);
@@ -396,7 +401,7 @@ TestCase {
 
             compare(dial.value, dial.to);
 
-            for (i = 10; i > 0; --i) {
+            for (let i = 10; i > 0; --i) {
                 oldValue = dial.value;
                 keyClick(keyPairs[keyPairIndex][0]);
                 compare(parentEventSpy.count, 0);
@@ -434,7 +439,7 @@ TestCase {
             { tag: "NoSnap", snapMode: Dial.NoSnap, from: 0, to: 2, values: [0, 0, 1], positions: [0, 0.5, 0.5] },
             { tag: "SnapAlways (0..2)", snapMode: Dial.SnapAlways, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
             { tag: "SnapAlways (1..3)", snapMode: Dial.SnapAlways, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapAlways (-1..1)", snapMode: Dial.SnapAlways, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [0.5, 0.5, 0.5] },
+            { tag: "SnapAlways (-1..1)", snapMode: Dial.SnapAlways, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [immediate ? 0.0 : 0.5, 0.5, 0.5] },
             { tag: "SnapAlways (1..-1)", snapMode: Dial.SnapAlways, from: 1, to: -1, values: [1.0, 1.0, 0.0], positions: [0.0, 0.5, 0.5] },
             { tag: "SnapOnRelease (0..2)", snapMode: Dial.SnapOnRelease, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
             { tag: "SnapOnRelease (1..3)", snapMode: Dial.SnapOnRelease, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
@@ -448,7 +453,7 @@ TestCase {
     }
 
     function test_snapMode_mouse(data) {
-        var dial = createTemporaryObject(dialComponent, testCase, {live: false});
+        let dial = createTemporaryObject(dialComponent, testCase, {live: false});
         verify(dial);
 
         dial.snapMode = data.snapMode;
@@ -456,7 +461,7 @@ TestCase {
         dial.to = data.to;
         dial.stepSize = 0.2;
 
-        var fuzz = 0.055;
+        let fuzz = 0.055;
 
         mousePress(dial, dial.width * 0.25, dial.height * 0.75);
         fuzzyCompare(dial.value, data.values[0], fuzz);
@@ -476,7 +481,7 @@ TestCase {
     }
 
     function test_snapMode_touch(data) {
-        var dial = createTemporaryObject(dialComponent, testCase, {live: false});
+        let dial = createTemporaryObject(dialComponent, testCase, {live: false});
         verify(dial);
 
         dial.snapMode = data.snapMode;
@@ -484,9 +489,9 @@ TestCase {
         dial.to = data.to;
         dial.stepSize = 0.2;
 
-        var fuzz = 0.05;
+        let fuzz = 0.05;
 
-        var touch = touchEvent(dial);
+        let touch = touchEvent(dial);
         touch.press(0, dial, dial.width * 0.25, dial.height * 0.75).commit()
         compare(dial.value, data.values[0]);
         compare(dial.position, data.positions[0]);
@@ -502,13 +507,13 @@ TestCase {
 
     function test_wheel_data() {
         return [
-            { tag: "horizontal", orientation: Qt.Horizontal, dx: 120, dy: 0 },
-            { tag: "vertical", orientation: Qt.Vertical, dx: 0, dy: 120 }
+            { tag: "horizontal", dx: 120, dy: 0 },
+            { tag: "vertical", dx: 0, dy: 120 }
         ]
     }
 
     function test_wheel(data) {
-        var control = createTemporaryObject(dialComponent, testCase, {wheelEnabled: true, orientation: data.orientation})
+        let control = createTemporaryObject(dialComponent, testCase, {wheelEnabled: true})
         verify(control)
 
         compare(control.value, 0.0)
@@ -546,7 +551,7 @@ TestCase {
     }
 
     function test_nullHandle() {
-        var control = createTemporaryObject(dialComponent, testCase)
+        let control = createTemporaryObject(dialComponent, testCase)
         verify(control)
 
         control.handle = null
@@ -562,7 +567,7 @@ TestCase {
         if (inputEventType === "mouseInput") {
             mouseMove(control, x, y);
         } else {
-            var touch = touchEvent(control);
+            let touch = touchEvent(control);
             touch.move(0, control, x, y).commit();
         }
     }
@@ -571,7 +576,7 @@ TestCase {
         if (inputEventType === "mouseInput") {
             mousePress(control, x, y);
         } else {
-            var touch = touchEvent(control);
+            let touch = touchEvent(control);
             touch.press(0, control, x, y).commit();
         }
     }
@@ -580,13 +585,13 @@ TestCase {
         if (inputEventType === "mouseInput") {
             mouseRelease(control, x, y);
         } else {
-            var touch = touchEvent(control);
+            let touch = touchEvent(control);
             touch.release(0, control, x, y).commit();
         }
     }
 
     function test_horizontalAndVertical_data() {
-        var data = [
+        let data = [
             { eventType: "mouseInput", inputMode: Dial.Vertical, moveToX: 0.5, moveToY: 0.25, expectedPosition: 0.125 },
             // Horizontal movement should have no effect on a vertical dial.
             { eventType: "mouseInput", inputMode: Dial.Vertical, moveToX: 2.0, moveToY: 0.25, expectedPosition: 0.125 },
@@ -612,15 +617,15 @@ TestCase {
         ];
 
         // Do the same tests for touch by copying the mouse tests and adding them to the end of the array.
-        var mouseTestCount = data.length;
-        for (var i = mouseTestCount; i < mouseTestCount * 2; ++i) {
+        let mouseTestCount = data.length;
+        for (let i = mouseTestCount; i < mouseTestCount * 2; ++i) {
             // Shallow-copy the object.
             data[i] = JSON.parse(JSON.stringify(data[i - mouseTestCount]));
             data[i].eventType = "touchInput";
         }
 
-        for (i = 0; i < data.length; ++i) {
-            var row = data[i];
+        for (let i = 0; i < data.length; ++i) {
+            let row = data[i];
             row.tag = "eventType=" + row.eventType + ", "
                     + "inputMode=" + (row.inputMode === Dial.Vertical ? "Vertical" : "Horizontal") + ", "
                     + "moveToX=" + row.moveToX + ", moveToY=" + row.moveToY + ", "
@@ -631,7 +636,7 @@ TestCase {
     }
 
     function test_horizontalAndVertical(data) {
-        var control = createTemporaryObject(dialComponent, testCase, { inputMode: data.inputMode });
+        let control = createTemporaryObject(dialComponent, testCase, { inputMode: data.inputMode });
         verify(control);
 
         press(data.eventType, control);
@@ -648,7 +653,7 @@ TestCase {
     }
 
     function test_integerStepping() {
-        var dial = createTemporaryObject(dialComponent, testCase)
+        let dial = createTemporaryObject(dialComponent, testCase)
         verify(dial)
 
         dial.from = 1
@@ -659,6 +664,166 @@ TestCase {
             // compare as strings to avoid a fuzzy compare; we want an exact match
             compare(""+dial.value, ""+1)
             keyClick(Qt.Key_Right)
+        }
+    }
+
+    function test_startEndAngle_data() {
+        return [
+            {
+                tag: "Default wrap", startAngle: -140, endAngle: 140, from: 0, to: 1, wrap: true,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49, 0.51],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99, 0.99],
+                values: [0.0, 0.5-0.32, 0.5, 0.5+0.32, 1.0, 0.0, 1.0], //140/90*0.5 = 0.32
+                angles: [-140.0, -90.0, 0.0, 90.0, 140.0, -140.0, 140.0],
+                wrapClockwise: 1,
+                wrapCounterClockwise: 1
+            },
+            {
+                tag: "-30..30 wrap", startAngle: -30, endAngle: 30, from: 0, to: 1, wrap: true,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49, 0.51],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99, 0.99],
+                values: [0.0, 0.0, 0.5, 1.0, 1.0, 0.0, 1.0],
+                angles: [-30.0, -30.0, 0.0, 30.0, 30.0, -30.0, 30.0],
+                wrapClockwise: 0, //no wrap if angle < 180
+                wrapCounterClockwise: 0
+            },
+            {
+                tag: "-180..180 wrap", startAngle: -180, endAngle: 180, from: 0, to: 1, wrap: true,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49, 0.51],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99, 0.99],
+                values: [0.0, 0.25, 0.5, 0.75, 1.0, 0.0, 1.0],
+                angles: [-180.0, -90.0, 0.0, 90.0, 180.0, -180.0, 180.0],
+                wrapClockwise: 1,
+                wrapCounterClockwise: 1
+            },
+            {
+                tag: "90..360 wrap", startAngle: 90, endAngle: 360, from: 0, to: 1, wrap: true,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49, 0.5],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99, 0.01],
+                values: [0.33, 0.66, 1.0, 0.0, 0.33, 0.33, 1.0],
+                angles: [180.0, 270.0, 360.0, 90.0, 180.0, 180.0, 360.0],
+                wrapClockwise: 1,
+                wrapCounterClockwise: 1
+            },
+            {
+                tag: "90..450 wrap", startAngle: 90, endAngle: 450, from: 0, to: 1, wrap: true,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.75, 0.51, 0.49, 0.75, 0.75],
+                y:      [0.99, 0.5, 0.01, 0.49, 0.501, 0.99, 0.99, 0.49, 0.501],
+                values: [0.25, 0.5, 0.75, 1.0, 0.0, 0.25, 0.25, 1.0, 0.0],
+                angles: [180.0, 270.0, 360.0, 450.0, 90.0, 180.0, 180.0, 450.0, 90.0],
+                wrapClockwise: 2,
+                wrapCounterClockwise: 1
+            },
+            {
+                tag: "Default nowrap", startAngle: -140, endAngle: 140, from: 0, to: 1, wrap: false,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99],
+                values: [0.0, 0.5-0.32, 0.5, 0.5+0.32, 1.0, 1.0], //140/90*0.5 = 0.32
+                angles: [-140.0, -90.0, 0.0, 90.0, 140.0, 140.0],
+                wrapClockwise: 0,
+                wrapCounterClockwise: 0
+            },
+            {
+                tag: "-30..30 nowrap", startAngle: -30, endAngle: 30, from: 0, to: 1, wrap: false,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99],
+                values: [0.0, 0.0, 0.5, 1.0, 1.0, 1.0],
+                angles: [-30.0, -30.0, 0.0, 30.0, 30.0, 30.0],
+                wrapClockwise: 0,
+                wrapCounterClockwise: 0
+            },
+            {
+                tag: "-180..180 nowrap", startAngle: -180, endAngle: 180, from: 0, to: 1, wrap: false,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99],
+                values: [0.0, 0.25, 0.5, 0.75, 1.0, 1.0],
+                angles: [-180.0, -90.0, 0.0, 90.0, 180.0, 180.0],
+                wrapClockwise: 0,
+                wrapCounterClockwise: 0
+            },
+            {
+                tag: "90..360 nowrap", startAngle: 90, endAngle: 360, from: 0, to: 1, wrap: false,
+                x:      [0.49, 0.25, 0.5, 0.75, 0.51, 0.49],
+                y:      [0.99, 0.5, 0.01, 0.5, 0.99, 0.99],
+                values: [0.33, 0.66, 1.0, 1.0, 1.0, 1.0],
+                angles: [180.0, 270.0, 360.0, 360.0, 360.0, 360.0],
+                wrapClockwise: 0,
+                wrapCounterClockwise: 0
+            }
+        ]
+    }
+
+    function test_startEndAngle(data) {
+        let dial = createTemporaryObject(dialComponent, testCase)
+        verify(dial)
+
+        dial.startAngle = data.startAngle
+        dial.endAngle = data.endAngle
+        dial.from = data.from
+        dial.to = data.to
+        //Give a defined start in case wrap = true
+        dial.value = data.values[0]
+        dial.wrap = data.wrap
+
+        compare(dial.startAngle, data.startAngle)
+        compare(dial.endAngle, data.endAngle)
+
+        let wrappedSpy = signalSpy.createObject(dial, {target: dial, signalName: "wrapped"})
+        verify(wrappedSpy.valid)
+
+        for (let i = 0; i < data.x.length; i++) {
+            mousePress(dial, dial.width * data.x[i], dial.height * 0.5 + dial.width * ( data.y[i] - 0.5))
+            fuzzyCompare(dial.angle, data.angles[i], 3.0)
+            fuzzyCompare(dial.value, data.values[i], 0.1)
+        }
+
+        let clockwiseCount = 0
+        let counterClockwiseCount = 0
+        for (let i = 0; i < wrappedSpy.count; i++) {
+            if (wrappedSpy.signalArguments[i][0] == 0)
+                clockwiseCount++;
+            else
+                counterClockwiseCount++;
+        }
+
+        compare(clockwiseCount, data.wrapClockwise)
+        compare(counterClockwiseCount, data.wrapCounterClockwise)
+    }
+
+    function test_startEndAngleWarnings(data) {
+        let dial = createTemporaryObject(dialComponent, testCase)
+        verify(dial)
+
+        dial.startAngle = -180.
+        dial.endAngle = 180.
+
+        //provoke warning
+        ignoreWarning(new RegExp("Changing endAngle to avoid overlaps"))
+        dial.startAngle = -270.
+        dial.endAngle = 90.
+
+        compare(dial.startAngle, -270.)
+        compare(dial.endAngle, 90.)
+
+
+        dial.startAngle = -180.
+        dial.endAngle = 180.
+
+        //provoke warning
+        ignoreWarning(new RegExp("Changing startAngle to avoid overlaps"))
+        dial.endAngle = 270.
+        dial.startAngle = -90.
+
+        compare(dial.startAngle, -90.)
+        compare(dial.endAngle, 270.)
+
+        {
+            // Should not warn since we delay the setting of start and end angles to avoid
+            // binding order evaluation conflicts.
+            let dial = createTemporaryObject(dialComponent, testCase, { startAngle: -10, endAngle: 300 })
+            verify(dial)
+            compare(dial.startAngle, -10.)
+            compare(dial.endAngle, 300.)
         }
     }
 }

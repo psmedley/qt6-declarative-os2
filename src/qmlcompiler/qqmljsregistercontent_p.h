@@ -107,6 +107,11 @@ public:
         return std::get<ConvertedTypes>(m_content).result;
     }
 
+    QQmlJSScope::ConstPtr conversionResultScope() const
+    {
+        return std::get<ConvertedTypes>(m_content).resultScope;
+    }
+
     QList<QQmlJSScope::ConstPtr> conversionOrigins() const
     {
         return std::get<ConvertedTypes>(m_content).origins;
@@ -162,6 +167,7 @@ public:
     static QQmlJSRegisterContent create(const QQmlJSScope::ConstPtr &storedType,
                                         const QList<QQmlJSScope::ConstPtr> origins,
                                         const QQmlJSScope::ConstPtr &conversion,
+                                        const QQmlJSScope::ConstPtr &conversionScope,
                                         ContentVariant variant,
                                         const QQmlJSScope::ConstPtr &scope = {});
 
@@ -172,6 +178,14 @@ public:
         return result;
     }
 
+    QQmlJSRegisterContent castTo(const QQmlJSScope::ConstPtr &newContainedType) const
+    {
+        // This is not a conversion but a run time cast. It may result in null or undefined.
+        QQmlJSRegisterContent result = *this;
+        result.m_content = newContainedType;
+        return result;
+    }
+
 private:
     enum ContentKind { Type, Property, Enum, Method, ImportNamespace, Conversion };
 
@@ -179,15 +193,16 @@ private:
     {
         QList<QQmlJSScope::ConstPtr> origins;
         QQmlJSScope::ConstPtr result;
+        QQmlJSScope::ConstPtr resultScope;
 
         friend size_t qHash(const ConvertedTypes &types, size_t seed = 0)
         {
-            return qHashMulti(seed, types.origins, types.result);
+            return qHashMulti(seed, types.origins, types.result, types.resultScope);
         }
 
         friend bool operator==(const ConvertedTypes &a, const ConvertedTypes &b)
         {
-            return a.origins == b.origins && a.result == b.result;
+            return a.origins == b.origins && a.result == b.result && a.resultScope == b.resultScope;
         }
 
         friend bool operator!=(const ConvertedTypes &a, const ConvertedTypes &b)

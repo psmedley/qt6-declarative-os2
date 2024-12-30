@@ -60,6 +60,9 @@ private slots:
     void fetchMore_data();
     void fetchMore();
 
+    void changingOrientationResetsPreviousAxisValues_data();
+    void changingOrientationResetsPreviousAxisValues();
+
 private:
     void flickWithTouch(QQuickWindow *window, const QPoint &from, const QPoint &to);
     QScopedPointer<QPointingDevice> touchDevice = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
@@ -716,122 +719,122 @@ void tst_QQuickListView2::wheelSnap_data()
 
     QTest::newRow("vertical, top to bottom")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(20, -120) << 200.0 << 600.0 << 0.0 << 0.0
+            << QQuickItemView::NoHighlightRange << QPoint(20, -240) << 200.0 << 600.0 << 0.0 << 0.0
             << 0.0;
 
     QTest::newRow("vertical, bottom to top")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::NoHighlightRange << QPoint(20, 120) << -400.0 << -800.0 << -200.0
+            << QQuickItemView::NoHighlightRange << QPoint(20, 240) << -400.0 << -800.0 << -200.0
             << 0.0 << 0.0;
 
     QTest::newRow("horizontal, left to right")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(-120, 20) << 200.0 << 600.0 << 0.0 << 0.0
+            << QQuickItemView::NoHighlightRange << QPoint(-240, 20) << 200.0 << 600.0 << 0.0 << 0.0
             << 0.0;
 
     QTest::newRow("horizontal, right to left")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(120, 20) << -400.0 << -800.0 << -200.0
+            << QQuickItemView::NoHighlightRange << QPoint(240, 20) << -400.0 << -800.0 << -200.0
             << 0.0 << 0.0;
 
     QTest::newRow("vertical, top to bottom, enforce range")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(20, -120) << 200.0 << 600.0 << 0.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(20, -240) << 200.0 << 600.0 << 0.0
             << 0.0 << 0.0;
 
     QTest::newRow("vertical, bottom to top, enforce range")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::StrictlyEnforceRange << QPoint(20, 120) << -400.0 << -800.0 << -200.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(20, 240) << -400.0 << -800.0 << -200.0
             << 0.0 << 0.0;
 
     QTest::newRow("horizontal, left to right, enforce range")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(-120, 20) << 200.0 << 600.0 << 0.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(-240, 20) << 200.0 << 600.0 << 0.0
             << 0.0 << 0.0;
 
     QTest::newRow("horizontal, right to left, enforce range")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(120, 20) << -400.0 << -800.0 << -200.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(240, 20) << -400.0 << -800.0 << -200.0
             << 0.0 << 0.0;
 
     QTest::newRow("vertical, top to bottom, apply range")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(20, -120) << 200.0 << 600.0 << 0.0 << 0.0
+            << QQuickItemView::ApplyRange << QPoint(20, -240) << 200.0 << 600.0 << 0.0 << 0.0
             << 0.0;
 
     QTest::newRow("vertical, bottom to top, apply range")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::ApplyRange << QPoint(20, 120) << -400.0 << -800.0 << -200.0 << 0.0
+            << QQuickItemView::ApplyRange << QPoint(20, 240) << -400.0 << -800.0 << -200.0 << 0.0
             << 0.0;
 
     QTest::newRow("horizontal, left to right, apply range")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(-120, 20) << 200.0 << 600.0 << 0.0 << 0.0
+            << QQuickItemView::ApplyRange << QPoint(-240, 20) << 200.0 << 600.0 << 0.0 << 0.0
             << 0.0;
 
     QTest::newRow("horizontal, right to left, apply range")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(120, 20) << -400.0 << -800.0 << -200.0 << 0.0
+            << QQuickItemView::ApplyRange << QPoint(240, 20) << -400.0 << -800.0 << -200.0 << 0.0
             << 0.0;
 
     QTest::newRow("vertical, top to bottom with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(20, -120) << 190.0 << 600.0 << 0.0 << 10.0
+            << QQuickItemView::NoHighlightRange << QPoint(20, -240) << 190.0 << 600.0 << 0.0 << 10.0
             << 210.0;
 
     QTest::newRow("vertical, bottom to top with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::NoHighlightRange << QPoint(20, 120) << -390.0 << -800.0 << -200.0
+            << QQuickItemView::NoHighlightRange << QPoint(20, 240) << -390.0 << -800.0 << -200.0
             << 10.0 << 210.0;
 
     QTest::newRow("horizontal, left to right with highlightRange")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(-120, 20) << 190.0 << 600.0 << 0.0 << 10.0
+            << QQuickItemView::NoHighlightRange << QPoint(-240, 20) << 190.0 << 600.0 << 0.0 << 10.0
             << 210.0;
 
     QTest::newRow("horizontal, right to left with highlightRange")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::NoHighlightRange << QPoint(120, 20) << -390.0 << -800.0 << -200.0
+            << QQuickItemView::NoHighlightRange << QPoint(240, 20) << -390.0 << -800.0 << -200.0
             << 10.0 << 210.0;
 
     QTest::newRow("vertical, top to bottom, enforce range with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(20, -120) << 190.0 << 590.0 << -10.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(20, -240) << 190.0 << 590.0 << -10.0
             << 10.0 << 210.0;
 
     QTest::newRow("vertical, bottom to top, enforce range with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::StrictlyEnforceRange << QPoint(20, 120) << -390.0 << -790.0 << -190.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(20, 240) << -390.0 << -790.0 << -190.0
             << 10.0 << 210.0;
 
     QTest::newRow("horizontal, left to right, enforce range with highlightRange")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(-120, 20) << 190.0 << 590.0 << -10.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(-240, 20) << 190.0 << 590.0 << -10.0
             << 10.0 << 210.0;
 
     QTest::newRow("horizontal, right to left, enforce range with highlightRange")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::StrictlyEnforceRange << QPoint(120, 20) << -390.0 << -790.0 << -190.0
+            << QQuickItemView::StrictlyEnforceRange << QPoint(240, 20) << -390.0 << -790.0 << -190.0
             << 10.0 << 210.0;
 
     QTest::newRow("vertical, top to bottom, apply range with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(20, -120) << 190.0 << 600.0 << 0.0 << 10.0
+            << QQuickItemView::ApplyRange << QPoint(20, -240) << 190.0 << 600.0 << 0.0 << 10.0
             << 210.0;
 
     QTest::newRow("vertical, bottom to top, apply range with highlightRange")
             << QQuickListView::Vertical << Qt::LeftToRight << QQuickItemView::BottomToTop
-            << QQuickItemView::ApplyRange << QPoint(20, 120) << -390.0 << -800.0 << -200.0 << 10.0
+            << QQuickItemView::ApplyRange << QPoint(20, 240) << -390.0 << -800.0 << -200.0 << 10.0
             << 210.0;
 
     QTest::newRow("horizontal, left to right, apply range with highlightRange")
             << QQuickListView::Horizontal << Qt::LeftToRight << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(-120, 20) << 190.0 << 600.0 << 0.0 << 10.0
+            << QQuickItemView::ApplyRange << QPoint(-240, 20) << 190.0 << 600.0 << 0.0 << 10.0
             << 210.0;
 
     QTest::newRow("horizontal, right to left, apply range with highlightRange")
             << QQuickListView::Horizontal << Qt::RightToLeft << QQuickItemView::TopToBottom
-            << QQuickItemView::ApplyRange << QPoint(120, 20) << -390.0 << -800.0 << -200.0 << 10.0
+            << QQuickItemView::ApplyRange << QPoint(240, 20) << -390.0 << -800.0 << -200.0 << 10.0
             << 210.0;
 }
 
@@ -1116,6 +1119,40 @@ void tst_QQuickListView2::fetchMore() // QTBUG-95107
         QCOMPARE_GE(model.m_lines, listView->count()); // fetchMore() was called
     }
 }
+
+void tst_QQuickListView2::changingOrientationResetsPreviousAxisValues_data()
+{
+    QTest::addColumn<QByteArray>("sourceFile");
+    QTest::newRow("ObjectModel") << QByteArray("changingOrientationWithObjectModel.qml");
+    QTest::newRow("ListModel") << QByteArray("changingOrientationWithListModel.qml");
+}
+
+void tst_QQuickListView2::changingOrientationResetsPreviousAxisValues() // QTBUG-115696
+{
+    QFETCH(QByteArray, sourceFile);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl(QString::fromLatin1(sourceFile))));
+    auto *listView = qobject_cast<QQuickListView *>(window.rootObject());
+    QVERIFY(listView);
+
+    // Starts of with vertical orientation. X should be 0 for all delegates, but not Y.
+    QVERIFY(listView->property("isXReset").toBool());
+    QVERIFY(!listView->property("isYReset").toBool());
+
+    listView->setOrientation(QQuickListView::Orientation::Horizontal);
+
+    // Y should be 0 for all delegates, but not X.
+    QVERIFY(!listView->property("isXReset").toBool());
+    QVERIFY(listView->property("isYReset").toBool());
+
+    listView->setOrientation(QQuickListView::Orientation::Vertical);
+
+    // X should be 0 for all delegates, but not Y.
+    QVERIFY(listView->property("isXReset").toBool());
+    QVERIFY(!listView->property("isYReset").toBool());
+}
+
 QTEST_MAIN(tst_QQuickListView2)
 
 #include "tst_qquicklistview2.moc"

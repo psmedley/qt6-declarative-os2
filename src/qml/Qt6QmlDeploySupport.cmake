@@ -192,9 +192,23 @@ function(_qt_internal_deploy_qml_imports_for_target)
                 continue()
             endif()
 
+            # Construct a regular expression that matches the plugin's file name.
+            set(plugin_regex "^(.*/)?(lib)?${entry_PLUGIN}")
+            if(__QT_DEPLOY_QT_IS_MULTI_CONFIG_BUILD_WITH_DEBUG)
+                # If our application is a release build, do not match any debug suffix.
+                # If our application is a debug build, match exactly a debug suffix.
+                if(__QT_DEPLOY_ACTIVE_CONFIG STREQUAL "Debug")
+                    string(APPEND plugin_regex "${__QT_DEPLOY_QT_DEBUG_POSTFIX}")
+                endif()
+            else()
+                # The Qt installation does only contain one build of the plugin. We match any
+                # possible debug suffix, or none.
+                string(APPEND plugin_regex ".*")
+            endif()
+            string(APPEND plugin_regex "\\.(so|dylib|dll)(\\.[0-9]+)*$")
+
             file(GLOB files LIST_DIRECTORIES false "${entry_PATH}/*${entry_PLUGIN}*")
-            list(FILTER files
-                 INCLUDE REGEX "^(.*/)?(lib)?${entry_PLUGIN}.*\\.(so|dylib|dll)(\\.[0-9]+)*$")
+            list(FILTER files INCLUDE REGEX "${plugin_regex}")
             file(INSTALL ${files} DESTINATION "${install_plugin}" USE_SOURCE_PERMISSIONS)
 
             get_filename_component(dest_plugin_abs "${dest_plugin}" ABSOLUTE)
@@ -209,6 +223,16 @@ function(_qt_internal_deploy_qml_imports_for_target)
                 foreach(file IN LISTS files)
                     get_filename_component(filename "${file}" NAME)
                     list(APPEND plugins_found "${rel_path}/${filename}")
+                endforeach()
+            endif()
+
+            # Install runtime dependencies on Windows.
+            if(__QT_DEPLOY_SYSTEM_NAME STREQUAL "Windows")
+                foreach(file IN LISTS __QT_DEPLOY_TARGET_${entry_LINKTARGET}_RUNTIME_DLLS)
+                    if(__QT_DEPLOY_VERBOSE)
+                        message(STATUS "runtime dependency for QML plugin '${entry_PLUGIN}':")
+                    endif()
+                    file(INSTALL ${file} DESTINATION "${QT_DEPLOY_PREFIX}/${QT_DEPLOY_BIN_DIR}")
                 endforeach()
             endif()
 

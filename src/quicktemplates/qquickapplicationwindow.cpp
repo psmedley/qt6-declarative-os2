@@ -94,11 +94,6 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickApplicationWindowPrivate
     Q_DECLARE_PUBLIC(QQuickApplicationWindow)
 
 public:
-    QQuickApplicationWindowPrivate()
-    {
-        complete = true;
-    }
-
     static QQuickApplicationWindowPrivate *get(QQuickApplicationWindow *window)
     {
         return window->d_func();
@@ -168,7 +163,7 @@ static void layoutItem(QQuickItem *item, qreal y, qreal width)
 void QQuickApplicationWindowPrivate::relayout()
 {
     Q_Q(QQuickApplicationWindow);
-    if (!complete || insideRelayout)
+    if (!componentComplete || insideRelayout)
         return;
 
     QScopedValueRollback<bool> guard(insideRelayout, true);
@@ -337,7 +332,12 @@ QQuickApplicationWindowAttached *QQuickApplicationWindow::qmlAttachedProperties(
 
     \note If the background item has no explicit size specified, it automatically
           follows the control's size. In most cases, there is no need to specify
-          width or height for a background item.
+          width or height for a background item. However, when using Image as
+          the background, for example, a change in \l {Image::}{source} without
+          a change in size can cause the image to be incorrectly sized (at its
+          natural size, rather than the size of the window). This is because the
+          resizing done by ApplicationWindow is not considered "explicit". This is one
+          instance where it is necessary to set the size manually.
 
     \sa {Customizing ApplicationWindow}, contentItem, header, footer
 */
@@ -684,13 +684,13 @@ void QQuickApplicationWindow::setMenuBar(QQuickItem *menuBar)
 bool QQuickApplicationWindow::isComponentComplete() const
 {
     Q_D(const QQuickApplicationWindow);
-    return d->complete;
+    return d->componentComplete;
 }
 
 void QQuickApplicationWindow::classBegin()
 {
     Q_D(QQuickApplicationWindow);
-    d->complete = false;
+    d->componentComplete = false;
     QQuickWindowQmlImpl::classBegin();
     d->resolveFont();
 }
@@ -698,7 +698,7 @@ void QQuickApplicationWindow::classBegin()
 void QQuickApplicationWindow::componentComplete()
 {
     Q_D(QQuickApplicationWindow);
-    d->complete = true;
+    d->componentComplete = true;
     d->executeBackground(true);
     QQuickWindowQmlImpl::componentComplete();
     d->relayout();

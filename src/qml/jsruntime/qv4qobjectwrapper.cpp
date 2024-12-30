@@ -131,7 +131,7 @@ static ReturnedValue loadProperty(
         return QmlListWrapper::create(v4, object, property.coreIndex(), propMetaType);
 
     // TODO: Check all the builtin types here. See getGadgetProperty() in qqmlvaluetypewrapper.cpp
-    switch (property.isEnum() ? QMetaType::Int : propMetaType.id()) {
+    switch (property.isEnum() ? propMetaType.underlyingType().id() : propMetaType.id()) {
     case QMetaType::Int: {
         int v = 0;
         property.readProperty(object, &v);
@@ -615,7 +615,7 @@ void QObjectWrapper::setProperty(
         scope.engine->throwError(error);
         return;
     } else if (propType == QMetaType::fromType<int>() && value.isNumber()) {
-        PROPERTY_STORE(int, value.asDouble());
+        PROPERTY_STORE(int, value.toInt32());
     } else if (propType == QMetaType::fromType<qreal>() && value.isNumber()) {
         PROPERTY_STORE(qreal, qreal(value.asDouble()));
     } else if (propType == QMetaType::fromType<float>() && value.isNumber()) {
@@ -1085,13 +1085,15 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
 
     static void impl(int which, QSlotObjectBase *this_, QObject *receiver, void **metaArgs, bool *ret)
     {
-        Q_UNUSED(receiver);
         switch (which) {
         case Destroy: {
             delete static_cast<QObjectSlotDispatcher*>(this_);
         }
         break;
         case Call: {
+            if (QQmlData::wasDeleted(receiver))
+                break;
+
             QObjectSlotDispatcher *This = static_cast<QObjectSlotDispatcher*>(this_);
             ExecutionEngine *v4 = This->function.engine();
             // Might be that we're still connected to a signal that's emitted long
@@ -1100,7 +1102,7 @@ struct QObjectSlotDispatcher : public QtPrivate::QSlotObjectBase
             if (!v4)
                 break;
 
-            QQmlMetaObject::ArgTypeStorage storage;
+            QQmlMetaObject::ArgTypeStorage<9> storage;
             QQmlMetaObject::methodParameterTypes(This->signal, &storage, nullptr);
 
             int argCount = storage.size();
@@ -1240,7 +1242,16 @@ ReturnedValue QObjectWrapper::method_connect(const FunctionObject *b, const Valu
     }
 
     QPair<QObject *, int> functionData = QObjectMethod::extractQtMethod(f); // align with disconnect
-    if (QObject *receiver = functionData.first) {
+    QObject *receiver = nullptr;
+
+    if (functionData.first)
+        receiver = functionData.first;
+    else if (auto qobjectWrapper = object->as<QV4::QObjectWrapper>())
+        receiver = qobjectWrapper->object();
+    else if (auto typeWrapper = object->as<QV4::QQmlTypeWrapper>())
+        receiver = typeWrapper->object();
+
+    if (receiver) {
         QObjectPrivate::connect(signalObject, signalIndex, receiver, slot, Qt::AutoConnection);
     } else {
         qCInfo(lcObjectConnect,
@@ -1298,7 +1309,16 @@ ReturnedValue QObjectWrapper::method_disconnect(const FunctionObject *b, const V
         &functionData.second
     };
 
-    if (QObject *receiver = functionData.first) {
+    QObject *receiver = nullptr;
+
+    if (functionData.first)
+        receiver = functionData.first;
+    else if (auto qobjectWrapper = functionThisValue->as<QV4::QObjectWrapper>())
+        receiver = qobjectWrapper->object();
+    else if (auto typeWrapper = functionThisValue->as<QV4::QQmlTypeWrapper>())
+        receiver = typeWrapper->object();
+
+    if (receiver) {
         QObjectPrivate::disconnect(signalObject, signalIndex, receiver,
                                    reinterpret_cast<void **>(&a));
     } else {
@@ -1382,9 +1402,7 @@ void QObjectWrapper::destroyObject(bool lastCall)
             if (!o->parent() && !ddata->indestructible) {
                 if (ddata && ddata->ownContext) {
                     Q_ASSERT(ddata->ownContext.data() == ddata->context);
-                    ddata->ownContext->emitDestruction();
-                    if (ddata->ownContext->contextObject() == o)
-                        ddata->ownContext->setContextObject(nullptr);
+                    ddata->ownContext->deepClearContextObject(o);
                     ddata->ownContext.reset();
                     ddata->context = nullptr;
                 }
@@ -1694,7 +1712,7 @@ static int MatchScore(const Value &actual, QMetaType conversionMetaType)
                     QObject *wrapped = wrapper->object();
                     if (!wrapped)
                         return 0;
-                    if (QQmlMetaObject::canConvert(wrapped, conversionMetaType.metaObject()))
+                    if (qmlobject_can_cast(wrapped, conversionMetaType.metaObject()))
                         return 0;
                 }
             }
@@ -1715,7 +1733,7 @@ static int MatchScore(const Value &actual, QMetaType conversionMetaType)
                 }
             } else if (QObject *object = wrapper->object()) {
                 if (conversionMetaType.flags() & QMetaType::PointerToQObject
-                    && QQmlMetaObject::canConvert(object, conversionMetaType.metaObject())) {
+                    && qmlobject_can_cast(object, conversionMetaType.metaObject())) {
                         return 0;
                 }
             }
@@ -1803,7 +1821,7 @@ static ReturnedValue CallPrecise(const QQmlObjectOrGadget &object, const QQmlPro
 
     if (data.hasArguments()) {
 
-        QQmlMetaObject::ArgTypeStorage storage;
+        QQmlMetaObject::ArgTypeStorage<9> storage;
 
         bool ok = false;
         if (data.isConstructor())
@@ -1868,12 +1886,12 @@ static const QQmlPropertyData *ResolveOverloaded(
     for (int i = 0; i < methodCount; ++i) {
         const QQmlPropertyData *attempt = methods + i;
 
-        if (lcOverloadResolution().isInfoEnabled()) {
+        if (lcOverloadResolution().isDebugEnabled()) {
             const QQmlPropertyData &candidate = methods[i];
             const QMetaMethod m = candidate.isConstructor()
                                   ? object.metaObject()->constructor(candidate.coreIndex())
                                   : object.metaObject()->method(candidate.coreIndex());
-            qCInfo(lcOverloadResolution) << "::: considering signature" << m.methodSignature();
+            qCDebug(lcOverloadResolution) << "::: considering signature" << m.methodSignature();
         }
 
         // QQmlV4Function overrides anything that doesn't provide the exact number of arguments
@@ -1884,17 +1902,17 @@ static const QQmlPropertyData *ResolveOverloaded(
         int sumMethodMatchScore = bestSumMatchScore;
 
         if (!attempt->isV4Function()) {
-            QQmlMetaObject::ArgTypeStorage storage;
+            QQmlMetaObject::ArgTypeStorage<9> storage;
             int methodArgumentCount = 0;
             if (attempt->hasArguments()) {
                 if (attempt->isConstructor()) {
                     if (!object.constructorParameterTypes(attempt->coreIndex(), &storage, nullptr)) {
-                        qCInfo(lcOverloadResolution, "rejected, could not get ctor argument types");
+                        qCDebug(lcOverloadResolution, "rejected, could not get ctor argument types");
                         continue;
                     }
                 } else {
                     if (!object.methodParameterTypes(attempt->coreIndex(), &storage, nullptr)) {
-                        qCInfo(lcOverloadResolution, "rejected, could not get ctor argument types");
+                        qCDebug(lcOverloadResolution, "rejected, could not get ctor argument types");
                         continue;
                     }
                 }
@@ -1902,7 +1920,7 @@ static const QQmlPropertyData *ResolveOverloaded(
             }
 
             if (methodArgumentCount > argumentCount) {
-                qCInfo(lcOverloadResolution, "rejected, insufficient arguments");
+                qCDebug(lcOverloadResolution, "rejected, insufficient arguments");
                 continue; // We don't have sufficient arguments to call this method
             }
 
@@ -1910,7 +1928,7 @@ static const QQmlPropertyData *ResolveOverloaded(
                     ? 0
                     : (definedArgumentCount - methodArgumentCount + 1);
             if (methodParameterScore > bestParameterScore) {
-                qCInfo(lcOverloadResolution) << "rejected, score too bad. own" << methodParameterScore << "vs best:" << bestParameterScore;
+                qCDebug(lcOverloadResolution) << "rejected, score too bad. own" << methodParameterScore << "vs best:" << bestParameterScore;
                 continue; // We already have a better option
             }
 
@@ -1932,21 +1950,21 @@ static const QQmlPropertyData *ResolveOverloaded(
             bestParameterScore = methodParameterScore;
             bestMaxMatchScore = maxMethodMatchScore;
             bestSumMatchScore = sumMethodMatchScore;
-            qCInfo(lcOverloadResolution) << "updated best" << "bestParameterScore" << bestParameterScore  << "\n"
-                                         << "bestMaxMatchScore" << bestMaxMatchScore  << "\n"
-                                         << "bestSumMatchScore" << bestSumMatchScore  << "\n";
+            qCDebug(lcOverloadResolution) << "updated best" << "bestParameterScore" << bestParameterScore  << "\n"
+                                          << "bestMaxMatchScore" << bestMaxMatchScore  << "\n"
+                                          << "bestSumMatchScore" << bestSumMatchScore  << "\n";
         } else {
-            qCInfo(lcOverloadResolution) << "did not update best\n"
-                                         << "bestParameterScore" << bestParameterScore << "\t"
-                                         << "methodParameterScore" << methodParameterScore << "\n"
-                                         << "bestMaxMatchScore" << bestMaxMatchScore << "\t"
-                                         << "maxMethodMatchScore" << maxMethodMatchScore << "\n"
-                                         << "bestSumMatchScore" << bestSumMatchScore << "\t"
-                                         << "sumMethodMatchScore" << sumMethodMatchScore << "\n";
+            qCDebug(lcOverloadResolution) << "did not update best\n"
+                                          << "bestParameterScore" << bestParameterScore << "\t"
+                                          << "methodParameterScore" << methodParameterScore << "\n"
+                                          << "bestMaxMatchScore" << bestMaxMatchScore << "\t"
+                                          << "maxMethodMatchScore" << maxMethodMatchScore << "\n"
+                                          << "bestSumMatchScore" << bestSumMatchScore << "\t"
+                                          << "sumMethodMatchScore" << sumMethodMatchScore << "\n";
         }
 
         if (bestParameterScore == 0 && bestMaxMatchScore == 0) {
-            qCInfo(lcOverloadResolution, "perfect match");
+            qCDebug(lcOverloadResolution, "perfect match");
             break; // We can't get better than that
         }
 
@@ -2213,6 +2231,11 @@ bool CallArgument::fromValue(QMetaType metaType, ExecutionEngine *engine, const 
 
             if (const QObjectWrapper *qobjectWrapper = value.as<QObjectWrapper>()) {
                 qlistPtr->append(qobjectWrapper->object());
+                return true;
+            }
+
+            if (const QmlListWrapper *listWrapper = value.as<QmlListWrapper>()) {
+                *qlistPtr = listWrapper->d()->property().toList<QList<QObject *>>();
                 return true;
             }
 

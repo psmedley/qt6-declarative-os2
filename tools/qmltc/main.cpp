@@ -31,9 +31,8 @@ using namespace Qt::StringLiterals;
 
 void setupLogger(QQmlJSLogger &logger) // prepare logger to work with compiler
 {
-    for (const QQmlJSLogger::Category &category : logger.categories()) {
-        if (category == qmlControlsSanity // this category is just weird
-            || category == qmlUnusedImports)
+    for (const QQmlJS::LoggerCategory &category : logger.categories()) {
+        if (category.id() == qmlUnusedImports)
             continue;
         logger.setCategoryLevel(category.id(), QtCriticalMsg);
         logger.setCategoryIgnored(category.id(), false);
@@ -100,6 +99,25 @@ int main(int argc, char **argv)
         QCoreApplication::translate("main", "namespace")
     };
     parser.addOption(namespaceOption);
+    QCommandLineOption moduleOption{
+        u"module"_s,
+        QCoreApplication::translate("main",
+                                    "Name of the QML module that this QML code belongs to."),
+        QCoreApplication::translate("main", "module")
+    };
+    parser.addOption(moduleOption);
+    QCommandLineOption exportOption{ u"export"_s,
+                                     QCoreApplication::translate(
+                                             "main", "Export macro used in the generated C++ code"),
+                                     QCoreApplication::translate("main", "export") };
+    parser.addOption(exportOption);
+    QCommandLineOption exportIncludeOption{
+        u"exportInclude"_s,
+        QCoreApplication::translate(
+                "main", "Header defining the export macro to be used in the generated C++ code"),
+        QCoreApplication::translate("main", "exportInclude")
+    };
+    parser.addOption(exportIncludeOption);
 
     parser.process(app);
 
@@ -225,6 +243,8 @@ int main(int argc, char **argv)
     info.outputHFile = parser.value(outputHOption);
     info.resourcePath = firstQml(paths);
     info.outputNamespace = parser.value(namespaceOption);
+    info.exportMacro = parser.value(exportOption);
+    info.exportInclude = parser.value(exportIncludeOption);
 
     if (info.outputCppFile.isEmpty()) {
         fprintf(stderr, "An output C++ file is required. Pass one using --impl");
@@ -249,7 +269,11 @@ int main(int argc, char **argv)
     logger.setCode(sourceCode);
     setupLogger(logger);
 
-    QmltcVisitor visitor(QQmlJSScope::create(), &importer, &logger,
+    auto currentScope = QQmlJSScope::create();
+    if (parser.isSet(moduleOption))
+        currentScope->setModuleName(parser.value(moduleOption));
+
+    QmltcVisitor visitor(currentScope, &importer, &logger,
                          QQmlJSImportVisitor::implicitImportDirectory(url, &mapper), qmldirFiles);
     visitor.setMode(QmltcVisitor::Compile);
     QmltcTypeResolver typeResolver { &importer };

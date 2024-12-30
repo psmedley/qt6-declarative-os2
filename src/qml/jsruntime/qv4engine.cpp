@@ -1478,11 +1478,13 @@ QQmlError ExecutionEngine::catchExceptionAsQmlError()
 // Variant conversion code
 
 typedef QSet<QV4::Heap::Object *> V4ObjectSet;
+enum class JSToQVariantConversionBehavior {Never, Safish, Aggressive };
 static QVariant toVariant(
-    const QV4::Value &value, QMetaType typeHint, bool createJSValueForObjectsAndSymbols,
+    const QV4::Value &value, QMetaType typeHint, JSToQVariantConversionBehavior conversionBehavior,
     V4ObjectSet *visitedObjects);
 static QObject *qtObjectFromJS(const QV4::Value &value);
-static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObjects = nullptr);
+static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObjects = nullptr,
+                                JSToQVariantConversionBehavior behavior = JSToQVariantConversionBehavior::Safish);
 static bool convertToNativeQObject(const QV4::Value &value, QMetaType targetType, void **result);
 static QV4::ReturnedValue variantListToJS(QV4::ExecutionEngine *v4, const QVariantList &lst);
 static QV4::ReturnedValue sequentialIterableToJS(QV4::ExecutionEngine *v4, const QSequentialIterable &lst);
@@ -1492,8 +1494,7 @@ static QV4::ReturnedValue variantToJS(QV4::ExecutionEngine *v4, const QVariant &
     return v4->metaTypeToJS(value.metaType(), value.constData());
 }
 
-static QVariant toVariant(
-        const QV4::Value &value, QMetaType metaType, bool createJSValueForObjectsAndSymbols,
+static QVariant toVariant(const QV4::Value &value, QMetaType metaType, JSToQVariantConversionBehavior conversionBehavior,
         V4ObjectSet *visitedObjects)
 {
     Q_ASSERT (!value.isEmpty());
@@ -1571,9 +1572,9 @@ static QVariant toVariant(
                 QV4::ScopedValue arrayValue(scope);
                 for (qint64 i = 0; i < length; ++i) {
                     arrayValue = a->get(i);
-                    QVariant asVariant(valueMetaType);
-                    if (QQmlValueTypeProvider::createValueType(
-                                arrayValue, valueMetaType, asVariant.data())) {
+                    QVariant asVariant = QQmlValueTypeProvider::createValueType(
+                                arrayValue, valueMetaType);
+                    if (asVariant.isValid()) {
                         retnAsIterable.metaContainer().addValue(retn.data(), asVariant.constData());
                         continue;
                     }
@@ -1590,7 +1591,7 @@ static QVariant toVariant(
                         }
                     }
 
-                    asVariant = toVariant(arrayValue, valueMetaType, false, visitedObjects);
+                    asVariant = toVariant(arrayValue, valueMetaType, JSToQVariantConversionBehavior::Never, visitedObjects);
                     if (valueMetaType == QMetaType::fromType<QVariant>()) {
                         retnAsIterable.metaContainer().addValue(retn.data(), &asVariant);
                     } else {
@@ -1655,7 +1656,7 @@ static QVariant toVariant(
     if (const ArrayBuffer *d = value.as<ArrayBuffer>())
         return d->asByteArray();
     if (const Symbol *symbol = value.as<Symbol>()) {
-        return createJSValueForObjectsAndSymbols
+        return conversionBehavior == JSToQVariantConversionBehavior::Never
             ? QVariant::fromValue(QJSValuePrivate::fromReturnedValue(symbol->asReturnedValue()))
             : symbol->descriptiveString();
     }
@@ -1671,25 +1672,32 @@ static QVariant toVariant(
 #endif
 
     if (metaType.isValid() && !(metaType.flags() & QMetaType::PointerToQObject)) {
-        QVariant result(metaType);
-        if (QQmlValueTypeProvider::createValueType(value, metaType, result.data()))
+        const QVariant result = QQmlValueTypeProvider::createValueType(value, metaType);
+        if (result.isValid())
             return result;
     }
 
-    if (createJSValueForObjectsAndSymbols)
+    if (conversionBehavior == JSToQVariantConversionBehavior::Never)
         return QVariant::fromValue(QJSValuePrivate::fromReturnedValue(o->asReturnedValue()));
 
-    return objectToVariant(o, visitedObjects);
+    return objectToVariant(o, visitedObjects, conversionBehavior);
 }
 
+QVariant ExecutionEngine::toVariantLossy(const Value &value)
+{
+    return ::toVariant(value, QMetaType(), JSToQVariantConversionBehavior::Aggressive, nullptr);
+}
 
 QVariant ExecutionEngine::toVariant(
     const Value &value, QMetaType typeHint, bool createJSValueForObjectsAndSymbols)
 {
-    return ::toVariant(value, typeHint, createJSValueForObjectsAndSymbols, nullptr);
+    auto behavior = createJSValueForObjectsAndSymbols ? JSToQVariantConversionBehavior::Never
+                                                      : JSToQVariantConversionBehavior::Safish;
+    return ::toVariant(value, typeHint, behavior, nullptr);
 }
 
-static QVariantMap objectToVariantMap(const QV4::Object *o, V4ObjectSet *visitedObjects)
+static QVariantMap objectToVariantMap(const QV4::Object *o, V4ObjectSet *visitedObjects,
+                                      JSToQVariantConversionBehavior conversionBehvior)
 {
     QVariantMap map;
     QV4::Scope scope(o->engine());
@@ -1704,12 +1712,13 @@ static QVariantMap objectToVariantMap(const QV4::Object *o, V4ObjectSet *visited
         QString key = name->toQStringNoThrow();
         map.insert(key, ::toVariant(
                                 val, /*type hint*/ QMetaType {},
-                                /*createJSValueForObjectsAndSymbols*/false, visitedObjects));
+                                conversionBehvior, visitedObjects));
     }
     return map;
 }
 
-static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObjects)
+static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObjects,
+                                JSToQVariantConversionBehavior conversionBehvior)
 {
     Q_ASSERT(o);
 
@@ -1737,13 +1746,20 @@ static QVariant objectToVariant(const QV4::Object *o, V4ObjectSet *visitedObject
         int length = a->getLength();
         for (int ii = 0; ii < length; ++ii) {
             v = a->get(ii);
-            list << ::toVariant(v, QMetaType {}, /*createJSValueForObjectsAndSymbols*/false,
+            list << ::toVariant(v, QMetaType {}, conversionBehvior,
                                 visitedObjects);
         }
 
         result = list;
-    } else if (o->getPrototypeOf() == o->engine()->objectPrototype()->d()) {
-        result = objectToVariantMap(o, visitedObjects);
+    } else if (o->getPrototypeOf() == o->engine()->objectPrototype()->d()
+               || (conversionBehvior == JSToQVariantConversionBehavior::Aggressive &&
+                   !o->as<QV4::FunctionObject>())) {
+        /* FunctionObject is excluded for historical reasons, even though
+           objects with a custom prototype risk losing information
+           But the Aggressive path is used only in QJSValue::toVariant
+           which is documented to be lossy
+        */
+        result = objectToVariantMap(o, visitedObjects, conversionBehvior);
     } else {
         // If it's not a plain object, we can only save it as QJSValue.
         result = QVariant::fromValue(QJSValuePrivate::fromReturnedValue(o->asReturnedValue()));
@@ -1865,7 +1881,7 @@ QV4::ReturnedValue ExecutionEngine::fromData(
             }
         }
 
-    } else {
+    } else if (!(metaType.flags() & QMetaType::IsEnumeration)) {
         QV4::Scope scope(this);
         if (metaType == QMetaType::fromType<QQmlListReference>()) {
             typedef QQmlListReferencePrivate QDLRP;
@@ -1951,9 +1967,8 @@ QV4::ReturnedValue ExecutionEngine::fromData(
     //    + QObjectList
     //    + QList<int>
 
-    // Enumeration types can just be treated as integers for now
     if (metaType.flags() & QMetaType::IsEnumeration)
-        return QV4::Encode(*reinterpret_cast<const int *>(ptr));
+        return fromData(metaType.underlyingType(), ptr, container, property, flags);
 
     return QV4::Encode(newVariantObject(metaType, ptr));
 }
@@ -1974,7 +1989,7 @@ QVariantMap ExecutionEngine::variantMapFromJS(const Object *o)
     Q_ASSERT(o);
     V4ObjectSet visitedObjects;
     visitedObjects.insert(o->d());
-    return objectToVariantMap(o, &visitedObjects);
+    return objectToVariantMap(o, &visitedObjects, JSToQVariantConversionBehavior::Safish);
 }
 
 
@@ -2088,8 +2103,14 @@ ReturnedValue ExecutionEngine::global()
 QQmlRefPointer<ExecutableCompilationUnit> ExecutionEngine::compileModule(const QUrl &url)
 {
     QQmlMetaType::CachedUnitLookupError cacheError = QQmlMetaType::CachedUnitLookupError::NoError;
-    if (const QQmlPrivate::CachedQmlUnit *cachedUnit = diskCacheEnabled()
-            ? QQmlMetaType::findCachedCompilationUnit(url, &cacheError)
+    const DiskCacheOptions options = diskCacheOptions();
+    if (const QQmlPrivate::CachedQmlUnit *cachedUnit = (options & DiskCache::Aot)
+            ? QQmlMetaType::findCachedCompilationUnit(
+                url,
+                (options & DiskCache::AotByteCode)
+                    ? QQmlMetaType::AcceptUntyped
+                    : QQmlMetaType::RequireFullyTyped,
+                &cacheError)
             : nullptr) {
         return ExecutableCompilationUnit::create(
                     QV4::CompiledData::CompilationUnit(
@@ -2194,9 +2215,44 @@ QV4::Value *ExecutionEngine::registerNativeModule(const QUrl &url, const QV4::Va
     return val;
 }
 
-bool ExecutionEngine::diskCacheEnabled() const
+static ExecutionEngine::DiskCacheOptions transFormDiskCache(const char *v)
 {
-    return (!disableDiskCache() && !debugger()) || forceDiskCache();
+    using DiskCache = ExecutionEngine::DiskCache;
+
+    if (v == nullptr)
+        return DiskCache::Enabled;
+
+    ExecutionEngine::DiskCacheOptions result = DiskCache::Disabled;
+    const QList<QByteArray> options = QByteArray(v).split(',');
+    for (const QByteArray &option : options) {
+        if (option == "aot-bytecode")
+            result |= DiskCache::AotByteCode;
+        else if (option == "aot-native")
+            result |= DiskCache::AotNative;
+        else if (option == "aot")
+            result |= DiskCache::Aot;
+        else if (option == "qmlc-read")
+            result |= DiskCache::QmlcRead;
+        else if (option == "qmlc-write")
+            result |= DiskCache::QmlcWrite;
+        else if (option == "qmlc")
+            result |= DiskCache::Qmlc;
+        else
+            qWarning() << "Ignoring unknown option to QML_DISK_CACHE:" << option;
+    }
+
+    return result;
+}
+
+ExecutionEngine::DiskCacheOptions ExecutionEngine::diskCacheOptions() const
+{
+    if (forceDiskCache())
+        return DiskCache::Enabled;
+    if (disableDiskCache() || debugger())
+        return DiskCache::Disabled;
+    static const DiskCacheOptions options = qmlGetConfigOption<
+            DiskCacheOptions, transFormDiskCache>("QML_DISK_CACHE");
+    return options;
 }
 
 void ExecutionEngine::callInContext(QV4::Function *function, QObject *self,
@@ -2455,6 +2511,12 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
     case QMetaType::UInt:
         *reinterpret_cast<uint*>(data) = value.toUInt32();
         return true;
+    case QMetaType::Long:
+        *reinterpret_cast<long*>(data) = long(value.toInteger());
+        return true;
+    case QMetaType::ULong:
+        *reinterpret_cast<ulong*>(data) = ulong(value.toInteger());
+        return true;
     case QMetaType::LongLong:
         *reinterpret_cast<qlonglong*>(data) = qlonglong(value.toInteger());
         return true;
@@ -2649,6 +2711,13 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
         }
     }
 
+    if (metaType == QMetaType::fromType<QQmlListProperty<QObject>>()) {
+        if (const QV4::QmlListWrapper *wrapper = value.as<QV4::QmlListWrapper>()) {
+            *reinterpret_cast<QQmlListProperty<QObject> *>(data) = wrapper->d()->property();
+            return true;
+        }
+    }
+
     if (const QQmlValueTypeWrapper *vtw = value.as<QQmlValueTypeWrapper>()) {
         const QMetaType valueType = vtw->type();
         if (valueType == metaType)
@@ -2659,13 +2728,13 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
             d->readReference();
 
         if (void *gadgetPtr = d->gadgetPtr()) {
-            if (QQmlValueTypeProvider::createValueType(valueType, gadgetPtr, metaType, data))
+            if (QQmlValueTypeProvider::createValueType(metaType, data, valueType, gadgetPtr))
                 return true;
             if (QMetaType::canConvert(valueType, metaType))
                 return QMetaType::convert(valueType, gadgetPtr, metaType, data);
         } else {
             QVariant empty(valueType);
-            if (QQmlValueTypeProvider::createValueType(valueType, empty.data(), metaType, data))
+            if (QQmlValueTypeProvider::createValueType(metaType, data, valueType, empty.data()))
                 return true;
             if (QMetaType::canConvert(valueType, metaType))
                 return QMetaType::convert(valueType, empty.data(), metaType, data);
@@ -2732,7 +2801,7 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
                 }
             }
         } else if (QQmlValueTypeProvider::createValueType(
-                       var.metaType(), var.data(), metaType, data)) {
+                       metaType, data, var.metaType(), var.data())) {
             return true;
         }
     } else if (value.isNull() && isPointer) {
@@ -2745,7 +2814,7 @@ bool ExecutionEngine::metaTypeFromJS(const Value &value, QMetaType metaType, voi
         *reinterpret_cast<QJSPrimitiveValue *>(data) = createPrimitive(&value);
         return true;
     } else if (!isPointer) {
-        if (QQmlValueTypeProvider::createValueType(value, metaType, data))
+        if (QQmlValueTypeProvider::createValueType(metaType, data, value))
             return true;
     }
 

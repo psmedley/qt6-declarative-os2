@@ -218,7 +218,11 @@ private slots:
     void bindToNonQObjectTarget();
     void assignVariantList();
 
+    void listAssignmentSignals();
+
     void invalidateQPropertyChangeTriggers();
+
+    void propertyStartsWithOn();
 
 private:
     QQmlEngine engine;
@@ -2547,6 +2551,19 @@ void tst_qqmlproperty::assignVariantList()
     QCOMPARE(holder->doubleList(), doubleList);
 }
 
+void tst_qqmlproperty::listAssignmentSignals()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("listAssignmentSignals.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(!root.isNull());
+
+    QCOMPARE(root->property("signalCounter").toInt(), 1);
+    QMetaObject::invokeMethod(root.get(), "assignList");
+    QCOMPARE(root->property("signalCounter").toInt(), 2);
+}
+
 void tst_qqmlproperty::invalidateQPropertyChangeTriggers()
 {
     QQmlEngine engine;
@@ -2572,6 +2589,18 @@ void tst_qqmlproperty::invalidateQPropertyChangeTriggers()
         u""_s, u"1300"_s, u"Create Object"_s,
         u""_s
     }));
+}
+
+void tst_qqmlproperty::propertyStartsWithOn()
+{
+    QTest::failOnWarning("\"onlineStatus\" is not a properly capitalized signal handler name. "
+                         "\"onLineStatus\" would be correct.");
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("propertyStartsWithOn.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY(!root.isNull());
+    QCOMPARE(root->property("onlineStatus").toInt(), 12);
 }
 
 QTEST_MAIN(tst_qqmlproperty)

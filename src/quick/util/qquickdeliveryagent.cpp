@@ -1017,7 +1017,8 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEvent(
     }
 
     // Prune the list for items that are no longer hovered
-    for (auto it = hoverItems.begin(); it != hoverItems.end();) {
+    auto hoverItemsCopy = hoverItems;
+    for (auto it = hoverItemsCopy.begin(); it != hoverItemsCopy.end();) {
         auto item = (*it).first.data();
         auto hoverId = (*it).second;
         if (hoverId == currentHoverId) {
@@ -1031,9 +1032,12 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEvent(
                 const bool clearHover = true;
                 deliverHoverEventToItem(item, scenePos, lastScenePos, modifiers, timestamp, clearHover);
             }
-            it = hoverItems.erase(it);
+            it = hoverItemsCopy.erase(it);
         }
     }
+    // delivery of the events might have cleared hoverItems, so don't overwrite if empty
+    if (!hoverItems.isEmpty())
+        hoverItems = hoverItemsCopy;
 
     const bool itemsAreHovered = !hoverItems.isEmpty();
     return itemsWasHovered || itemsAreHovered;
@@ -1112,9 +1116,6 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventRecursive(
     // All decendants have been visited.
     // Now deliver the event to the item
     return deliverHoverEventToItem(item, scenePos, lastScenePos, modifiers, timestamp, false);
-
-    // Continue propagation / recursion
-    return false;
 }
 
 /*! \internal
@@ -1133,7 +1134,8 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventToItem(
     const QPointF localPos = item->mapFromScene(scenePos);
     const QPointF globalPos = item->mapToGlobal(localPos);
     const bool isHovering = item->contains(localPos);
-    const bool wasHovering = hoverItems.contains(item);
+    const auto hoverItemIterator = hoverItems.find(item);
+    const bool wasHovering = hoverItemIterator != hoverItems.end() && hoverItemIterator.value() != 0;
 
     qCDebug(lcHoverTrace) << "item:" << item << "scene pos:" << scenePos << "localPos:" << localPos
                           << "wasHovering:" << wasHovering << "isHovering:" << isHovering;
@@ -1149,14 +1151,18 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventToItem(
         // Also set hoveredLeafItemFound, so that only propagate in a straight
         // line towards the root from now on.
         hoveredLeafItemFound = true;
-        hoverItems[item] = currentHoverId;
+        if (hoverItemIterator != hoverItems.end())
+            hoverItemIterator.value() = currentHoverId;
+        else
+            hoverItems[item] = currentHoverId;
+
         if (wasHovering)
             accepted = sendHoverEvent(QEvent::HoverMove, item, scenePos, lastScenePos, modifiers, timestamp);
         else
             accepted = sendHoverEvent(QEvent::HoverEnter, item, scenePos, lastScenePos, modifiers, timestamp);
     } else if (wasHovering) {
         // A leave should never stop propagation
-        hoverItems[item] = 0;
+        hoverItemIterator.value() = 0;
         sendHoverEvent(QEvent::HoverLeave, item, scenePos, lastScenePos, modifiers, timestamp);
     }
 
@@ -1197,7 +1203,10 @@ bool QQuickDeliveryAgentPrivate::deliverHoverEventToItem(
                     // Mark the whole item as updated, even if only the handler is
                     // actually in a hovered state (because of HoverHandler.margins)
                     hoveredLeafItemFound = true;
-                    hoverItems[item] = currentHoverId;
+                    if (hoverItemIterator != hoverItems.end())
+                        hoverItemIterator.value() = currentHoverId;
+                    else
+                        hoverItems[item] = currentHoverId;
                     if (hh->isBlocking()) {
                         qCDebug(lcHoverTrace) << "skipping rest of hover delivery due to blocking" << hh;
                         accepted = true;
@@ -1686,7 +1695,13 @@ void QQuickDeliveryAgentPrivate::flushFrameSynchronousEvents(QQuickWindow *win)
     if (frameSynchronousHoverEnabled && !win->mouseGrabberItem() &&
             !lastMousePosition.isNull() && QQuickWindowPrivate::get(win)->dirtyItemList) {
         qCDebug(lcHoverTrace) << q << "delivering frame-sync hover to root @" << lastMousePosition;
-        deliverHoverEvent(lastMousePosition, lastMousePosition, QGuiApplication::keyboardModifiers(), 0);
+        if (deliverHoverEvent(lastMousePosition, lastMousePosition, QGuiApplication::keyboardModifiers(), 0)) {
+#if QT_CONFIG(cursor)
+            QQuickWindowPrivate::get(rootItem->window())->updateCursor(
+                    sceneTransform ? sceneTransform->map(lastMousePosition) : lastMousePosition, rootItem);
+#endif
+        }
+
         qCDebug(lcHoverTrace) << q << "frame-sync hover delivery done";
     }
 #else
@@ -2023,6 +2038,16 @@ void QQuickDeliveryAgentPrivate::deliverUpdatedPoints(QPointerEvent *event)
         }
         if (!relevantPassiveGrabbers.isEmpty())
             deliverToPassiveGrabbers(relevantPassiveGrabbers, event);
+
+        // Ensure that HoverHandlers are updated, in case no items got dirty so far and there's no update request
+        if (event->type() == QEvent::TouchUpdate) {
+            for (auto hoverItem : hoverItems) {
+                if (auto item = hoverItem.first) {
+                    deliverHoverEventToItem(item, point.scenePosition(), point.sceneLastPosition(),
+                                            event->modifiers(), event->timestamp(), false);
+                }
+            }
+        }
     }
 
     if (done)
@@ -2087,7 +2112,11 @@ bool QQuickDeliveryAgentPrivate::deliverPressOrReleaseEvent(QPointerEvent *event
         }
     }
 
-    for (QQuickItem *item : targetItems) {
+    QVector<QPointer<QQuickItem>> safeTargetItems(targetItems.begin(), targetItems.end());
+
+    for (auto &item : safeTargetItems) {
+        if (item.isNull())
+            continue;
         // failsafe: when items get into a subscene somehow, ensure that QQuickItemPrivate::deliveryAgent() can find it
         if (isSubsceneAgent)
             QQuickItemPrivate::get(item)->maybeHasSubsceneDeliveryAgent = true;
@@ -2472,15 +2501,18 @@ bool QQuickDeliveryAgentPrivate::sendFilteredPointerEventImpl(QPointerEvent *eve
                 QQuickItemPrivate::get(receiver)->localizedTouchEvent(static_cast<QTouchEvent *>(event), true, &filteringParentTouchEvent);
                 if (filteringParentTouchEvent.type() != QEvent::None) {
                     qCDebug(lcTouch) << "letting parent" << filteringParent << "filter for" << receiver << &filteringParentTouchEvent;
-                    if (filteringParent->childMouseEventFilter(receiver, &filteringParentTouchEvent)) {
+                    filtered = filteringParent->childMouseEventFilter(receiver, &filteringParentTouchEvent);
+                    if (filtered) {
                         qCDebug(lcTouch) << "touch event intercepted by childMouseEventFilter of " << filteringParent;
+                        event->setAccepted(filteringParentTouchEvent.isAccepted());
                         skipDelivery.append(filteringParent);
-                        for (auto point : filteringParentTouchEvent.points()) {
-                            const QQuickItem *exclusiveGrabber = qobject_cast<const QQuickItem *>(event->exclusiveGrabber(point));
-                            if (!exclusiveGrabber || !exclusiveGrabber->keepTouchGrab())
-                                event->setExclusiveGrabber(point, filteringParent);
+                        if (event->isAccepted()) {
+                            for (auto point : filteringParentTouchEvent.points()) {
+                                const QQuickItem *exclusiveGrabber = qobject_cast<const QQuickItem *>(event->exclusiveGrabber(point));
+                                if (!exclusiveGrabber || !exclusiveGrabber->keepTouchGrab())
+                                    event->setExclusiveGrabber(point, filteringParent);
+                            }
                         }
-                        return true;
                     } else if (Q_LIKELY(QCoreApplication::testAttribute(Qt::AA_SynthesizeMouseForUnhandledTouchEvents)) &&
                                !filteringParent->acceptTouchEvents()) {
                         qCDebug(lcTouch) << "touch event NOT intercepted by childMouseEventFilter of " << filteringParent
@@ -2516,17 +2548,17 @@ bool QQuickDeliveryAgentPrivate::sendFilteredPointerEventImpl(QPointerEvent *eve
                                 // touchMouseId and touchMouseDevice must be set, even if it's only temporarily and isn't grabbed.
                                 touchMouseId = tp.id();
                                 touchMouseDevice = event->pointingDevice();
-                                if (filteringParent->childMouseEventFilter(receiver, &mouseEvent)) {
+                                filtered = filteringParent->childMouseEventFilter(receiver, &mouseEvent);
+                                if (filtered) {
                                     qCDebug(lcTouch) << "touch event intercepted as synth mouse event by childMouseEventFilter of " << filteringParent;
+                                    event->setAccepted(mouseEvent.isAccepted());
                                     skipDelivery.append(filteringParent);
-                                    if (t != QEvent::MouseButtonRelease) {
+                                    if (event->isAccepted() && event->isBeginEvent()) {
                                         qCDebug(lcTouchTarget) << "TP (mouse)" << Qt::hex << tp.id() << "->" << filteringParent;
                                         filteringParentTouchEvent.setExclusiveGrabber(tp, filteringParent);
                                         touchMouseUnset = false; // We want to leave touchMouseId and touchMouseDevice set
-                                        if (mouseEvent.isAccepted())
-                                            filteringParent->grabMouse();
+                                        filteringParent->grabMouse();
                                     }
-                                    filtered = true;
                                 }
                                 if (touchMouseUnset)
                                     // Now that we're done sending a synth mouse event, and it wasn't grabbed,

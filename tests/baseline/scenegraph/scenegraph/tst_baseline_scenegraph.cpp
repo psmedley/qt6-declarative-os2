@@ -32,6 +32,7 @@ public:
 
 private Q_SLOTS:
     void initTestCase();
+    void init();
     void cleanup();
 #ifdef TEXTLESS_TEST
     void testNoTextRendering_data();
@@ -102,6 +103,11 @@ void tst_Scenegraph::initTestCase()
         QSKIP(msg);
 }
 
+void tst_Scenegraph::init()
+{
+    // This gets called for every row. QSKIP if current item is blacklisted on the baseline server:
+    QBASELINE_SKIP_IF_BLACKLISTED;
+}
 
 void tst_Scenegraph::cleanup()
 {
@@ -192,7 +198,7 @@ void tst_Scenegraph::runTest(const QStringList& extraArgs)
         consecutiveErrors = 0;
     }
     else {
-        if (++consecutiveErrors >= 3)
+        if (++consecutiveErrors >= 3 && QBaselineTest::shouldAbortIfUnstable())
             aborted = true;                   // Just give up if screen grabbing fails 3 times in a row
         QFAIL(qPrintable("QuickView grabbing failed: " + errorMessage));
     }

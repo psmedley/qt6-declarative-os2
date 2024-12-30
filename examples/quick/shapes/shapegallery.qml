@@ -88,15 +88,15 @@ Rectangle {
                 }
                 ListElement {
                     name: qsTr("Dash pattern")
-                    shapeUrl: "linearGradient.qml"
+                    shapeUrl: "dashPattern.qml"
                 }
                 ListElement {
                     name: qsTr("Linear gradient")
-                    shapeUrl: "radialGradient.qml"
+                    shapeUrl: "linearGradient.qml"
                 }
                 ListElement {
                     name: qsTr("Radial gradient")
-                    shapeUrl: "dashPattern.qml"
+                    shapeUrl: "radialGradient.qml"
                 }
                 ListElement {
                     name: qsTr("Fill rules")
@@ -159,8 +159,8 @@ Rectangle {
         }
         color: "darkBlue"
         font.pointSize: 12
-        readonly property variant rendererStrings: [ qsTr("Unknown"), qsTr("Generic (QtGui triangulator)"), qsTr("GL_NV_path_rendering"), qsTr("Software (QPainter)") ]
-        text: qsTr("Active Shape backend: ") + rendererStrings[dummyShape.rendererType]
+        readonly property variant rendererStrings: [ qsTr("Unknown"), qsTr("Generic (QtGui triangulator)"), qsTr("GL_NV_path_rendering"), qsTr("Software (QPainter)"), qsTr("Curve Renderer") ]
+        text: "Active Shape backend: " + rendererStrings[dummyShape.rendererType]
         SequentialAnimation on opacity {
             NumberAnimation {
                 from: 1

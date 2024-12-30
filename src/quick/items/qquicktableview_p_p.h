@@ -359,6 +359,7 @@ public:
 
     QPointer<QItemSelectionModel> selectionModel;
     QQuickTableView::SelectionBehavior selectionBehavior = QQuickTableView::SelectCells;
+    QQuickTableView::SelectionMode selectionMode = QQuickTableView::ExtendedSelection;
 
     int assignedPositionViewAtRowAfterRebuild = 0;
     int assignedPositionViewAtColumnAfterRebuild = 0;
@@ -376,8 +377,10 @@ public:
 
     QPoint selectionStartCell = {-1, -1};
     QPoint selectionEndCell = {-1, -1};
+    QItemSelection existingSelection;
 
     QMargins edgesBeforeRebuild;
+    QSize tableSizeBeforeRebuild;
 
     int currentRow = -1;
     int currentColumn = -1;
@@ -518,6 +521,7 @@ public:
     virtual void syncModel();
     virtual void syncSyncView();
     virtual void syncPositionView();
+    virtual QAbstractItemModel *selectionSourceModel();
     inline void syncRebuildOptions();
 
     void connectToModel();
@@ -531,6 +535,7 @@ public:
     void columnsRemovedCallback(const QModelIndex &parent, int begin, int end);
     void layoutChangedCallback(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint);
     void modelResetCallback();
+    bool compareModel(const QVariant& model1, const QVariant& model2) const;
 
     void positionViewAtRow(int row, Qt::Alignment alignment, qreal offset, const QRectF subRect = QRectF());
     void positionViewAtColumn(int column, Qt::Alignment alignment, qreal offset, const QRectF subRect = QRectF());
@@ -547,7 +552,6 @@ public:
     void selectionChangedInSelectionModel(const QItemSelection &selected, const QItemSelection &deselected);
     void updateSelectedOnAllDelegateItems();
     void setSelectedOnDelegateItem(const QModelIndex &modelIndex, bool select);
-    void syncSourceModelInSelectionModel();
 
     bool currentInSelectionModel(const QPoint &cell) const;
     void currentChangedInSelectionModel(const QModelIndex &current, const QModelIndex &previous);

@@ -35,9 +35,9 @@ public:
     qreal positionAt(const QPointF &point) const;
 
     QQuickPopupPositioner *getPositioner() override;
-    void showOverlay() override;
-    void hideOverlay() override;
-    void resizeOverlay() override;
+    void showDimmer() override;
+    void hideDimmer() override;
+    void resizeDimmer() override;
 
     bool startDrag(QEvent *event);
     bool grabMouse(QQuickItem *item, QMouseEvent *event);
@@ -55,6 +55,8 @@ public:
     bool prepareExitTransition() override;
 
     bool setEdge(Qt::Edge edge);
+    Qt::Edge effectiveEdge() const;
+    bool isWithinDragMargin(const QPointF &point) const;
 
     Qt::Edge edge = Qt::LeftEdge;
     qreal offset = 0;

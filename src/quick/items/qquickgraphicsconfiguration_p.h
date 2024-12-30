@@ -27,14 +27,15 @@ public:
     static QQuickGraphicsConfigurationPrivate *get(QQuickGraphicsConfiguration *p) { return p->d; }
     static const QQuickGraphicsConfigurationPrivate *get(const QQuickGraphicsConfiguration *p) { return p->d; }
     QQuickGraphicsConfigurationPrivate();
-    QQuickGraphicsConfigurationPrivate(const QQuickGraphicsConfigurationPrivate *other);
+    QQuickGraphicsConfigurationPrivate(const QQuickGraphicsConfigurationPrivate &other);
 
     enum Flag {
         UseDepthBufferFor2D = 0x01,
         EnableDebugLayer = 0x02,
         EnableDebugMarkers = 0x04,
         PreferSoftwareDevice = 0x08,
-        AutoPipelineCache = 0x10
+        AutoPipelineCache = 0x10,
+        EnableTimestamps = 0x20
     };
     Q_DECLARE_FLAGS(Flags, Flag)
 

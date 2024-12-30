@@ -154,7 +154,7 @@ QObject *QQmlObjectCreator::create(int subComponentIndex, QObject *parent, QQmlI
     } else {
         Q_ASSERT(subComponentIndex >= 0);
         if (flags & CreationFlags::InlineComponent) {
-            if (compilationUnit->unitData()->flags & QV4::CompiledData::Unit::ComponentsBound
+            if (compilationUnit->componentsAreBound()
                     && compilationUnit != parentContext->typeCompilationUnit()) {
                 recordError({}, tr("Cannot instantiate bound inline component in different file"));
                 phase = ObjectsCreated;
@@ -164,7 +164,7 @@ QObject *QQmlObjectCreator::create(int subComponentIndex, QObject *parent, QQmlI
             isComponentRoot = true;
         } else {
             Q_ASSERT(flags & CreationFlags::NormalObject);
-            if (compilationUnit->unitData()->flags & QV4::CompiledData::Unit::ComponentsBound
+            if (compilationUnit->componentsAreBound()
                     && sharedState->creationContext != parentContext) {
                 recordError({}, tr("Cannot instantiate bound component "
                                    "outside its creation context"));
@@ -313,8 +313,11 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
     QMetaType propertyType = property->propType();
 
     if (property->isEnum()) {
-        if (binding->hasFlag(QV4::CompiledData::Binding::IsResolvedEnum)) {
-            propertyType = QMetaType::fromType<int>();
+        if (binding->hasFlag(QV4::CompiledData::Binding::IsResolvedEnum) ||
+                // TODO: For historical reasons you can assign any number to an enum property alias
+                //       This can be fixed with an opt-out mechanism, for example a pragma.
+                (property->isAlias() && binding->isNumberBinding())) {
+            propertyType = property->propType().underlyingType();
         } else {
             // ### This should be resolved earlier at compile time and the binding value should be changed accordingly.
             QVariant value = compilationUnit->bindingValueAsString(binding);
@@ -436,6 +439,49 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
         break;
     }
     break;
+    case QMetaType::SChar: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        qint8 value = qint8(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    case QMetaType::UChar: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        quint8 value = quint8(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    case QMetaType::Short: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        qint16 value = qint16(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    case QMetaType::UShort: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        quint16 value = quint16(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    case QMetaType::LongLong: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        qint64 value = qint64(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    case QMetaType::ULongLong: {
+        assertType(QV4::CompiledData::Binding::Type_Number);
+        double d = compilationUnit->bindingValueAsNumber(binding);
+        quint64 value = quint64(d);
+        property->writeProperty(_qobject, &value, propertyWriteFlags);
+        break;
+    }
+    break;
     case QMetaType::Float: {
         assertType(QV4::CompiledData::Binding::Type_Number);
         float value = float(compilationUnit->bindingValueAsNumber(binding));
@@ -449,9 +495,9 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
     }
     break;
     case QMetaType::QColor: {
-        QVariant data(propertyType);
-        if (QQmlValueTypeProvider::createValueType(
-                    compilationUnit->bindingValueAsString(binding), propertyType, data.data())) {
+        QVariant data = QQmlValueTypeProvider::createValueType(
+                    compilationUnit->bindingValueAsString(binding), propertyType);
+        if (data.isValid()) {
             property->writeProperty(_qobject, data.data(), propertyWriteFlags);
         }
     }
@@ -532,12 +578,9 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
     case QMetaType::QVector3D:
     case QMetaType::QVector4D:
     case QMetaType::QQuaternion: {
-        QVariant result(propertyType);
-        bool ok = QQmlValueTypeProvider::createValueType(
-                    compilationUnit->bindingValueAsString(binding),
-                    result.metaType(), result.data());
-        assertOrNull(ok);
-        Q_UNUSED(ok);
+        QVariant result = QQmlValueTypeProvider::createValueType(
+                    compilationUnit->bindingValueAsString(binding), propertyType);
+        assertOrNull(result.isValid());
         property->writeProperty(_qobject, result.data(), propertyWriteFlags);
         break;
     }
@@ -625,9 +668,8 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
                 break;
             }
 
-            QVariant target(propertyType);
-            if (QQmlValueTypeProvider::createValueType(
-                    source.metaType(), source.data(), propertyType, target.data())) {
+            QVariant target = QQmlValueTypeProvider::createValueType(source, propertyType);
+            if (target.isValid()) {
                 property->writeProperty(_qobject, target.data(), propertyWriteFlags);
                 break;
             }
@@ -913,10 +955,13 @@ bool QQmlObjectCreator::setPropertyBinding(const QQmlPropertyData *bindingProper
             && !(bindingFlags & QV4::CompiledData::Binding::IsPropertyObserver)
             && !_valueTypeProperty;
 
-    if (_ddata->hasBindingBit(bindingProperty->coreIndex()) && allowedToRemoveBinding) {
-        QQmlPropertyPrivate::removeBinding(_bindingTarget, QQmlPropertyIndex(bindingProperty->coreIndex()));
-    } else if (bindingProperty->isBindable() && allowedToRemoveBinding) {
-        removePendingBinding(_bindingTarget, bindingProperty->coreIndex());
+    if (allowedToRemoveBinding) {
+        if (bindingProperty->isBindable()) {
+            removePendingBinding(_bindingTarget, bindingProperty->coreIndex());
+        } else {
+            QQmlPropertyPrivate::removeBinding(
+                    _bindingTarget, QQmlPropertyIndex(bindingProperty->coreIndex()));
+        }
     }
 
     if (bindingType == QV4::CompiledData::Binding::Type_Script || binding->isTranslationBinding()) {
@@ -962,6 +1007,9 @@ bool QQmlObjectCreator::setPropertyBinding(const QQmlPropertyData *bindingProper
                 qmlBinding = QQmlPropertyBinding::create(bindingProperty, runtimeFunction, _scopeObject, context, currentQmlContext(), _bindingTarget, index);
             }
             sharedState.data()->allQPropertyBindings.push_back(DeferredQPropertyBinding {_bindingTarget, bindingProperty->coreIndex(), qmlBinding });
+
+            QQmlData *data = QQmlData::get(_bindingTarget, true);
+            data->setBindingBit(_bindingTarget, bindingProperty->coreIndex());
         } else {
             // When writing bindings to grouped properties implemented as value types,
             // such as point.x: { someExpression; }, then the binding is installed on
@@ -1289,11 +1337,26 @@ QObject *QQmlObjectCreator::createInstance(int index, QObject *parent, bool isCo
                     return nullptr;
                 }
             } else {
-                int subObjectId = type.inlineComponentId();
-                QScopedValueRollback<int> rollback {compilationUnit->icRoot, subObjectId};
+                QString subObjectName;
+                if (compilationUnit->icRootName) {
+                    subObjectName = type.elementName();
+                    std::swap(*compilationUnit->icRootName, subObjectName);
+                } else {
+                    compilationUnit->icRootName = std::make_unique<QString>(type.elementName());
+                }
+
+                const auto guard = qScopeGuard([&] {
+                    if (subObjectName.isEmpty())
+                        compilationUnit->icRootName.reset();
+                    else
+                        std::swap(*compilationUnit->icRootName, subObjectName);
+                });
+
                 QQmlObjectCreator subCreator(context, compilationUnit, sharedState.data(),
                                              isContextObject);
-                instance = subCreator.create(subObjectId, nullptr, nullptr, CreationFlags::InlineComponent);
+                instance = subCreator.create(
+                    compilationUnit->inlineComponentId(*compilationUnit->icRootName),
+                    nullptr, nullptr, CreationFlags::InlineComponent);
                 if (!instance) {
                     errors += subCreator.errors;
                     return nullptr;
@@ -1458,17 +1521,27 @@ bool QQmlObjectCreator::finalize(QQmlInstantiationInterrupt &interrupt)
 
     while (!sharedState->allQPropertyBindings.isEmpty()) {
         auto& [target, index, qmlBinding] = sharedState->allQPropertyBindings.first();
+
+        QQmlData *data = QQmlData::get(target);
+        if (!data || !data->hasBindingBit(index)) {
+            // The target property has been overwritten since we stashed the binding.
+            sharedState->allQPropertyBindings.pop_front();
+            continue;
+        }
+
         QUntypedBindable bindable;
         void *argv[] = { &bindable };
         // allow interception
         target->metaObject()->metacall(target, QMetaObject::BindableProperty, index, argv);
         const bool success = bindable.setBinding(qmlBinding);
 
+        const auto bindingPrivateRefCount = QPropertyBindingPrivate::get(qmlBinding)->ref;
+
         // Only pop_front after setting the binding as the bindings are refcounted.
         sharedState->allQPropertyBindings.pop_front();
 
         // If the binding was actually not set, it's deleted now.
-        if (success) {
+        if (success && bindingPrivateRefCount > 1) {
             if (auto priv = QPropertyBindingPrivate::get(qmlBinding); priv->hasCustomVTable()) {
                 auto qmlBindingPriv = static_cast<QQmlPropertyBinding *>(priv);
                 auto jsExpression = qmlBindingPriv->jsExpression();

@@ -146,6 +146,7 @@ TestCase {
             }
         }
     }
+
     Component {
         id: scrollableTextAreaWithSibling
         ScrollView {
@@ -188,6 +189,18 @@ TestCase {
         horizontal.increase()
         verify(horizontal.position > 0)
         compare(control.contentItem.visibleArea.xPosition, horizontal.position)
+
+        vertical.policy = ScrollBar.AlwaysOn
+        horizontal.policy = ScrollBar.AlwaysOn
+
+        verify(control.effectiveScrollBarWidth > 0)
+        verify(control.effectiveScrollBarHeight > 0)
+
+        vertical.policy = ScrollBar.AlwaysOff
+        horizontal.policy = ScrollBar.AlwaysOff
+
+        compare(control.effectiveScrollBarWidth, 0)
+        compare(control.effectiveScrollBarHeight, 0)
     }
 
     function test_oneChild_data() {
@@ -715,5 +728,36 @@ TestCase {
         verify(verticalScrollBar.active)
 
         // Shouldn't crash.
+    }
+
+    Component {
+        id: scrollViewContentItemComp
+
+        ScrollView {
+            id: scrollView
+            anchors.fill: parent
+            Column {
+                width: parent.width
+                Repeater {
+                    model: 20
+                    Rectangle {
+                        width: scrollView.width
+                        height: 60
+                        color: (index % 2 == 0) ? "red" : "green"
+                    }
+                }
+            }
+        }
+    }
+
+    function test_scrollViewContentItemSize() {
+        let scrollview = createTemporaryObject(scrollViewContentItemComp, testCase)
+        verify(scrollview)
+        let contentItem = scrollview.contentItem
+        waitForRendering(contentItem)
+        compare(contentItem.contentWidth, 400)
+        compare(contentItem.contentHeight, 1200)
+        compare(scrollview.contentWidth, 400)
+        compare(scrollview.contentHeight, 1200)
     }
 }

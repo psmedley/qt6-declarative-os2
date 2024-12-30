@@ -29,9 +29,19 @@ public:
     QProperty<int> theThing;
     QBindable<int> theThingBindable() { return QBindable<int>(&theThing); }
 
+    // The meta methods are populated back to front.
+    // The V4Function flag should not bleed into the others in either case.
+
     Q_INVOKABLE void overloaded(QQmlV4Function *) { setObjectName(QStringLiteral("javaScript")); }
     Q_INVOKABLE void overloaded(double) { setObjectName(QStringLiteral("double")); }
     Q_INVOKABLE void overloaded(const QString &) { setObjectName(QStringLiteral("string")); }
+
+    Q_INVOKABLE void foo(const QString &bla) { setObjectName(bla); }
+    Q_INVOKABLE void foo(ObjectWithMethod *) { setObjectName(QStringLiteral("ObjectWithMethod")); }
+
+    Q_INVOKABLE void overloaded2(double) { setObjectName(QStringLiteral("double")); }
+    Q_INVOKABLE void overloaded2(const QString &) { setObjectName(QStringLiteral("string")); }
+    Q_INVOKABLE void overloaded2(QQmlV4Function *) { setObjectName(QStringLiteral("javaScript")); }
 };
 
 class OverriddenObjectName : public ObjectWithMethod
@@ -59,6 +69,42 @@ public:
 private:
     QProperty<int> nothing;
     QProperty<QString> m_objectName;
+};
+
+class ObjectWithStringListMethod : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    explicit ObjectWithStringListMethod(QObject *parent = nullptr) : QObject(parent)
+    {
+        m_names.append("One");
+        m_names.append("Two");
+    }
+
+    Q_INVOKABLE QStringList names() const { return m_names; }
+
+private:
+    QStringList m_names;
+};
+
+class ObjectFactory : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+
+public:
+    explicit ObjectFactory(QObject *parent = nullptr) : QObject(parent) {}
+    Q_INVOKABLE ObjectWithStringListMethod *getFoo()
+    {
+        if (!m_foo)
+            m_foo = new ObjectWithStringListMethod(this);
+        return m_foo;
+    }
+
+private:
+    ObjectWithStringListMethod *m_foo = nullptr;
 };
 
 #endif // OBJECTWITHMETHOD_H

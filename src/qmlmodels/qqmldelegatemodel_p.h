@@ -180,13 +180,13 @@ class QQmlDelegateModelAttachedMetaObject;
 class QQmlDelegateModelAttached : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QQmlDelegateModel *model READ model CONSTANT)
-    Q_PROPERTY(QStringList groups READ groups WRITE setGroups NOTIFY groupsChanged)
-    Q_PROPERTY(bool isUnresolved READ isUnresolved NOTIFY unresolvedChanged)
-    Q_PROPERTY(bool inPersistedItems READ inPersistedItems WRITE setInPersistedItems NOTIFY groupsChanged)
-    Q_PROPERTY(bool inItems READ inItems WRITE setInItems NOTIFY groupsChanged)
-    Q_PROPERTY(int persistedItemsIndex READ persistedItemsIndex NOTIFY groupsChanged)
-    Q_PROPERTY(int itemsIndex READ itemsIndex NOTIFY groupsChanged)
+    Q_PROPERTY(QQmlDelegateModel *model READ model CONSTANT FINAL)
+    Q_PROPERTY(QStringList groups READ groups WRITE setGroups NOTIFY groupsChanged FINAL)
+    Q_PROPERTY(bool isUnresolved READ isUnresolved NOTIFY unresolvedChanged FINAL)
+    Q_PROPERTY(bool inPersistedItems READ inPersistedItems WRITE setInPersistedItems NOTIFY groupsChanged FINAL)
+    Q_PROPERTY(bool inItems READ inItems WRITE setInItems NOTIFY groupsChanged FINAL)
+    Q_PROPERTY(int persistedItemsIndex READ persistedItemsIndex NOTIFY groupsChanged FINAL)
+    Q_PROPERTY(int itemsIndex READ itemsIndex NOTIFY groupsChanged FINAL)
 
 public:
     QQmlDelegateModelAttached(QObject *parent);

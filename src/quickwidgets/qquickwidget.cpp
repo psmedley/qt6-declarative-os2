@@ -335,8 +335,10 @@ void QQuickWidgetPrivate::render(bool needsSync)
             q->createFramebufferObject();
         }
 
-        if (!rhi)
+        if (!rhi) {
+            qWarning("QQuickWidget: Attempted to render scene with no rhi");
             return;
+        }
 
         // createFramebufferObject() bails out when the size is empty. In this case
         // we cannot render either.
@@ -395,11 +397,6 @@ void QQuickWidgetPrivate::renderSceneGraph()
 
     if (!q->isVisible() || fakeHidden)
         return;
-
-    if (!useSoftwareRenderer && !rhi) {
-        qWarning("QQuickWidget: Attempted to render scene with no rhi");
-        return;
-    }
 
     render(true);
 
@@ -615,7 +612,24 @@ QQuickWidget::QQuickWidget(QWidget *parent)
 {
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+#ifndef Q_OS_MACOS
+    /*
+        Usually, a QTouchEvent comes from a touchscreen, and we want those
+        touch events in Qt Quick. But on macOS, there are no touchscreens, and
+        WA_AcceptTouchEvents has a different meaning: QApplication::notify()
+        calls the native-integration function registertouchwindow() to change
+        NSView::allowedTouchTypes to include NSTouchTypeMaskIndirect when the
+        trackpad cursor enters the window, and removes that mask when the
+        cursor exits. In other words, WA_AcceptTouchEvents enables getting
+        discrete touchpoints from the trackpad. We rather prefer to get mouse,
+        wheel and native gesture events from the trackpad (because those
+        provide more of a "native feel"). The only exception is for
+        MultiPointTouchArea, and it takes care of that for itself. So don't
+        automatically set WA_AcceptTouchEvents on macOS. The user can still do
+        it, but we don't recommend it.
+    */
     setAttribute(Qt::WA_AcceptTouchEvents);
+#endif
     d_func()->init();
 }
 
@@ -657,6 +671,9 @@ QQuickWidget::~QQuickWidget()
     Q_D(QQuickWidget);
     delete d->root;
     d->root = nullptr;
+
+    if (d->rhi)
+        d->rhi->removeCleanupCallback(this);
 
     // NB! resetting graphics resources must be done from this destructor,
     // *not* from the private class' destructor. This is due to how destruction
@@ -992,6 +1009,8 @@ static inline QPlatformBackingStoreRhiConfig::Api graphicsApiToBackingStoreRhiAp
         return QPlatformBackingStoreRhiConfig::Vulkan;
     case QSGRendererInterface::Direct3D11:
         return QPlatformBackingStoreRhiConfig::D3D11;
+    case QSGRendererInterface::Direct3D12:
+        return QPlatformBackingStoreRhiConfig::D3D12;
     case QSGRendererInterface::Metal:
         return QPlatformBackingStoreRhiConfig::Metal;
     default:
@@ -1022,8 +1041,19 @@ void QQuickWidgetPrivate::initializeWithRhi()
         if (rhi)
             return;
 
-        if (QWidgetRepaintManager *repaintManager = tlwd->maybeRepaintManager())
+        if (QWidgetRepaintManager *repaintManager = tlwd->maybeRepaintManager()) {
             rhi = repaintManager->rhi();
+            if (rhi) {
+                // We don't own the RHI, so make sure we clean up if it goes away
+                rhi->addCleanupCallback(q, [this](QRhi *rhi) {
+                    if (this->rhi == rhi) {
+                        invalidateRenderControl();
+                        deviceLost = true;
+                        this->rhi = nullptr;
+                    }
+                });
+            }
+        }
 
         if (!rhi) {
             // The widget (and its parent chain, if any) may not be shown at
@@ -1652,7 +1682,7 @@ bool QQuickWidget::event(QEvent *e)
             QPointerEvent *pointerEvent = static_cast<QPointerEvent *>(e);
             auto deliveredPoints = pointerEvent->points();
             for (auto &point : deliveredPoints) {
-                if (pointerEvent->exclusiveGrabber(point))
+                if (pointerEvent->exclusiveGrabber(point) || !pointerEvent->passiveGrabbers(point).isEmpty())
                     point.setAccepted(true);
             }
         }
@@ -1676,7 +1706,10 @@ bool QQuickWidget::event(QEvent *e)
         }
 
     case QEvent::WindowAboutToChangeInternal:
+        if (d->rhi)
+            d->rhi->removeCleanupCallback(this);
         d->invalidateRenderControl();
+        d->deviceLost = true;
         d->rhi = nullptr;
         break;
 
@@ -1689,15 +1722,20 @@ bool QQuickWidget::event(QEvent *e)
         QScreen *newScreen = screen();
         if (d->offscreenWindow)
             d->offscreenWindow->setScreen(newScreen);
-
+        break;
+    }
+    case QEvent::DevicePixelRatioChange:
         if (d->useSoftwareRenderer || d->outputTexture) {
             // This will check the size taking the devicePixelRatio into account
             // and recreate if needed.
             createFramebufferObject();
             d->render(true);
         }
+        if (d->offscreenWindow) {
+            QEvent dprChangeEvent(QEvent::DevicePixelRatioChange);
+            QGuiApplication::sendEvent(d->offscreenWindow, &dprChangeEvent);
+        }
         break;
-    }
     case QEvent::Show:
     case QEvent::Move:
         d->updatePosition();

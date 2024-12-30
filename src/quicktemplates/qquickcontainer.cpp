@@ -116,7 +116,7 @@ QT_BEGIN_NAMESPACE
     Container does not provide any default visualization. It is used to implement
     such containers as \l SwipeView and \l TabBar. When implementing a custom
     container, the most important part of the API is \l contentModel, which provides
-    the contained items in a way that it can be used as a delegate model for item
+    the contained items in a way that it can be used as an object model for item
     views and repeaters.
 
     \code
@@ -256,7 +256,8 @@ void QQuickContainerPrivate::moveItem(int from, int to, QQuickItem *item)
 void QQuickContainerPrivate::removeItem(int index, QQuickItem *item)
 {
     Q_Q(QQuickContainer);
-    if (!q->isContent(item))
+    const bool item_inDestructor = QQuickItemPrivate::get(item)->inDestructor;
+    if (!item_inDestructor && !q->isContent(item))
         return;
     contentData.removeOne(item);
 
@@ -271,8 +272,11 @@ void QQuickContainerPrivate::removeItem(int index, QQuickItem *item)
         currentChanged = true;
     }
 
-    QQuickItemPrivate::get(item)->removeItemChangeListener(this, changeTypes);
-    item->setParentItem(nullptr);
+    if (!item_inDestructor) {
+        // already handled by ~QQuickItem
+        QQuickItemPrivate::get(item)->removeItemChangeListener(this, changeTypes);
+        item->setParentItem(nullptr);
+    }
     contentModel->remove(index);
     --count;
 

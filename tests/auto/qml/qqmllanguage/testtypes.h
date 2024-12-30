@@ -1294,6 +1294,40 @@ public:
     }
 };
 
+class EnumPropsManyUnderlyingTypes : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+public:
+    enum  si8 : qint8 { ResolvedValue = 1};
+    enum  ui8 : quint8 {};
+    enum si16 : qint16 {};
+    enum ui16 : quint16 {};
+    enum ui64 : qint64 {};
+    enum si64 : quint64 {};
+    Q_ENUM(si8)
+    Q_ENUM(ui8)
+    Q_ENUM(si16)
+    Q_ENUM(ui16)
+    Q_ENUM(si64)
+    Q_ENUM(ui64)
+
+
+    Q_PROPERTY(si8  si8prop MEMBER si8prop)
+    Q_PROPERTY(ui8  ui8prop MEMBER ui8prop)
+    Q_PROPERTY(si16 si16prop MEMBER si16prop)
+    Q_PROPERTY(ui16 ui16prop MEMBER ui16prop)
+    Q_PROPERTY(si64 si64prop MEMBER si64prop)
+    Q_PROPERTY(ui64 ui64prop MEMBER ui64prop)
+
+    si8 si8prop = si8(0);
+    ui8 ui8prop = ui8(0);
+    si16 si16prop = si16(0);
+    ui16 ui16prop = ui16(0);
+    si64 si64prop = si64(0);
+    ui64 ui64prop = ui64(0);
+};
+
 Q_DECLARE_METATYPE(MyEnum2Class::EnumB)
 Q_DECLARE_METATYPE(MyEnum1Class::EnumA)
 Q_DECLARE_METATYPE(Qt::TextFormat)
@@ -2388,6 +2422,32 @@ public:
     }
 };
 
+
+struct ForeignNamespace
+{
+    Q_GADGET
+public:
+    enum Abc { A, B, C, D };
+    Q_ENUM(Abc)
+};
+
+class ForeignNamespaceForeign
+{
+    Q_GADGET
+    QML_ELEMENT
+    QML_FOREIGN_NAMESPACE(ForeignNamespace)
+};
+
+class LeakingForeignNamespaceForeign : public QObject, public ForeignNamespaceForeign
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum AnotherAbc { D, C, B, A };
+    Q_ENUM(AnotherAbc)
+};
+
 struct ValueTypeWithLength
 {
     Q_GADGET
@@ -2422,6 +2482,152 @@ public:
     Q_INVOKABLE quint64 getQTrue() const { return 1; }
 };
 
+namespace TypedEnums {
+Q_NAMESPACE
+QML_ELEMENT
+
+enum E8S : qint8 {
+    E8SA = std::numeric_limits<qint8>::min(),
+    E8SB = -5,
+    E8SC = -1,
+    E8SD = 0,
+    E8SE = 1,
+    E8SF = 5,
+    E8SG = std::numeric_limits<qint8>::max(),
+};
+Q_ENUM_NS(E8S);
+
+enum E8U : quint8 {
+    E8UA = 0,
+    E8UB = 1,
+    E8UC = 5,
+    E8UD = 1 << 7,
+    E8UE = std::numeric_limits<quint8>::max(),
+};
+Q_ENUM_NS(E8U);
+
+enum E16S : qint16 {
+    E16SA = std::numeric_limits<qint16>::min(),
+    E16SB = -5,
+    E16SC = -1,
+    E16SD = 0,
+    E16SE = 1,
+    E16SF = 5,
+    E16SG = std::numeric_limits<qint16>::max(),
+};
+Q_ENUM_NS(E16S);
+
+enum E16U : quint16 {
+    E16UA = 0,
+    E16UB = 1,
+    E16UC = 5,
+    E16UD = 1 << 15,
+    E16UE = std::numeric_limits<quint16>::max(),
+};
+Q_ENUM_NS(E16U);
+
+enum E32S : qint32 {
+    E32SA = std::numeric_limits<qint32>::min(),
+    E32SB = -5,
+    E32SC = -1,
+    E32SD = 0,
+    E32SE = 1,
+    E32SF = 5,
+    E32SG = std::numeric_limits<qint32>::max(),
+};
+Q_ENUM_NS(E32S);
+
+enum E32U : quint32 {
+    E32UA = 0,
+    E32UB = 1,
+    E32UC = 5,
+    E32UD = 1u << 31,
+    E32UE = std::numeric_limits<quint32>::max(),
+};
+Q_ENUM_NS(E32U);
+
+enum E64S : qint64 {
+    E64SA = std::numeric_limits<qint64>::min(),
+    E64SB = -5,
+    E64SC = -1,
+    E64SD = 0,
+    E64SE = 1,
+    E64SF = 5,
+    E64SG = std::numeric_limits<qint64>::max(),
+};
+Q_ENUM_NS(E64S);
+
+enum E64U : quint64 {
+    E64UA = 0,
+    E64UB = 1,
+    E64UC = 5,
+    E64UD = 1ull << 63,
+    E64UE = std::numeric_limits<quint64>::max(),
+};
+Q_ENUM_NS(E64U);
+}
+
+class GadgetWithEnums
+{
+    Q_GADGET
+    QML_VALUE_TYPE(gadgetWithEnums)
+    Q_PROPERTY(TypedEnums::E8S  e8s  MEMBER m_e8s);
+    Q_PROPERTY(TypedEnums::E8U  e8u  MEMBER m_e8u);
+    Q_PROPERTY(TypedEnums::E16S e16s MEMBER m_e16s);
+    Q_PROPERTY(TypedEnums::E16U e16u MEMBER m_e16u);
+    Q_PROPERTY(TypedEnums::E32S e32s MEMBER m_e32s);
+    Q_PROPERTY(TypedEnums::E32U e32u MEMBER m_e32u);
+    Q_PROPERTY(TypedEnums::E64S e64s MEMBER m_e64s);
+    Q_PROPERTY(TypedEnums::E64U e64u MEMBER m_e64u);
+public:
+    TypedEnums::E8S  m_e8s  = {};
+    TypedEnums::E8U  m_e8u  = {};
+    TypedEnums::E16S m_e16s = {};
+    TypedEnums::E16U m_e16u = {};
+    TypedEnums::E32S m_e32s = {};
+    TypedEnums::E32U m_e32u = {};
+    TypedEnums::E64S m_e64s = {};
+    TypedEnums::E64U m_e64u = {};
+private:
+    friend bool operator==(const GadgetWithEnums &a, const GadgetWithEnums &b)
+    {
+        return a.m_e8s == b.m_e8s && a.m_e8u == b.m_e8u && a.m_e16s == b.m_e16s
+                && a.m_e16u == b.m_e16u && a.m_e32s == b.m_e32s && a.m_e32u == b.m_e32u
+                && a.m_e64s == b.m_e64s && a.m_e64u == b.m_e64u;
+    }
+    friend bool operator!=(const GadgetWithEnums &a, const GadgetWithEnums &b)
+    {
+        return !(a == b);
+    }
+};
+
+class ObjectWithEnums : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(TypedEnums::E8S  e8s  MEMBER m_e8s  NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E8U  e8u  MEMBER m_e8u  NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E16S e16s MEMBER m_e16s NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E16U e16u MEMBER m_e16u NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E32S e32s MEMBER m_e32s NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E32U e32u MEMBER m_e32u NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E64S e64s MEMBER m_e64s NOTIFY changed);
+    Q_PROPERTY(TypedEnums::E64U e64u MEMBER m_e64u NOTIFY changed);
+    Q_PROPERTY(GadgetWithEnums g MEMBER m_g NOTIFY changed);
+public:
+    ObjectWithEnums(QObject *parent = nullptr) : QObject(parent) {}
+    TypedEnums::E8S  m_e8s  = {};
+    TypedEnums::E8U  m_e8u  = {};
+    TypedEnums::E16S m_e16s = {};
+    TypedEnums::E16U m_e16u = {};
+    TypedEnums::E32S m_e32s = {};
+    TypedEnums::E32U m_e32u = {};
+    TypedEnums::E64S m_e64s = {};
+    TypedEnums::E64U m_e64u = {};
+    GadgetWithEnums m_g;
+Q_SIGNALS:
+    void changed();
+};
 
 struct UnregisteredValueBaseType
 {

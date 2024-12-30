@@ -18,17 +18,19 @@
 #include <QtCore/qobject.h>
 #include <QtGui/qcolor.h>
 #include <QtQml/qqml.h>
-#include <QtQuick/private/qquickpalette_p.h>
+#include <QtQuickControls2Fusion/qtquickcontrols2fusionexports.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQuickFusionStyle : public QObject
+class QQuickPalette;
+
+class Q_QUICKCONTROLS2FUSION_EXPORT QQuickFusionStyle : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QColor lightShade READ lightShade CONSTANT)
-    Q_PROPERTY(QColor darkShade READ darkShade CONSTANT)
-    Q_PROPERTY(QColor topShadow READ topShadow CONSTANT)
-    Q_PROPERTY(QColor innerContrastLine READ innerContrastLine CONSTANT)
+    Q_PROPERTY(QColor lightShade READ lightShade CONSTANT FINAL)
+    Q_PROPERTY(QColor darkShade READ darkShade CONSTANT FINAL)
+    Q_PROPERTY(QColor topShadow READ topShadow CONSTANT FINAL)
+    Q_PROPERTY(QColor innerContrastLine READ innerContrastLine CONSTANT FINAL)
     QML_NAMED_ELEMENT(Fusion)
     QML_SINGLETON
     QML_ADDED_IN_VERSION(2, 3)

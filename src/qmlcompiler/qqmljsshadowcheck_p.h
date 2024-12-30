@@ -28,21 +28,40 @@ public:
 
     ~QQmlJSShadowCheck() = default;
 
-    void run(const InstructionAnnotations *annotations, const Function *function,
+    void run(InstructionAnnotations *annotations, const Function *function,
              QQmlJS::DiagnosticMessage *error);
 
 private:
+    struct ResettableStore {
+        QQmlJSRegisterContent accumulatorIn;
+        int instructionOffset = -1;
+    };
+
+    void handleStore(int base, const QString &memberName);
+
     void generate_LoadProperty(int nameIndex) override;
     void generate_GetLookup(int index) override;
     void generate_StoreProperty(int nameIndex, int base) override;
     void generate_SetLookup(int index, int base) override;
+    void generate_CallProperty(int nameIndex, int base, int argc, int argv) override;
+    void generate_CallPropertyLookup(int nameIndex, int base, int argc, int argv) override;
 
     QV4::Moth::ByteCodeHandler::Verdict startInstruction(QV4::Moth::Instr::Type) override;
     void endInstruction(QV4::Moth::Instr::Type) override;
 
-    void checkShadowing(const QQmlJSRegisterContent &baseType, const QString &propertyName);
+    enum Shadowability { NotShadowable, Shadowable };
+    Shadowability checkShadowing(
+            const QQmlJSRegisterContent &baseType, const QString &propertyName, int baseRegister);
 
-    const InstructionAnnotations *m_annotations = nullptr;
+    void checkResettable(const QQmlJSRegisterContent &accumulatorIn, int instructionOffset);
+
+    Shadowability checkBaseType(const QQmlJSRegisterContent &baseType);
+
+    QList<ResettableStore> m_resettableStores;
+    QList<QQmlJSRegisterContent> m_baseTypes;
+    QSet<QQmlJSRegisterContent> m_adjustedTypes;
+
+    InstructionAnnotations *m_annotations = nullptr;
     State m_state;
 };
 

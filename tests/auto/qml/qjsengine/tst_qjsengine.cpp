@@ -17,6 +17,7 @@
 #include <QScopeGuard>
 #include <QUrl>
 #include <QModelIndex>
+#include <QtQml/qqmllist.h>
 
 #ifdef Q_CC_MSVC
 #define NO_INLINE __declspec(noinline)
@@ -309,6 +310,9 @@ private slots:
     void symbolToVariant();
 
     void garbageCollectedObjectMethodBase();
+
+    void deleteDefineCycle();
+
 public:
     Q_INVOKABLE QJSValue throwingCppMethod1();
     Q_INVOKABLE void throwingCppMethod2();
@@ -385,7 +389,7 @@ void tst_QJSEngine::callQObjectSlot()
     }
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString, QString, QString)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString,QString,QString)));
         eng.evaluate("dummy.slotToCall('arg', 'arg2');");
         QCOMPARE(spy.size(), 1);
 
@@ -396,7 +400,7 @@ void tst_QJSEngine::callQObjectSlot()
     }
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString, QString, QString)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithArgumentsCalled(QString,QString,QString)));
         eng.evaluate("dummy.slotToCall('arg', 'arg2', 'arg3');");
         QCOMPARE(spy.size(), 1);
 
@@ -407,7 +411,7 @@ void tst_QJSEngine::callQObjectSlot()
     }
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithOverloadedArgumentsCalled(QString, Qt::KeyboardModifier, Qt::KeyboardModifiers)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithOverloadedArgumentsCalled(QString,Qt::KeyboardModifier,Qt::KeyboardModifiers)));
         eng.evaluate(QStringLiteral("dummy.slotToCall('arg', %1);").arg(QString::number(Qt::ControlModifier)));
         QCOMPARE(spy.size(), 1);
 
@@ -419,7 +423,7 @@ void tst_QJSEngine::callQObjectSlot()
     }
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithTwoOverloadedArgumentsCalled(QString, Qt::KeyboardModifiers, Qt::KeyboardModifier)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithTwoOverloadedArgumentsCalled(QString,Qt::KeyboardModifiers,Qt::KeyboardModifier)));
         QJSValue v = eng.evaluate(QStringLiteral("dummy.slotToCallTwoDefault('arg', %1);").arg(QString::number(Qt::MetaModifier | Qt::KeypadModifier)));
         QCOMPARE(spy.size(), 1);
 
@@ -440,7 +444,7 @@ void tst_QJSEngine::callQObjectSlot()
     eng.globalObject().setProperty(QStringLiteral("Qt"), value);
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithOverloadedArgumentsCalled(QString, Qt::KeyboardModifier, Qt::KeyboardModifiers)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithOverloadedArgumentsCalled(QString,Qt::KeyboardModifier,Qt::KeyboardModifiers)));
         QJSValue v = eng.evaluate(QStringLiteral("dummy.slotToCall('arg', Qt.ControlModifier);"));
         QCOMPARE(spy.size(), 1);
 
@@ -451,7 +455,7 @@ void tst_QJSEngine::callQObjectSlot()
     }
 
     {
-        QSignalSpy spy(&dummy, SIGNAL(slotWithTwoOverloadedArgumentsCalled(QString, Qt::KeyboardModifiers, Qt::KeyboardModifier)));
+        QSignalSpy spy(&dummy, SIGNAL(slotWithTwoOverloadedArgumentsCalled(QString,Qt::KeyboardModifiers,Qt::KeyboardModifier)));
         QJSValue v = eng.evaluate(QStringLiteral("dummy.slotToCallTwoDefault('arg', Qt.MetaModifier | Qt.KeypadModifier);"));
         QCOMPARE(spy.size(), 1);
 
@@ -913,7 +917,7 @@ void tst_QJSEngine::newQObjectRace()
         {
             int newObjectCount = 1000;
 #if defined(Q_OS_QNX)
-            newObjectCount = 256;
+            newObjectCount = 128;
 #endif
             for (int i=0;i<newObjectCount;++i)
             {
@@ -1673,6 +1677,8 @@ void tst_QJSEngine::valueConversion_basic()
         QCOMPARE(eng.fromScriptValue<unsigned short>(num), (unsigned short)(123));
         QCOMPARE(eng.fromScriptValue<float>(num), float(123));
         QCOMPARE(eng.fromScriptValue<double>(num), double(123));
+        QCOMPARE(eng.fromScriptValue<long>(num), long(123));
+        QCOMPARE(eng.fromScriptValue<ulong>(num), ulong(123));
         QCOMPARE(eng.fromScriptValue<qlonglong>(num), qlonglong(123));
         QCOMPARE(eng.fromScriptValue<qulonglong>(num), qulonglong(123));
     }
@@ -1684,6 +1690,8 @@ void tst_QJSEngine::valueConversion_basic()
         QCOMPARE(eng.fromScriptValue<unsigned short>(num), (unsigned short)(123));
         QCOMPARE(eng.fromScriptValue<float>(num), float(123));
         QCOMPARE(eng.fromScriptValue<double>(num), double(123));
+        QCOMPARE(eng.fromScriptValue<long>(num), long(123));
+        QCOMPARE(eng.fromScriptValue<ulong>(num), ulong(123));
         QCOMPARE(eng.fromScriptValue<qlonglong>(num), qlonglong(123));
         QCOMPARE(eng.fromScriptValue<qulonglong>(num), qulonglong(123));
     }
@@ -1701,6 +1709,13 @@ void tst_QJSEngine::valueConversion_basic()
         QJSValue code = eng.toScriptValue(c.unicode());
         QCOMPARE(eng.fromScriptValue<QChar>(code), c);
         QCOMPARE(eng.fromScriptValue<QChar>(eng.toScriptValue(c)), c);
+    }
+
+    {
+        QList<QObject *> list = {this};
+        QQmlListProperty<QObject> prop(this, &list);
+        QJSValue jsVal = eng.toScriptValue(prop);
+        QCOMPARE(eng.fromScriptValue<QQmlListProperty<QObject>>(jsVal), prop);
     }
 
     QVERIFY(eng.toScriptValue(static_cast<void *>(nullptr)).isNull());
@@ -6288,6 +6303,25 @@ void tst_QJSEngine::garbageCollectedObjectMethodBase()
         auto future = std::async(processUrl, url, host);
         QCOMPARE(future.get(), QLatin1String("Error: Insufficient arguments"));
     }
+}
+
+void tst_QJSEngine::deleteDefineCycle()
+{
+  QJSEngine engine;
+  QStringList stackTrace;
+
+  QJSValue result = engine.evaluate(QString::fromLatin1(R"(
+  let global = ({})
+
+  for (let j = 0; j < 1000; j++) {
+    for (let i = 0; i < 2; i++) {
+      const name = "test" + i
+      delete global[name]
+      Object.defineProperty(global, name, { get() { return 0 }, configurable: true })
+    }
+  }
+  )"), {}, 1, &stackTrace);
+  QVERIFY(stackTrace.isEmpty());
 }
 
 QTEST_MAIN(tst_QJSEngine)

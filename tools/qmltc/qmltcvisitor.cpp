@@ -133,8 +133,9 @@ void QmltcVisitor::findCppIncludes()
         Q_ASSERT(type);
 
         const auto scopeType = type->scopeType();
-        if (scopeType != QQmlJSScope::QMLScope && scopeType != QQmlJSScope::GroupedPropertyScope
-            && scopeType != QQmlJSScope::AttachedPropertyScope) {
+        if (scopeType != QQmlSA::ScopeType::QMLScope
+            && scopeType != QQmlSA::ScopeType::GroupedPropertyScope
+            && scopeType != QQmlSA::ScopeType::AttachedPropertyScope) {
             continue;
         }
 
@@ -174,7 +175,7 @@ void QmltcVisitor::findCppIncludes()
 
 static void addCleanQmlTypeName(QStringList *names, const QQmlJSScope::ConstPtr &scope)
 {
-    Q_ASSERT(scope->scopeType() == QQmlJSScope::QMLScope);
+    Q_ASSERT(scope->scopeType() == QQmlSA::ScopeType::QMLScope);
     Q_ASSERT(!scope->isArrayScope());
     Q_ASSERT(!scope->baseTypeName().isEmpty());
     // the scope is guaranteed to be a new QML type, so any prefixes (separated
@@ -197,7 +198,7 @@ bool QmltcVisitor::visit(QQmlJS::AST::UiObjectDefinition *object)
     }
 
     // we're not interested in non-QML scopes
-    if (m_currentScope->scopeType() != QQmlJSScope::QMLScope)
+    if (m_currentScope->scopeType() != QQmlSA::ScopeType::QMLScope)
         return true;
 
     if (m_currentScope->isInlineComponent()) {
@@ -216,7 +217,7 @@ bool QmltcVisitor::visit(QQmlJS::AST::UiObjectDefinition *object)
 
 void QmltcVisitor::endVisit(QQmlJS::AST::UiObjectDefinition *object)
 {
-    if (m_currentScope->scopeType() == QQmlJSScope::QMLScope)
+    if (m_currentScope->scopeType() == QQmlSA::ScopeType::QMLScope)
         m_qmlTypeNames.removeLast();
     QQmlJSImportVisitor::endVisit(object);
 }
@@ -280,7 +281,7 @@ bool QmltcVisitor::visit(QQmlJS::AST::UiPublicMember *publicMember)
                         u"internal error: %1 found for property '%2'"_s.arg(errorString, name),
                         qmlCompiler, publicMember->identifierToken);
                 return false;
-            } else if (methods[0].methodType() != QQmlJSMetaMethod::Signal) {
+            } else if (methods[0].methodType() != QQmlJSMetaMethodType::Signal) {
                 m_logger->log(u"internal error: method %1 of property %2 must be a signal"_s.arg(
                                       notifyName, name),
                               qmlCompiler, publicMember->identifierToken);
@@ -336,17 +337,17 @@ void QmltcVisitor::endVisit(QQmlJS::AST::UiProgram *program)
 
     for (const QList<QQmlJSScope::ConstPtr> &qmlTypes : m_pureQmlTypes)
         for (const QQmlJSScope::ConstPtr &type : qmlTypes)
-            checkForNamingCollisionsWithCpp(type);
+            checkNamesAndTypes(type);
 }
 
 QQmlJSScope::ConstPtr fetchType(const QQmlJSMetaPropertyBinding &binding)
 {
     switch (binding.bindingType()) {
-    case QQmlJSMetaPropertyBinding::Object:
+    case QQmlSA::BindingType::Object:
         return binding.objectType();
-    case QQmlJSMetaPropertyBinding::Interceptor:
+    case QQmlSA::BindingType::Interceptor:
         return binding.interceptorType();
-    case QQmlJSMetaPropertyBinding::ValueSource:
+    case QQmlSA::BindingType::ValueSource:
         return binding.valueSourceType();
     // TODO: AttachedProperty and GroupProperty are not supported yet,
     // but have to also be acknowledged here
@@ -435,7 +436,7 @@ void QmltcVisitor::postVisitResolve(
     // match scopes to indices of QmlIR::Object from QmlIR::Document
     qsizetype count = 0;
     const auto setIndex = [&](const QQmlJSScope::Ptr &current) {
-        if (current->scopeType() != QQmlJSScope::QMLScope || current->isArrayScope())
+        if (current->scopeType() != QQmlSA::ScopeType::QMLScope || current->isArrayScope())
             return;
         Q_ASSERT(!m_qmlIrObjectIndices.contains(current));
         m_qmlIrObjectIndices[current] = count;
@@ -547,9 +548,9 @@ void QmltcVisitor::postVisitResolve(
         if (scope->isArrayScope()) // special kind of QQmlJSScope::QMLScope
             return;
         switch (scope->scopeType()) {
-        case QQmlJSScope::QMLScope:
-        case QQmlJSScope::GroupedPropertyScope:
-        case QQmlJSScope::AttachedPropertyScope: {
+        case QQmlSA::ScopeType::QMLScope:
+        case QQmlSA::ScopeType::GroupedPropertyScope:
+        case QQmlSA::ScopeType::AttachedPropertyScope: {
             ++qmlScopeCount[scope->enclosingInlineComponentName()];
             break;
         }
@@ -653,7 +654,7 @@ void QmltcVisitor::setupAliases()
     }
 }
 
-void QmltcVisitor::checkForNamingCollisionsWithCpp(const QQmlJSScope::ConstPtr &type)
+void QmltcVisitor::checkNamesAndTypes(const QQmlJSScope::ConstPtr &type)
 {
     static const QString cppKeywords[] = {
         u"alignas"_s,
@@ -769,6 +770,23 @@ void QmltcVisitor::checkForNamingCollisionsWithCpp(const QQmlJSScope::ConstPtr &
                       qmlCompiler, type->sourceLocation());
     };
 
+    const auto validateType = [&type, this](const QQmlJSScope::ConstPtr &typeToCheck,
+                                            QStringView name, QStringView errorPrefix) {
+        if (type->moduleName().isEmpty() || typeToCheck.isNull())
+            return;
+
+        if (typeToCheck->isComposite() && typeToCheck->moduleName() != type->moduleName()) {
+            m_logger->log(
+                    QStringLiteral(
+                            "Can't compile the %1 type \"%2\" to C++ because it "
+                            "lives in \"%3\" instead of the current file's \"%4\" QML module.")
+                            .arg(errorPrefix, name, typeToCheck->moduleName(), type->moduleName()),
+                    qmlCompiler, type->sourceLocation());
+        }
+    };
+
+    validateType(type->baseType(), type->baseTypeName(), u"QML base");
+
     const auto enums = type->ownEnumerations();
     for (auto it = enums.cbegin(); it != enums.cend(); ++it) {
         const QQmlJSMetaEnum e = it.value();
@@ -783,16 +801,23 @@ void QmltcVisitor::checkForNamingCollisionsWithCpp(const QQmlJSScope::ConstPtr &
     for (auto it = properties.cbegin(); it != properties.cend(); ++it) {
         const QQmlJSMetaProperty &p = it.value();
         validate(p.propertyName(), u"Property");
+
+        if (!p.isAlias() && !p.typeName().isEmpty())
+            validateType(p.type(), p.typeName(), u"QML property");
     }
 
     const auto methods = type->ownMethods();
     for (auto it = methods.cbegin(); it != methods.cend(); ++it) {
         const QQmlJSMetaMethod &m = it.value();
         validate(m.methodName(), u"Method");
+        if (!m.returnTypeName().isEmpty())
+            validateType(m.returnType(), m.returnTypeName(), u"QML method return");
 
-        const auto parameterNames = m.parameterNames();
-        for (const auto &name : parameterNames)
-            validate(name, u"Method '%1' parameter"_s.arg(m.methodName()));
+        for (const auto &parameter : m.parameters()) {
+            validate(parameter.name(), u"Method '%1' parameter"_s.arg(m.methodName()));
+            if (!parameter.typeName().isEmpty())
+                validateType(parameter.type(), parameter.typeName(), u"QML parameter");
+        }
     }
 
     // TODO: one could also test signal handlers' parameters but we do not store

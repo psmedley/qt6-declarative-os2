@@ -2,16 +2,18 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qv4object_p.h"
-#include "qv4stringobject_p.h"
-#include "qv4argumentsobject_p.h"
+
+#include <private/qv4argumentsobject_p.h>
+#include <private/qv4identifiertable_p.h>
+#include <private/qv4jscall_p.h>
+#include <private/qv4lookup_p.h>
+#include <private/qv4memberdata_p.h>
 #include <private/qv4mm_p.h>
-#include "qv4lookup_p.h"
-#include "qv4scopedvalue_p.h"
-#include "qv4memberdata_p.h"
-#include "qv4identifiertable_p.h"
-#include "qv4jscall_p.h"
-#include "qv4symbol_p.h"
-#include "qv4proxy_p.h"
+#include <private/qv4proxy_p.h>
+#include <private/qv4scopedvalue_p.h>
+#include <private/qv4stackframe_p.h>
+#include <private/qv4stringobject_p.h>
+#include <private/qv4symbol_p.h>
 
 #include <QtCore/qloggingcategory.h>
 
@@ -39,8 +41,11 @@ void Object::setInternalClass(Heap::InternalClass *ic)
         // Pick the members of the old IC that are still valid in the new IC.
         // Order them by index in memberData (or inline data).
         Scoped<MemberData> newMembers(scope, MemberData::allocate(scope.engine, ic->size));
-        for (uint i = 0; i < ic->size; ++i)
-            newMembers->set(scope.engine, i, get(ic->nameMap.at(i)));
+        for (uint i = 0; i < ic->size; ++i) {
+            // Note that some members might have been deleted. The key may be invalid.
+            const PropertyKey key = ic->nameMap.at(i);
+            newMembers->set(scope.engine, i, key.isValid() ? get(key) : Encode::undefined());
+        }
 
         p->internalClass.set(scope.engine, ic);
         const uint nInline = p->vtable()->nInlineProperties;
@@ -177,7 +182,7 @@ void Object::defineAccessorProperty(StringOrSymbol *name, VTable::Call getter, V
     QV4::Scope scope(v4);
     ScopedProperty p(scope);
     QString n = name->toQString();
-    if (n.at(0) == QLatin1Char('@'))
+    if (!n.isEmpty() && n.at(0) == QLatin1Char('@'))
         n = QChar::fromLatin1('[') + QStringView{n}.mid(1) + QChar::fromLatin1(']');
     if (getter) {
         ScopedString getName(scope, v4->newString(QString::fromLatin1("get ") + n));

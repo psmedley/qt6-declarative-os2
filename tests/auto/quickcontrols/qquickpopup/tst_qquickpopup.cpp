@@ -102,6 +102,9 @@ private slots:
     void focusMultiplePopup();
     void contentChildrenChange();
     void doubleClickInMouseArea();
+    void fadeDimmer_data();
+    void fadeDimmer();
+    void noDimmer();
 
 private:
     static bool hasWindowActivation();
@@ -227,6 +230,10 @@ void tst_QQuickPopup::overlay_data()
 
 void tst_QQuickPopup::overlay()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Test crashes. See QTBUG-118532");
+#endif
+
     QFETCH(QString, source);
     QFETCH(bool, modal);
     QFETCH(bool, dim);
@@ -987,18 +994,19 @@ void tst_QQuickPopup::hover()
     QVERIFY(openedSpy.size() == 1 || openedSpy.wait());
     QTRY_VERIFY(popup->width() > 10); // somehow this can take a short time with macOS style
 
-    // hover the parent button outside the popup
-    QTest::mouseMove(window, QPoint(window->width() - 1, window->height() - 1));
+    // Hover the parent button outside the popup. It has 10 pixel anchor margins around the window.
+    PointLerper pointLerper(window);
+    pointLerper.move(15, 15);
     QCOMPARE(parentButton->isHovered(), !modal);
     QVERIFY(!childButton->isHovered());
 
-    // hover the popup background
-    QTest::mouseMove(window, QPoint(1, 1));
+    // Hover the popup background. Its top-left is 10 pixels in from its parent.
+    pointLerper.move(25, 25);
     QVERIFY(!parentButton->isHovered());
     QVERIFY(!childButton->isHovered());
 
-    // hover the child button in a popup
-    QTest::mouseMove(window, QPoint(popup->x() + popup->width() / 2, popup->y() + popup->height() / 2));
+    // Hover the child button in a popup.
+    pointLerper.move(mapCenterToWindow(childButton));
     QVERIFY(!parentButton->isHovered());
     QVERIFY(childButton->isHovered());
 
@@ -2260,6 +2268,10 @@ void tst_QQuickPopup::contentChildrenChange()
 
 void tst_QQuickPopup::doubleClickInMouseArea()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Test crashes. See QTBUG-118532");
+#endif
+
     QQuickView window;
     QVERIFY(QQuickTest::showView(window, testFileUrl("doubleClickInMouseArea.qml")));
 
@@ -2276,6 +2288,64 @@ void tst_QQuickPopup::doubleClickInMouseArea()
     // wait enough time for a wrong long press to happen
     QTest::qWait(QGuiApplication::styleHints()->mousePressAndHoldInterval() + 10);
     QCOMPARE(longPressSpy.count(), 0);
+}
+
+void tst_QQuickPopup::fadeDimmer_data()
+{
+    QTest::addColumn<bool>("modality");
+
+    QTest::addRow("modal") << true;
+    QTest::addRow("modeless") << true;
+}
+
+void tst_QQuickPopup::fadeDimmer()
+{
+    QFETCH(const bool, modality);
+    QQuickApplicationHelper helper(this, "fadeDimmer.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *popup = window->contentItem()->findChild<QQuickPopup *>();
+    QVERIFY(popup);
+
+    popup->setModal(modality);
+    popup->open();
+    auto dimmer = QQuickPopupPrivate::get(popup)->dimmer;
+    QVERIFY(dimmer);
+    int opacityChangeCount = 0;
+    connect(dimmer, &QQuickItem::opacityChanged, this, [&opacityChangeCount]{
+        ++opacityChangeCount;
+    });
+    QTRY_VERIFY(popup->isOpened());
+    QTRY_COMPARE(dimmer->opacity(), popup->property("dimmerOpacity").toDouble());
+    QCOMPARE_GT(opacityChangeCount, 2);
+
+    opacityChangeCount = 0;
+    popup->setVisible(false);
+    QTRY_VERIFY(!popup->isVisible());
+    QCOMPARE_GT(opacityChangeCount, 2);
+}
+
+void tst_QQuickPopup::noDimmer()
+{
+    QQuickApplicationHelper helper(this, "noDimmer.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *drawer = window->contentItem()->findChild<QQuickDrawer *>();
+    QVERIFY(drawer);
+
+    drawer->open();
+    auto dimmer = QQuickPopupPrivate::get(drawer)->dimmer;
+    QVERIFY(dimmer);
+    // this must not crash
+    QTRY_VERIFY(!drawer->isModal());
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickPopup)

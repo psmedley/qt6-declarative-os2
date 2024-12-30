@@ -138,7 +138,7 @@ public:
         attachedProperties.remove(parent());
     }
 
-    Q_PROPERTY(int index READ index NOTIFY indexChanged)
+    Q_PROPERTY(int index READ index NOTIFY indexChanged FINAL)
     int index() const { return m_index; }
     void setIndex(int idx) {
         if (m_index != idx) {

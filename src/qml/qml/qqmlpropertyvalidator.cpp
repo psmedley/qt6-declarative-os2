@@ -364,6 +364,11 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
         if (binding->hasFlag(QV4::CompiledData::Binding::IsResolvedEnum))
             return noError;
 
+        // TODO: For historical reasons you can assign any number to an enum property alias
+        //       This can be fixed with an opt-out mechanism, for example a pragma.
+        if (property->isAlias() && binding->isNumberBinding())
+            return noError;
+
         QString value = compilationUnit->bindingValueAsString(binding);
         QMetaProperty p = propertyCache->firstCppMetaObject()->property(property->coreIndex());
         bool ok;
@@ -568,10 +573,10 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
             default: return QString();
             }
         };
-        QVariant result(property->propType());
-        if (!QQmlValueTypeProvider::createValueType(
+        const QVariant result = QQmlValueTypeProvider::createValueType(
                     compilationUnit->bindingValueAsString(binding),
-                    result.metaType(), result.data())) {
+                    property->propType());
+        if (!result.isValid()) {
             return warnOrError(tr("Invalid property assignment: %1 expected")
                                .arg(typeName()));
         }
@@ -685,13 +690,12 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
         const QV4::CompiledData::Object *targetObject = compilationUnit->objectAt(binding->value.objectIndex);
         if (auto *typeRef = resolvedType(targetObject->inheritedTypeNameIndex)) {
             QQmlPropertyCache::ConstPtr cache = typeRef->createPropertyCache();
-            const QMetaObject *mo = cache->firstCppMetaObject();
+            const QMetaObject *mo = cache ? cache->firstCppMetaObject() : nullptr;
             QQmlType qmlType;
             while (mo && !qmlType.isValid()) {
                 qmlType = QQmlMetaType::qmlType(mo);
                 mo = mo->superClass();
             }
-            Q_ASSERT(qmlType.isValid());
 
             isValueSource = qmlType.propertyValueSourceCast() != -1;
             isPropertyInterceptor = qmlType.propertyValueInterceptorCast() != -1;
