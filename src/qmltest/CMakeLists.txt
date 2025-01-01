@@ -49,7 +49,7 @@ qt_internal_add_qml_module(QuickTest
         Qt::Test
     PRIVATE_MODULE_INTERFACE
         Qt::TestPrivate
-    OS2_SHORT_NAME Qt6QuiTs.dll
+    OS2_SHORT_NAME quicktet
 )
 
 qt_internal_extend_target(QuickTest CONDITION QT_FEATURE_qml_debug

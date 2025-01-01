@@ -22,7 +22,7 @@ qt_internal_add_qml_module(QmlCore
         Qt::Qml
     GENERATE_CPP_EXPORTS
     GENERATE_PRIVATE_CPP_EXPORTS
-    OS2_SHORT_NAME Qt6QmCor
+    OS2_SHORT_NAME Qt6QmCoe
 )
 
 qt_internal_extend_target(QmlCore CONDITION QT_FEATURE_settings

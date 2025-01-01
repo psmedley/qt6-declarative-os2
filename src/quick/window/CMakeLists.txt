@@ -13,4 +13,5 @@ qt_internal_add_qml_module(quickwindow
     IMPORTS
         QtQuick/auto
     PAST_MAJOR_VERSIONS 2
+    OS2_SHORT_NAME quickwiw
 )

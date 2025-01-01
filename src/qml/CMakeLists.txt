@@ -448,6 +448,7 @@ qt_internal_add_qml_module(Qml
     GENERATE_PRIVATE_CPP_EXPORTS
     POLICIES
         QTP0001
+    OS2_SHORT_NAME qmlplugn
 )
 
 qt_update_ignore_pch_source(Qml "compat/removed_api.cpp")
