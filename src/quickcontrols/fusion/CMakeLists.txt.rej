@@ -1,28 +1,10 @@
---- src/quickcontrols/fusion/CMakeLists.txt	2023-09-24 17:07:49.000000000 +0930
-+++ src/quickcontrols/fusion/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
-@@ -118,12 +119,24 @@
-         Qt::CorePrivate
-         Qt::GuiPrivate
-         Qt::QmlPrivate
-+        Qt::QuickControls2FusionStyleImpl
+--- src/quickcontrols/fusion/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/quickcontrols/fusion/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -122,7 +122,6 @@
          Qt::QuickControls2Private
          Qt::QuickPrivate
          Qt::QuickTemplates2Private
-+    GENERATE_CPP_EXPORTS
-+)
-+
-+target_sources(qtquickcontrols2fusionstyleplugin
-+    PRIVATE
-+        qtquickcontrols2fusionstyleplugin.cpp
+-    GENERATE_CPP_EXPORTS
  )
  
--qt_internal_add_resource(qtquickcontrols2fusionstyleplugin "qtquickcontrols2fusionstyle"
-+target_link_libraries(qtquickcontrols2fusionstyleplugin
-+    PRIVATE
-+        Qt::QuickControls2Private
-+)
-+
-+qt_internal_add_resource(QuickControls2Fusion "qtquickcontrols2fusionstyle"
-     PREFIX
-         "/qt-project.org/imports/QtQuick/Controls/Fusion"
-     FILES
+ target_sources(qtquickcontrols2fusionstyleplugin

@@ -6,7 +6,7 @@
 if (NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
     cmake_minimum_required(VERSION 3.16)
     project(tst_universal LANGUAGES C CXX ASM)
-    find_package(Qt6BuildInternals COMPONENTS STANDALONE_TEST)
+    find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
 endif()
 
 #####################################################################
@@ -42,6 +42,9 @@ set_source_files_properties(${test_data}
     PROPERTIES
         HEADER_FILE_ONLY ON
 )
+
+set(test_target tst_universal)
+include(../shared.cmake)
 
 #### Keys ignored in scope 1:.:.:universal.pro:<TRUE>:
 # OTHER_FILES = "$$PWD/../data/*.qml"

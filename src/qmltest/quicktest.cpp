@@ -4,6 +4,7 @@
 #include "quicktest_p.h"
 #include "quicktestresult_p.h"
 #include <QtTest/qtestsystem.h>
+#include <QtTest/private/qtestcrashhandler_p.h>
 #include "qtestoptions_p.h"
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlengine.h>
@@ -31,9 +32,15 @@
 #include <QtGui/qtextdocument.h>
 #include <stdio.h>
 #include <QtGui/QGuiApplication>
+#include <QtGui/private/qguiapplication_p.h>
+#include <QtGui/qpa/qplatformintegration.h>
 #include <QtCore/QTranslator>
 #include <QtTest/QSignalSpy>
 #include <QtQml/QQmlFileSelector>
+
+#ifdef Q_OS_ANDROID
+#include <QtCore/QStandardPaths>
+#endif
 
 #include <private/qqmlcomponent_p.h>
 #include <private/qv4resolvedtypereference_p.h>
@@ -287,7 +294,7 @@ class TestCaseCollector
 public:
     typedef QList<QString> TestCaseList;
 
-    TestCaseCollector(const QFileInfo &fileInfo, QQmlEngine *engine)
+    TestCaseCollector(const QFileInfo &fileInfo, QQmlEngine *engine) : m_engine(engine)
     {
         QString path = fileInfo.absoluteFilePath();
         if (path.startsWith(QLatin1String(":/")))
@@ -299,7 +306,8 @@ public:
         if (component.isReady()) {
             QQmlRefPointer<QV4::ExecutableCompilationUnit> rootCompilationUnit
                     = QQmlComponentPrivate::get(&component)->compilationUnit;
-            TestCaseEnumerationResult result = enumerateTestCases(rootCompilationUnit.data());
+            TestCaseEnumerationResult result = enumerateTestCases(
+                    rootCompilationUnit->baseCompilationUnit().data());
             m_testCases = result.testCases + result.finalizedPartialTestCases();
             m_errors += result.errors;
         }
@@ -311,6 +319,7 @@ public:
 private:
     TestCaseList m_testCases;
     QList<QQmlError> m_errors;
+    QQmlEngine *m_engine = nullptr;
 
     struct TestCaseEnumerationResult
     {
@@ -339,8 +348,8 @@ private:
     };
 
     TestCaseEnumerationResult enumerateTestCases(
-            const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit,
-            const Object *object = nullptr)
+            const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit,
+            const QV4::CompiledData::Object *object = nullptr)
     {
         QQmlType testCaseType;
         for (quint32 i = 0, count = compilationUnit->importCount(); i < count; ++i) {
@@ -353,7 +362,8 @@ private:
             if (!typeQualifier.isEmpty())
                 testCaseTypeName = typeQualifier % QLatin1Char('.') % testCaseTypeName;
 
-            testCaseType = compilationUnit->typeNameCache->query(testCaseTypeName).type;
+            testCaseType = compilationUnit->typeNameCache->query(
+                    testCaseTypeName, QQmlTypeLoader::get(m_engine)).type;
             if (testCaseType.isValid())
                 break;
         }
@@ -362,11 +372,11 @@ private:
 
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
-        if (object->hasFlag(Object::IsInlineComponentRoot))
+        if (object->hasFlag(QV4::CompiledData::Object::IsInlineComponentRoot))
             return result;
 
-        if (const auto superTypeUnit = compilationUnit->resolvedTypes.value(
-                    object->inheritedTypeNameIndex)->compilationUnit()) {
+        if (const auto superTypeUnit = compilationUnit->resolvedType(object->inheritedTypeNameIndex)
+                                               ->compilationUnit()) {
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
             if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
                 result.isTestCase = true;
@@ -409,7 +419,7 @@ private:
 
         for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
             if (binding->type() == QV4::CompiledData::Binding::Type_Object) {
-                const Object *child = compilationUnit->objectAt(binding->value.objectIndex);
+                const QV4::CompiledData::Object *child = compilationUnit->objectAt(binding->value.objectIndex);
                 result << enumerateTestCases(compilationUnit, child);
             }
         }
@@ -423,11 +433,23 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
     return quick_test_main_with_setup(argc, argv, name, sourceDir, nullptr);
 }
 
+#ifdef Q_OS_ANDROID
+static QFile androidExitCodeFile()
+{
+    const QString testHome = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    return QFile(testHome + "/qtest_last_exit_code");
+}
+#endif
+
 int quick_test_main_with_setup(int argc, char **argv, const char *name, const char *sourceDir, QObject *setup)
 {
     QScopedPointer<QCoreApplication> app;
     if (!QCoreApplication::instance())
         app.reset(new QGuiApplication(argc, argv));
+
+#ifdef Q_OS_ANDROID
+    androidExitCodeFile().remove();
+#endif
 
     if (setup)
         maybeInvokeSetupMethod(setup, "applicationAvailable()");
@@ -564,6 +586,11 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
         return 1;
     }
 
+    std::optional<QTest::CrashHandler::FatalSignalHandler> handler;
+    QTest::CrashHandler::prepareStackTrace();
+    if (!QTest::Internal::noCrashHandler)
+        handler.emplace();
+
     qputenv("QT_QTESTLIB_RUNNING", "1");
 
     QSet<QString> commandLineTestFunctions(QTest::testFunctions.cbegin(), QTest::testFunctions.cend());
@@ -649,10 +676,12 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
             qWarning().nospace()
                 << "Test '" << QDir::toNativeSeparators(path) << "' window not exposed after show().";
         }
-        view.requestActivate();
-        if (!QTest::qWaitForWindowActive(&view)) {
-            qWarning().nospace()
-                << "Test '" << QDir::toNativeSeparators(path) << "' window not active after requestActivate().";
+        if (QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation)) {
+            view.requestActivate();
+            if (!QTest::qWaitForWindowActive(&view)) {
+                qWarning().nospace()
+                    << "Test '" << QDir::toNativeSeparators(path) << "' window not active after requestActivate().";
+            }
         }
         if (view.isExposed()) {
             // Defer property update until event loop has started
@@ -683,8 +712,20 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
         return commandLineTestFunctions.size();
     }
 
+    const int exitCode = QuickTestResult::exitCode();
+
+#ifdef Q_OS_ANDROID
+    QFile exitCodeFile = androidExitCodeFile();
+    if (exitCodeFile.open(QIODevice::WriteOnly)) {
+        exitCodeFile.write(qPrintable(QString::number(exitCode)));
+    } else {
+        qWarning("Failed to open %s for writing test exit code: %s",
+                 qPrintable(exitCodeFile.fileName()), qPrintable(exitCodeFile.errorString()));
+    }
+#endif
+
     // Return the number of failures as the exit code.
-    return QuickTestResult::exitCode();
+    return exitCode;
 }
 
 QT_END_NAMESPACE

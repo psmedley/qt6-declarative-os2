@@ -19,6 +19,7 @@ macro(qt_internal_get_internal_add_qml_module_keywords
         NO_GENERATE_PLUGIN_SOURCE
         NO_GENERATE_QMLTYPES
         NO_GENERATE_QMLDIR
+        NO_GENERATE_EXTRA_QMLDIRS
         NO_LINT
         NO_CACHEGEN
         ENABLE_TYPE_COMPILER
@@ -95,7 +96,6 @@ function(qt_internal_add_qml_module target)
     )
     # TODO: Remove these once all repos have been updated to not use them
     set(ignore_option_args
-        SKIP_TYPE_REGISTRATION  # Now always done
         PLUGIN_OPTIONAL         # Now the default
         GENERATE_QMLTYPES       # Now the default
         INSTALL_QMLTYPES        # Now the default
@@ -206,8 +206,15 @@ function(qt_internal_add_qml_module target)
             _qt_internal_compute_qml_plugin_class_name_from_uri("${arg_URI}" arg_CLASS_NAME)
         endif()
 
+        # If the module is explicitly marked as STATIC, the plugin should inherit that as well.
+        set(static_plugin "")
+        if(arg_STATIC)
+            set(static_plugin "STATIC")
+        endif()
+
         # Create plugin target now so we can set internal things
         list(APPEND plugin_args
+            ${static_plugin}
             PLUGIN_TYPE qml_plugin
             DEFAULT_IF FALSE
             OUTPUT_DIRECTORY ${arg_OUTPUT_DIRECTORY}
@@ -400,6 +407,25 @@ endif()
             FILES ${arg_OUTPUT_DIRECTORY}/$<TARGET_PROPERTY:${target},QT_QML_MODULE_TYPEINFO>
             DESTINATION "${arg_INSTALL_DIRECTORY}"
         )
+
+        # Assign the install time metatypes file of the backing library to the plugin.
+        # Only do it if the backing library is different from the plugin and we do generate
+        # qml types.
+        # The install time metatypes only apply to Qt's own qml plugins, not to user project
+        # qml plugins.
+        if(arg_PLUGIN_TARGET AND
+                TARGET "${arg_PLUGIN_TARGET}" AND NOT target STREQUAL arg_PLUGIN_TARGET)
+            _qt_internal_get_metatypes_install_dir(
+                ""
+                "${INSTALL_ARCHDATADIR}"
+                install_dir
+            )
+
+            _qt_internal_assign_install_metatypes_files_and_properties(
+                "${arg_PLUGIN_TARGET}"
+                INSTALL_DIR "${install_dir}"
+            )
+        endif()
     endif()
 
     if(NOT arg_NO_GENERATE_QMLDIR)
@@ -407,6 +433,18 @@ endif()
             FILES ${arg_OUTPUT_DIRECTORY}/qmldir
             DESTINATION "${arg_INSTALL_DIRECTORY}"
         )
+
+        get_target_property(extra_qmldirs ${target} _qt_internal_extra_qmldirs)
+        if(extra_qmldirs)
+            foreach(extra_qmldir IN LISTS extra_qmldirs)
+                __qt_get_relative_resource_path_for_file(qmldir_resource_path ${extra_qmldir})
+                get_filename_component(qmldir_dir ${qmldir_resource_path} DIRECTORY)
+                qt_install(
+                    FILES ${extra_qmldir}
+                    DESTINATION "${arg_INSTALL_DIRECTORY}/${qmldir_dir}"
+                )
+            endforeach()
+        endif()
     endif()
 
     if(arg_INSTALL_SOURCE_QMLTYPES)

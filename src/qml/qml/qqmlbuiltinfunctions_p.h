@@ -46,7 +46,6 @@ class Q_QML_EXPORT QtObject : public QObject
     QML_NAMED_ELEMENT(Qt)
     QML_SINGLETON
     QML_EXTENDED_NAMESPACE(Qt)
-    QML_ADDED_IN_VERSION(2, 0)
 
     Q_CLASSINFO("QML.StrictArguments", "true")
 
@@ -85,17 +84,17 @@ public:
     Q_INVOKABLE QVariant alpha(const QJSValue &baseColor, double value) const;
     Q_INVOKABLE QVariant tint(const QJSValue &baseColor, const QJSValue &tintColor) const;
 
-    Q_INVOKABLE QString formatDate(const QDate &date, const QString &format) const;
+    Q_INVOKABLE QString formatDate(QDate date, const QString &format) const;
     Q_INVOKABLE QString formatDate(const QDateTime &dateTime, const QString &format) const;
     Q_INVOKABLE QString formatDate(const QString &string, const QString &format) const;
-    Q_INVOKABLE QString formatDate(const QDate &date, Qt::DateFormat format) const;
+    Q_INVOKABLE QString formatDate(QDate date, Qt::DateFormat format) const;
     Q_INVOKABLE QString formatDate(const QDateTime &dateTime, Qt::DateFormat format) const;
     Q_INVOKABLE QString formatDate(const QString &string, Qt::DateFormat format) const;
 
-    Q_INVOKABLE QString formatTime(const QTime &time, const QString &format) const;
+    Q_INVOKABLE QString formatTime(QTime time, const QString &format) const;
     Q_INVOKABLE QString formatTime(const QDateTime &dateTime, const QString &format) const;
     Q_INVOKABLE QString formatTime(const QString &time, const QString &format) const;
-    Q_INVOKABLE QString formatTime(const QTime &time, Qt::DateFormat format) const;
+    Q_INVOKABLE QString formatTime(QTime time, Qt::DateFormat format) const;
     Q_INVOKABLE QString formatTime(const QDateTime &dateTime, Qt::DateFormat format) const;
     Q_INVOKABLE QString formatTime(const QString &time, Qt::DateFormat format) const;
 
@@ -105,13 +104,13 @@ public:
     Q_INVOKABLE QString formatDateTime(const QString &string, Qt::DateFormat format) const;
 
 #if QT_CONFIG(qml_locale)
-    Q_INVOKABLE QString formatDate(const QDate &date, const QLocale &locale = QLocale(),
+    Q_INVOKABLE QString formatDate(QDate date, const QLocale &locale = QLocale(),
                                    QLocale::FormatType formatType = QLocale::ShortFormat) const;
     Q_INVOKABLE QString formatDate(const QDateTime &dateTime, const QLocale &locale = QLocale(),
                                    QLocale::FormatType formatType = QLocale::ShortFormat) const;
     Q_INVOKABLE QString formatDate(const QString &string, const QLocale &locale = QLocale(),
                                    QLocale::FormatType formatType = QLocale::ShortFormat) const;
-    Q_INVOKABLE QString formatTime(const QTime &time, const QLocale &locale = QLocale(),
+    Q_INVOKABLE QString formatTime(QTime time, const QLocale &locale = QLocale(),
                                    QLocale::FormatType formatType = QLocale::ShortFormat) const;
     Q_INVOKABLE QString formatTime(const QDateTime &dateTime, const QLocale &locale = QLocale(),
                                    QLocale::FormatType formatType = QLocale::ShortFormat) const;
@@ -154,7 +153,7 @@ public:
             QObject *parent = nullptr) const;
 
     Q_INVOKABLE QJSValue binding(const QJSValue &function) const;
-    Q_INVOKABLE void callLater(QQmlV4Function *args);
+    Q_INVOKABLE void callLater(QQmlV4FunctionPtr args);
 
 #if QT_CONFIG(translation)
     QString uiLanguage() const;
@@ -199,10 +198,10 @@ struct ConsoleObject : Object {
 };
 
 #define QQmlBindingFunctionMembers(class, Member) \
-    Member(class, Pointer, FunctionObject *, bindingFunction)
-DECLARE_HEAP_OBJECT(QQmlBindingFunction, FunctionObject) {
+    Member(class, Pointer, JavaScriptFunctionObject *, bindingFunction)
+DECLARE_HEAP_OBJECT(QQmlBindingFunction, JavaScriptFunctionObject) {
     DECLARE_MARKOBJECTS(QQmlBindingFunction)
-    void init(const QV4::FunctionObject *bindingFunction);
+    void init(const QV4::JavaScriptFunctionObject *bindingFunction);
 };
 
 }
@@ -226,7 +225,7 @@ struct ConsoleObject : Object
 
 };
 
-struct Q_QML_PRIVATE_EXPORT GlobalExtensions {
+struct Q_QML_EXPORT GlobalExtensions {
     static void init(Object *globalObject, QJSEngine::Extensions extensions);
 
 #if QT_CONFIG(translation)
@@ -245,11 +244,14 @@ struct Q_QML_PRIVATE_EXPORT GlobalExtensions {
 
 };
 
-struct QQmlBindingFunction : public QV4::FunctionObject
+struct QQmlBindingFunction : public QV4::JavaScriptFunctionObject
 {
-    V4_OBJECT2(QQmlBindingFunction, FunctionObject)
+    V4_OBJECT2(QQmlBindingFunction, JavaScriptFunctionObject)
 
-    Heap::FunctionObject *bindingFunction() const { return d()->bindingFunction; }
+    static ReturnedValue virtualCall(
+            const FunctionObject *f, const Value *thisObject, const Value *argv, int argc);
+
+    Heap::JavaScriptFunctionObject *bindingFunction() const { return d()->bindingFunction; }
     QQmlSourceLocation currentLocation() const; // from caller stack trace
 };
 

@@ -1,5 +1,5 @@
 // Copyright (C) 2017 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 import QtQuick
 import QtTest
@@ -93,8 +93,8 @@ TestCase {
         case ItemDelegate.IconOnly:
             verify(iconImage)
             verify(!textLabel)
-            compare(iconImage.x, (control.availableWidth - iconImage.width) / 2)
-            compare(iconImage.y, (control.availableHeight - iconImage.height) / 2)
+            compare(iconImage.x, Math.round((control.availableWidth - iconImage.width) / 2))
+            compare(iconImage.y, Math.round((control.availableHeight - iconImage.height) / 2))
             break;
         case ItemDelegate.TextOnly:
             verify(!iconImage)
@@ -105,7 +105,7 @@ TestCase {
         case ItemDelegate.TextUnderIcon:
             verify(iconImage)
             verify(textLabel)
-            compare(iconImage.x, (control.availableWidth - iconImage.width) / 2)
+            compare(iconImage.x, Math.round((control.availableWidth - iconImage.width) / 2))
             compare(textLabel.x, (control.availableWidth - textLabel.width) / 2)
             verify(iconImage.y < textLabel.y)
             break;
@@ -116,7 +116,7 @@ TestCase {
                 verify(textLabel.x < iconImage.x)
             else
                 verify(iconImage.x < textLabel.x)
-            compare(iconImage.y, (control.availableHeight - iconImage.height) / 2)
+            compare(iconImage.y, Math.round((control.availableHeight - iconImage.height) / 2))
             compare(textLabel.y, (control.availableHeight - textLabel.height) / 2)
             break;
         }

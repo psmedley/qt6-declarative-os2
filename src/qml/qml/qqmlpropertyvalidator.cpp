@@ -9,6 +9,7 @@
 #include <private/qqmlpropertycachecreator_p.h>
 #include <private/qqmlpropertyresolver_p.h>
 #include <private/qqmlstringconverters_p.h>
+#include <private/qqmlsignalnames_p.h>
 
 #include <QtCore/qdatetime.h>
 
@@ -27,9 +28,8 @@ QT_FOR_EACH_STATIC_PRIMITIVE_TYPE(HANDLE_PRIMITIVE);
     }
 }
 
-QQmlPropertyValidator::QQmlPropertyValidator(
-        QQmlEnginePrivate *enginePrivate, const QQmlImports *imports,
-        const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit)
+QQmlPropertyValidator::QQmlPropertyValidator(QQmlEnginePrivate *enginePrivate, const QQmlImports *imports,
+        const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit)
     : enginePrivate(enginePrivate)
     , compilationUnit(compilationUnit)
     , imports(imports)
@@ -87,6 +87,12 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
 
     QQmlCustomParser *customParser = nullptr;
     if (auto typeRef = resolvedType(obj->inheritedTypeNameIndex)) {
+
+        // This binding instantiates a separate object. The separate object can have an ID and its
+        // own group properties even if it's then assigned to a value type, for example a 'var', or
+        // anything with an invokable ctor taking a QObject*.
+        populatingValueTypeGroupProperty = false;
+
         const auto type = typeRef->type();
         if (type.isValid())
             customParser = type.customParser();
@@ -126,7 +132,7 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
         defaultProperty = propertyCache->defaultProperty();
     }
 
-    QV4::BindingPropertyData collectedBindingPropertyData(obj->nBindings);
+    QV4::CompiledData::BindingPropertyData collectedBindingPropertyData(obj->nBindings);
 
     binding = obj->bindingTable();
     for (quint32 i = 0; i < obj->nBindings; ++i, ++binding) {
@@ -140,7 +146,7 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
                     customBindings << binding;
                     continue;
                 }
-            } else if (QmlIR::IRBuilder::isSignalPropertyName(name)
+            } else if (QQmlSignalNames::isHandlerName(name)
                        && !(customParser->flags() & QQmlCustomParser::AcceptsSignalHandlers)) {
                 customBindings << binding;
                 continue;
@@ -194,7 +200,8 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
             QQmlType type;
             QQmlImportNamespace *typeNamespace = nullptr;
             imports->resolveType(
-                        stringAt(binding->propertyNameIndex), &type, nullptr, &typeNamespace);
+                    QQmlTypeLoader::get(enginePrivate), stringAt(binding->propertyNameIndex),
+                    &type, nullptr, &typeNamespace);
             if (typeNamespace)
                 return recordError(binding->location, tr("Invalid use of namespace"));
             return recordError(binding->location, tr("Invalid attached object assignment"));
@@ -295,17 +302,25 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
                         return recordError(
                                     binding->location,
                                     tr("Invalid grouped property access: Property \"%1\" with primitive type \"%2\".")
-                                        .arg(name)
-                                        .arg(QString::fromUtf8(type.name()))
+                                        .arg(name, QString::fromUtf8(type.name()))
                                     );
                     }
 
                     if (!QQmlMetaType::propertyCacheForType(type)) {
-                        return recordError(binding->location,
-                                           tr("Invalid grouped property access: Property \"%1\" with type \"%2\", which is not a value type")
-                                           .arg(name)
-                                           .arg(QString::fromUtf8(type.name()))
-                                          );
+                        auto mo = type.metaObject();
+                        if (!mo) {
+                            return recordError(binding->location,
+                                               tr("Invalid grouped property access: Property \"%1\" with type \"%2\", which is neither a value nor an object type")
+                                               .arg(name, QString::fromUtf8(type.name()))
+                                              );
+                        }
+                        if (QMetaObjectPrivate::get(mo)->flags & DynamicMetaObject) {
+                            return recordError(binding->location,
+                                               tr("Unsupported grouped property access: Property \"%1\" with type \"%2\" has a dynamic meta-object.")
+                                               .arg(name, QString::fromUtf8(type.name()))
+                                               );
+                        }
+                        // fall through, this is okay
                     }
                 }
             }
@@ -335,7 +350,10 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
         customParser->validator = this;
         customParser->engine = enginePrivate;
         customParser->imports = imports;
-        customParser->verifyBindings(compilationUnit, customBindings);
+        customParser->verifyBindings(
+                enginePrivate->v4engine()->executableCompilationUnit(
+                        QQmlRefPointer<QV4::CompiledData::CompilationUnit>(compilationUnit)),
+                customBindings);
         customParser->validator = nullptr;
         customParser->engine = nullptr;
         customParser->imports = (QQmlImports*)nullptr;
@@ -384,19 +402,6 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
     }
 
     auto warnOrError = [&](const QString &error) {
-        if (binding->type() == QV4::CompiledData::Binding::Type_Null) {
-            QQmlError warning;
-            warning.setUrl(compilationUnit->url());
-            warning.setLine(qmlConvertSourceCoordinate<quint32, int>(
-                    binding->valueLocation.line()));
-            warning.setColumn(qmlConvertSourceCoordinate<quint32, int>(
-                    binding->valueLocation.column()));
-            warning.setDescription(error + tr(" - Assigning null to incompatible properties in QML "
-                                              "is deprecated. This will become a compile error in "
-                                              "future versions of Qt."));
-            enginePrivate->warning(warning);
-            return noError;
-        }
         return qQmlCompileError(binding->valueLocation, error);
     };
 
@@ -450,12 +455,11 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
         return warnOrError(tr("Invalid property assignment: int expected"));
     }
     break;
-    case QMetaType::Float: {
-        if (bindingType != QV4::CompiledData::Binding::Type_Number) {
-            return warnOrError(tr("Invalid property assignment: number expected"));
-        }
-    }
-    break;
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::Long:
+    case QMetaType::ULong:
+    case QMetaType::Float:
     case QMetaType::Double: {
         if (bindingType != QV4::CompiledData::Binding::Type_Number) {
             return warnOrError(tr("Invalid property assignment: number expected"));
@@ -627,7 +631,7 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
             break;
         }
 
-        return warnOrError(tr("Invalid property assignment: unsupported type \"%1\"").arg(QString::fromLatin1(property->propType().name())));
+        return warnOrError(tr("Invalid property assignment: unsupported type \"%1\"").arg(QLatin1StringView(property->propType().name())));
     }
     break;
     }
@@ -648,7 +652,7 @@ bool QQmlPropertyValidator::canCoerce(QMetaType to, QQmlPropertyCache::ConstPtr 
         // only occurs after the whole file has been validated
         // Therefore we need to check the ICs here
         for (const auto& icDatum : compilationUnit->inlineComponentData) {
-            if (icDatum.typeIds.id == to) {
+            if (icDatum.qmlType.typeId() == to) {
                 toMo = compilationUnit->propertyCaches.at(icDatum.objectIndex);
                 break;
             }
@@ -758,8 +762,9 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
             // only occurs after the whole file has been validated
             // Therefore we need to check the ICs here
             for (const auto& icDatum: compilationUnit->inlineComponentData) {
-                if (icDatum.typeIds.id == property->propType()) {
-                    propertyMetaObject = compilationUnit->propertyCaches.at(icDatum.objectIndex);
+                if (icDatum.qmlType.typeId() == property->propType()) {
+                    propertyMetaObject
+                            = compilationUnit->propertyCaches.at(icDatum.objectIndex);
                     break;
                 }
             }

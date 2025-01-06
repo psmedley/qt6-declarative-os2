@@ -2,34 +2,36 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qqmlproperty.h"
-#include "qqmlproperty_p.h"
 
-#include "qqmlboundsignal_p.h"
-#include "qqmlcontext.h"
-#include "qqmlboundsignal_p.h"
-#include "qqmlengine.h"
-#include "qqmlengine_p.h"
-#include "qqmldata_p.h"
-#include "qqmlstringconverters_p.h"
-
-#include "qqmlvmemetaobject_p.h"
-#include "qqmlvaluetypeproxybinding_p.h"
 #include <private/qjsvalue_p.h>
+#include <private/qmetaobject_p.h>
+#include <private/qproperty_p.h>
+#include <private/qqmlboundsignal_p.h>
+#include <private/qqmlbuiltinfunctions_p.h>
+#include <private/qqmldata_p.h>
+#include <private/qqmlengine_p.h>
+#include <private/qqmlirbuilder_p.h>
+#include <private/qqmllist_p.h>
+#include <private/qqmllistwrapper_p.h>
+#include <private/qqmlproperty_p.h>
+#include <private/qqmlsignalnames_p.h>
+#include <private/qqmlstringconverters_p.h>
+#include <private/qqmlvaluetypeproxybinding_p.h>
+#include <private/qqmlvaluetypewrapper_p.h>
+#include <private/qqmlvmemetaobject_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4qobjectwrapper_p.h>
-#include <private/qqmlbuiltinfunctions_p.h>
-#include <private/qqmlirbuilder_p.h>
-#include <QtQml/private/qqmllist_p.h>
 
-#include <QStringList>
-#include <QVector>
-#include <private/qmetaobject_p.h>
-#include <private/qqmlvaluetypewrapper_p.h>
+#include <QtQml/qqmlcontext.h>
+#include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlpropertymap.h>
+
 #include <QtCore/qdebug.h>
-#include <cmath>
-#include <QtQml/QQmlPropertyMap>
-#include <QtCore/private/qproperty_p.h>
 #include <QtCore/qsequentialiterable.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qvector.h>
+
+#include <cmath>
 
 QT_BEGIN_NAMESPACE
 
@@ -246,10 +248,11 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
             // Types must begin with an uppercase letter (see checkRegistration()
             // in qqmlmetatype.cpp for the enforcement of this).
             if (typeNameCache && !pathName.isEmpty() && pathName.at(0).isUpper()) {
-                QQmlTypeNameCache::Result r = typeNameCache->query(pathName);
+                QQmlEnginePrivate *enginePrivate = QQmlEnginePrivate::get(engine);
+                QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(enginePrivate);
+                QQmlTypeNameCache::Result r = typeNameCache->query(pathName, typeLoader);
                 if (r.isValid()) {
                     if (r.type.isValid()) {
-                        QQmlEnginePrivate *enginePrivate = QQmlEnginePrivate::get(engine);
                         QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(enginePrivate);
                         if (!func) return; // Not an attachable type
 
@@ -261,12 +264,11 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
 
                         // TODO: Do we really _not_ want to query the namespaced types here?
                         r = typeNameCache->query<QQmlTypeNameCache::QueryNamespaced::No>(
-                                    path.at(ii), r.importNamespace);
+                                    path.at(ii), r.importNamespace, typeLoader);
 
                         if (!r.type.isValid())
                             return; // Invalid type in namespace
 
-                        QQmlEnginePrivate *enginePrivate = QQmlEnginePrivate::get(engine);
                         QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(enginePrivate);
                         if (!func)
                             return; // Not an attachable type
@@ -364,10 +366,9 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
 
     QQmlData *ddata = QQmlData::get(currentObject, false);
     auto findChangeSignal = [&](QStringView signalName) {
-        const QString changed = QStringLiteral("Changed");
-        if (signalName.endsWith(changed)) {
-            const QStringView propName = signalName.first(signalName.size() - changed.size());
-            const QQmlPropertyData *d = ddata->propertyCache->property(propName, currentObject, context);
+        if (auto propName = QQmlSignalNames::changedSignalNameToPropertyName(signalName)) {
+            const QQmlPropertyData *d =
+                    ddata->propertyCache->property(*propName, currentObject, context);
             while (d && d->isFunction())
                 d = ddata->propertyCache->overrideData(d);
 
@@ -380,23 +381,11 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
         return false;
     };
 
-    static constexpr QLatin1String On("on");
-    static constexpr qsizetype StrlenOn = On.size();
-
-    const QString terminalString = terminal.toString();
-    if (QmlIR::IRBuilder::isSignalPropertyName(terminalString)) {
-        QString signalName = terminalString.mid(2);
-        int firstNon_;
-        int length = signalName.size();
-        for (firstNon_ = 0; firstNon_ < length; ++firstNon_)
-            if (signalName.at(firstNon_) != u'_')
-                break;
-        signalName[firstNon_] = signalName.at(firstNon_).toLower();
-
+    const auto findSignal = [&](const QString &signalName) {
         if (ddata && ddata->propertyCache) {
             // Try method
-            const QQmlPropertyData *d = ddata->propertyCache->property(
-                        signalName, currentObject, context);
+            const QQmlPropertyData *d
+                    = ddata->propertyCache->property(signalName, currentObject, context);
 
             // ### Qt7: This code treats methods as signals. It should use d->isSignal().
             //          That would be a change in behavior, though. Right now you can construct a
@@ -407,34 +396,30 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
             if (d) {
                 object = currentObject;
                 core = *d;
-                return;
+                return true;
             }
 
-            if (findChangeSignal(signalName))
-                return;
-        } else if (findSignalInMetaObject(signalName.toUtf8())) {
-            return;
+            return findChangeSignal(signalName);
         }
-    } else if (terminalString.size() > StrlenOn && terminalString.startsWith(On)) {
-        // This is quite wrong. But we need it for backwards compatibility.
-        QString signalName = terminalString.sliced(2);
-        signalName.front() = signalName.front().toLower();
 
-        QString handlerName = On + signalName;
-        const auto end = handlerName.end();
-        auto result = std::find_if(
-                std::next(handlerName.begin(), StrlenOn), end,
-                [](const QChar &c) { return c.isLetter(); });
-        if (result != end)
-            *result = result->toUpper();
+        return findSignalInMetaObject(signalName.toUtf8());
+    };
 
-        if (findSignalInMetaObject(signalName.toUtf8())) {
-            qWarning()
-                    << terminalString
-                    << "is not a properly capitalized signal handler name."
-                    << handlerName
-                    << "would be correct.";
+    auto signalName = QQmlSignalNames::handlerNameToSignalName(terminal);
+    if (signalName) {
+        if (findSignal(*signalName))
             return;
+    } else {
+        signalName = QQmlSignalNames::badHandlerNameToSignalName(terminal);
+        if (signalName) {
+            if (findSignal(*signalName)) {
+                qWarning()
+                        << terminal
+                        << "is not a properly capitalized signal handler name."
+                        << QQmlSignalNames::signalNameToHandlerName(*signalName)
+                        << "would be correct.";
+                return;
+            }
         }
     }
 
@@ -447,7 +432,7 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
             if (!property->isFunction()) {
                 object = currentObject;
                 core = *property;
-                nameCache = terminalString;
+                nameCache = terminal.toString();
                 return;
             }
             property = ddata->propertyCache->overrideData(property);
@@ -768,15 +753,7 @@ QString QQmlProperty::name() const
             d->nameCache = d->core.name(d->object) + QLatin1Char('.') + QString::fromUtf8(vtName);
         } else if (type() & SignalProperty) {
             // ### Qt7: Return the original signal name here. Do not prepend "on"
-            QString name = QStringLiteral("on") + d->core.name(d->object);
-            for (int i = 2, end = name.size(); i != end; ++i) {
-                const QChar c = name.at(i);
-                if (c != u'_') {
-                    name[i] = c.toUpper();
-                    break;
-                }
-            }
-            d->nameCache = name;
+            d->nameCache = QQmlSignalNames::signalNameToHandlerName(d->core.name(d->object));
         } else {
             d->nameCache = d->core.name(d->object);
         }
@@ -867,17 +844,21 @@ static void removeOldBinding(QObject *object, QQmlPropertyIndex index, QQmlPrope
     oldBinding = data->bindings;
 
     while (oldBinding && (oldBinding->targetPropertyIndex().coreIndex() != coreIndex ||
-                          oldBinding->targetPropertyIndex().hasValueTypeIndex()))
+                          oldBinding->targetPropertyIndex().hasValueTypeIndex())) {
         oldBinding = oldBinding->nextBinding();
+    }
 
-    if (!oldBinding)
+    if (!oldBinding) {
+        // Clear the binding bit so that the binding doesn't appear later for any reason
+        data->clearBindingBit(coreIndex);
         return;
+    }
 
-    if (valueTypeIndex != -1 && oldBinding->kind() == QQmlAbstractBinding::ValueTypeProxy)
+    if (valueTypeIndex != -1 && oldBinding->kind() == QQmlAbstractBinding::ValueTypeProxy) {
         oldBinding = static_cast<QQmlValueTypeProxyBinding *>(oldBinding.data())->binding(index);
-
-    if (!oldBinding)
-        return;
+        if (!oldBinding)
+           return;
+    }
 
     if (!(flags & QQmlPropertyPrivate::DontEnable))
         oldBinding->setEnabled(false, {});
@@ -1388,25 +1369,13 @@ struct ConvertAndAssignResult {
 static ConvertAndAssignResult tryConvertAndAssign(
         QObject *object, const QQmlPropertyData &property, const QVariant &value,
         QQmlPropertyData::WriteFlags flags, QMetaType propertyMetaType, QMetaType variantMetaType,
-        bool isUrl) {
+        bool isUrl, QQmlEnginePrivate *enginePriv) {
 
     if (isUrl
             || variantMetaType == QMetaType::fromType<QString>()
             || propertyMetaType == QMetaType::fromType<QList<QUrl>>()
             || property.isQList()) {
         return {false, false};
-    }
-
-    if (variantMetaType == QMetaType::fromType<QJSValue>()) {
-        // Handle Qt.binding bindings here to avoid mistaken conversion below
-        const QJSValue &jsValue = get<QJSValue>(value);
-        const QV4::FunctionObject *f
-                = QJSValuePrivate::asManagedType<QV4::FunctionObject>(&jsValue);
-        if (f && f->isBinding()) {
-            QV4::QObjectWrapper::setProperty(
-                    f->engine(), object, &property, f->asReturnedValue());
-            return {true, true};
-        }
     }
 
     // common cases:
@@ -1454,7 +1423,8 @@ static ConvertAndAssignResult tryConvertAndAssign(
     }
     }
 
-    QVariant converted = QQmlValueTypeProvider::createValueType(value, propertyMetaType);
+    QVariant converted = QQmlValueTypeProvider::createValueType(
+            value, propertyMetaType, enginePriv ? enginePriv->v4engine() : nullptr);
     if (!converted.isValid()) {
         converted = QVariant(propertyMetaType);
         if (!QMetaType::convert(value.metaType(), value.constData(),
@@ -1494,6 +1464,21 @@ bool iterateQObjectContainer(QMetaType metaType, const void *data, Op op)
     return true;
 }
 
+static bool tryAssignBinding(
+        QObject *object, const QQmlPropertyData &property, const QVariant &value,
+        QMetaType variantMetaType) {
+    if (variantMetaType != QMetaType::fromType<QJSValue>())
+        return false;
+
+    const QJSValue &jsValue = get<QJSValue>(value);
+    const QV4::FunctionObject *f = QJSValuePrivate::asManagedType<QV4::FunctionObject>(&jsValue);
+    if (!f || !f->isBinding())
+        return false;
+
+    QV4::QObjectWrapper::setProperty(f->engine(), object, &property, f->asReturnedValue());
+    return true;
+}
+
 bool QQmlPropertyPrivate::write(
         QObject *object, const QQmlPropertyData &property, const QVariant &value,
         const QQmlRefPointer<QQmlContextData> &context, QQmlPropertyData::WriteFlags flags)
@@ -1518,6 +1503,10 @@ bool QQmlPropertyPrivate::write(
 
     QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(context);
     const bool isUrl = propertyMetaType == QMetaType::fromType<QUrl>(); // handled separately
+
+    // Handle Qt.binding bindings here to avoid mistaken conversion below
+    if (tryAssignBinding(object, property, value, variantMetaType))
+        return true;
 
     // The cases below are in approximate order of likelyhood:
     if (propertyMetaType == variantMetaType && !isUrl
@@ -1554,7 +1543,8 @@ bool QQmlPropertyPrivate::write(
             return false;
         }
     } else if (ConvertAndAssignResult result = tryConvertAndAssign(
-                   object, property, value, flags, propertyMetaType, variantMetaType, isUrl)) {
+                       object, property, value, flags, propertyMetaType, variantMetaType, isUrl,
+                       enginePriv)) {
         return result.couldWrite;
     } else if (propertyMetaType == QMetaType::fromType<QVariant>()) {
         return property.writeProperty(object, const_cast<QVariant *>(&value), flags);
@@ -1602,8 +1592,11 @@ bool QQmlPropertyPrivate::write(
             propClear(&prop);
 
             const auto doAppend = [&](QObject *o) {
-                if (o && !QQmlMetaObject::canConvert(o, valueMetaObject))
+                if (Q_UNLIKELY(o && !QQmlMetaObject::canConvert(o, valueMetaObject))) {
+                    qCWarning(lcIncompatibleElement)
+                            << "Cannot append" << o << "to a QML list of" << listValueType.name();
                     o = nullptr;
+                }
                 propAppend(&prop, o);
             };
 
@@ -1980,9 +1973,8 @@ QMetaMethod QQmlPropertyPrivate::findSignalByName(const QMetaObject *mo, const Q
 
     // If no signal is found, but the signal is of the form "onBlahChanged",
     // return the notify signal for the property "Blah"
-    if (name.endsWith("Changed")) {
-        QByteArray propName = name.mid(0, name.size() - 7);
-        int propIdx = mo->indexOfProperty(propName.constData());
+    if (auto propName = QQmlSignalNames::changedSignalNameToPropertyName(name)) {
+        int propIdx = mo->indexOfProperty(propName->constData());
         if (propIdx >= 0) {
             QMetaProperty prop = mo->property(propIdx);
             if (prop.hasNotifySignal())

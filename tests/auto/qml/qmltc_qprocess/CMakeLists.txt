@@ -1,6 +1,12 @@
 # Copyright (C) 2022 The Qt Company Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
 
+if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
+    cmake_minimum_required(VERSION 3.16)
+    project(tst_qmltc_qprocess LANGUAGES CXX)
+    find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
+endif()
+
 qt_internal_add_test(tst_qmltc_qprocess
     SOURCES
         tst_qmltc_qprocess.cpp
@@ -21,6 +27,7 @@ qt6_add_qml_module(tst_qmltc_qprocess
     URI QmltcQProcessTests
     SOURCES
         cpptypes/testtype.h
+        cpptypes/typewithrequiredproperty.h
     DEPENDENCIES
         QtQuick/auto
     QML_FILES
@@ -36,6 +43,12 @@ qt6_add_qml_module(tst_qmltc_qprocess
         data/invalidSignalHandlers.qml
         data/QmlBaseFromAnotherModule.qml
         data/invalidTypeAnnotation.qml
+        data/constructFromString.qml
+        data/unboundRequiredPropertyInInlineComponent.qml
+        data/componentDefinitionInnerRequiredProperty.qml
+        data/componentDefinitionInnerRequiredPropertyFromOutside.qml
+        data/innerLevelRequiredProperty.qml
+    NO_GENERATE_EXTRA_QMLDIRS
 )
 
 set(common_libraries
@@ -59,6 +72,7 @@ _qt_internal_genex_getjoinedproperty(qrc_args tst_qmltc_qprocess
 )
 target_compile_definitions(tst_qmltc_qprocess PRIVATE
     TST_QMLTC_QPROCESS_RESOURCES="${qrc_args}"
+    QT_NO_CAST_FROM_ASCII
 )
 
 qt_internal_extend_target(tst_qmltc_qprocess CONDITION ANDROID OR IOS

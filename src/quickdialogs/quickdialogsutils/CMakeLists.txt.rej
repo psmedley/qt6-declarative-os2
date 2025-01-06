@@ -1,0 +1,10 @@
+--- src/quickdialogs/quickdialogsutils/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/quickdialogs/quickdialogsutils/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -24,6 +24,4 @@
+         Qt::GuiPrivate
+     PUBLIC_LIBRARIES
+         Qt::Core
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )

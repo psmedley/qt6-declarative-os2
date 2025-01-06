@@ -1,5 +1,5 @@
 // Copyright (C) 2022 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #ifndef OBJECTWITHMETOD_H
 #define OBJECTWITHMETOD_H
@@ -32,7 +32,7 @@ public:
     // The meta methods are populated back to front.
     // The V4Function flag should not bleed into the others in either case.
 
-    Q_INVOKABLE void overloaded(QQmlV4Function *) { setObjectName(QStringLiteral("javaScript")); }
+    Q_INVOKABLE void overloaded(QQmlV4FunctionPtr) { setObjectName(QStringLiteral("javaScript")); }
     Q_INVOKABLE void overloaded(double) { setObjectName(QStringLiteral("double")); }
     Q_INVOKABLE void overloaded(const QString &) { setObjectName(QStringLiteral("string")); }
 
@@ -41,7 +41,7 @@ public:
 
     Q_INVOKABLE void overloaded2(double) { setObjectName(QStringLiteral("double")); }
     Q_INVOKABLE void overloaded2(const QString &) { setObjectName(QStringLiteral("string")); }
-    Q_INVOKABLE void overloaded2(QQmlV4Function *) { setObjectName(QStringLiteral("javaScript")); }
+    Q_INVOKABLE void overloaded2(QQmlV4FunctionPtr) { setObjectName(QStringLiteral("javaScript")); }
 };
 
 class OverriddenObjectName : public ObjectWithMethod

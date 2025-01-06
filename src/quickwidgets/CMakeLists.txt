@@ -33,7 +33,6 @@ qt_internal_add_module(QuickWidgets
         Qt::QmlPrivate
         Qt::QuickPrivate
         Qt::WidgetsPrivate
-    GENERATE_CPP_EXPORTS
     OS2_SHORT_NAME Qt6QuiWi.dll
 )
 

@@ -16,8 +16,9 @@
 //
 
 #include <private/qmetaobject_p.h>
-#include <private/qtqmlglobal_p.h>
 #include <private/qqmlmetaobject_p.h>
+#include <private/qqmltype_p.h>
+#include <private/qtqmlglobal_p.h>
 
 #include <QtQml/qqml.h>
 #include <QtCore/qobject.h>
@@ -48,7 +49,7 @@ T qmlGetConfigOption(const char *var)
     Connect \a Signal of \a Sender to \a Method of \a Receiver.  \a Signal must be
     of type \a SenderType and \a Receiver of type \a ReceiverType.
 
-    Unlike QObject::connect(), this method caches the lookup of the signal and method
+    Unlike QObject::connect(), this macro caches the lookup of the signal and method
     indexes.  It also does not require lazy QMetaObjects to be built so should be
     preferred in all QML code that might interact with QML built objects.
 
@@ -87,7 +88,7 @@ do { \
     Disconnect \a Signal of \a Sender from \a Method of \a Receiver.  \a Signal must be
     of type \a SenderType and \a Receiver of type \a ReceiverType.
 
-    Unlike QObject::disconnect(), this method caches the lookup of the signal and method
+    Unlike QObject::disconnect(), this macro caches the lookup of the signal and method
     indexes.  It also does not require lazy QMetaObjects to be built so should be
     preferred in all QML code that might interact with QML built objects.
 
@@ -122,7 +123,8 @@ do { \
     QMetaObject::disconnect(sender, signalIdx, receiver, methodIdx); \
 } while (0)
 
-Q_QML_PRIVATE_EXPORT bool qmlobject_can_cast(QObject *object, const QMetaObject *mo);
+Q_QML_EXPORT bool qmlobject_can_cpp_cast(QObject *object, const QMetaObject *mo);
+Q_QML_EXPORT bool qmlobject_can_qml_cast(QObject *object, const QQmlType &type);
 
 /*!
     This method is identical to qobject_cast<T>() except that it does not require lazy
@@ -141,7 +143,7 @@ T qmlobject_cast(QObject *object)
 {
     if (!object)
         return nullptr;
-    if (qmlobject_can_cast(object, &(std::remove_pointer_t<T>::staticMetaObject)))
+    if (qmlobject_can_cpp_cast(object, &(std::remove_pointer_t<T>::staticMetaObject)))
         return static_cast<T>(object);
     else
         return nullptr;
@@ -204,21 +206,26 @@ inline void QQml_setParent_noEvent(QObject *object, QObject *parent)
 class QQmlValueTypeProvider
 {
 public:
-    static bool createValueType(QMetaType targetMetaType, void *target, const QV4::Value &source);
-    static bool createValueType(
-        QMetaType targetMetaType, void *target, QMetaType sourceMetaType, void *source);
+    static bool populateValueType(
+            QMetaType targetMetaType, void *target, const QV4::Value &source,
+            QV4::ExecutionEngine *engine);
+    static bool populateValueType(
+            QMetaType targetMetaType, void *target, QMetaType sourceMetaType, void *source,
+            QV4::ExecutionEngine *engine);
 
+    static Q_QML_EXPORT void *heapCreateValueType(
+            const QQmlType &targetType, const QV4::Value &source, QV4::ExecutionEngine *engine);
     static QVariant constructValueType(
             QMetaType targetMetaType, const QMetaObject *targetMetaObject,
             int ctorIndex, void *ctorArg);
 
     static QVariant createValueType(const QJSValue &, QMetaType);
     static QVariant createValueType(const QString &, QMetaType);
-    static QVariant createValueType(const QV4::Value &, QMetaType);
-    static QVariant createValueType(const QVariant &, QMetaType);
+    static QVariant createValueType(const QV4::Value &, QMetaType, QV4::ExecutionEngine *);
+    static QVariant createValueType(const QVariant &, QMetaType, QV4::ExecutionEngine *);
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlColorProvider
+class Q_QML_EXPORT QQmlColorProvider
 {
 public:
     virtual ~QQmlColorProvider();
@@ -234,11 +241,11 @@ public:
     virtual QVariant tint(const QVariant &, const QVariant &);
 };
 
-Q_QML_PRIVATE_EXPORT QQmlColorProvider *QQml_setColorProvider(QQmlColorProvider *);
-Q_QML_PRIVATE_EXPORT QQmlColorProvider *QQml_colorProvider();
+Q_QML_EXPORT QQmlColorProvider *QQml_setColorProvider(QQmlColorProvider *);
+Q_QML_EXPORT QQmlColorProvider *QQml_colorProvider();
 
 class QQmlApplication;
-class Q_QML_PRIVATE_EXPORT QQmlGuiProvider
+class Q_QML_EXPORT QQmlGuiProvider
 {
 public:
     virtual ~QQmlGuiProvider();
@@ -250,12 +257,12 @@ public:
     virtual QString pluginName() const;
 };
 
-Q_QML_PRIVATE_EXPORT QQmlGuiProvider *QQml_setGuiProvider(QQmlGuiProvider *);
+Q_QML_EXPORT QQmlGuiProvider *QQml_setGuiProvider(QQmlGuiProvider *);
 Q_AUTOTEST_EXPORT QQmlGuiProvider *QQml_guiProvider();
 
 class QQmlApplicationPrivate;
 
-class Q_QML_PRIVATE_EXPORT QQmlApplication : public QObject
+class Q_QML_EXPORT QQmlApplication : public QObject
 {
     //Application level logic, subclassed by Qt Quick if available via QQmlGuiProvider
     Q_OBJECT
@@ -265,7 +272,6 @@ class Q_QML_PRIVATE_EXPORT QQmlApplication : public QObject
     Q_PROPERTY(QString organization READ organization WRITE setOrganization NOTIFY organizationChanged)
     Q_PROPERTY(QString domain READ domain WRITE setDomain NOTIFY domainChanged)
     QML_ANONYMOUS
-    QML_ADDED_IN_VERSION(2, 0)
 public:
     QQmlApplication(QObject* parent=nullptr);
 

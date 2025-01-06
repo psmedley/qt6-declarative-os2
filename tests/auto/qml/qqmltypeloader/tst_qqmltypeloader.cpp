@@ -1,5 +1,5 @@
 // Copyright (C) 2016 Canonical Limited and/or its subsidiary(-ies).
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/QtTest>
 #include <QtQml/qqmlengine.h>
@@ -34,10 +34,12 @@ private slots:
     void trimCache3();
     void keepSingleton();
     void keepRegistrations();
+    void importAndDestroy();
     void intercept();
     void redirect();
     void qmlSingletonWithinModule();
     void multiSingletonModule();
+    void multiSingletonModuleNoWarning();
     void implicitComponentModule();
     void customDiskCachePath();
     void qrcRootPathUrl();
@@ -47,6 +49,8 @@ private slots:
     void circularDependency();
     void declarativeCppAndQmlDir();
     void signalHandlersAreCompatible();
+    void loadTypeOnShutdown();
+    void floodTypeLoaderEventQueue();
 
 private:
     void checkSingleton(const QString & dataDirectory);
@@ -62,19 +66,18 @@ void tst_QQMLTypeLoader::testLoadComplete()
 #ifdef Q_OS_ANDROID
     QSKIP("Loading dynamic plugins does not work on Android");
 #endif
-    QQuickView *window = new QQuickView();
+    std::unique_ptr<QQuickView> window = std::make_unique<QQuickView>();
     window->engine()->addImportPath(QT_TESTCASE_BUILDDIR);
     qDebug() << window->engine()->importPathList();
     window->setGeometry(0,0,240,320);
     window->setSource(testFileUrl("test_load_complete.qml"));
     window->show();
-    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QVERIFY(QTest::qWaitForWindowExposed(window.get()));
 
     QObject *rootObject = window->rootObject();
     QTRY_VERIFY(rootObject != nullptr);
     QTRY_COMPARE(rootObject->property("created").toInt(), 2);
     QTRY_COMPARE(rootObject->property("loaded").toInt(), 2);
-    delete window;
 }
 
 void tst_QQMLTypeLoader::loadComponentSynchronously()
@@ -92,7 +95,7 @@ void tst_QQMLTypeLoader::trimCache()
     QQmlEngine engine;
     QQmlTypeLoader &loader = QQmlEnginePrivate::get(&engine)->typeLoader;
     QVector<QQmlTypeData *> releaseLater;
-    QVector<QV4::ExecutableCompilationUnit *> releaseCompilationUnitLater;
+    QVector<QV4::CompiledData::CompilationUnit *> releaseCompilationUnitLater;
     for (int i = 0; i < 256; ++i) {
         QUrl url = testFileUrl("trim_cache.qml");
         url.setQuery(QString::number(i));
@@ -417,6 +420,49 @@ public:
     }
 };
 
+void tst_QQMLTypeLoader::importAndDestroy()
+{
+#if defined Q_OS_ANDROID || defined Q_OS_IOS
+    QSKIP("Data directory is not in the host file system on Android and iOS");
+#endif
+    qmlClearTypeRegistrations();
+
+    QQmlEngine engine;
+    NetworkAccessManagerFactory factory;
+    engine.setNetworkAccessManagerFactory(&factory);
+    QQmlComponent component(&engine);
+
+    // We redirect the import through the network access manager to make it asynchronous.
+    // Otherwise the type loader will just directly call back into the main thread and we
+    // won't get a chance to do mischief before initializeEngine gets called for the "Slow"
+    // module. Note that the "Slow" module needs to be loaded from a "local" URL since plugins
+    // can only be loaded locally.
+
+    // Detour through testFileUrl to get the path right on windows ('C:' and things like that)
+    QUrl url = testFileUrl("SlowImporter");
+    url.setScheme(url.scheme() + QLatin1String("+debug"));
+
+    component.setData(QString::fromLatin1(R"(
+        import '%1'
+        A {}
+    )").arg(url.toString()).toUtf8(), QUrl());
+
+    while (!QQmlMetaType::qmlType(
+                    QStringLiteral("SlowStuff"), QStringLiteral("Slow"), QTypeRevision())
+                    .isValid()) {
+        // busy wait for type to be registered
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    }
+
+    // Now the type loader thread is likely waiting for the main thread to process the
+    // initializeEngine callback. We destroy the engine here to trigger the situation where the main
+    // thread needs to wake the type loader thread one more time to process the isShutdown flag.
+    // If it fails to do so, the type loader thread waits indefinitely for the main thread and the
+    // engine dtor in turn waits indefinitely for the type loader thread to terminate.
+
+    // The point of this test is that it _should not_ deadlock here.
+}
+
 void tst_QQMLTypeLoader::intercept()
 {
 #ifdef Q_OS_ANDROID
@@ -532,6 +578,18 @@ void tst_QQMLTypeLoader::multiSingletonModule()
     QVERIFY(obj->property("ok").toBool());
 
     checkCleanCacheLoad(QLatin1String("multiSingletonModule"));
+}
+
+void tst_QQMLTypeLoader::multiSingletonModuleNoWarning()
+{
+    // Should not warn about a "cyclic" dependency between the singletons
+    QTest::failOnWarning(QRegularExpression(".*"));
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("imports/multisingletonmodule/a.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
 }
 
 void tst_QQMLTypeLoader::implicitComponentModule()
@@ -673,7 +731,7 @@ static void getCompilationUnitAndRuntimeInfo(QQmlRefPointer<QV4::ExecutableCompi
         QVERIFY(!typeData->isError()); // this returns
     }
 
-    unit = typeData->compilationUnit();
+    unit = engine->handle()->executableCompilationUnit(typeData->compilationUnit());
     QVERIFY(unit);
 
     // the QmlIR::Document is deleted once loader.getType() is complete, so
@@ -722,6 +780,65 @@ void tst_QQMLTypeLoader::signalHandlersAreCompatible()
     QSKIP("qrc and file system is the same thing on Android");
 #endif
     QVERIFY(unitFromCachegen->url() != unitFromTypeCompiler->url());
+}
+
+void tst_QQMLTypeLoader::loadTypeOnShutdown()
+{
+    bool dead1 = false;
+    bool dead2 = false;
+
+    {
+        QQmlEngine engine;
+        auto good = new QQmlComponent(
+                &engine, testFileUrl("doesExist.qml"),
+                QQmlComponent::CompilationMode::Asynchronous, &engine);
+        QObject::connect(
+                good, &QQmlComponent::statusChanged, &engine,
+                [&](QQmlComponent::Status) {
+
+            // Must not call this if the engine is already dead.
+            QVERIFY(engine.rootContext());
+
+        });
+
+        QObject::connect(good, &QQmlComponent::destroyed, good, [&]() { dead1 = true; });
+        QVERIFY(good->isLoading());
+
+        auto bad = new QQmlComponent(
+                &engine, testFileUrl("doesNotExist.qml"),
+                QQmlComponent::CompilationMode::Asynchronous, &engine);
+        QObject::connect(
+                bad, &QQmlComponent::statusChanged, &engine,
+                [&](QQmlComponent::Status) {
+
+            // Must not call this if the engine is already dead.
+            // Must also not leak memory from the events the error produces.
+            QVERIFY(engine.rootContext());
+
+        });
+
+        QObject::connect(bad, &QQmlComponent::destroyed, bad, [&]() { dead2 = true; });
+        QVERIFY(bad->isLoading());
+    }
+
+    QVERIFY(dead1);
+    QVERIFY(dead2);
+}
+
+void tst_QQMLTypeLoader::floodTypeLoaderEventQueue()
+{
+    QQmlEngine engine;
+
+    // Flood the typeloader with useless messages.
+    for (int i = 0; i < 1000; ++i) {
+        QQmlComponent c(&engine);
+        c.setData(QString::fromLatin1(R"(
+                import "barf:/not/actually/there%1"
+                SomeElement {}
+            )").arg(i).toUtf8(), QUrl::fromLocalFile(QString::fromLatin1("foo%1.qml").arg(i)));
+        QVERIFY(!c.isReady());
+        // Should not crash when destrying the QQmlComponent.
+    }
 }
 
 QTEST_MAIN(tst_QQMLTypeLoader)

@@ -1,7 +1,8 @@
 // Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <qtest.h>
+#include <private/qtqmlmodelsglobal_p.h>
 
 using namespace Qt::StringLiterals;
 
@@ -34,6 +35,8 @@ private slots:
     void jsvalueAssignments();
     void extensionTypeBindings();
     void visibleAliasMethods(); // QTBUG-103956
+    void customInitialization(); // QTBUG-120700
+    void requiredPropertiesInitialization();
     void nonStandardIncludesInsideModule(); // QTBUG-104094
     void specialProperties();
     void regexpBindings();
@@ -96,5 +99,15 @@ private slots:
     void namespacedName();
     void checkExportsAreCompiling();
     void checkExportsNoFileName();
+
+#if QT_CONFIG(qml_table_model)
+    void qmlTableModel();
+#endif
+    void urlToString();
     void signalConnections();
+
+    void hpp();
+
+    void attachedComponentProperty();
+    void attachedNamespacedProperty();
 };

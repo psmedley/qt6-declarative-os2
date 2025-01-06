@@ -1,103 +1,120 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "qqmltypescreator_p.h"
+#include "qanystringviewutils_p.h"
+#include "qqmltyperegistrarconstants_p.h"
+#include "qqmltyperegistrarutils_p.h"
 #include "qqmltypesclassdescription_p.h"
+#include "qqmltypescreator_p.h"
 
 #include <QtCore/qset.h>
-#include <QtCore/qjsonarray.h>
+#include <QtCore/qcborarray.h>
+#include <QtCore/qcbormap.h>
 #include <QtCore/qsavefile.h>
 #include <QtCore/qfile.h>
-#include <QtCore/qjsondocument.h>
 #include <QtCore/qversionnumber.h>
 
-using namespace Qt::StringLiterals;
+#include <QtCore/private/qstringalgorithms_p.h>
 
 QT_BEGIN_NAMESPACE
 
-static QString enquote(const QString &string)
-{
-    QString s = string;
-    return QString::fromLatin1("\"%1\"").arg(s.replace(QLatin1Char('\\'), QLatin1String("\\\\"))
-                                         .replace(QLatin1Char('"'),QLatin1String("\\\"")));
-}
+using namespace Qt::StringLiterals;
+using namespace Constants;
+using namespace Constants::DotQmltypes;
+using namespace QAnyStringViewUtils;
 
-static QString convertPrivateClassToUsableForm(QString s)
+static QString convertPrivateClassToUsableForm(QAnyStringView s)
 {
     // typical privateClass entry in MOC looks like: ClassName::d_func(), where
     // ClassName is a non-private class name. we don't need "::d_func()" piece
     // so that could be removed, but we need "Private" so that ClassName becomes
     // ClassNamePrivate (at present, simply consider this correct)
-    s.replace(u"::d_func()"_s, u"Private"_s);
-    return s;
+    return s.toString().replace("::d_func()"_L1, "Private"_L1);
 }
 
 void QmlTypesCreator::writeClassProperties(const QmlTypesClassDescription &collector)
 {
     if (!collector.file.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("file"), enquote(collector.file));
-    m_qml.writeScriptBinding(QLatin1String("name"), enquote(collector.className));
+        m_qml.writeStringBinding(S_FILE, collector.file);
+    m_qml.writeStringBinding(S_NAME, collector.className);
+
+    if (!collector.primitiveAliases.isEmpty())
+        m_qml.writeStringListBinding(S_ALIASES, collector.primitiveAliases);
 
     if (!collector.accessSemantics.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("accessSemantics"), enquote(collector.accessSemantics));
+        m_qml.writeStringBinding(S_ACCESS_SEMANTICS, collector.accessSemantics);
 
     if (!collector.defaultProp.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("defaultProperty"), enquote(collector.defaultProp));
+        m_qml.writeStringBinding(S_DEFAULT_PROPERTY, collector.defaultProp);
 
     if (!collector.parentProp.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("parentProperty"), enquote(collector.parentProp));
+        m_qml.writeStringBinding(S_PARENT_PROPERTY, collector.parentProp);
 
     if (!collector.superClass.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("prototype"), enquote(collector.superClass));
+        m_qml.writeStringBinding(S_PROTOTYPE, collector.superClass);
 
     if (!collector.sequenceValueType.isEmpty()) {
-        const QString name = collector.sequenceValueType.endsWith('*'_L1)
+        const QAnyStringView name = collector.sequenceValueType.back() == '*'_L1
                 ? collector.sequenceValueType.chopped(1)
                 : collector.sequenceValueType;
-        m_qml.writeScriptBinding(QLatin1String("valueType"), enquote(name));
+        m_qml.writeStringBinding(S_VALUE_TYPE, name);
     }
 
-    if (!collector.extensionType.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("extension"), enquote(collector.extensionType));
+    if (m_generatingJSRoot)
+        m_qml.writeBooleanBinding(S_IS_JAVASCRIPT_BUILTIN, true);
 
-    if (collector.extensionIsNamespace)
-        m_qml.writeScriptBinding(QLatin1String("extensionIsNamespace"), QLatin1String("true"));
+    if (collector.extensionIsJavaScript) {
+        if (!collector.javaScriptExtensionType.isEmpty()) {
+            m_qml.writeStringBinding(S_EXTENSION, collector.javaScriptExtensionType);
+            m_qml.writeBooleanBinding(S_EXTENSION_IS_JAVA_SCRIPT, true);
+        } else {
+            warning(collector.file)
+                    << "JavaScript extension type for" << collector.className
+                    << "does not exist";
+        }
 
-    if (!collector.implementsInterfaces.isEmpty()) {
-        QStringList interfaces;
-        for (const QString &interface : collector.implementsInterfaces)
-            interfaces << enquote(interface);
-
-        m_qml.writeArrayBinding(QLatin1String("interfaces"), interfaces);
+        if (collector.extensionIsNamespace) {
+            warning(collector.file)
+                    << "Extension type for" << collector.className
+                    << "cannot be both a JavaScript type and a namespace";
+            if (!collector.nativeExtensionType.isEmpty()) {
+                m_qml.writeStringBinding(S_EXTENSION, collector.nativeExtensionType);
+                m_qml.writeBooleanBinding(S_EXTENSION_IS_NAMESPACE, true);
+            }
+        }
+    } else if (!collector.nativeExtensionType.isEmpty()) {
+        m_qml.writeStringBinding(S_EXTENSION, collector.nativeExtensionType);
+        if (collector.extensionIsNamespace)
+            m_qml.writeBooleanBinding(S_EXTENSION_IS_NAMESPACE, true);
+    } else if (collector.extensionIsNamespace) {
+        warning(collector.file)
+                << "Extension namespace for" << collector.className << "does not exist";
+        m_qml.writeBooleanBinding(S_EXTENSION_IS_NAMESPACE, true);
     }
 
-    if (!collector.deferredNames.isEmpty()) {
-        QStringList deferredNames;
-        for (const QString &name : collector.deferredNames)
-            deferredNames << enquote(name);
+    if (!collector.implementsInterfaces.isEmpty())
+        m_qml.writeStringListBinding(S_INTERFACES, collector.implementsInterfaces);
 
-        m_qml.writeArrayBinding(QLatin1String("deferredNames"), deferredNames);
-    }
+    if (!collector.deferredNames.isEmpty())
+        m_qml.writeStringListBinding(S_DEFERRED_NAMES, collector.deferredNames);
 
-    if (!collector.immediateNames.isEmpty()) {
-        QStringList immediateNames;
-        for (const QString &name : collector.immediateNames)
-            immediateNames << enquote(name);
+    if (!collector.immediateNames.isEmpty())
+        m_qml.writeStringListBinding(S_IMMEDIATE_NAMES, collector.immediateNames);
 
-        m_qml.writeArrayBinding(QLatin1String("immediateNames"), immediateNames);
-    }
-
-    if (collector.elementName.isEmpty()) // e.g. if QML_ANONYMOUS
+    if (collector.elementNames.isEmpty()) // e.g. if QML_ANONYMOUS
         return;
 
     if (!collector.sequenceValueType.isEmpty()) {
-        qWarning() << "Ignoring name of sequential container:" << collector.elementName;
-        qWarning() << "Sequential containers are anonymous. Use QML_ANONYMOUS to register them.";
+        warning(collector.file) << "Ignoring names of sequential container:";
+        for (const QAnyStringView &name : std::as_const(collector.elementNames))
+            warning(collector.file) << " - " << name.toString();
+        warning(collector.file)
+                << "Sequential containers are anonymous. Use QML_ANONYMOUS to register them.";
         return;
     }
 
-    QStringList exports;
-    QStringList metaObjects;
+    QByteArrayList exports;
+    QByteArrayList metaObjects;
 
     for (auto it = collector.revisions.begin(), end = collector.revisions.end(); it != end; ++it) {
         const QTypeRevision revision = *it;
@@ -108,346 +125,302 @@ void QmlTypesCreator::writeClassProperties(const QmlTypesClassDescription &colle
         if (revision.hasMajorVersion() && revision.majorVersion() > m_version.majorVersion())
             break;
 
-        exports.append(enquote(QString::fromLatin1("%1/%2 %3.%4")
-                               .arg(m_module, collector.elementName)
-                               .arg(revision.hasMajorVersion() ? revision.majorVersion()
-                                                               : m_version.majorVersion())
-                               .arg(revision.minorVersion())));
-        metaObjects.append(QString::number(revision.toEncodedVersion<quint16>()));
+        for (const QAnyStringView &elementName : std::as_const(collector.elementNames)) {
+            QByteArray exportEntry = m_module + '/';
+
+            elementName.visit([&](auto view) {
+                processAsUtf8(view, [&](QByteArrayView view) { exportEntry.append(view); });
+            });
+            exportEntry += ' ' + QByteArray::number(revision.hasMajorVersion()
+                                                            ? revision.majorVersion()
+                                                            : m_version.majorVersion());
+            exportEntry += '.' + QByteArray::number(revision.minorVersion());
+
+            exports.append(exportEntry);
+        }
+        metaObjects.append(QByteArray::number(revision.toEncodedVersion<quint16>()));
     }
 
-    m_qml.writeArrayBinding(QLatin1String("exports"), exports);
+    QList<QAnyStringView> exportStrings;
+    exportStrings.reserve(exports.length());
+    for (const QByteArray &entry: exports)
+        exportStrings.append(QUtf8StringView(entry));
+
+    m_qml.writeStringListBinding(S_EXPORTS, exportStrings);
 
     if (!collector.isCreatable || collector.isSingleton)
-        m_qml.writeScriptBinding(QLatin1String("isCreatable"), QLatin1String("false"));
+        m_qml.writeBooleanBinding(S_IS_CREATABLE, false);
+
+    if (collector.isStructured)
+        m_qml.writeBooleanBinding(S_IS_STRUCTURED, true);
 
     if (collector.isSingleton)
-        m_qml.writeScriptBinding(QLatin1String("isSingleton"), QLatin1String("true"));
+        m_qml.writeBooleanBinding(S_IS_SINGLETON, true);
 
     if (collector.hasCustomParser)
-        m_qml.writeScriptBinding(QLatin1String("hasCustomParser"), QLatin1String("true"));
+        m_qml.writeBooleanBinding(S_HAS_CUSTOM_PARSER, true);
 
-    m_qml.writeArrayBinding(QLatin1String("exportMetaObjectRevisions"), metaObjects);
+    if (collector.enforcesScopedEnums)
+        m_qml.writeBooleanBinding(S_ENFORCES_SCOPED_ENUMS, true);
+
+    m_qml.writeArrayBinding(S_EXPORT_META_OBJECT_REVISIONS, metaObjects);
 
     if (!collector.attachedType.isEmpty())
-        m_qml.writeScriptBinding(QLatin1String("attachedType"), enquote(collector.attachedType));
+        m_qml.writeStringBinding(S_ATTACHED_TYPE, collector.attachedType);
 }
 
-void QmlTypesCreator::writeType(const QJsonObject &property, const QString &key)
+void QmlTypesCreator::writeType(QAnyStringView type)
 {
-    auto it = property.find(key);
-    if (it == property.end())
+    ResolvedTypeAlias resolved(type, m_usingDeclarations);
+    if (resolved.type.isEmpty())
         return;
 
-    QString type = (*it).toString();
-    if (type.isEmpty() || type == QLatin1String("void"))
-        return;
-
-    const QLatin1String typeKey("type");
-
-    bool isList = false;
-    bool isPointer = false;
-    // This is a best effort approach (like isPointer) and will not return correct results in the
-    // presence of typedefs.
-    bool isConstant = false;
-
-    auto handleList = [&](QLatin1String list) {
-        if (!type.startsWith(list) || !type.endsWith(QLatin1Char('>')))
-            return false;
-
-        const int listSize = list.size();
-        const QString elementType = type.mid(listSize, type.size() - listSize - 1).trimmed();
-
-        // QQmlListProperty internally constructs the pointer. Passing an explicit '*' will
-        // produce double pointers. QList is only for value types. We can't handle QLists
-        // of pointers (unless specially registered, but then they're not isList).
-        if (elementType.endsWith(QLatin1Char('*')))
-            return false;
-
-        isList = true;
-        type = elementType;
-        return true;
-    };
-
-    if (!handleList(QLatin1String("QQmlListProperty<"))
-            && !handleList(QLatin1String("QList<"))) {
-        if (type.endsWith(QLatin1Char('*'))) {
-            isPointer = true;
-            type = type.left(type.size() - 1);
-        }
-        if (type.startsWith(u"const ")) {
-            isConstant = true;
-            type = type.sliced(strlen("const "));
-        }
-    }
-
-    if (type == QLatin1String("qreal")) {
-#ifdef QT_COORD_TYPE_STRING
-        type = QLatin1String(QT_COORD_TYPE_STRING);
-#else
-        type = QLatin1String("double");
-#endif
-    } else if (type == QLatin1String("qint16")) {
-        type = QLatin1String("short");
-    } else if (type == QLatin1String("quint16")) {
-        type = QLatin1String("ushort");
-    } else if (type == QLatin1String("qint32")) {
-        type = QLatin1String("int");
-    } else if (type == QLatin1String("quint32")) {
-        type = QLatin1String("uint");
-    } else if (type == QLatin1String("qint64")) {
-        type = QLatin1String("qlonglong");
-    } else if (type == QLatin1String("quint64")) {
-        type = QLatin1String("qulonglong");
-    } else if (type == QLatin1String("QList<QObject*>")) {
-        type = QLatin1String("QObjectList");
-    }
-
-    m_qml.writeScriptBinding(typeKey, enquote(type));
-    const QLatin1String trueString("true");
-    if (isList)
-        m_qml.writeScriptBinding(QLatin1String("isList"), trueString);
-    if (isPointer)
-        m_qml.writeScriptBinding(QLatin1String("isPointer"), trueString);
-    if (isConstant)
-        m_qml.writeScriptBinding(QLatin1String("isConstant"), trueString);
+    m_qml.writeStringBinding(S_TYPE, resolved.type);
+    if (resolved.isList)
+        m_qml.writeBooleanBinding(S_IS_LIST, true);
+    if (resolved.isPointer)
+        m_qml.writeBooleanBinding(S_IS_POINTER, true);
+    if (resolved.isConstant)
+        m_qml.writeBooleanBinding(S_IS_CONSTANT, true);
 }
 
-void QmlTypesCreator::writeProperties(const QJsonArray &properties)
+void QmlTypesCreator::writeProperties(const Property::Container &properties)
 {
-    for (const QJsonValue property : properties) {
-        const QJsonObject obj = property.toObject();
-        const QString name = obj[QLatin1String("name")].toString();
-        m_qml.writeStartObject(QLatin1String("Property"));
-        m_qml.writeScriptBinding(QLatin1String("name"), enquote(name));
-        const auto it = obj.find(QLatin1String("revision"));
-        if (it != obj.end())
-            m_qml.writeScriptBinding(QLatin1String("revision"), QString::number(it.value().toInt()));
+    for (const Property &obj : properties) {
+        const QAnyStringView name = obj.name;
+        m_qml.writeStartObject(S_PROPERTY);
+        m_qml.writeStringBinding(S_NAME, name);
+        if (obj.revision.isValid())
+            m_qml.writeNumberBinding(S_REVISION, obj.revision.toEncodedVersion<int>());
 
-        writeType(obj, QLatin1String("type"));
+        writeType(obj.type);
 
-        const auto bindable = obj.constFind(QLatin1String("bindable"));
-        if (bindable != obj.constEnd())
-            m_qml.writeScriptBinding(QLatin1String("bindable"), enquote(bindable->toString()));
-        const auto read = obj.constFind(QLatin1String("read"));
-        if (read != obj.constEnd())
-            m_qml.writeScriptBinding(QLatin1String("read"), enquote(read->toString()));
-        const auto write = obj.constFind(QLatin1String("write"));
-        if (write != obj.constEnd())
-            m_qml.writeScriptBinding(QLatin1String("write"), enquote(write->toString()));
-        const auto reset = obj.constFind(QLatin1String("reset"));
-        if (reset != obj.constEnd())
-            m_qml.writeScriptBinding(QLatin1String("reset"), enquote(reset->toString()));
-        const auto notify = obj.constFind(QLatin1String("notify"));
-        if (notify != obj.constEnd())
-            m_qml.writeScriptBinding(QLatin1String("notify"), enquote(notify->toString()));
-        const auto index = obj.constFind(QLatin1String("index"));
-        if (index != obj.constEnd()) {
-            m_qml.writeScriptBinding(QLatin1String("index"),
-                                     QString::number(index.value().toInt()));
+        const auto bindable = obj.bindable;
+        if (!bindable.isEmpty())
+            m_qml.writeStringBinding(S_BINDABLE, bindable);
+        const auto read = obj.read;
+        if (!read.isEmpty())
+            m_qml.writeStringBinding(S_READ, read);
+        const auto write = obj.write;
+        if (!write.isEmpty())
+            m_qml.writeStringBinding(S_WRITE, write);
+        const auto reset = obj.reset;
+        if (!reset.isEmpty())
+            m_qml.writeStringBinding(S_RESET, reset);
+        const auto notify = obj.notify;
+        if (!notify.isEmpty())
+            m_qml.writeStringBinding(S_NOTIFY, notify);
+        const auto index = obj.index;
+        if (index != -1) {
+            m_qml.writeNumberBinding(S_INDEX, index);
         }
-        const auto privateClass = obj.constFind(QLatin1String("privateClass"));
-        if (privateClass != obj.constEnd()) {
-            m_qml.writeScriptBinding(
-                    QLatin1String("privateClass"),
-                    enquote(convertPrivateClassToUsableForm(privateClass->toString())));
+        const auto privateClass = obj.privateClass;
+        if (!privateClass.isEmpty()) {
+            m_qml.writeStringBinding(
+                    S_PRIVATE_CLASS, convertPrivateClassToUsableForm(privateClass));
         }
 
-        if (!obj.contains(QLatin1String("write")) && !obj.contains(QLatin1String("member")))
-            m_qml.writeScriptBinding(QLatin1String("isReadonly"), QLatin1String("true"));
+        if (obj.write.isEmpty() && obj.member.isEmpty())
+            m_qml.writeBooleanBinding(S_IS_READONLY, true);
 
-        const auto final = obj.constFind(QLatin1String("final"));
-        if (final != obj.constEnd() && final->toBool())
-            m_qml.writeScriptBinding(QLatin1String("isFinal"), QLatin1String("true"));
+        if (obj.isFinal)
+            m_qml.writeBooleanBinding(S_IS_FINAL, true);
 
-        const auto constant = obj.constFind(QLatin1String("constant"));
-        if (constant != obj.constEnd() && constant->toBool())
-            m_qml.writeScriptBinding(QLatin1String("isConstant"), QLatin1String("true"));
+        if (obj.isConstant)
+            m_qml.writeBooleanBinding(S_IS_CONSTANT, true);
 
-        const auto required = obj.constFind(QLatin1String("required"));
-        if (required != obj.constEnd() && required->toBool())
-            m_qml.writeScriptBinding(QLatin1String("isRequired"), QLatin1String("true"));
+        if (obj.isRequired)
+            m_qml.writeBooleanBinding(S_IS_REQUIRED, true);
 
         m_qml.writeEndObject();
     }
 }
 
-void QmlTypesCreator::writeMethods(const QJsonArray &methods, const QString &type)
+void QmlTypesCreator::writeMethods(const Method::Container &methods, QLatin1StringView type)
 {
-    const auto writeFlag = [this](const QLatin1String &name, const QJsonObject &obj) {
-        const auto flag = obj.find(name);
-        if (flag != obj.constEnd() && flag->toBool())
-            m_qml.writeBooleanBinding(name, true);
-    };
-
-    for (const QJsonValue method : methods) {
-        const QJsonObject obj = method.toObject();
-        const QString name = obj[QLatin1String("name")].toString();
+    for (const Method &obj : methods) {
+        const QAnyStringView name = obj.name;
         if (name.isEmpty())
             continue;
-        const QJsonArray arguments = method[QLatin1String("arguments")].toArray();
-        const auto revision = obj.find(QLatin1String("revision"));
+
+        const auto revision = obj.revision;
         m_qml.writeStartObject(type);
-        m_qml.writeScriptBinding(QLatin1String("name"), enquote(name));
-        if (revision != obj.end())
-            m_qml.writeScriptBinding(QLatin1String("revision"), QString::number(revision.value().toInt()));
-        writeType(obj, QLatin1String("returnType"));
+        m_qml.writeStringBinding(S_NAME, name);
+        if (revision.isValid())
+            m_qml.writeNumberBinding(S_REVISION, revision.toEncodedVersion<int>());
+        writeType(obj.returnType);
 
-        writeFlag(QLatin1String("isCloned"), obj);
-        writeFlag(QLatin1String("isConstructor"), obj);
-        writeFlag(QLatin1String("isJavaScriptFunction"), obj);
+        if (obj.isCloned)
+            m_qml.writeBooleanBinding(S_IS_CLONED, true);
+        if (obj.isConstructor)
+            m_qml.writeBooleanBinding(S_IS_CONSTRUCTOR, true);
+        if (obj.isJavaScriptFunction)
+            m_qml.writeBooleanBinding(S_IS_JAVASCRIPT_FUNCTION, true);
 
+        const Argument::Container &arguments = obj.arguments;
         for (qsizetype i = 0, end = arguments.size(); i != end; ++i) {
-            const QJsonObject obj = arguments[i].toObject();
-            if (i == 0 && end == 1 &&
-                    obj[QLatin1String("type")].toString() == QLatin1String("QQmlV4Function*")) {
-                m_qml.writeScriptBinding(QLatin1String("isJavaScriptFunction"),
-                                         QLatin1String("true"));
-                break;
-            }
-            m_qml.writeStartObject(QLatin1String("Parameter"));
-            const QString name = obj[QLatin1String("name")].toString();
+            const Argument &obj = arguments[i];
+            m_qml.writeStartObject(S_PARAMETER);
+            const QAnyStringView name = obj.name;
             if (!name.isEmpty())
-                m_qml.writeScriptBinding(QLatin1String("name"), enquote(name));
-            writeType(obj, QLatin1String("type"));
+                m_qml.writeStringBinding(S_NAME, name);
+            writeType(obj.type);
             m_qml.writeEndObject();
         }
         m_qml.writeEndObject();
     }
 }
 
-void QmlTypesCreator::writeEnums(const QJsonArray &enums)
+void QmlTypesCreator::writeEnums(const Enum::Container &enums)
 {
-    for (const QJsonValue item : enums) {
-        const QJsonObject obj = item.toObject();
-        const QJsonArray values = obj.value(QLatin1String("values")).toArray();
-        QStringList valueList;
-
-        for (const QJsonValue value : values)
-            valueList.append(enquote(value.toString()));
-
-        m_qml.writeStartObject(QLatin1String("Enum"));
-        m_qml.writeScriptBinding(QLatin1String("name"),
-                               enquote(obj.value(QLatin1String("name")).toString()));
-        auto alias = obj.find(QLatin1String("alias"));
-        if (alias != obj.end())
-            m_qml.writeScriptBinding(alias.key(), enquote(alias->toString()));
-        auto isFlag = obj.find(QLatin1String("isFlag"));
-        if (isFlag != obj.end() && isFlag->toBool())
-            m_qml.writeBooleanBinding(isFlag.key(), true);
-        writeType(obj, QLatin1String("type"));
-        m_qml.writeArrayBinding(QLatin1String("values"), valueList);
+    for (const Enum &obj : enums) {
+        m_qml.writeStartObject(S_ENUM);
+        m_qml.writeStringBinding(S_NAME, obj.name);
+        if (!obj.alias.isEmpty())
+            m_qml.writeStringBinding(S_ALIAS, obj.alias);
+        if (obj.isFlag)
+            m_qml.writeBooleanBinding(S_IS_FLAG, true);
+        if (obj.isClass)
+            m_qml.writeBooleanBinding(S_IS_SCOPED, true);
+        writeType(obj.type);
+        m_qml.writeStringListBinding(S_VALUES, obj.values);
         m_qml.writeEndObject();
     }
 }
 
-static bool isAllowedInMajorVersion(const QJsonValue &member, QTypeRevision maxMajorVersion)
+template<typename Member>
+bool isAllowedInMajorVersion(const Member &memberObject, QTypeRevision maxMajorVersion)
 {
-    const auto memberObject = member.toObject();
-    const auto it = memberObject.find(QLatin1String("revision"));
-    if (it == memberObject.end())
-        return true;
-
-    const QTypeRevision memberRevision = QTypeRevision::fromEncodedVersion(it->toInt());
+    const QTypeRevision memberRevision = memberObject.revision;
     return !memberRevision.hasMajorVersion()
             || memberRevision.majorVersion() <= maxMajorVersion.majorVersion();
 }
 
-template<typename Postprocess>
-QJsonArray members(
-        const QJsonObject *classDef, const QString &key, QTypeRevision maxMajorVersion,
-        Postprocess &&process)
+template<typename Members, typename Postprocess>
+Members members(const Members &candidates, QTypeRevision maxMajorVersion, Postprocess &&process)
 {
-    QJsonArray classDefMembers;
+    Members classDefMembers;
 
-    const QJsonArray candidates = classDef->value(key).toArray();
-    for (QJsonValue member : candidates) {
+    for (const auto &member : candidates) {
         if (isAllowedInMajorVersion(member, maxMajorVersion))
-            classDefMembers.append(process(std::move(member)));
+            classDefMembers.push_back(process(member));
     }
 
     return classDefMembers;
 }
 
-static QJsonArray members(
-        const QJsonObject *classDef, const QString &key, QTypeRevision maxMajorVersion)
+template<typename Members>
+Members members(const Members &candidates, QTypeRevision maxMajorVersion)
 {
-    return members(classDef, key, maxMajorVersion, [](QJsonValue &&member) { return member; });
+    return members(candidates, maxMajorVersion, [](const auto &member) { return member; });
 }
 
-static QJsonArray constructors(
-        const QJsonObject *classDef, const QString &key, QTypeRevision maxMajorVersion)
+template<typename Members>
+Members constructors(const Members &candidates, QTypeRevision maxMajorVersion)
 {
-    return members(classDef, key, maxMajorVersion, [](QJsonValue &&member) {
-        QJsonObject ctor = member.toObject();
-        ctor[QLatin1String("isConstructor")] = true;
+    return members(candidates, maxMajorVersion, [](const auto &member) {
+        auto ctor = member;
+        ctor.isConstructor = true;
         return ctor;
     });
 }
 
+void QmlTypesCreator::writeRootMethods(const MetaType &classDef)
+{
+    // Hide destroyed() signals
+    Method::Container componentSignals = members(classDef.sigs(), m_version);
+    for (auto it = componentSignals.begin(); it != componentSignals.end();) {
+        if (it->name == "destroyed"_L1)
+            it = componentSignals.erase(it);
+        else
+            ++it;
+    }
+    writeMethods(componentSignals, S_SIGNAL);
+
+    // Hide deleteLater() methods
+    Method::Container componentMethods = members(classDef.methods(), m_version);
+    for (auto it = componentMethods.begin(); it != componentMethods.end();) {
+        if (it->name == "deleteLater"_L1)
+            it = componentMethods.erase(it);
+        else
+            ++it;
+    }
+
+    // Add toString()
+    Method toStringMethod;
+    toStringMethod.index = -2; // See QV4::QObjectMethod
+    toStringMethod.name = "toString"_L1;
+    toStringMethod.access = Access::Public;
+    toStringMethod.returnType = "QString"_L1;
+    componentMethods.push_back(std::move(toStringMethod));
+
+    // Add destroy(int)
+    Method destroyMethodWithArgument;
+    destroyMethodWithArgument.index = -1; // See QV4::QObjectMethod
+    destroyMethodWithArgument.name = "destroy"_L1;
+    destroyMethodWithArgument.access = Access::Public;
+    Argument delayArgument;
+    delayArgument.name = "delay"_L1;
+    delayArgument.type = "int"_L1;
+    destroyMethodWithArgument.arguments.push_back(std::move(delayArgument));
+    componentMethods.push_back(std::move(destroyMethodWithArgument));
+
+    // Add destroy()
+    Method destroyMethod;
+    destroyMethod.index = -1; // See QV4::QObjectMethod
+    destroyMethod.name = "destroy"_L1;
+    destroyMethod.access = Access::Public;
+    destroyMethod.isCloned = true;
+    componentMethods.push_back(std::move(destroyMethod));
+
+    writeMethods(componentMethods, S_METHOD);
+};
+
+void QmlTypesCreator::writeComponent(const QmlTypesClassDescription &collector)
+{
+    m_qml.writeStartObject(S_COMPONENT);
+
+    writeClassProperties(collector);
+
+    if (const MetaType &classDef = collector.resolvedClass; !classDef.isEmpty()) {
+        writeEnums(classDef.enums());
+        writeProperties(members(classDef.properties(), m_version));
+
+        if (collector.isRootClass) {
+            writeRootMethods(classDef);
+        } else {
+            writeMethods(members(classDef.sigs(), m_version), S_SIGNAL);
+            writeMethods(members(classDef.methods(), m_version), S_METHOD);
+        }
+
+        writeMethods(constructors(classDef.constructors(), m_version), S_METHOD);
+    }
+    m_qml.writeEndObject();
+}
 
 void QmlTypesCreator::writeComponents()
 {
-    const QLatin1String signalsKey("signals");
-    const QLatin1String enumsKey("enums");
-    const QLatin1String propertiesKey("properties");
-    const QLatin1String slotsKey("slots");
-    const QLatin1String methodsKey("methods");
-    const QLatin1String constructorsKey("constructors");
-
-    const QLatin1String signalElement("Signal");
-    const QLatin1String componentElement("Component");
-    const QLatin1String methodElement("Method");
-
-    for (const QJsonObject &component : m_ownTypes) {
+    for (const MetaType &component : std::as_const(m_ownTypes)) {
         QmlTypesClassDescription collector;
-        collector.collect(&component, m_ownTypes, m_foreignTypes,
+        collector.collect(component, m_ownTypes, m_foreignTypes,
                           QmlTypesClassDescription::TopLevel, m_version);
 
-        if (collector.omitFromQmlTypes)
-            continue;
+        writeComponent(collector);
 
-        m_qml.writeStartObject(componentElement);
-
-        writeClassProperties(collector);
-
-        if (const QJsonObject *classDef = collector.resolvedClass) {
-            writeEnums(members(classDef, enumsKey, m_version));
-
-            writeProperties(members(classDef, propertiesKey, m_version));
-
-            writeMethods(members(classDef, signalsKey, m_version), signalElement);
-            writeMethods(members(classDef, slotsKey, m_version), methodElement);
-            writeMethods(members(classDef, methodsKey, m_version), methodElement);
-            writeMethods(constructors(classDef, constructorsKey, m_version), methodElement);
-        }
-        m_qml.writeEndObject();
-
-        if (collector.resolvedClass != &component
+        if (collector.resolvedClass != component
                 && std::binary_search(
                     m_referencedTypes.begin(), m_referencedTypes.end(),
-                    component.value(QStringLiteral("qualifiedClassName")).toString())) {
+                    component.qualifiedClassName())) {
 
             // This type is referenced from elsewhere and has a QML_FOREIGN of its own. We need to
             // also generate a description of the local type then. All the QML_* macros are
             // ignored, and the result is an anonymous type.
 
-            m_qml.writeStartObject(componentElement);
-
             QmlTypesClassDescription collector;
-            collector.collectLocalAnonymous(&component, m_ownTypes, m_foreignTypes, m_version);
+            collector.collectLocalAnonymous(component, m_ownTypes, m_foreignTypes, m_version);
+            Q_ASSERT(!collector.isRootClass);
 
-            writeClassProperties(collector);
-            writeEnums(members(&component, enumsKey, m_version));
-
-            writeProperties(members(&component, propertiesKey, m_version));
-
-            writeMethods(members(&component, signalsKey, m_version), signalElement);
-            writeMethods(members(&component, slotsKey, m_version), methodElement);
-            writeMethods(members(&component, methodsKey, m_version), methodElement);
-            writeMethods(constructors(&component, constructorsKey, m_version), methodElement);
-
-            m_qml.writeEndObject();
+            writeComponent(collector);
         }
     }
 }
@@ -455,13 +428,13 @@ void QmlTypesCreator::writeComponents()
 bool QmlTypesCreator::generate(const QString &outFileName)
 {
     m_qml.writeStartDocument();
-    m_qml.writeLibraryImport(QLatin1String("QtQuick.tooling"), 1, 2);
-    m_qml.write(QString::fromLatin1(
+    m_qml.writeLibraryImport("QtQuick.tooling", 1, 2);
+    m_qml.write(
             "\n// This file describes the plugin-supplied types contained in the library."
             "\n// It is used for QML tooling purposes only."
             "\n//"
-            "\n// This file was auto-generated by qmltyperegistrar.\n\n"));
-    m_qml.writeStartObject(QLatin1String("Module"));
+            "\n// This file was auto-generated by qmltyperegistrar.\n\n");
+    m_qml.writeStartObject(S_MODULE);
 
     writeComponents();
 

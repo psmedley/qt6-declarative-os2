@@ -1,5 +1,5 @@
 // Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/QtTest>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
@@ -35,9 +35,9 @@ class tst_qqmljsscope : public QQmlDataTest
     {
         const QFileInfo fi(url);
         QFile f(fi.absoluteFilePath());
-        f.open(QIODevice::ReadOnly);
-        QByteArray data(fi.size(), Qt::Uninitialized);
-        f.read(data.data(), data.size());
+        if (!f.open(QIODevice::ReadOnly))
+            qFatal("Could not open file %s", qPrintable(url));
+        QByteArray data = f.readAll();
         return QString::fromUtf8(data);
     }
 
@@ -67,10 +67,11 @@ class tst_qqmljsscope : public QQmlDataTest
 
 
         QQmlJSLogger logger;
-        logger.setFileName(url);
+        logger.setFilePath(url);
         logger.setCode(sourceCode);
         logger.setSilent(expectErrorsOrWarnings);
         QQmlJSScope::Ptr target = QQmlJSScope::create();
+        target->setOwnModuleName(u"HelloModule"_s);
         QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
         QQmlJSTypeResolver typeResolver { &m_importer };
         typeResolver.init(&visitor, document->program);
@@ -92,6 +93,7 @@ private Q_SLOTS:
     void signalCreationDifferences();
     void allTypesAvailable();
     void shadowing();
+    void requiredAlias();
 
 #ifdef LABS_QML_MODELS_PRESENT
     void componentWrappedObjects();
@@ -106,13 +108,17 @@ private Q_SLOTS:
     void scriptIndices();
     void extensions();
     void emptyBlockBinding();
-    void qualifiedName();
+    void hasOwnEnumerationKeys();
+    void ownModuleName();
     void resolvedNonUniqueScopes();
     void compilationUnitsAreCompatible();
     void attachedTypeResolution_data();
     void attachedTypeResolution();
     void builtinTypeResolution_data();
     void builtinTypeResolution();
+    void methodAndSignalSourceLocation();
+    void modulePrefixes();
+    void javaScriptBuiltinFlag();
 
 public:
     tst_qqmljsscope()
@@ -208,7 +214,7 @@ void tst_qqmljsscope::allTypesAvailable()
 
         QQmlJSImporter importer { importPaths, /* resource file mapper */ nullptr };
         const auto imported = importer.importModule(u"QtQml"_s);
-        QCOMPARE(imported.context(), QQmlJSScope::ContextualTypes::QML);
+        QCOMPARE(imported.contextualTypes().context(), QQmlJS::ContextualTypes::QML);
         const auto types = imported.types();
         QVERIFY(types.contains(u"$internal$.QObject"_s));
         QVERIFY(types.contains(u"QtObject"_s));
@@ -237,6 +243,16 @@ void tst_qqmljsscope::shadowing()
 
     QCOMPARE(methods[u"method_not_shadowed"_s].parameterNames().size(), 1);
     QCOMPARE(methods[u"method_shadowed"_s].parameterNames().size(), 0);
+}
+
+void tst_qqmljsscope::requiredAlias()
+{
+    QQmlJSScope::ConstPtr root = run(u"requiredAlias.qml"_s);
+    QVERIFY(root);
+
+    // Check whether aliases marked as required are required
+    QVERIFY(root->isPropertyRequired("sameScopeAlias"));
+    QVERIFY(root->isPropertyRequired("innerScopeAlias"));
 }
 
 #ifdef LABS_QML_MODELS_PRESENT
@@ -341,8 +357,10 @@ void tst_qqmljsscope::descriptiveNameOfNull()
     property.setPropertyName(u"foo"_s);
     property.setTypeName(u"baz"_s);
     QQmlJSRegisterContent unscoped = QQmlJSRegisterContent::create(
-                stored, property, QQmlJSRegisterContent::ScopeProperty, QQmlJSScope::ConstPtr());
-    QCOMPARE(unscoped.descriptiveName(), u"bar of (invalid type)::foo with type baz"_s);
+            stored, property, QQmlJSRegisterContent::InvalidLookupIndex,
+            QQmlJSRegisterContent::InvalidLookupIndex, QQmlJSRegisterContent::ScopeProperty,
+            QQmlJSScope::ConstPtr());
+    QCOMPARE(unscoped.descriptiveName(), u"(invalid type)::foo with type baz (stored as bar)"_s);
 }
 
 void tst_qqmljsscope::groupedPropertiesConsistency()
@@ -508,7 +526,7 @@ void tst_qqmljsscope::scriptIndices()
     QmlIR::Document document(false); // we need QmlIR information here
     QQmlJSScope::ConstPtr root = run(u"functionAndBindingIndices.qml"_s, &document);
     QVERIFY(root);
-    QVERIFY(document.javaScriptCompilationUnit.unitData());
+    QVERIFY(document.javaScriptCompilationUnit->unitData());
 
     // compare QQmlJSScope and QmlIR:
 
@@ -676,28 +694,50 @@ void tst_qqmljsscope::emptyBlockBinding()
     QVERIFY(root->hasOwnPropertyBindings(u"y"_s));
 }
 
-void tst_qqmljsscope::qualifiedName()
+void tst_qqmljsscope::hasOwnEnumerationKeys()
 {
-    QQmlJSScope::ConstPtr root = run(u"qualifiedName.qml"_s);
+    QQmlJSScope::ConstPtr root = run(u"extensions.qml"_s);
     QVERIFY(root);
+    QQmlJSScope::ConstPtr extendedDerived = root->childScopes().front();
+    QVERIFY(extendedDerived);
+    // test that enumeration keys from base cannot be found
+    QVERIFY(!extendedDerived->hasOwnEnumerationKey(u"ThisIsTheEnumFromExtended"_s));
+    QVERIFY(!extendedDerived->hasOwnEnumerationKey(u"ThisIsTheFlagFromExtended"_s));
 
-    auto qualifiedNameOf = [](const QQmlJSScope::ConstPtr &ptr) -> QString {
-        if (ptr->baseType())
-            return ptr->baseType()->qualifiedName();
-        else
-            return u""_s;
-    };
+    QQmlJSScope::ConstPtr extended = extendedDerived->baseType();
+    QVERIFY(extended);
 
-    QCOMPARE(root->childScopes().size(), 4);
-    QQmlJSScope::ConstPtr b = root->childScopes()[0];
-    QQmlJSScope::ConstPtr d = root->childScopes()[1];
-    QQmlJSScope::ConstPtr qualifiedA = root->childScopes()[2];
-    QQmlJSScope::ConstPtr qualifiedB = root->childScopes()[3];
+    QVERIFY(extended->hasOwnEnumerationKey(u"ThisIsTheEnumFromExtended"_s));
+    QVERIFY(extended->hasOwnEnumerationKey(u"ThisIsTheFlagFromExtended"_s));
+    QVERIFY(!extended->hasOwnEnumerationKey(u"ThisIsTheEnumFromExtension"_s));
+    QVERIFY(!extended->hasOwnEnumerationKey(u"ThisIsTheFlagFromExtension"_s));
+}
 
-    QCOMPARE(qualifiedNameOf(b), "QualifiedNamesTests/B 5.0-6.0");
-    QCOMPARE(qualifiedNameOf(d), "QualifiedNamesTests/D 6.0");
-    QCOMPARE(qualifiedNameOf(qualifiedA), "QualifiedNamesTests/A 5.0");
-    QCOMPARE(qualifiedNameOf(qualifiedB), "QualifiedNamesTests/B 5.0-6.0");
+void tst_qqmljsscope::ownModuleName()
+{
+    const QString moduleName = u"HelloModule"_s;
+    QQmlJSScope::ConstPtr root = run(u"ownModuleName.qml"_s);
+    QVERIFY(root);
+    QCOMPARE(root->moduleName(), moduleName);
+    QCOMPARE(root->ownModuleName(), moduleName);
+
+    QCOMPARE(root->childScopes().size(), 2);
+    QQmlJSScope::ConstPtr child = root->childScopes().front();
+    QVERIFY(child);
+    // only root and inline components have own module names, but the child should be able to query
+    // its component's module Name via moduleName()
+    QCOMPARE(child->ownModuleName(), QString());
+    QCOMPARE(child->moduleName(), moduleName);
+
+    QQmlJSScope::ConstPtr ic = root->childScopes()[1];
+    QVERIFY(ic);
+    QCOMPARE(ic->ownModuleName(), moduleName);
+    QCOMPARE(ic->moduleName(), moduleName);
+
+    QQmlJSScope::ConstPtr icChild = ic->childScopes().front();
+    QVERIFY(icChild);
+    QCOMPARE(icChild->ownModuleName(), QString());
+    QCOMPARE(icChild->moduleName(), moduleName);
 }
 
 void tst_qqmljsscope::resolvedNonUniqueScopes()
@@ -779,8 +819,8 @@ void tst_qqmljsscope::compilationUnitsAreCompatible()
 
     QmlIR::Document document(false); // we need QmlIR information here
     QVERIFY(run(url, &document));
-    QVERIFY(document.javaScriptCompilationUnit.unitData());
-    getRuntimeInfoFromCompilationUnit(document.javaScriptCompilationUnit.unitData(),
+    QVERIFY(document.javaScriptCompilationUnit->unitData());
+    getRuntimeInfoFromCompilationUnit(document.javaScriptCompilationUnit->unitData(),
                                       cachegenFunctions);
     if (QTest::currentTestFailed())
         return;
@@ -824,6 +864,9 @@ public:
     void run(const QQmlSA::Element &) override { }
 };
 
+using PassManagerPtr = std::unique_ptr<
+        QQmlSA::PassManager, decltype(&QQmlSA::PassManagerPrivate::deletePassManager)>;
+
 void tst_qqmljsscope::attachedTypeResolution()
 {
     QFETCH(bool, creatable);
@@ -839,19 +882,23 @@ void tst_qqmljsscope::attachedTypeResolution()
         QSKIP("Unable to open qml file");
 
     logger->setCode(qmlFile.readAll());
-    logger->setFileName(QString(qmlFile.filesystemFileName().string().c_str()));
-    QQmlJSImporter importer{ { "data" }, nullptr, true };
+    logger->setFilePath(QString(qmlFile.filesystemFileName().string().c_str()));
+    QQmlJSImporter importer{ { "data" }, nullptr, UseOptionalImports };
     QStringList defaultImportPaths =
             QStringList{ QLibraryInfo::path(QLibraryInfo::QmlImportsPath) };
     importer.setImportPaths(defaultImportPaths);
     QQmlJSTypeResolver resolver(&importer);
     const auto &implicitImportDirectory = QQmlJSImportVisitor::implicitImportDirectory(
-            logger->fileName(), importer.resourceFileMapper());
+            logger->filePath(), importer.resourceFileMapper());
     QQmlJSImportVisitor v{
         QQmlJSScope::create(), &importer, logger.get(), implicitImportDirectory, {}
     };
-    QQmlSA::PassManager manager{ &v, &resolver };
-    TestPass pass{ &manager };
+
+    PassManagerPtr manager(
+            QQmlSA::PassManagerPrivate::createPassManager(&v, &resolver),
+            &QQmlSA::PassManagerPrivate::deletePassManager);
+
+    TestPass pass{ manager.get() };
     const auto &resolved = pass.resolveType(moduleName, typeName);
 
     QVERIFY(!resolved.isNull());
@@ -894,7 +941,7 @@ void tst_qqmljsscope::builtinTypeResolution()
     QFETCH(bool, valid);
     QFETCH(QString, typeName);
 
-    QQmlJSImporter importer{ { "data" }, nullptr, true };
+    QQmlJSImporter importer{ { "data" }, nullptr, UseOptionalImports };
     QStringList defaultImportPaths =
             QStringList{ QLibraryInfo::path(QLibraryInfo::QmlImportsPath) };
     importer.setImportPaths(defaultImportPaths);
@@ -904,10 +951,98 @@ void tst_qqmljsscope::builtinTypeResolution()
     QQmlJSImportVisitor v{
         QQmlJSScope::create(), &importer, &logger, implicitImportDirectory, {}
     };
-    QQmlSA::PassManager manager{ &v, &resolver };
-    TestPass pass{ &manager };
+
+    PassManagerPtr manager(
+            QQmlSA::PassManagerPrivate::createPassManager(&v, &resolver),
+            &QQmlSA::PassManagerPrivate::deletePassManager);
+
+    TestPass pass{ manager.get() };
     auto element = pass.resolveBuiltinType(typeName);
     QCOMPARE(element.isNull(), !valid);
+}
+
+void tst_qqmljsscope::methodAndSignalSourceLocation()
+{
+    QmlIR::Document document(false);
+    auto jsscope = run(u"methodAndSignalSourceLocation.qml"_s, false);
+
+    std::array<std::array<int, 9>, 2> offsetsByLineEnding = {
+        std::array{ 29, 51, 74, 102, 128, 160, 219, 235, 257 }, // 1 char line endings
+        std::array{ 32, 55, 79, 108, 135, 168, 231, 248, 271 }  // 2 char line endinds
+    };
+
+    // Try to detect the size of line endings as they lead to different source locations
+    auto offset1 = jsscope->methods("f1")[0].sourceLocation().offset;
+    QVERIFY(offset1 == 29 || offset1 == 32);
+    bool oneCharEndings = offset1 == 29;
+    std::array<int, 9> &offsets = oneCharEndings ? offsetsByLineEnding[0] : offsetsByLineEnding[1];
+
+    using namespace QQmlJS;
+    QCOMPARE(jsscope->methods("f1")[0].sourceLocation(), SourceLocation(offsets[0], 17, 4, 5));
+    QCOMPARE(jsscope->methods("f2")[0].sourceLocation(), SourceLocation(offsets[1], 18, 5, 5));
+    QCOMPARE(jsscope->methods("f3")[0].sourceLocation(), SourceLocation(offsets[2], 23, 6, 5));
+    QCOMPARE(jsscope->methods("f4")[0].sourceLocation(), SourceLocation(offsets[3], 21, 7, 5));
+    QCOMPARE(jsscope->methods("f5")[0].sourceLocation(), SourceLocation(offsets[4], 27, 8, 5));
+    QCOMPARE(jsscope->methods("f6")[0].sourceLocation(), SourceLocation(offsets[5], oneCharEndings ? 53 : 55, 9, 5));
+
+    QCOMPARE(jsscope->methods("s1")[0].sourceLocation(), SourceLocation(offsets[6], 11, 13, 5));
+    QCOMPARE(jsscope->methods("s2")[0].sourceLocation(), SourceLocation(offsets[7], 17, 14, 5));
+    QCOMPARE(jsscope->methods("s3")[0].sourceLocation(), SourceLocation(offsets[8], 28, 15, 5));
+}
+
+void tst_qqmljsscope::modulePrefixes()
+{
+    const auto url = testFile("modulePrefixes.qml");
+    const QString sourceCode = loadUrl(url);
+    QQmlJSLogger logger;
+    logger.setFilePath(url);
+    logger.setCode(sourceCode);
+
+    QQmlJSScope::Ptr target = QQmlJSScope::create();
+    QmlIR::Document document(false);
+    QQmlJSSaveFunction noop([](auto &&...) { return true; });
+    QQmlJSCompileError error;
+    [&]() {
+        QVERIFY2(qCompileQmlFile(document, url, noop, nullptr, &error), qPrintable(error.message));
+    }();
+    if (!error.message.isEmpty())
+        return;
+
+    QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
+    QQmlJSTypeResolver typeResolver{ &m_importer };
+    typeResolver.init(&visitor, document.program);
+
+    const auto prefixes = typeResolver.seenModuleQualifiers();
+    QVERIFY(prefixes.contains("QML"_L1));
+    QVERIFY(prefixes.contains("CD"_L1));
+    QVERIFY(prefixes.contains("QQ"_L1));
+}
+
+void tst_qqmljsscope::javaScriptBuiltinFlag()
+{
+    const auto url = testFile("ComponentType.qml");
+    QQmlJSLogger logger;
+    logger.setFilePath(url);
+    logger.setCode(loadUrl(url));
+
+    QQmlJSScope::Ptr target = QQmlJSScope::create();
+    QmlIR::Document document(false);
+    QQmlJSSaveFunction noop([](auto &&...) { return true; });
+    QQmlJSCompileError error;
+    [&]() {
+        QVERIFY2(qCompileQmlFile(document, url, noop, nullptr, &error), qPrintable(error.message));
+    }();
+    if (!error.message.isEmpty())
+        return;
+
+    QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
+    QQmlJSTypeResolver typeResolver{ &m_importer };
+    typeResolver.init(&visitor, document.program);
+
+
+    QVERIFY(typeResolver.mathObject()->isJavaScriptBuiltin()); // JS
+    QVERIFY(!typeResolver.typeForName("ComponentType")->isJavaScriptBuiltin()); // QML
+    QVERIFY(!typeResolver.varType()->isJavaScriptBuiltin()); // C++
 }
 
 QTEST_MAIN(tst_qqmljsscope)

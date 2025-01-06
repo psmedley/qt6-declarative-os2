@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 #include <qtest.h>
 #include <QTextDocument>
 #include <QTcpServer>
@@ -45,6 +45,7 @@ private slots:
     void sciSource();
     void sciSource_data();
     void invalidSciFile();
+    void nonExistingSciFile();
     void validSciFiles_data();
     void validSciFiles();
     void pendingRemoteRequest();
@@ -333,6 +334,21 @@ void tst_qquickborderimage::invalidSciFile()
     QCOMPARE(obj->verticalTileMode(), QQuickBorderImage::Stretch);
 
     delete obj;
+}
+
+void tst_qquickborderimage::nonExistingSciFile()
+{
+    const QString componentStr = "import QtQuick 2.0\nBorderImage { source: \"" + testFileUrl("this_file_does_not_exist.sci").toString() +"\"; width: 300; height: 300 }";
+    QQmlComponent component(&engine);
+    component.setData(componentStr.toLatin1(), QUrl::fromLocalFile(""));
+    std::unique_ptr<QObject> obj(component.create());
+    auto bimage = qobject_cast<QQuickBorderImage *>(obj.get());
+    QVERIFY(bimage != nullptr);
+    QCOMPARE(bimage->width(), 300.);
+    QCOMPARE(bimage->height(), 300.);
+    QCOMPARE(bimage->status(), QQuickImageBase::Error);
+    QCOMPARE(bimage->horizontalTileMode(), QQuickBorderImage::Stretch);
+    QCOMPARE(bimage->verticalTileMode(), QQuickBorderImage::Stretch);
 }
 
 void tst_qquickborderimage::validSciFiles_data()

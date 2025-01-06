@@ -21,6 +21,8 @@
 #include <private/qqmlpropertycachemethodarguments_p.h>
 #include <private/qqmlvaluetypewrapper_p.h>
 
+#include <QtCore/qsequentialiterable.h>
+
 #include <climits> // for CHAR_BIT
 
 QT_BEGIN_NAMESPACE
@@ -428,6 +430,12 @@ QQmlVMEMetaObject::QQmlVMEMetaObject(QV4::ExecutionEngine *engine,
             uint size = compiledObject->nProperties + compiledObject->nFunctions;
             if (size) {
                 QV4::Heap::MemberData *data = QV4::MemberData::allocate(engine, size);
+                // we only have a weak reference below; if the VMEMetaObject is already marked
+                // (triggered by the allocate call above)
+                // we therefore might never mark the member data; consequently, mark it now
+                QV4::WriteBarrier::markCustom(engine, [data](QV4::MarkStack *ms) {
+                    data->mark(ms);
+                });
                 propertyAndMethodStorage.set(engine, data);
                 std::fill(data->values.values, data->values.values + data->values.size, QV4::Encode::undefined());
             }
@@ -891,8 +899,20 @@ int QQmlVMEMetaObject::metaCall(QObject *o, QMetaObject::Call c, int _id, void *
                                     needActivate = true;
                                 }
                             } else {
-                                QV4::ScopedValue sequence(scope, QV4::SequencePrototype::fromData(
-                                                              engine, propType, a[0]));
+                                if (const QQmlType type = QQmlMetaType::qmlListType(propType);
+                                        type.isSequentialContainer()) {
+                                    sequence = QV4::SequencePrototype::fromData(
+                                        engine, propType, type.listMetaSequence(), a[0]);
+                                } else if (QSequentialIterable iterable;
+                                        QMetaType::convert(
+                                               propType, a[0],
+                                               QMetaType::fromType<QSequentialIterable>(),
+                                               &iterable)) {
+                                    sequence = QV4::SequencePrototype::fromData(
+                                        engine, propType, iterable.metaContainer(), a[0]);
+                                } else {
+                                    sequence = QV4::Encode::undefined();
+                                }
                                 md->set(engine, id, sequence);
                                 if (sequence->isUndefined()) {
                                     qmlWarning(object)
@@ -1121,7 +1141,7 @@ int QQmlVMEMetaObject::metaCall(QObject *o, QMetaObject::Call c, int _id, void *
                 QV4::Scope scope(v4);
 
 
-                QV4::ScopedFunctionObject function(scope, method(id));
+                QV4::Scoped<QV4::JavaScriptFunctionObject> function(scope, method(id));
                 if (!function) {
                     // The function was not compiled.  There are some exceptional cases which the
                     // expression rewriter does not rewrite properly (e.g., \r-terminated lines
@@ -1142,14 +1162,10 @@ int QQmlVMEMetaObject::metaCall(QObject *o, QMetaObject::Call c, int _id, void *
                 if (arguments && arguments->names) {
                     const quint32 parameterCount = arguments->names->size();
                     Q_ASSERT(parameterCount == function->formalParameterCount());
-                    if (void *result = a[0])
-                        arguments->types[0].destruct(result);
                     function->call(object, a, arguments->types, parameterCount);
                 } else {
                     Q_ASSERT(function->formalParameterCount() == 0);
                     const QMetaType returnType = methodData->propType();
-                    if (void *result = a[0])
-                        returnType.destruct(result);
                     function->call(object, a, &returnType, 0);
                 }
 
@@ -1378,7 +1394,7 @@ void QQmlVMEMetaObject::setVMEProperty(int index, const QV4::Value &v)
 void QQmlVMEMetaObject::ensureQObjectWrapper()
 {
     Q_ASSERT(cache);
-    QV4::QObjectWrapper::wrap(engine, object);
+    QV4::QObjectWrapper::ensureWrapper(engine, object);
 }
 
 void QQmlVMEMetaObject::mark(QV4::MarkStack *markStack)

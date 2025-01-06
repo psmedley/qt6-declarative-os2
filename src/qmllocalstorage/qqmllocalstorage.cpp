@@ -682,7 +682,7 @@ Returns the created database object.
 
 */
 
-void QQmlLocalStorage::openDatabaseSync(QQmlV4Function *args)
+void QQmlLocalStorage::openDatabaseSync(QQmlV4FunctionPtr args)
 {
 #if QT_CONFIG(settings)
     QV4::Scope scope(args->v4engine());
@@ -735,8 +735,8 @@ void QQmlLocalStorage::openDatabaseSync(QQmlV4Function *args)
             database = QSqlDatabase::addDatabase(QLatin1String("QSQLITE"), dbid);
             database.setDatabaseName(basename+QLatin1String(".sqlite"));
         }
-        if (!database.isOpen())
-            database.open();
+        if (!database.isOpen() && !database.open())
+            V4THROW_SQL2(SQLEXCEPTION_DATABASE_ERR, QQmlEngine::tr("SQL: Cannot open database"));
     }
 
     QV4::Scoped<QQmlSqlDatabaseWrapper> db(scope, QQmlSqlDatabaseWrapper::create(scope.engine));

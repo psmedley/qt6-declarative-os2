@@ -4,13 +4,18 @@
 #include "qquickshortcutcontext_p_p.h"
 #include "qquickoverlay_p_p.h"
 #include "qquicktooltip_p.h"
+#include <QtQmlModels/private/qtqmlmodels-config_p.h>
+#if QT_CONFIG(qml_object_model)
 #include "qquickmenu_p.h"
 #include "qquickmenu_p_p.h"
+#endif
 #include "qquickpopup_p.h"
 
 #include <QtCore/qloggingcategory.h>
 #include <QtGui/qguiapplication.h>
+#include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/qquickrendercontrol.h>
+#include <QtQuickTemplates2/private/qquickpopupwindow_p_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -22,18 +27,25 @@ static bool isBlockedByPopup(QQuickItem *item)
         return false;
 
     QQuickOverlay *overlay = QQuickOverlay::overlay(item->window());
-    const auto popups = QQuickOverlayPrivate::get(overlay)->stackingOrderPopups();
-    for (QQuickPopup *popup : popups) {
+    auto popups = QQuickOverlayPrivate::get(overlay)->stackingOrderPopups();
+
+    for (QWindow *popupWindow : QGuiApplicationPrivate::popup_list) {
+        if (QQuickPopupWindow *quickPopupWindow = qobject_cast<QQuickPopupWindow *>(popupWindow);
+            quickPopupWindow && quickPopupWindow->popup())
+            popups += quickPopupWindow->popup();
+    }
+
+    for (QQuickPopup *popup : std::as_const(popups)) {
         if (qobject_cast<QQuickToolTip *>(popup))
             continue; // ignore tooltips (QTBUG-60492)
         if (popup->isModal() || popup->closePolicy() & QQuickPopup::CloseOnEscape) {
             qCDebug(lcContextMatcher) << popup << "is modal or has a CloseOnEscape policy;"
-                << "if the following are both true," << item << "will be blocked by it:"
-                << (item != popup->popupItem()) << !popup->popupItem()->isAncestorOf(item);
+                                      << "if one of the following is true," << item
+                                      << "will be blocked by it:" << (item != popup->popupItem())
+                                      << !popup->popupItem()->isAncestorOf(item);
             return item != popup->popupItem() && !popup->popupItem()->isAncestorOf(item);
         }
     }
-
     return false;
 }
 
@@ -53,6 +65,7 @@ bool QQuickShortcutContext::matcher(QObject *obj, Qt::ShortcutContext context)
                 obj = popup->window();
                 item = popup->popupItem();
 
+#if QT_CONFIG(qml_object_model)
                 if (!obj) {
                     // The popup has no associated window (yet). However, sub-menus,
                     // unlike top-level menus, will not have an associated window
@@ -64,6 +77,7 @@ bool QQuickShortcutContext::matcher(QObject *obj, Qt::ShortcutContext context)
                             obj = parentMenu->window();
                     }
                 }
+#endif
                 break;
             }
             obj = obj->parent();
@@ -72,7 +86,7 @@ bool QQuickShortcutContext::matcher(QObject *obj, Qt::ShortcutContext context)
             obj = renderWindow;
         qCDebug(lcContextMatcher) << "obj" << obj << "item" << item << "focusWindow" << QGuiApplication::focusWindow()
             << "!isBlockedByPopup(item)" << !isBlockedByPopup(item);
-        return obj && obj == QGuiApplication::focusWindow() && !isBlockedByPopup(item);
+        return obj && qobject_cast<QWindow*>(obj)->isActive() && !isBlockedByPopup(item);
     default:
         return false;
     }

@@ -19,7 +19,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype Drawer
     \inherits Popup
-//!     \instantiates QQuickDrawer
+//!     \nativetype QQuickDrawer
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols-navigation
@@ -203,8 +203,11 @@ void QQuickDrawerPositioner::reposition()
         return;
 
     QQuickDrawer *drawer = static_cast<QQuickDrawer*>(popup());
-    QQuickWindow *window = drawer->window();
-    if (!window)
+
+    // The overlay is assumed to fully cover the window's contents, although the overlay's geometry
+    // might not always equal the window's geometry (for example, if the window's contents are rotated).
+    QQuickOverlay *overlay = QQuickOverlay::overlay(drawer->window());
+    if (!overlay)
         return;
 
     const qreal position = drawer->position();
@@ -214,13 +217,13 @@ void QQuickDrawerPositioner::reposition()
         popupItem->setX((position - 1.0) * popupItem->width());
         break;
     case Qt::RightEdge:
-        popupItem->setX(window->width() - position * popupItem->width());
+        popupItem->setX(overlay->width() - position * popupItem->width());
         break;
     case Qt::TopEdge:
         popupItem->setY((position - 1.0) * popupItem->height());
         break;
     case Qt::BottomEdge:
-        popupItem->setY(window->height() - position * popupItem->height());
+        popupItem->setY(overlay->height() - position * popupItem->height());
         break;
     }
 
@@ -461,10 +464,8 @@ bool QQuickDrawerPrivate::handlePress(QQuickItem *item, const QPointF &point, ul
     offset = 0;
     velocityCalculator.startMeasuring(point, timestamp);
 
-    if (!QQuickPopupPrivate::handlePress(item, point, timestamp))
-        return interactive && popupItem == item;
-
-    return true;
+    return QQuickPopupPrivate::handlePress(item, point, timestamp)
+        || (interactive && popupItem == item);
 }
 
 bool QQuickDrawerPrivate::handleMove(QQuickItem *item, const QPointF &point, ulong timestamp)
@@ -594,6 +595,12 @@ bool QQuickDrawerPrivate::prepareExitTransition()
     Q_Q(QQuickDrawer);
     exitActions = prepareTransition(q, exit, 0.0);
     return QQuickPopupPrivate::prepareExitTransition();
+}
+
+QQuickPopup::PopupType QQuickDrawerPrivate::resolvedPopupType() const
+{
+    // For now, a drawer will always be shown in-scene
+    return QQuickPopup::Item;
 }
 
 bool QQuickDrawerPrivate::setEdge(Qt::Edge e)
@@ -728,7 +735,7 @@ void QQuickDrawer::setPosition(qreal position)
     drag actions will open the drawer. Setting the value to \c 0 or less
     prevents opening the drawer by dragging.
 
-    The default value is \c Qt.styleHints.startDragDistance.
+    The default value is \c Application.styleHints.startDragDistance.
 
     \sa interactive
 */

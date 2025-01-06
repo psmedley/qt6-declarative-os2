@@ -3,48 +3,36 @@
 
 #include "qqmlbuiltinfunctions_p.h"
 
-#include <QtQml/qqmlcomponent.h>
-#include <QtQml/qqmlfile.h>
-#include <private/qqmlengine_p.h>
 #include <private/qqmlcomponent_p.h>
-#include <private/qqmlloggingcategory_p.h>
-#include <private/qqmlstringconverters_p.h>
-#if QT_CONFIG(qml_locale)
-#include <private/qqmllocale_p.h>
-#endif
-#include <private/qqmldelayedcallqueue_p.h>
-#include <QFileInfo>
-
 #include <private/qqmldebugconnector_p.h>
 #include <private/qqmldebugserviceinterfaces_p.h>
-#include <private/qqmlglobal_p.h>
-
+#include <private/qqmldelayedcallqueue_p.h>
+#include <private/qqmlengine_p.h>
+#include <private/qqmlloggingcategorybase_p.h>
 #include <private/qqmlplatform_p.h>
+#include <private/qqmlstringconverters_p.h>
 
+#include <private/qv4dateobject_p.h>
 #include <private/qv4engine_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4include_p.h>
-#include <private/qv4context_p.h>
-#include <private/qv4stringobject_p.h>
-#include <private/qv4dateobject_p.h>
 #include <private/qv4mm_p.h>
-#include <private/qv4jsonobject_p.h>
-#include <private/qv4objectproto_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4sequenceobject_p.h>
 #include <private/qv4stackframe_p.h>
 
-#include <QtCore/qstring.h>
-#include <QtCore/qdatetime.h>
+#include <QtQml/qqmlfile.h>
+
+#include <QtCore/qcoreapplication.h>
 #include <QtCore/qcryptographichash.h>
+#include <QtCore/qdatetime.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qloggingcategory.h>
+#include <QtCore/qpoint.h>
 #include <QtCore/qrect.h>
 #include <QtCore/qsize.h>
-#include <QtCore/qpoint.h>
+#include <QtCore/qstring.h>
 #include <QtCore/qurl.h>
-#include <QtCore/qfile.h>
-#include <QtCore/qcoreapplication.h>
-#include <QtCore/qloggingcategory.h>
-
-#include <QDebug>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,7 +50,7 @@ using namespace QV4;
 /*!
 \qmltype Qt
 \inqmlmodule QtQml
-//! \instantiates QQmlEnginePrivate
+//! \nativetype QQmlEnginePrivate
 \ingroup qml-utility-elements
 \keyword QmlGlobalQtObject
 \brief Provides a global object with useful enums and functions from Qt.
@@ -87,6 +75,7 @@ the \l Qt::LeftButton and \l Qt::RightButton enumeration values as \c Qt.LeftBut
 
 
 \section1 Types
+\target globalqtobjecttypes
 
 The Qt object also contains helper functions for creating objects of specific
 data types. This is primarily useful when setting the properties of an item
@@ -108,8 +97,6 @@ creating objects of specific data types are also available for clients to use:
 \li \c quaternion - use \l{Qt::quaternion()}{Qt.quaternion()}
 \li \c matrix4x4 - use \l{Qt::matrix4x4()}{Qt.matrix4x4()}
 \endlist
-
-There are also string based constructors for these types. See \l{qtqml-typesystem-valuetypes.html}{QML Value Types} for more information.
 
 \section1 Date/Time Formatters
 
@@ -173,6 +160,7 @@ The following functions are also on the Qt object.
         \li \c "android" - Android
         \li \c "ios" - iOS
         \li \c "tvos" - tvOS
+        \li \c "visionos" - visionOS
         \li \c "linux" - Linux
         \li \c "osx" - \macos
         \li \c "qnx" - QNX (since Qt 5.9.3)
@@ -180,6 +168,9 @@ The following functions are also on the Qt object.
         \li \c "windows" - Windows
         \li \c "wasm" - WebAssembly
     \endlist
+
+    \note The property's value on \macos is "osx", regardless of Apple naming convention.
+    The returned value will be updated to "macos" for Qt 7.
 
     \row
     \li \c platform.pluginName
@@ -190,7 +181,7 @@ The following functions are also on the Qt object.
 */
 
 /*!
-    \qmlproperty object Qt::application
+    \qmlproperty Application Qt::application
     \since 5.1
 
     The \c application object provides access to global application state
@@ -213,7 +204,7 @@ The following functions are also on the Qt object.
 */
 
 /*!
-    \qmlproperty object Qt::inputMethod
+    \qmlproperty InputMethod Qt::inputMethod
     \since 5.0
 
     It is the same as the \l InputMethod singleton.
@@ -230,7 +221,9 @@ The following functions are also on the Qt object.
     The \c styleHints object provides platform-specific style hints and settings.
     See the \l QStyleHints documentation for further details.
 
-    You should access StyleHints via \l Application::styleHints instead.
+    You should access StyleHints via \l Application::styleHints instead, as
+    this provides better type information for tooling such as the
+    \l {Qt Quick Compiler}.
 
     \note The \c styleHints object is only available when using the Qt Quick module.
 */
@@ -263,6 +256,9 @@ The \c status property will be updated as the operation progresses.
 
 If provided, \a callback is invoked when the operation completes.  The callback is passed
 the same object as is returned from the Qt.include() call.
+
+\warning Using this function is strict mode does not actually put identifier into the
+current context.
 */
 // Qt.include() is implemented in qv4include.cpp
 
@@ -359,14 +355,11 @@ QVariant QtObject::rgba(double r, double g, double b, double a) const
 */
 QVariant QtObject::hsla(double h, double s, double l, double a) const
 {
-    if (h < 0.0) h=0.0;
-    if (h > 1.0) h=1.0;
-    if (s < 0.0) s=0.0;
-    if (s > 1.0) s=1.0;
-    if (l < 0.0) l=0.0;
-    if (l > 1.0) l=1.0;
-    if (a < 0.0) a=0.0;
-    if (a > 1.0) a=1.0;
+    if (h != -1)
+        h = qBound(0.0, h, 1.0);
+    s = qBound(0.0, s, 1.0);
+    l = qBound(0.0, l, 1.0);
+    a = qBound(0.0, a, 1.0);
 
     return QQml_colorProvider()->fromHslF(h, s, l, a);
 }
@@ -381,7 +374,8 @@ QVariant QtObject::hsla(double h, double s, double l, double a) const
 */
 QVariant QtObject::hsva(double h, double s, double v, double a) const
 {
-    h = qBound(0.0, h, 1.0);
+    if (h != -1)
+        h = qBound(0.0, h, 1.0);
     s = qBound(0.0, s, 1.0);
     v = qBound(0.0, v, 1.0);
     a = qBound(0.0, a, 1.0);
@@ -808,12 +802,12 @@ static std::optional<QDate> dateFromString(const QString &string, QV4::Execution
     return std::nullopt;
 }
 
-QString QtObject::formatDate(const QDate &date, const QString &format) const
+QString QtObject::formatDate(QDate date, const QString &format) const
 {
     return date.toString(format);
 }
 
-QString QtObject::formatDate(const QDate &date, Qt::DateFormat format) const
+QString QtObject::formatDate(QDate date, Qt::DateFormat format) const
 {
     return formatDateTimeObjectUsingDateFormat(date, format);
 }
@@ -845,7 +839,7 @@ QString QtObject::formatDate(const QString &string, Qt::DateFormat format) const
 }
 
 #if QT_CONFIG(qml_locale)
-QString QtObject::formatDate(const QDate &date, const QLocale &locale,
+QString QtObject::formatDate(QDate date, const QLocale &locale,
                              QLocale::FormatType formatType) const
 {
     return locale.toString(date, formatType);
@@ -913,7 +907,7 @@ static std::optional<QTime> timeFromString(const QString &string, QV4::Execution
     return std::nullopt;
 }
 
-QString QtObject::formatTime(const QTime &time, const QString &format) const
+QString QtObject::formatTime(QTime time, const QString &format) const
 {
     return time.toString(format);
 }
@@ -932,7 +926,7 @@ QString QtObject::formatTime(const QString &time, const QString &format) const
     return QString();
 }
 
-QString QtObject::formatTime(const QTime &time, Qt::DateFormat format) const
+QString QtObject::formatTime(QTime time, Qt::DateFormat format) const
 {
     return formatDateTimeObjectUsingDateFormat(time, format);
 }
@@ -951,7 +945,7 @@ QString QtObject::formatTime(const QString &time, Qt::DateFormat format) const
 }
 
 #if QT_CONFIG(qml_locale)
-QString QtObject::formatTime(const QTime &time, const QLocale &locale,
+QString QtObject::formatTime(QTime time, const QLocale &locale,
                              QLocale::FormatType formatType) const
 {
     return locale.toString(time, formatType);
@@ -1470,14 +1464,15 @@ use \l{QtQml::Qt::createQmlObject()}{Qt.createQmlObject()}.
 */
 
 /*!
+\since 6.5
 \qmlmethod Component Qt::createComponent(string moduleUri, string typeName, enumeration mode, QtObject parent)
 \overload
 Returns a \l Component object created for the type specified by \a moduleUri and \a typeName.
 \qml
-import QtQuick
+import QtQml
 QtObject {
     id: root
-    property Component myComponent: Qt.createComponent(Rectangle, root)
+    property Component myComponent: Qt.createComponent("QtQuick", "Rectangle", Component.Asynchronous, root)
 }
 \endqml
 This overload mostly behaves as the \c url based version, but can be used
@@ -1614,12 +1609,19 @@ QLocale QtObject::locale(const QString &name) const
 }
 #endif
 
-void Heap::QQmlBindingFunction::init(const QV4::FunctionObject *bindingFunction)
+void Heap::QQmlBindingFunction::init(const QV4::JavaScriptFunctionObject *bindingFunction)
 {
     Scope scope(bindingFunction->engine());
     ScopedContext context(scope, bindingFunction->scope());
-    FunctionObject::init(context, bindingFunction->function());
+    JavaScriptFunctionObject::init(context, bindingFunction->function());
     this->bindingFunction.set(internalClass->engine, bindingFunction->d());
+}
+
+ReturnedValue QQmlBindingFunction::virtualCall(
+        const FunctionObject *f, const Value *, const Value *, int)
+{
+    // Mark this as a callable object, so that we can perform the binding magic on it.
+    return f->engine()->throwTypeError(QStringLiteral("Bindings must not be called directly."));
 }
 
 QQmlSourceLocation QQmlBindingFunction::currentLocation() const
@@ -1676,7 +1678,8 @@ DEFINE_OBJECT_VTABLE(QQmlBindingFunction);
 */
 QJSValue QtObject::binding(const QJSValue &function) const
 {
-    const QV4::FunctionObject *f = QJSValuePrivate::asManagedType<FunctionObject>(&function);
+    const QV4::JavaScriptFunctionObject *f
+            = QJSValuePrivate::asManagedType<JavaScriptFunctionObject>(&function);
     QV4::ExecutionEngine *e = v4Engine();
     if (!f) {
         return QJSValuePrivate::fromReturnedValue(
@@ -1689,7 +1692,7 @@ QJSValue QtObject::binding(const QJSValue &function) const
                 Encode(e->memoryManager->allocate<QQmlBindingFunction>(f)));
 }
 
-void QtObject::callLater(QQmlV4Function *args)
+void QtObject::callLater(QQmlV4FunctionPtr args)
 {
     m_engine->delayedCallQueue()->addUniquelyAndExecuteLater(m_engine, args);
 }
@@ -1782,14 +1785,20 @@ static QString serializeArray(Object *array, ExecutionEngine *v4, QSet<QV4::Heap
     Scope scope(v4);
     ScopedValue val(scope);
     QString result;
-
     alreadySeen.insert(array->d());
+
+    ScopedObject detached(scope);
+    if (Sequence *reference = array->as<Sequence>())
+        detached = ReferenceObject::detached(reference->d());
+    else
+        detached = array;
+
     result += QLatin1Char('[');
-    const uint length = array->getLength();
+    const uint length = detached->getLength();
     for (uint i = 0; i < length; ++i) {
         if (i != 0)
             result += QLatin1Char(',');
-        val = array->get(i);
+        val = detached->get(i);
         if (val->isManaged() && val->managed()->isArrayLike())
             if (!alreadySeen.contains(val->objectValue()->d()))
                 result += serializeArray(val->objectValue(), v4, alreadySeen);
@@ -1799,6 +1808,7 @@ static QString serializeArray(Object *array, ExecutionEngine *v4, QSet<QV4::Heap
             result += val->toQStringNoThrow();
     }
     result += QLatin1Char(']');
+
     alreadySeen.remove(array->d());
     return result;
 };
@@ -1814,7 +1824,8 @@ static ReturnedValue writeToConsole(const FunctionObject *b, const Value *argv, 
     int start = 0;
     if (argc > 0) {
         if (const QObjectWrapper* wrapper = argv[0].as<QObjectWrapper>()) {
-            if (QQmlLoggingCategory* category = qobject_cast<QQmlLoggingCategory*>(wrapper->object())) {
+            if (QQmlLoggingCategoryBase *category
+                    = qobject_cast<QQmlLoggingCategoryBase *>(wrapper->object())) {
                 if (category->category())
                     loggingCategory = category->category();
                 else
@@ -1995,7 +2006,7 @@ ReturnedValue ConsoleObject::method_trace(const FunctionObject *b, const Value *
     QV4::CppStackFrame *frame = v4->currentStackFrame;
     QMessageLogger(frame->source().toUtf8().constData(), frame->lineNumber(),
                    frame->function().toUtf8().constData())
-        .debug("%s", qPrintable(stack));
+        .debug(v4->qmlEngine() ? lcQml : lcJs, "%s", qPrintable(stack));
 
     return QV4::Encode::undefined();
 }
@@ -2097,7 +2108,10 @@ void QV4::GlobalExtensions::init(Object *globalObject, QJSEngine::Extensions ext
     Example:
     \snippet qml/qsTranslate.qml 0
 
+    Use if you have a translation \a context that differs from the file \a context.
+
     \sa {Internationalization with Qt}
+    \sa qsTr()
 */
 ReturnedValue GlobalExtensions::method_qsTranslate(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -2139,7 +2153,7 @@ ReturnedValue GlobalExtensions::method_qsTranslate(const FunctionObject *b, cons
 }
 
 /*!
-    \qmlmethod string Qt::qsTranslateNoOp(string context, string sourceText, string disambiguation)
+    \qmlmethod string Qt::QT_TRANSLATE_NOOP(string context, string sourceText, string disambiguation)
 
     Marks \a sourceText for dynamic translation in the given \a context; i.e, the stored \a sourceText
     will not be altered.
@@ -2176,8 +2190,12 @@ QString GlobalExtensions::currentTranslationContext(ExecutionEngine *engine)
 
     // The first non-empty source URL in the call stack determines the translation context.
     while (frame && context.isEmpty()) {
-        if (CompiledData::CompilationUnitBase *baseUnit = frame->v4Function->compilationUnit) {
-            const auto *unit = static_cast<const CompiledData::CompilationUnit *>(baseUnit);
+        if (ExecutableCompilationUnit *unit = frame->v4Function->executableCompilationUnit()) {
+            auto translationContextIndex = unit->unitData()->translationContextIndex();
+            if (translationContextIndex)
+                context = unit->stringAt(*translationContextIndex);
+            if (!context.isEmpty())
+                break;
             QString fileName = unit->fileName();
             QUrl url(unit->fileName());
             if (url.isValid() && url.isRelative()) {
@@ -2213,14 +2231,34 @@ QString GlobalExtensions::currentTranslationContext(ExecutionEngine *engine)
     otherwise returns \a sourceText itself if no appropriate translated string
     is available.
 
+    Examples with \a sourceText and \a {n}:
+
+    \if defined(onlinedocs)
+      \tab {qstr}{qstr-1}{sourceText}{checked}
+      \tab {qstr}{qstr-2}{sourceText and n}{}
+      \tabcontent {qstr-1}
+    \else
+      \section1 Only sourceText
+    \endif
+        \snippet qml/qsTr.qml 0
+    \if defined(onlinedocs)
+      \endtabcontent
+      \tabcontent {qstr-2}
+    \else
+      \section1 SourceText and n
+    \endif
+      \snippet qml/qsTr.qml 1
+    \if defined(onlinedocs)
+      \endtabcontent
+    \endif
+
     If the same \a sourceText is used in different roles within the
     same translation context, an additional identifying string may be passed in
-    for \a disambiguation.
+    for \a disambiguation. For more information and examples, refer to
+    \l{Disambiguate Identical Text}.
 
-    Example:
-    \snippet qml/qsTr.qml 0
-
-    \sa {Internationalization with Qt}
+    \sa qsTranslate()
+    \sa {Internationalization with Qt},{Writing Source Code for Translation}
 */
 ReturnedValue GlobalExtensions::method_qsTr(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -2250,7 +2288,7 @@ ReturnedValue GlobalExtensions::method_qsTr(const FunctionObject *b, const Value
 }
 
 /*!
-    \qmlmethod string Qt::qsTrNoOp(string sourceText, string disambiguation)
+    \qmlmethod string Qt::QT_TR_NOOP(string sourceText, string disambiguation)
 
     Marks \a sourceText for dynamic translation; i.e, the stored \a sourceText
     will not be altered.
@@ -2297,12 +2335,13 @@ ReturnedValue GlobalExtensions::method_qsTrNoOp(const FunctionObject *, const Va
 
     \tt{//% <string>}
 
+    \snippet qml/qsTrId.1.qml 0
+
     or
 
-    \tt{\\begincomment% <string> \\endcomment}
+    \tt{\begincomment% <string> \endcomment}
 
-    Example:
-    \snippet qml/qsTrId.1.qml 0
+    \snippet qml/qsTrId.1.qml 1
 
     Creating binary translation (QM) files suitable for use with this function requires passing
     the \c -idbased option to the \c lrelease tool.
@@ -2331,7 +2370,7 @@ ReturnedValue GlobalExtensions::method_qsTrId(const FunctionObject *b, const Val
 }
 
 /*!
-    \qmlmethod string Qt::qsTrIdNoOp(string id)
+    \qmlmethod string Qt::QT_TRID_NOOP(string id)
 
     Marks \a id for dynamic translation.
 
@@ -2355,15 +2394,22 @@ ReturnedValue GlobalExtensions::method_qsTrIdNoOp(const FunctionObject *, const 
 }
 #endif // translation
 
+/*!
+    \qmlmethod void Qt::gc()
 
+    Runs the garbage collector.
+
+    This is equivalent to calling QJSEngine::collectGarbage().
+
+    \sa {Garbage Collection}
+*/
 ReturnedValue GlobalExtensions::method_gc(const FunctionObject *b, const Value *, const Value *, int)
 {
-    b->engine()->memoryManager->runGC();
+    auto mm = b->engine()->memoryManager;
+    mm->runFullGC();
 
     return QV4::Encode::undefined();
 }
-
-
 
 ReturnedValue GlobalExtensions::method_string_arg(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
 {

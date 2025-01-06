@@ -114,7 +114,6 @@ qt_internal_add_qml_module(QuickControls2Imagine
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    GENERATE_CPP_EXPORTS
     OS2_SHORT_NAME QuCoImSt
 )
 

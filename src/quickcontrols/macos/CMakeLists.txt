@@ -5,24 +5,40 @@
 ## qtquickcontrols2macosstyleplugin Plugin:
 #####################################################################
 
+add_subdirectory(impl)
+
 set(qml_files
+    "BusyIndicator.qml"
     "Button.qml"
-    "Slider.qml"
-    "GroupBox.qml"
     "CheckBox.qml"
-    "RadioButton.qml"
-    "SelectionRectangle.qml"
-    "SpinBox.qml"
-    "TextField.qml"
-    "Frame.qml"
-    "TextArea.qml"
+    "CheckDelegate.qml"
     "ComboBox.qml"
-    "ScrollView.qml"
-    "ScrollBar.qml"
-    "ProgressBar.qml"
+    "DelayButton.qml"
     "Dial.qml"
     "Dialog.qml"
     "DialogButtonBox.qml"
+    "Frame.qml"
+    "GroupBox.qml"
+    "ItemDelegate.qml"
+    "Menu.qml"
+    "MenuBar.qml"
+    "MenuBarItem.qml"
+    "MenuItem.qml"
+    "MenuSeparator.qml"
+    "ProgressBar.qml"
+    "RadioButton.qml"
+    "RadioDelegate.qml"
+    "RangeSlider.qml"
+    "ScrollBar.qml"
+    "ScrollIndicator.qml"
+    "ScrollView.qml"
+    "SelectionRectangle.qml"
+    "Slider.qml"
+    "SpinBox.qml"
+    "Switch.qml"
+    "SwitchDelegate.qml"
+    "TextArea.qml"
+    "TextField.qml"
 )
 
 if (QT_FEATURE_quick_treeview)
@@ -45,6 +61,19 @@ qt_internal_add_qml_module(qtquickcontrols2macosstyleplugin
         qtquickcontrols2macosstyleplugin.cpp
     QML_FILES
         ${qml_files}
+    RESOURCES
+        images/busyindicator-dark.webp
+        images/busyindicator-dark@2x.webp
+        images/busyindicator-dark@3x.webp
+        images/busyindicator-light.webp
+        images/busyindicator-light@2x.webp
+        images/busyindicator-light@3x.webp
+        images/checkmark.png
+        images/checkmark@2x.png
+        images/checkmark@3x.png
+        images/menuarrow.png
+        images/menuarrow@2x.png
+        images/menuarrow@3x.png
     DEFINES
         QT_NO_CAST_FROM_ASCII
         QT_NO_CAST_TO_ASCII
@@ -52,6 +81,7 @@ qt_internal_add_qml_module(qtquickcontrols2macosstyleplugin
         Qt::CorePrivate
         Qt::GuiPrivate
         Qt::QmlPrivate
+        Qt::QuickControls2MacOSStyleImpl
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private

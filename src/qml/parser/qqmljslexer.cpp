@@ -368,7 +368,8 @@ uint Lexer::decodeUnicodeEscapeCharacter(bool *ok)
 {
     Q_ASSERT(_state.currentChar == u'u');
     scanChar(); // skip u
-    if (_codePtr + 4 <= _endPtr && isHexDigit(_state.currentChar)) {
+    constexpr int distanceFromFirstHexToLastHex = 3;
+    if (_codePtr + distanceFromFirstHexToLastHex <= _endPtr && isHexDigit(_state.currentChar)) {
         uint codePoint = 0;
         for (int i = 0; i < 4; ++i) {
             int digit = hexDigit(_state.currentChar);
@@ -932,61 +933,6 @@ again:
             if (!identifierWithEscapeChars)
                 kind = classify(_tokenStartPtr, _tokenLength, parseModeFlags());
 
-            if (kind == T_FUNCTION) {
-                continue_skipping:
-                    while (_codePtr < _endPtr && _state.currentChar.isSpace())
-                        scanChar();
-                    if (_state.currentChar == u'*') {
-                        _tokenLength = _codePtr - _tokenStartPtr - 1;
-                        kind = T_FUNCTION_STAR;
-                        scanChar();
-                    } else if (_state.currentChar == u'/') {
-                        scanChar();
-                        switch (_state.currentChar.unicode()) {
-                        case u'*':
-                            scanChar();
-                            while (_codePtr <= _endPtr) {
-                                if (_state.currentChar == u'*') {
-                                    scanChar();
-                                    if (_state.currentChar == u'/') {
-                                        scanChar();
-                                        if (_engine) {
-                                            _engine->addComment(tokenOffset() + 2,
-                                                                _codePtr - _tokenStartPtr - 1 - 4,
-                                                                tokenStartLine(),
-                                                                tokenStartColumn() + 2);
-                                        }
-                                        if (_lexMode == LexMode::LineByLine)
-                                            return T_COMMENT;
-                                        goto continue_skipping;
-                                    }
-                                } else {
-                                    scanChar();
-                                }
-                            }
-                            if (_lexMode == LexMode::LineByLine)
-                                return T_PARTIAL_COMMENT;
-                            else
-                                goto continue_skipping;
-                        case u'/':
-                            while (_codePtr <= _endPtr && !isLineTerminator()) {
-                                scanChar();
-                            }
-                            if (_engine) {
-                                _engine->addComment(tokenOffset() + 2,
-                                                    _codePtr - _tokenStartPtr - 1 - 2,
-                                                    tokenStartLine(), tokenStartColumn() + 2);
-                            }
-                            if (_lexMode == LexMode::LineByLine)
-                                return T_COMMENT;
-                            else
-                                goto continue_skipping;
-                        default:
-                            break;
-                        }
-                    }
-            }
-
             if (_engine) {
                 if (kind == T_IDENTIFIER && identifierWithEscapeChars)
                     _tokenSpell = _engine->newStringRef(_tokenText);
@@ -1213,6 +1159,32 @@ int Lexer::scanString(ScanStringMode mode)
 
 int Lexer::scanNumber(QChar ch)
 {
+    auto scanOptionalNumericSeparator = [this](auto isNextCharacterValid){
+        if (_state.currentChar == u'_') {
+            if (peekChar() == u'_') {
+                _state.errorCode = IllegalNumber;
+                _errorMessage = QCoreApplication::translate(
+                    "QQmlParser",
+                    "There can be at most one numeric separator between digits"
+                );
+                return false;
+            }
+
+            if (!isNextCharacterValid()) {
+                _state.errorCode = IllegalNumber;
+                _errorMessage = QCoreApplication::translate(
+                    "QQmlParser",
+                    "A trailing numeric separator is not allowed in numeric literals"
+                );
+                return false;
+            }
+
+            scanChar();
+        }
+
+        return true;
+    };
+
     if (ch == u'0') {
         if (_state.currentChar == u'x' || _state.currentChar == u'X') {
             ch = _state.currentChar; // remember the x or X to use it in the error message below.
@@ -1237,6 +1209,9 @@ int Lexer::scanNumber(QChar ch)
                 d *= 16;
                 d += digit;
                 scanChar();
+
+                if (!scanOptionalNumericSeparator([this](){ return isHexDigit(peekChar()); }))
+                    return T_ERROR;
             }
 
             _state.tokenValue = d;
@@ -1264,6 +1239,12 @@ int Lexer::scanNumber(QChar ch)
                 d *= 8;
                 d += digit;
                 scanChar();
+
+                if (!scanOptionalNumericSeparator([this](){
+                    return isOctalDigit(peekChar().unicode());
+                })) {
+                    return T_ERROR;
+                }
             }
 
             _state.tokenValue = d;
@@ -1293,6 +1274,12 @@ int Lexer::scanNumber(QChar ch)
                 d *= 2;
                 d += digit;
                 scanChar();
+
+                if (!scanOptionalNumericSeparator([this](){
+                    return peekChar().unicode() == u'0' || peekChar().unicode() == u'1';
+                })) {
+                    return T_ERROR;
+                }
             }
 
             _state.tokenValue = d;
@@ -1310,9 +1297,15 @@ int Lexer::scanNumber(QChar ch)
     chars.append(ch.unicode());
 
     if (ch != u'.') {
+        if (!scanOptionalNumericSeparator([this](){ return peekChar().isDigit(); }))
+            return T_ERROR;
+
         while (_state.currentChar.isDigit()) {
             chars.append(_state.currentChar.unicode());
             scanChar(); // consume the digit
+
+            if (!scanOptionalNumericSeparator([this](){ return peekChar().isDigit(); }))
+                return T_ERROR;
         }
 
         if (_state.currentChar == u'.') {
@@ -1324,6 +1317,9 @@ int Lexer::scanNumber(QChar ch)
     while (_state.currentChar.isDigit()) {
         chars.append(_state.currentChar.unicode());
         scanChar();
+
+        if (!scanOptionalNumericSeparator([this](){ return peekChar().isDigit(); }))
+            return T_ERROR;
     }
 
     if (_state.currentChar == u'e' || _state.currentChar == u'E') {
@@ -1341,6 +1337,9 @@ int Lexer::scanNumber(QChar ch)
             while (_state.currentChar.isDigit()) {
                 chars.append(_state.currentChar.unicode());
                 scanChar();
+
+                if (!scanOptionalNumericSeparator([this](){ return peekChar().isDigit(); }))
+                    return T_ERROR;
             }
         }
     }
@@ -1603,7 +1602,6 @@ static const int uriTokens[] = {
     QQmlJSGrammar::T_FINALLY,
     QQmlJSGrammar::T_FOR,
     QQmlJSGrammar::T_FUNCTION,
-    QQmlJSGrammar::T_FUNCTION_STAR,
     QQmlJSGrammar::T_IF,
     QQmlJSGrammar::T_IN,
     QQmlJSGrammar::T_OF,
@@ -1800,6 +1798,17 @@ const Lexer::State &Lexer::state() const
 void Lexer::setState(const Lexer::State &state)
 {
     _state = state;
+}
+
+int Lexer::parseModeFlags() const {
+    int flags = 0;
+    if (qmlMode())
+        flags |= QmlMode|StaticIsKeyword;
+    if (yieldIsKeyWord())
+        flags |= YieldIsKeyword;
+    if (_staticIsKeyword)
+        flags |= StaticIsKeyword;
+    return flags;
 }
 
 namespace QQmlJS {

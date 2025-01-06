@@ -15,45 +15,39 @@
 // We mean it.
 
 
-#include <private/qqmljscompilepass_p.h>
 #include <private/qflatmap_p.h>
+#include <private/qqmljscompilepass_p.h>
+#include <private/qqmljscompiler_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSBasicBlocks : public QQmlJSCompilePass
+class Q_QMLCOMPILER_EXPORT QQmlJSBasicBlocks : public QQmlJSCompilePass
 {
 public:
-    using Conversions = QSet<int>;
-
-    struct BasicBlock {
-        QList<int> jumpOrigins;
-        QList<int> readRegisters;
-        QList<QQmlJSScope::ConstPtr> readTypes;
-        int jumpTarget = -1;
-        bool jumpIsUnconditional = false;
-    };
-
-    QQmlJSBasicBlocks(const QV4::Compiler::JSUnitGenerator *unitGenerator,
+    QQmlJSBasicBlocks(const QV4::Compiler::Context *context,
+                      const QV4::Compiler::JSUnitGenerator *unitGenerator,
                       const QQmlJSTypeResolver *typeResolver, QQmlJSLogger *logger)
-        : QQmlJSCompilePass(unitGenerator, typeResolver, logger)
+        : QQmlJSCompilePass(unitGenerator, typeResolver, logger), m_context{ context }
     {
     }
 
     ~QQmlJSBasicBlocks() = default;
 
-    InstructionAnnotations run(
-            const Function *function, const InstructionAnnotations &annotations,
-            QQmlJS::DiagnosticMessage *error);
+    QQmlJSCompilePass::BlocksAndAnnotations run(const Function *function,
+                                                QQmlJSAotCompiler::Flags compileFlags,
+                                                bool &basicBlocksValidationFailed);
+
+    struct BasicBlocksValidationResult { bool success = true; QString errorMessage; };
+    BasicBlocksValidationResult basicBlocksValidation();
+
+    static BasicBlocks::iterator
+    basicBlockForInstruction(QFlatMap<int, BasicBlock> &container, int instructionOffset);
+    static BasicBlocks::const_iterator
+    basicBlockForInstruction(const QFlatMap<int, BasicBlock> &container, int instructionOffset);
+
+    QList<ObjectOrArrayDefinition> objectAndArrayDefinitions() const;
 
 private:
-    struct RegisterAccess
-    {
-        QList<QQmlJSScope::ConstPtr> trackedTypes;
-        QHash<int, QQmlJSScope::ConstPtr> typeReaders;
-        QHash<int, Conversions> registerReadersAndConversions;
-        int trackedRegister;
-    };
-
     QV4::Moth::ByteCodeHandler::Verdict startInstruction(QV4::Moth::Instr::Type type) override;
     void endInstruction(QV4::Moth::Instr::Type type) override;
 
@@ -62,23 +56,24 @@ private:
     void generate_JumpFalse(int offset) override;
     void generate_JumpNoException(int offset) override;
     void generate_JumpNotUndefined(int offset) override;
+    void generate_IteratorNext(int value, int offset) override;
+    void generate_GetOptionalLookup(int index, int offset) override;
 
     void generate_Ret() override;
     void generate_ThrowException() override;
 
     void generate_DefineArray(int argc, int argv) override;
+    void generate_DefineObjectLiteral(int internalClassId, int argc, int args) override;
+    void generate_Construct(int func, int argc, int argv) override;
 
     enum JumpMode { Unconditional, Conditional };
     void processJump(int offset, JumpMode mode);
-    void populateBasicBlocks();
-    void populateReaderLocations();
-    void adjustTypes();
-    bool canMove(int instructionOffset, const RegisterAccess &access) const;
 
-    InstructionAnnotations m_annotations;
-    QFlatMap<int, BasicBlock> m_basicBlocks;
-    QHash<int, RegisterAccess> m_readerLocations;
-    QList<int> m_arrayDefinitions;
+    void dumpBasicBlocks();
+    void dumpDOTGraph();
+
+    const QV4::Compiler::Context *m_context;
+    QList<ObjectOrArrayDefinition> m_objectAndArrayDefinitions;
     bool m_skipUntilNextLabel = false;
     bool m_hadBackJumps = false;
 };

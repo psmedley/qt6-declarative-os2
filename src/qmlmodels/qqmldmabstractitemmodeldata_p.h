@@ -72,7 +72,7 @@ private:
     QVector<QVariant> m_cachedData;
 };
 
-class VDMAbstractItemModelDataType
+class VDMAbstractItemModelDataType final
         : public QQmlRefCounted<VDMAbstractItemModelDataType>
         , public QQmlAdaptorModel::Accessors
         , public QAbstractDynamicMetaObject
@@ -83,6 +83,16 @@ public:
         , propertyOffset(0)
         , signalOffset(0)
     {
+    }
+
+    void notifyItem(const QQmlGuard<QQmlDMAbstractItemModelData> &item, const QVector<int> &signalIndexes) const
+    {
+        for (const int signalIndex : signalIndexes) {
+            QMetaObject::activate(item, signalIndex, nullptr);
+            if (item.isNull())
+                return;
+        }
+        emit item->modelDataChanged();
     }
 
     bool notify(
@@ -131,11 +141,8 @@ public:
                 continue;
 
             const int idx = item->modelIndex();
-            if (idx >= index && idx < index + count) {
-                for (int i = 0; i < signalIndexes.size(); ++i)
-                    QMetaObject::activate(item, signalIndexes.at(i), nullptr);
-                emit item->modelDataChanged();
-            }
+            if (idx >= index && idx < index + count)
+                notifyItem(item, signalIndexes);
         }
         return changed;
     }
@@ -188,9 +195,14 @@ public:
             const QByteArray &propertyName = it.key();
 
             QV4::ScopedString name(scope, v4->newString(QString::fromUtf8(propertyName)));
-            QV4::ExecutionContext *global = v4->rootContext();
-            QV4::ScopedFunctionObject g(scope, v4->memoryManager->allocate<QV4::IndexedBuiltinFunction>(global, propertyId, QQmlDMAbstractItemModelData::get_property));
-            QV4::ScopedFunctionObject s(scope, v4->memoryManager->allocate<QV4::IndexedBuiltinFunction>(global, propertyId, QQmlDMAbstractItemModelData::set_property));
+            QV4::ScopedFunctionObject g(
+                    scope,
+                    v4->memoryManager->allocate<QV4::IndexedBuiltinFunction>(
+                            v4, propertyId, QQmlDMAbstractItemModelData::get_property));
+            QV4::ScopedFunctionObject s(
+                    scope,
+                    v4->memoryManager->allocate<QV4::IndexedBuiltinFunction>(
+                            v4, propertyId, QQmlDMAbstractItemModelData::set_property));
             p->setGetter(g);
             p->setSetter(s);
             proto->insertMember(name, p, QV4::Attr_Accessor|QV4::Attr_NotEnumerable|QV4::Attr_NotConfigurable);

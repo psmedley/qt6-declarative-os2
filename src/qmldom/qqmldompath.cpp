@@ -74,15 +74,16 @@ The current contexts are:
 \endlist
  */
 
-void Base::dump(Sink sink) const {
-    if (hasSquareBrackets())
+void Base::dump(const Sink &sink, const QString &name, bool hasSquareBrackets) const {
+    if (hasSquareBrackets)
         sink(u"[");
-    sink(name());
-    if (hasSquareBrackets())
+    sink(name);
+    if (hasSquareBrackets)
         sink(u"]");
 }
 
-Filter::Filter(function<bool(DomItem)> f, QStringView filterDescription): filterFunction(f), filterDescription(filterDescription) {}
+Filter::Filter(const function<bool(const DomItem &)> &f, QStringView filterDescription)
+    : filterFunction(f), filterDescription(filterDescription) {}
 
 QString Filter::name() const {
     return QLatin1String("?(%1)").arg(filterDescription); }
@@ -100,9 +101,6 @@ enum class ParserState{
     End
 };
 
-PathComponent::~PathComponent(){
-}
-
 int PathComponent::cmp(const PathComponent &p1, const PathComponent &p2)
 {
     int k1 = static_cast<int>(p1.kind());
@@ -115,19 +113,19 @@ int PathComponent::cmp(const PathComponent &p1, const PathComponent &p2)
     case Kind::Empty:
         return 0;
     case Kind::Field:
-        return p1.data.field.fieldName.compare(p2.data.field.fieldName);
+        return std::get<Field>(p1.m_data).fieldName.compare(std::get<Field>(p2.m_data).fieldName);
     case Kind::Index:
-        if (p1.data.index.indexValue < p2.data.index.indexValue)
+        if (std::get<Index>(p1.m_data).indexValue < std::get<Index>(p2.m_data).indexValue)
             return -1;
-        if (p1.data.index.indexValue > p2.data.index.indexValue)
+        if (std::get<Index>(p1.m_data).indexValue > std::get<Index>(p2.m_data).indexValue)
             return 1;
         return 0;
     case Kind::Key:
-        return p1.data.key.keyValue.compare(p2.data.key.keyValue);
+        return std::get<Key>(p1.m_data).keyValue.compare(std::get<Key>(p2.m_data).keyValue);
     case Kind::Root:
     {
-        PathRoot k1 = p1.data.root.contextKind;
-        PathRoot k2 = p2.data.root.contextKind;
+        PathRoot k1 = std::get<Root>(p1.m_data).contextKind;
+        PathRoot k2 = std::get<Root>(p2.m_data).contextKind;
         if (k1 == PathRoot::Env || k1 == PathRoot::Universe)
             k1 = PathRoot::Top;
         if (k2 == PathRoot::Env || k2 == PathRoot::Universe)
@@ -135,23 +133,26 @@ int PathComponent::cmp(const PathComponent &p1, const PathComponent &p2)
         int c = int(k1) - int(k2);
         if (c != 0)
             return c;
-        return p1.data.root.contextName.compare(p2.data.root.contextName);
+        return std::get<Root>(p1.m_data).contextName.compare(std::get<Root>(p2.m_data).contextName);
     }
     case Kind::Current:
     {
-        int c = int(p1.data.current.contextKind) - int(p2.data.current.contextKind);
+        int c = int(std::get<Current>(p1.m_data).contextKind)
+                - int(std::get<Current>(p2.m_data).contextKind);
         if (c != 0)
             return c;
-        return p1.data.current.contextName.compare(p2.data.current.contextName);
+        return std::get<Current>(p1.m_data).contextName
+                .compare(std::get<Current>(p2.m_data).contextName);
     }
     case Kind::Any:
         return 0;
     case Kind::Filter:
     {
-        int c = p1.data.filter.filterDescription.compare(p2.data.filter.filterDescription);
+        int c = std::get<Filter>(p1.m_data).filterDescription
+                        .compare(std::get<Filter>(p2.m_data).filterDescription);
         if (c != 0)
             return c;
-        if (p1.data.filter.filterDescription.startsWith(u"<")) {
+        if (std::get<Filter>(p1.m_data).filterDescription.startsWith(u"<")) {
             // assuming non comparable native code (target comparison is not portable)
             auto pp1 = &p1;
             auto pp2 = &p2;
@@ -213,7 +214,7 @@ PathIterator Path::end() const
 PathRoot Path::headRoot() const
 {
     auto &comp = component(0);
-    if (PathEls::Root const * r = comp.base()->asRoot())
+    if (PathEls::Root const * r = comp.asRoot())
         return r->contextKind;
     return PathRoot::Other;
 }
@@ -221,7 +222,7 @@ PathRoot Path::headRoot() const
 PathCurrent Path::headCurrent() const
 {
     auto comp = component(0);
-    if (PathEls::Current const * c = comp.base()->asCurrent())
+    if (PathEls::Current const * c = comp.asCurrent())
         return c->contextKind;
     return PathCurrent::Other;
 }
@@ -248,10 +249,10 @@ index_type Path::headIndex(index_type defaultValue) const
     return component(0).index(defaultValue);
 }
 
-function<bool (DomItem)> Path::headFilter() const
+function<bool(const DomItem &)> Path::headFilter() const
 {
     auto &comp = component(0);
-    if (PathEls::Filter const * f = comp.base()->asFilter()) {
+    if (PathEls::Filter const * f = comp.asFilter()) {
         return f->filterFunction;
     }
     return {};
@@ -279,7 +280,7 @@ Source Path::split() const
     return Source{Path(), *this};
 }
 
-bool inQString(QStringView el, QString base)
+bool inQString(QStringView el, const QString &base)
 {
     if (quintptr(base.constData()) > quintptr(el.begin())
         || quintptr(base.constData() + base.size()) < quintptr(el.begin()))
@@ -288,7 +289,7 @@ bool inQString(QStringView el, QString base)
     return diff >= 0 && diff < base.size();
 }
 
-bool inQString(QString el, QString base)
+bool inQString(const QString &el, const QString &base)
 {
     if (quintptr(base.constData()) > quintptr(el.constData())
         || quintptr(base.constData() + base.size()) < quintptr(el.constData()))
@@ -297,7 +298,7 @@ bool inQString(QString el, QString base)
     return diff >= 0 && diff < base.size() && diff + el.size() < base.size();
 }
 
-Path Path::fromString(QStringView s, ErrorHandler errorHandler)
+Path Path::fromString(QStringView s, const ErrorHandler &errorHandler)
 {
     if (s.isEmpty())
         return Path();
@@ -525,7 +526,7 @@ Path Path::Root(PathRoot s)
                     QStringList(), QVector<Component>(1,Component(PathEls::Root(s)))));
 }
 
-Path Path::Root(QString s)
+Path Path::Root(const QString &s)
 {
     return Path(0,1,std::make_shared<PathEls::PathData>(
                     QStringList(s), QVector<Component>(1,Component(PathEls::Root(s)))));
@@ -550,7 +551,7 @@ Path Path::Field(QStringView s)
                     QStringList(), QVector<Component>(1,Component(PathEls::Field(s)))));
 }
 
-Path Path::Field(QString s)
+Path Path::Field(const QString &s)
 {
     return Path(0,1,std::make_shared<PathEls::PathData>(
                     QStringList(s), QVector<Component>(1,Component(PathEls::Field(s)))));
@@ -564,7 +565,7 @@ Path Path::Key(QStringView s)
                     QStringList(), QVector<Component>(1, Component(PathEls::Key(s.toString())))));
 }
 
-Path Path::Key(QString s)
+Path Path::Key(const QString &s)
 {
     return Path(0, 1,
                 std::make_shared<PathEls::PathData>(
@@ -577,7 +578,7 @@ Path Path::Current(PathCurrent s)
                     QStringList(), QVector<Component>(1,Component(PathEls::Current(s)))));
 }
 
-Path Path::Current(QString s)
+Path Path::Current(const QString &s)
 {
     return Path(0,1,std::make_shared<PathEls::PathData>(
                     QStringList(s), QVector<Component>(1,Component(PathEls::Current(s)))));
@@ -602,7 +603,7 @@ Path Path::empty() const
                     QStringList(), QVector<Component>(1,Component()), m_data));
 }
 
-Path Path::field(QString name) const
+Path Path::field(const QString &name) const
 {
     auto res = field(QStringView(name));
     res.m_data->strData.append(name);
@@ -617,7 +618,7 @@ Path Path::field(QStringView name) const
                     QStringList(), QVector<Component>(1,Component(PathEls::Field(name))), m_data));
 }
 
-Path Path::key(QString name) const
+Path Path::key(const QString &name) const
 {
     if (m_endOffset != 0)
         return noEndOffset().key(name);
@@ -646,14 +647,14 @@ Path Path::any() const
                     QStringList(), QVector<Component>(1,Component(PathEls::Any())), m_data));
 }
 
-Path Path::filter(function<bool (DomItem)> filterF, QString desc) const
+Path Path::filter(const function<bool(const DomItem &)> &filterF, const QString &desc) const
 {
     auto res = filter(filterF, QStringView(desc));
     res.m_data->strData.append(desc);
     return res;
 }
 
-Path Path::filter(function<bool (DomItem)> filter, QStringView desc) const
+Path Path::filter(const function<bool(const DomItem &)> &filter, QStringView desc) const
 {
     if (m_endOffset != 0)
         return noEndOffset().filter(filter, desc);
@@ -667,7 +668,7 @@ Path Path::current(PathCurrent s) const
                     QStringList(), QVector<Component>(1,Component(PathEls::Current(s))), m_data));
 }
 
-Path Path::current(QString s) const
+Path Path::current(const QString &s) const
 {
     auto res = current(QStringView(s));
     res.m_data->strData.append(s);
@@ -682,7 +683,7 @@ Path Path::current(QStringView s) const
                     QStringList(), QVector<Component>(1,Component(PathEls::Current(s))), m_data));
 }
 
-Path Path::path(Path toAdd, bool avoidToAddAsBase) const
+Path Path::path(const Path &toAdd, bool avoidToAddAsBase) const
 {
     if (toAdd.length() == 0)
         return *this;
@@ -808,7 +809,7 @@ int Path::cmp(const Path &p1, const Path &p2)
     return 0;
 }
 
-Path::Path(quint16 endOffset, quint16 length, std::shared_ptr<PathEls::PathData> data)
+Path::Path(quint16 endOffset, quint16 length, const std::shared_ptr<PathEls::PathData> &data)
     :m_endOffset(endOffset), m_length(length), m_data(data)
 {
 }
@@ -869,10 +870,10 @@ Path Path::appendComponent(const PathEls::PathComponent &c)
         }
         break;
     case PathEls::Kind::Filter:
-        if (!c.base()->asFilter()->filterDescription.isEmpty()) {
-            my_data->strData.append(c.base()->asFilter()->filterDescription.toString());
+        if (!c.asFilter()->filterDescription.isEmpty()) {
+            my_data->strData.append(c.asFilter()->filterDescription.toString());
             my_data->components.append(
-                    PathEls::Filter(c.base()->asFilter()->filterFunction, my_data->strData.last()));
+                    PathEls::Filter(c.asFilter()->filterFunction, my_data->strData.last()));
         } else {
             my_data->components.append(c);
         }
@@ -900,7 +901,7 @@ ErrorGroups Path::myErrors()
     return res;
 }
 
-void Path::dump(Sink sink) const
+void Path::dump(const Sink &sink) const
 {
     bool first = true;
     for (int i = 0; i < m_length; ++i) {
@@ -951,7 +952,7 @@ Path Path::mid(int offset) const
     return mid(offset, m_length - offset);
 }
 
-Path Path::fromString(QString s, ErrorHandler errorHandler)
+Path Path::fromString(const QString &s, const ErrorHandler &errorHandler)
 {
     Path res = fromString(QStringView(s), errorHandler);
     if (res.m_data)

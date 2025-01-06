@@ -1,5 +1,5 @@
 // Copyright (C) 2018 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <qqmldebugprocess_p.h>
 #include <debugutil_p.h>
@@ -26,6 +26,8 @@ public:
 private:
     ConnectResult startQmlProcess(const QString &qmlFile);
     void serveRequest(const QString &path);
+    void serveFile(const QString &path, const QByteArray &contents);
+
     QList<QQmlDebugClient *> createClients() override;
     void verifyProcessOutputContains(const QString &string) const;
 
@@ -42,11 +44,14 @@ private slots:
 
     void connect();
     void load();
+    void loadFromQrc();
     void rerun();
     void blacklist();
     void error();
     void zoom();
     void fps();
+    void unhandledFiles_data();
+    void unhandledFiles();
 };
 
 tst_QQmlPreview::tst_QQmlPreview()
@@ -70,13 +75,18 @@ void tst_QQmlPreview::serveRequest(const QString &path)
     } else {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
-            m_files.append(path);
-            m_client->sendFile(path, file.readAll());
+            serveFile(path, file.readAll());
         } else {
             m_filesNotFound.append(path);
             m_client->sendError(path);
         }
     }
+}
+
+void tst_QQmlPreview::serveFile(const QString &path, const QByteArray &contents)
+{
+    m_files.append(path);
+    m_client->sendFile(path, contents);
 }
 
 QList<QQmlDebugClient *> tst_QQmlPreview::createClients()
@@ -156,6 +166,34 @@ void tst_QQmlPreview::load()
         QTRY_VERIFY(m_files.contains(testFile(newFile)));
         verifyProcessOutputContains(newFile);
     }
+
+    m_process->stop();
+    QTRY_COMPARE(m_client->state(), QQmlDebugClient::NotConnected);
+    QVERIFY(m_serviceErrors.isEmpty());
+}
+
+void tst_QQmlPreview::loadFromQrc()
+{
+    // One of the configuration files built into the "qml" executable.
+    const QString fromQrc(":/qt-project.org/imports/QmlRuntime/Config/default.qml");
+
+    QCOMPARE(QQmlDebugTest::connectTo(
+                     QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qml",
+                     QStringLiteral("QmlPreview"), fromQrc, true),
+             ConnectSuccess);
+
+    QVERIFY(m_client);
+    QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
+
+    serveFile(fromQrc, R"(
+        import QtQuick
+        Item {
+            Component.onCompleted: console.log("default.qml replaced")
+        }
+    )");
+
+    m_client->triggerLoad(QUrl("qrc" + fromQrc));
+    verifyProcessOutputContains("default.qml replaced");
 
     m_process->stop();
     QTRY_COMPARE(m_client->state(), QQmlDebugClient::NotConnected);
@@ -331,6 +369,28 @@ void tst_QQmlPreview::fps()
     } else {
         QSKIP("offscreen rendering doesn't produce any frames");
     }
+}
+
+void tst_QQmlPreview::unhandledFiles_data()
+{
+    QTest::addColumn<QUrl>("file");
+    QTest::addRow("dll")   << testFileUrl("a.dll");
+    QTest::addRow("dylib") << testFileUrl("a.dylib");
+    QTest::addRow("jsc")   << testFileUrl("a.jsc");
+    QTest::addRow("mjsc")  << testFileUrl("a.mjsc");
+    QTest::addRow("qmlc")  << testFileUrl("a.qmlc");
+    QTest::addRow("so")    << testFileUrl("a.so");
+}
+
+void tst_QQmlPreview::unhandledFiles()
+{
+    QFETCH(QUrl, file);
+    QCOMPARE(startQmlProcess("qtquick2.qml"), ConnectSuccess);
+    QVERIFY(m_client);
+    QTRY_COMPARE(m_client->state(), QQmlDebugClient::Enabled);
+    m_client->triggerLoad(file);
+    verifyProcessOutputContains("fooh");
+    QVERIFY(!m_files.contains(file.toLocalFile()));
 }
 
 QTEST_MAIN(tst_QQmlPreview)

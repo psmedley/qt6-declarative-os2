@@ -14,6 +14,7 @@
 #include <private/qquickanimatorjob_p.h>
 
 #include <private/qobject_p.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -158,7 +159,7 @@ UntypedProxyProperty::UntypedProxyProperty(QUntypedBindable bindable, QQuickBeha
 
 /*!
     \qmltype Behavior
-    \instantiates QQuickBehavior
+    \nativetype QQuickBehavior
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \ingroup qtquick-interceptors
@@ -182,7 +183,7 @@ UntypedProxyProperty::UntypedProxyProperty(QUntypedBindable bindable, QQuickBeha
     state change. For general advice on using Behaviors to animate state changes, see
     \l{Using Qt Quick Behaviors with States}.
 
-    \sa {Animation and Transitions in Qt Quick}, {Qt Quick Examples - Animation#Behaviors}{Behavior example}, {Qt QML}
+    \sa {Animation and Transitions in Qt Quick}, {Qt Quick Examples - Animation#Behaviors}{Behavior example}, {Qt Qml}
 */
 
 

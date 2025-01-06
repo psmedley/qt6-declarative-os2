@@ -50,13 +50,15 @@ struct QQmlXmlListModelQueryJob
 };
 struct QQmlXmlListModelQueryResult
 {
+    Q_GADGET
     QML_ANONYMOUS
+public:
     int queryId;
     QList<QFlatMap<int, QString>> data;
     QList<QPair<void *, QString>> errors;
 };
 
-class Q_QMLXMLLISTMODEL_PRIVATE_EXPORT QQmlXmlListModelRole : public QObject
+class Q_QMLXMLLISTMODEL_EXPORT QQmlXmlListModelRole : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
@@ -90,7 +92,7 @@ private:
 
 class QQmlXmlListModelQueryExecutor;
 
-class Q_QMLXMLLISTMODEL_PRIVATE_EXPORT QQmlXmlListModel : public QAbstractListModel,
+class Q_QMLXMLLISTMODEL_EXPORT QQmlXmlListModel : public QAbstractListModel,
                                                           public QQmlParserStatus
 {
     Q_OBJECT
@@ -188,7 +190,6 @@ private:
     qreal m_progress = 0;
     int m_queryId = -1;
     int m_nextQueryIdGenerator = -1;
-    int m_redirectCount = 0;
     int m_highestRole = Qt::UserRole;
     using ResultFutureWatcher = QFutureWatcher<QQmlXmlListModelQueryResult>;
     QFlatMap<int, ResultFutureWatcher *> m_watchers;

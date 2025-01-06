@@ -18,11 +18,13 @@
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 #include <QtQml/qqmllist.h>
 
+QT_REQUIRE_CONFIG(quicktemplates2_container);
+
 QT_BEGIN_NAMESPACE
 
 class QQuickContainerPrivate;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickContainer : public QQuickControl
+class Q_QUICKTEMPLATES2_EXPORT QQuickContainer : public QQuickControl
 {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
@@ -102,7 +104,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickContainer)
 
 #endif // QQUICKCONTAINER_P_H

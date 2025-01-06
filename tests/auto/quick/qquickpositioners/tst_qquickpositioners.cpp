@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
+
 #include <QtTest/QtTest>
 #include <QtQuick/qquickview.h>
 #include <qqmlengine.h>
@@ -1328,7 +1329,7 @@ void tst_qquickpositioners::checkItemPositions(QQuickItem *positioner, QaimModel
 
     for (int i=0; i<model->count(); ++i) {
         QQuickItem *item = findItem<QQuickItem>(positioner, "wrapper", i);
-        QVERIFY2(item, QTest::toString(QString("Item %1 not found").arg(i)));
+        QVERIFY2(item, qPrintable(QString("Item %1 not found").arg(i)));
 
         QCOMPARE(item->width(), currentSize);
         QCOMPARE(item->height(), currentSize);
@@ -3757,7 +3758,7 @@ void tst_qquickpositioners::test_mirroring()
     QList<QString> objectNames;
     objectNames << "one" << "two" << "three" << "four" << "five";
 
-    foreach (const QString qmlFile, qmlFiles) {
+    for (const QString &qmlFile : std::as_const(qmlFiles)) {
         QScopedPointer<QQuickView> windowA(createView(testFile(qmlFile)));
         QQuickItem *rootA = qobject_cast<QQuickItem*>(windowA->rootObject());
 
@@ -3770,7 +3771,7 @@ void tst_qquickpositioners::test_mirroring()
         rootA->setProperty("testRightToLeft", true); // layoutDirection: Qt.RightToLeft
 
         // LTR != RTL
-        foreach (const QString objectName, objectNames) {
+        for (const QString &objectName : std::as_const(objectNames)) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -3785,7 +3786,7 @@ void tst_qquickpositioners::test_mirroring()
         inheritProp.write(true);
 
         // RTL == mirror
-        foreach (const QString objectName, objectNames) {
+        for (const QString &objectName : std::as_const(objectNames)) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -3806,7 +3807,7 @@ void tst_qquickpositioners::test_mirroring()
         rootB->setProperty("testRightToLeft", true); // layoutDirection: Qt.RightToLeft
 
         // LTR == RTL + mirror
-        foreach (const QString objectName, objectNames) {
+        for (const QString &objectName : std::as_const(objectNames)) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -4027,7 +4028,7 @@ void tst_qquickpositioners::matchItemsAndIndexes(const QVariantMap &items, const
         QCOMPARE(it.value().typeId(), QMetaType::Int);
         QString name = it.key();
         int itemIndex = it.value().toInt();
-        QVERIFY2(expectedIndexes.contains(itemIndex), QTest::toString(QString("Index %1 not found in expectedIndexes").arg(itemIndex)));
+        QVERIFY2(expectedIndexes.contains(itemIndex), qPrintable(QString("Index %1 not found in expectedIndexes").arg(itemIndex)));
         if (model.name(itemIndex) != name)
             qDebug() << itemIndex;
         QCOMPARE(model.name(itemIndex), name);
@@ -4042,8 +4043,8 @@ void tst_qquickpositioners::matchItemLists(const QVariantList &itemLists, const 
         QVariantList current = itemLists[i].toList();
         for (int j=0; j<current.size(); j++) {
             QQuickItem *o = qobject_cast<QQuickItem*>(current[j].value<QObject*>());
-            QVERIFY2(o, QTest::toString(QString("Invalid actual item at %1").arg(j)));
-            QVERIFY2(expectedItems.contains(o), QTest::toString(QString("Cannot match item %1").arg(j)));
+            QVERIFY2(o, qPrintable(QString("Invalid actual item at %1").arg(j)));
+            QVERIFY2(expectedItems.contains(o), qPrintable(QString("Cannot match item %1").arg(j)));
         }
         QCOMPARE(current.size(), expectedItems.size());
     }

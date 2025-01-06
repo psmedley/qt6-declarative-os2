@@ -1,5 +1,5 @@
 // Copyright (C) 2020 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #ifndef TST_QMLDOMITEM_H
 #define TST_QMLDOMITEM_H
@@ -28,7 +28,7 @@ QT_BEGIN_NAMESPACE
 namespace QQmlJS {
 namespace Dom {
 
-inline DomItem wrapInt(DomItem &self, const PathEls::PathComponent &p, const int &i)
+inline DomItem wrapInt(const DomItem &self, const PathEls::PathComponent &p, const int &i)
 {
     return self.subDataItem(p, i);
 }
@@ -56,8 +56,9 @@ private slots:
         qmltypeDirs = QStringList({ baseDir, QLibraryInfo::path(QLibraryInfo::QmlImportsPath) });
         universePtr =
                 std::shared_ptr<DomUniverse>(new DomUniverse(QStringLiteral(u"dummyUniverse")));
-        envPtr = std::shared_ptr<DomEnvironment>(new DomEnvironment(
-                QStringList(), DomEnvironment::Option::SingleThreaded, universePtr));
+        envPtr = std::shared_ptr<DomEnvironment>(
+                new DomEnvironment(QStringList(), DomEnvironment::Option::SingleThreaded,
+                                   DomCreationOption::None, universePtr));
         env = DomItem(envPtr);
         testOwnerPtr = std::shared_ptr<MockOwner>(new MockOwner(
                 Path::Root(u"env").field(u"testOwner"), 0,
@@ -368,7 +369,7 @@ private slots:
         auto tOwner3 = tOwner.path(u"$env.testOwner");
         QCOMPARE(tOwner3.internalKind(), DomType::MockOwner);
         QList<qint64> values;
-        tOwner.visitTree(Path(), [&values](Path p, DomItem i, bool) {
+        tOwner.visitTree(Path(), [&values](const Path &p, DomItem i, bool) {
             if (i.pathFromOwner() != p)
                 myErrors()
                         .error(QStringLiteral(u"unexpected path %1 %2")
@@ -408,18 +409,15 @@ private slots:
                 qmltypeDirs,
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
-                univPtr));
+                DomCreationOption::None, univPtr));
         QQmlJS::Dom::DomItem env(envPtr);
         QVERIFY(env);
         QString testFile1 = baseDir + QLatin1String("/test1.qml");
         DomItem tFile;
-        // env.loadBuiltins();
-        env.loadFile(
-                FileToLoad::fromFileSystem(envPtr, testFile1),
-                [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; },
-                LoadOption::DefaultLoad);
-        env.loadFile(FileToLoad::fromFileSystem(envPtr, baseDir), {}, LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile1),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; });
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, baseDir), {});
+        envPtr->loadPendingDependencies();
 
         QVERIFY(tFile);
         tFile = tFile.field(Fields::currentItem);
@@ -429,7 +427,7 @@ private slots:
         DomItem obj1 = comp1.field(Fields::objects).index(0);
         QVERIFY(obj1);
 
-        tFile.visitTree(Path(), [&tFile](Path p, DomItem i, bool) {
+        tFile.visitTree(Path(), [&tFile](const Path &p, DomItem i, bool) {
             if (!(i == i.path(i.canonicalPath()))) {
                 DomItem i2 = i.path(i.canonicalPath());
                 qDebug() << p << i.canonicalPath() << i.internalKindStr() << i2.internalKindStr()
@@ -494,18 +492,16 @@ private slots:
         auto univPtr = std::shared_ptr<QQmlJS::Dom::DomUniverse>(
                 new QQmlJS::Dom::DomUniverse(QLatin1String("univ1")));
         auto envPtr = std::shared_ptr<QQmlJS::Dom::DomEnvironment>(new QQmlJS::Dom::DomEnvironment(
-                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, univPtr));
+                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, {}, univPtr));
         QQmlJS::Dom::DomItem env(envPtr);
         QVERIFY(env);
         QString testFile1 = baseDir + QLatin1String("/test1.qml");
         DomItem tFile;
-        env.loadBuiltins();
-        env.loadFile(
-                FileToLoad::fromFileSystem(envPtr, testFile1),
-                [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; },
-                LoadOption::DefaultLoad);
-        env.loadFile(FileToLoad::fromFileSystem(envPtr, baseDir), {}, LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadBuiltins();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile1),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; });
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, baseDir), {});
+        envPtr->loadPendingDependencies();
 
         QVERIFY(tFile);
         tFile = tFile.field(Fields::currentItem);
@@ -536,13 +532,13 @@ private slots:
             QList<DomItem> rects;
             obj1.resolve(
                     Path::Current(PathCurrent::Lookup).field(Fields::type).key(u"Rectangle"_s),
-                    [&rects](Path, DomItem &el) {
+                    [&rects](Path, const DomItem &el) {
                         rects.append(el);
                         return true;
                     },
                     {});
             QVERIFY(rects.size() == 1);
-            for (DomItem &el : rects) {
+            for (const DomItem &el : rects) {
                 QCOMPARE(rect.first(), el);
             }
         }
@@ -552,6 +548,13 @@ private slots:
             Path p2 = Paths::qmlFileObjectPath(fPath2);
             DomItem f2 = env.path(p2);
             QVERIFY2(f2, "Directory dependencies did not load MySingleton.qml");
+        }
+        {
+            QString fPath = tFile.canonicalFilePath();
+            QString fPath2 = fPath.mid(0, fPath.lastIndexOf(u'/')) % u"/ImportMeImplicitly.ui.qml";
+            Path p2 = Paths::qmlFileObjectPath(fPath2);
+            DomItem f2 = env.path(p2);
+            QVERIFY2(f2, "Directory dependencies did not load .ui.qml file!");
         }
     }
 
@@ -563,17 +566,17 @@ private slots:
         using namespace Qt::StringLiterals;
 
         QString testFile1 = baseDir + QLatin1String("/TestImports.qml");
-        DomItem env = DomEnvironment::create(
+        auto envPtr = DomEnvironment::create(
                 QStringList(),
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
 
         DomItem tFile;
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), testFile1),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile1),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) {
+                             tFile = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         QVERIFY(tFile);
         QList<QmlUri> importedModules;
@@ -606,17 +609,15 @@ private slots:
     {
         QString testFile = baseDir + QLatin1String("/test1.qml");
 
-        DomItem env = DomEnvironment::create(
+        auto envPtr = DomEnvironment::create(
                 qmltypeDirs,
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
 
         DomItem tFile; // place where to store the loaded file
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), testFile),
-                [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; });
+        envPtr->loadPendingDependencies();
         DomItem f = tFile.fileObject();
         QString dump1;
         f.dump([&dump1](QStringView v) { dump1.append(v); });
@@ -631,6 +632,7 @@ private slots:
         if (!diffs.isEmpty())
             qDebug() << "testDeepCopy.diffs:" << diffs;
         QVERIFY(diffs.isEmpty());
+        DomItem env(envPtr);
         DomItem univFile = env.universe().path(f.canonicalPath());
         MutableDomItem univFileCopy = univFile.makeCopy();
         QStringList univFileDiffs =
@@ -650,11 +652,12 @@ private slots:
     void testInMemory()
     {
         DomItem res = DomItem::fromCode("MyItem{}");
+        QCOMPARE(res.qmlObject(GoTo::Strict), DomItem());
         DomItem obj = res.qmlObject(GoTo::MostLikely);
         QCOMPARE(obj.name(), u"MyItem");
     }
 
-    static void checkAliases(DomItem &qmlObj)
+    static void checkAliases(const DomItem &qmlObj)
     {
         using namespace Qt::StringLiterals;
 
@@ -719,7 +722,7 @@ private slots:
                 }
                 ++i;
             }
-            for (DomItem obj : qmlObj.children().values()) {
+            for (const DomItem &obj : qmlObj.children().values()) {
                 if (obj.as<QmlObject>())
                     checkAliases(obj);
             }
@@ -739,17 +742,17 @@ private slots:
 
         QFETCH(QString, inFile);
         QString testFile1 = baseDir + u"/"_s + inFile;
-        DomItem env = DomEnvironment::create(
+        auto envPtr = DomEnvironment::create(
                 QStringList(),
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
 
         DomItem tFile;
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), testFile1),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile1),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) {
+                             tFile = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         DomItem rootObj = tFile.qmlObject(GoTo::MostLikely);
         checkAliases(rootObj);
@@ -761,17 +764,18 @@ private slots:
 
         QString testFile = baseDir + u"/inlineComponents.qml"_s;
 
-        DomItem env = DomEnvironment::create(
+        DomCreationOptions options{ DomCreationOption::WithScriptExpressions };
+        auto envPtr = DomEnvironment::create(
                 QStringList(),
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies, options);
 
         DomItem tFile;
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), testFile),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) {
+                             tFile = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         auto rootQmlObject = tFile.rootQmlObject(GoTo::MostLikely);
 
@@ -782,6 +786,13 @@ private slots:
 
         QCOMPARE(ic3.size(), 1);
         QCOMPARE(ic3.front().name(), "inlineComponents.IC3");
+        QCOMPARE(ic3.front().field(Fields::nameIdentifiers).internalKind(), DomType::ScriptType);
+        QCOMPARE(ic3.front()
+                         .field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .value()
+                         .toString(),
+                 u"IC3"_s);
 
         auto ic1 = rootQmlObject.lookup("IC1", LookupType::Type, LookupOption::Normal,
                                         [](const ErrorMessage &) {});
@@ -795,17 +806,17 @@ private slots:
         using namespace Qt::StringLiterals;
         QString testFile = baseDir + u"/inlineObject.qml"_s;
 
-        DomItem env = DomEnvironment::create(
+        auto envPtr = DomEnvironment::create(
                 QStringList(),
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
 
         DomItem tFile;
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), testFile),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFile),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) {
+                             tFile = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         auto rootQmlObject = tFile.rootQmlObject(GoTo::MostLikely);
 
@@ -856,17 +867,17 @@ private slots:
 
         DomItem tFile;
 
-        DomItem env = DomEnvironment::create(
+        auto envPtr = DomEnvironment::create(
                 importPaths,
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+                WithSemanticAnalysis);
 
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), fileName,
-                                           WithSemanticAnalysis),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, fileName),
+                         [&tFile](Path, const DomItem &, const DomItem &newIt) {
+                             tFile = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         auto root = tFile.rootQmlObject(GoTo::MostLikely);
 
@@ -875,57 +886,10 @@ private slots:
             QVERIFY(rootQmlObject);
             auto rootScope = rootQmlObject->semanticScope();
             QVERIFY(rootScope);
-            QVERIFY(rootScope.value()->hasOwnProperty("myInt"));
-            QVERIFY(rootScope.value()->hasOwnProperty("myInt2"));
-            QVERIFY(rootScope.value()->hasOwnPropertyBindings("myInt"));
-            QVERIFY(rootScope.value()->hasOwnPropertyBindings("myInt2"));
-        }
-    }
-
-    void domConstructionTime_data()
-    {
-        QTest::addColumn<QString>("fileName");
-        QTest::addColumn<DomCreationOptions>("withScope");
-
-        DomCreationOptions withScope = DomCreationOption::WithSemanticAnalysis;
-        DomCreationOptions noScope = DomCreationOption::None;
-        DomCreationOptions withScopeAndScriptExpressions;
-        withScopeAndScriptExpressions.setFlag(DomCreationOption::WithSemanticAnalysis);
-        withScopeAndScriptExpressions.setFlag(DomCreationOption::WithScriptExpressions);
-
-        QTest::addRow("tiger.qml") << baseDir + u"/longQmlFile.qml"_s << noScope;
-        QTest::addRow("tiger.qml-with-scope") << baseDir + u"/longQmlFile.qml"_s << withScope;
-        QTest::addRow("tiger.qml-with-scope-and-scriptexpressions")
-                << baseDir + u"/longQmlFile.qml"_s << withScopeAndScriptExpressions;
-
-        QTest::addRow("deeplyNested.qml") << baseDir + u"/deeplyNested.qml"_s << noScope;
-        QTest::addRow("deeplyNested.qml-with-scope")
-                << baseDir + u"/deeplyNested.qml"_s << withScope;
-        QTest::addRow("deeplyNested.qml-with-scope-and-scriptexpressions")
-                << baseDir + u"/deeplyNested.qml"_s << withScopeAndScriptExpressions;
-    }
-
-    void domConstructionTime()
-    {
-        QFETCH(QString, fileName);
-        QFETCH(DomCreationOptions, withScope);
-
-        const QStringList importPaths = {
-            QLibraryInfo::path(QLibraryInfo::QmlImportsPath),
-        };
-
-        DomItem tFile;
-        QBENCHMARK {
-            DomItem env = DomEnvironment::create(
-                    importPaths,
-                    QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                            | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
-
-            env.loadFile(
-                    FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), fileName, withScope),
-                    [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                    LoadOption::DefaultLoad);
-            env.loadPendingDependencies();
+            QVERIFY(rootScope->hasOwnProperty("myInt"));
+            QVERIFY(rootScope->hasOwnProperty("myInt2"));
+            QVERIFY(rootScope->hasOwnPropertyBindings("myInt"));
+            QVERIFY(rootScope->hasOwnPropertyBindings("myInt2"));
         }
     }
 
@@ -995,16 +959,16 @@ private slots:
         // This block should have a semantic scope that defines sum and helloWorld
         auto blockSemanticScope = block.semanticScope();
         QVERIFY(blockSemanticScope);
-        QVERIFY(*blockSemanticScope);
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"sum"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"helloWorld"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"a"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"b"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"aa"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"bb"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"bool1"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"bool2"_s));
-        QVERIFY(blockSemanticScope.value()->JSIdentifier(u"nullVar"_s));
+        QVERIFY(blockSemanticScope);
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"sum"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"helloWorld"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"a"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"b"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"aa"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"bb"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"bool1"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"bool2"_s));
+        QVERIFY(blockSemanticScope->ownJSIdentifier(u"nullVar"_s));
         DomItem statements = block.field(Fields::statements);
         QCOMPARE(statements.indexes(), 8);
 
@@ -1132,7 +1096,6 @@ private slots:
         DomItem block = rootQmlObject.path(".methods[\"conditional\"][0].body.scriptElement");
         auto blockSemanticScope = block.semanticScope();
         QVERIFY(blockSemanticScope);
-        QVERIFY(*blockSemanticScope);
 
         DomItem statements = block.field(Fields::statements);
         QCOMPARE(statements.indexes(), 5);
@@ -1198,7 +1161,6 @@ private slots:
             DomItem consequence = conditional.field(Fields::consequence);
             auto blockSemanticScope = consequence.semanticScope();
             QVERIFY(blockSemanticScope);
-            QVERIFY(*blockSemanticScope);
 
             QCOMPARE(consequence.internalKind(), DomType::ScriptBlockStatement);
             QCOMPARE(consequence.field(Fields::statements).indexes(), 1);
@@ -1240,7 +1202,6 @@ private slots:
                 DomItem alternative = conditional.field(Fields::alternative);
                 auto blockSemanticScope = alternative.semanticScope();
                 QVERIFY(blockSemanticScope);
-                QVERIFY(*blockSemanticScope);
 
                 QCOMPARE(alternative.internalKind(), DomType::ScriptBlockStatement);
                 QCOMPARE(alternative.field(Fields::statements).indexes(), 1);
@@ -1344,7 +1305,6 @@ private slots:
             QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
             auto blockSemanticScope = body.semanticScope();
             QVERIFY(blockSemanticScope);
-            QVERIFY(*blockSemanticScope);
 
             DomItem statementList = body.field(Fields::statements);
             QCOMPARE(statementList.indexes(), 2);
@@ -1626,6 +1586,8 @@ private slots:
             QCOMPARE(functionFs.indexes(), 1);
             DomItem functionF = functionFs.index(0);
 
+            QVERIFY(!functionF.semanticScope().isNull());
+            QVERIFY(functionF.semanticScope()->ownJSIdentifier("helloF").has_value());
             DomItem parameters = functionF.field(Fields::parameters);
             std::vector<QString> parameterNames = {
                 u"q"_s, u"w"_s, u"e"_s, u"r"_s, u"t"_s, u"y"_s
@@ -1644,6 +1606,8 @@ private slots:
                     rootQmlObject.field(Fields::methods).key(u"fWithDefault");
             QCOMPARE(functionFWithDefaults.indexes(), 1);
             DomItem functionFWithDefault = functionFWithDefaults.index(0);
+            QVERIFY(!functionFWithDefault.semanticScope().isNull());
+            QVERIFY(functionFWithDefault.semanticScope()->ownJSIdentifier(u"helloFWithDefault"_s));
             DomItem parameters = functionFWithDefault.field(Fields::parameters);
 
             const std::vector<QString> parameterNames = { u"q"_s, u"w"_s, u"e"_s,
@@ -1673,6 +1637,8 @@ private slots:
             // note: no need to check the inside of ScriptObject and ScriptArray as those are
             // already tested in deconstruction().
             DomItem method = rootQmlObject.field(Fields::methods).key(u"evil"_s).index(0);
+            QVERIFY(!method.semanticScope().isNull());
+            QVERIFY(method.semanticScope()->ownJSIdentifier("helloEvil").has_value());
             DomItem parameters = method.field(Fields::parameters);
             QCOMPARE(parameters.indexes(), 3);
 
@@ -1713,6 +1679,8 @@ private slots:
         }
         {
             DomItem method = rootQmlObject.field(Fields::methods).key(u"marmelade"_s).index(0);
+            QVERIFY(!method.semanticScope().isNull());
+            QVERIFY(method.semanticScope()->ownJSIdentifier(u"helloMarmelade"_s));
             DomItem parameters = method.field(Fields::parameters);
             QCOMPARE(parameters.indexes(), 1);
             {
@@ -1724,6 +1692,8 @@ private slots:
         }
         {
             DomItem method = rootQmlObject.field(Fields::methods).key(u"marmelade2"_s).index(0);
+            QVERIFY(!method.semanticScope().isNull());
+            QVERIFY(method.semanticScope()->ownJSIdentifier(u"helloMarmelade2"_s));
             DomItem parameters = method.field(Fields::parameters);
             QCOMPARE(parameters.indexes(), 3);
             {
@@ -1735,6 +1705,9 @@ private slots:
         }
         {
             DomItem method = rootQmlObject.field(Fields::methods).key(u"withTypes"_s).index(0);
+            QVERIFY(!method.semanticScope().isNull());
+            QCOMPARE(method.semanticScope()->scopeType(),
+                     QQmlJSScope::ScopeType::JSFunctionScope);
             DomItem parameters = method.field(Fields::parameters);
             QCOMPARE(parameters.indexes(), 2);
             QCOMPARE(parameters.index(0)
@@ -1753,6 +1726,18 @@ private slots:
                              .value()
                              .toString(),
                      "MyType");
+        }
+        {
+            DomItem method = rootQmlObject.field(Fields::methods).key(u"empty"_s).index(0);
+            QVERIFY(!method.semanticScope().isNull());
+            QCOMPARE(method.semanticScope()->scopeType(),
+                     QQmlJSScope::ScopeType::JSFunctionScope);
+        }
+        {
+            DomItem method = rootQmlObject.field(Fields::methods).key(u"mySignal"_s).index(0);
+            // signals contain the scope of the QML object owning them
+            QVERIFY(!method.semanticScope().isNull());
+            QCOMPARE(method.semanticScope()->scopeType(), QQmlJSScope::ScopeType::QMLScope);
         }
     }
 
@@ -1846,12 +1831,631 @@ private slots:
         }
     }
 
+    void switchStatement()
+    {
+        using namespace Qt::StringLiterals;
+        QString testFile = baseDir + u"/switchStatement.qml"_s;
+        DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        QVERIFY(rootQmlObject);
+
+        {
+            DomItem statements = rootQmlObject.methods()
+                                         .key(u"switchStatement")
+                                         .index(0)
+                                         .field(Fields::body)
+                                         .field(Fields::scriptElement)
+                                         .field(Fields::statements);
+            QVERIFY(statements);
+            QCOMPARE(statements.index(0).internalKind(), DomType::ScriptVariableDeclaration);
+            QCOMPARE(statements.index(1).internalKind(), DomType::ScriptVariableDeclaration);
+
+            DomItem firstSwitch = statements.index(2);
+            QVERIFY(firstSwitch);
+            QCOMPARE(firstSwitch.internalKind(), DomType::ScriptSwitchStatement);
+            QCOMPARE(firstSwitch.field(Fields::caseBlock).internalKind(), DomType::ScriptCaseBlock);
+            QCOMPARE(firstSwitch.field(Fields::expression).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(firstSwitch.field(Fields::expression)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"animals");
+
+            DomItem caseClauses = firstSwitch.field(Fields::caseBlock).field(Fields::caseClauses);
+            QVERIFY(caseClauses);
+            QCOMPARE(caseClauses.index(0).internalKind(), DomType::ScriptCaseClause);
+            QCOMPARE(caseClauses.index(0).field(Fields::expression).internalKind(),
+                     DomType::ScriptLiteral);
+            QCOMPARE(caseClauses.index(0).field(Fields::expression).value().toString(), u"cat");
+
+            DomItem innerSwitch = caseClauses.index(0).field(Fields::statements).index(0);
+            QVERIFY(innerSwitch);
+            QCOMPARE(innerSwitch.internalKind(), DomType::ScriptSwitchStatement);
+            QCOMPARE(innerSwitch.field(Fields::expression).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(innerSwitch.field(Fields::expression).value().toString(), u"no");
+
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(0)
+                             .internalKind(),
+                     DomType::ScriptCaseClause);
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(0)
+                             .field(Fields::expression)
+                             .internalKind(),
+                     DomType::ScriptLiteral);
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(0)
+                             .field(Fields::expression)
+                             .value()
+                             .toInteger(),
+                     0);
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(0)
+                             .field(Fields::statements)
+                             .index(0)
+                             .field(Fields::expression)
+                             .value()
+                             .toString(),
+                     u"patron");
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(1)
+                             .internalKind(),
+                     DomType::ScriptCaseClause);
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::caseClauses)
+                             .index(1)
+                             .field(Fields::statements)
+                             .index(0)
+                             .field(Fields::expression)
+                             .value()
+                             .toString(),
+                     u"mafik");
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::defaultClause)
+                             .internalKind(),
+                     DomType::ScriptDefaultClause);
+            QCOMPARE(innerSwitch.field(Fields::caseBlock)
+                             .field(Fields::defaultClause)
+                             .field(Fields::statements)
+                             .index(0)
+                             .field(Fields::expression)
+                             .value()
+                             .toString(),
+                     u"none");
+
+            // case "dog"
+            DomItem caseDogBlock = firstSwitch.field(Fields::caseBlock)
+                                           .field(Fields::caseClauses)
+                                           .index(1)
+                                           .field(Fields::statements)
+                                           .index(0);
+            QVERIFY(caseDogBlock);
+            // Check if semantic scope is correctly created for the CaseClause
+            auto blockSemanticScope = caseDogBlock.semanticScope();
+            QVERIFY(blockSemanticScope);
+            QVERIFY(blockSemanticScope->ownJSIdentifier(u"name"_s));
+            QVERIFY(blockSemanticScope->ownJSIdentifier(u"another"_s));
+
+            // Default clause
+            DomItem defaultClause =
+                    firstSwitch.field(Fields::caseBlock).field(Fields::defaultClause);
+            QVERIFY(defaultClause);
+            QCOMPARE(defaultClause.internalKind(), DomType::ScriptDefaultClause);
+            QCOMPARE(defaultClause.field(Fields::statements).index(0).internalKind(),
+                     DomType::ScriptReturnStatement);
+            QCOMPARE(defaultClause.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::expression)
+                             .internalKind(),
+                     DomType::ScriptLiteral);
+            QCOMPARE(defaultClause.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::expression)
+                             .value()
+                             .toString(),
+                     u"monster");
+
+            // case "moreCases!"
+            const DomItem moreCases = firstSwitch.field(Fields::caseBlock)
+                                            .field(Fields::moreCaseClauses)
+                                            .index(0)
+                                            .field(Fields::statements)
+                                            .index(0);
+
+            QCOMPARE(moreCases.internalKind(),
+                     DomType::ScriptReturnStatement);
+            QCOMPARE(moreCases.field(Fields::expression).value().toString(), u"moreCaseClauses?");
+        }
+    }
+
+    void iterationStatements()
+    {
+        using namespace Qt::StringLiterals;
+        QString testFile = baseDir + u"/iterationStatements.qml"_s;
+        DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+
+        QVERIFY(rootQmlObject);
+        DomItem methods = rootQmlObject.methods();
+        QVERIFY(methods);
+
+        {
+            // while statement
+            DomItem whileTest = methods.key("whileStatement")
+                                        .index(0)
+                                        .field(Fields::body)
+                                        .field(Fields::scriptElement)
+                                        .field(Fields::statements)
+                                        .index(1);
+            QVERIFY(whileTest);
+            QCOMPARE(whileTest.internalKind(), DomType::ScriptWhileStatement);
+            auto whileScope = whileTest.semanticScope();
+            QVERIFY(whileScope);
+            DomItem whileBody = whileTest.field(Fields::body);
+            QVERIFY(whileBody);
+            QCOMPARE(whileBody.internalKind(), DomType::ScriptBlockStatement);
+            auto scope = whileBody.semanticScope();
+            QVERIFY(scope);
+            QCOMPARE(whileBody.field(Fields::statements).index(0).internalKind(),
+                     DomType::ScriptBinaryExpression); // i = i - 1
+            QCOMPARE(
+                    whileBody.field(Fields::statements).index(0).field(Fields::left).internalKind(),
+                    DomType::ScriptIdentifierExpression);
+            QCOMPARE(whileBody.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::left)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"i");
+            DomItem whileExpression = whileTest.field(Fields::expression);
+            QVERIFY(whileExpression);
+            QCOMPARE(whileExpression.internalKind(), DomType::ScriptBinaryExpression); // i > 0
+            QCOMPARE(whileExpression.field(Fields::left).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(whileExpression.field(Fields::left)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"i");
+            QCOMPARE(whileExpression.field(Fields::right).internalKind(), DomType::ScriptLiteral);
+            QCOMPARE(whileExpression.field(Fields::right)
+                             .field(Fields::identifier)
+                             .value()
+                             .toInteger(),
+                     0);
+
+            DomItem singleLineWhile = methods.key("whileStatement")
+                                              .index(0)
+                                              .field(Fields::body)
+                                              .field(Fields::scriptElement)
+                                              .field(Fields::statements)
+                                              .index(2);
+            QVERIFY(singleLineWhile);
+            QCOMPARE(singleLineWhile.internalKind(), DomType::ScriptWhileStatement);
+            DomItem singleLineWhileBody = singleLineWhile.field(Fields::body);
+            QVERIFY(singleLineWhileBody);
+            QCOMPARE(singleLineWhileBody.internalKind(), DomType::ScriptBinaryExpression);
+            auto singleLineWhileScope = singleLineWhile.semanticScope();
+            QVERIFY(singleLineWhileScope);
+            QVERIFY(singleLineWhileScope->jsIdentifier("i")); // i is in the parent scope
+        }
+
+        {
+            // do-while statement
+            DomItem doWhile = methods.key("doWhile")
+                                      .index(0)
+                                      .field(Fields::body)
+                                      .field(Fields::scriptElement)
+                                      .field(Fields::statements)
+                                      .index(1);
+            QVERIFY(doWhile);
+            QCOMPARE(doWhile.internalKind(), DomType::ScriptDoWhileStatement);
+
+            auto doWhileScope = doWhile.semanticScope();
+            QVERIFY(doWhileScope);
+            DomItem doWhileBody = doWhile.field(Fields::body);
+            QVERIFY(doWhileBody);
+            auto doWhileBodyScope = doWhileBody.semanticScope();
+            QVERIFY(doWhileBodyScope);
+            QVERIFY(doWhileBodyScope->ownJSIdentifier("b")); // const b = a
+            QCOMPARE(doWhileBody.internalKind(), DomType::ScriptBlockStatement);
+            QCOMPARE(doWhileBody.field(Fields::statements).index(0).internalKind(),
+                     DomType::ScriptVariableDeclaration); // const b = a
+            QCOMPARE(doWhileBody.field(Fields::statements).index(1).internalKind(),
+                     DomType::ScriptBinaryExpression); // a = a - 1
+
+            DomItem doWhileExpression = doWhile.field(Fields::expression);
+            QVERIFY(doWhileExpression);
+            QCOMPARE(doWhileExpression.internalKind(), DomType::ScriptBinaryExpression); // a > 0
+            QCOMPARE(doWhileExpression.field(Fields::left).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(doWhileExpression.field(Fields::left)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"a");
+            QCOMPARE(doWhileExpression.field(Fields::right).internalKind(), DomType::ScriptLiteral);
+            QCOMPARE(doWhileExpression.field(Fields::right)
+                             .field(Fields::identifier)
+                             .value()
+                             .toInteger(),
+                     0);
+            DomItem singleDoWhile = methods.key("doWhile")
+                                            .index(0)
+                                            .field(Fields::body)
+                                            .field(Fields::scriptElement)
+                                            .field(Fields::statements)
+                                            .index(2);
+            auto singleDoWhileScope = singleDoWhile.semanticScope();
+            QVERIFY(singleDoWhileScope);
+            QVERIFY(singleDoWhileScope->jsIdentifier("a")); // a = a - 1
+        }
+
+        {
+            // for..of
+            DomItem statements = methods.key("forOf")
+                                         .index(0)
+                                         .field(Fields::body)
+                                         .field(Fields::scriptElement)
+                                         .field(Fields::statements);
+            QVERIFY(statements);
+            QCOMPARE(statements.index(0).internalKind(), DomType::ScriptVariableDeclaration);
+            DomItem outerForEach = statements.index(1);
+            QVERIFY(outerForEach);
+            QCOMPARE(outerForEach.internalKind(), DomType::ScriptForEachStatement);
+            DomItem bindingElements =
+                    outerForEach.field(Fields::bindingElement).field(Fields::bindingElement);
+            QVERIFY(bindingElements);
+            QCOMPARE(bindingElements.internalKind(), DomType::ScriptArray);
+            QCOMPARE(bindingElements.field(Fields::elements).length(), 2);
+            QCOMPARE(bindingElements.field(Fields::elements)
+                             .index(1)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "b");
+            QCOMPARE(outerForEach.field(Fields::expression).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(outerForEach.field(Fields::expression)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"iterable");
+            DomItem forEachStatements = outerForEach.field(Fields::body).field(Fields::statements);
+            QCOMPARE(forEachStatements.index(0).internalKind(), DomType::ScriptVariableDeclaration);
+            QCOMPARE(forEachStatements.index(1).internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(forEachStatements.index(2).internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(forEachStatements.index(3).internalKind(), DomType::ScriptForEachStatement);
+            DomItem firstForEach = forEachStatements.index(1);
+            QVERIFY(firstForEach);
+            DomItem bindingElement =
+                    firstForEach.field(Fields::bindingElement).field(Fields::bindingElement);
+            QCOMPARE(bindingElement.internalKind(), DomType::ScriptArray);
+
+            QCOMPARE(bindingElement.field(Fields::elements).length(), 4);
+            QCOMPARE(bindingElement.field(Fields::elements)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "a1");
+            DomItem secondForEach = forEachStatements.index(2);
+            QCOMPARE(secondForEach.field(Fields::bindingElement).internalKind(),
+                     DomType::ScriptPattern);
+            QCOMPARE(secondForEach.field(Fields::bindingElement)
+                             .field(Fields::identifier)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "k");
+            QCOMPARE(secondForEach.internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(secondForEach.field(Fields::expression).internalKind(), DomType::ScriptArray);
+            QVERIFY(secondForEach.field(Fields::body));
+            QCOMPARE(secondForEach.field(Fields::body).internalKind(),
+                     DomType::ScriptBlockStatement);
+            DomItem thirdForEach = forEachStatements.index(3);
+            QCOMPARE(thirdForEach.field(Fields::bindingElement).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(thirdForEach.field(Fields::bindingElement).value().toString(), "t");
+
+            QCOMPARE(thirdForEach.internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(thirdForEach.field(Fields::expression).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(thirdForEach.field(Fields::expression)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"a");
+            QVERIFY(thirdForEach.field(Fields::body));
+            QCOMPARE(thirdForEach.field(Fields::body).internalKind(),
+                     DomType::ScriptBlockStatement);
+
+            DomItem forthForEach = forEachStatements.index(3);
+            QVERIFY(forthForEach);
+            auto forthForEachScope = forthForEach.semanticScope();
+            QVERIFY(forthForEachScope);
+            QVERIFY(forthForEachScope->jsIdentifier("t")); // t lives in parent scope
+        }
+
+        {
+            // for..in
+            DomItem statements = methods.key("forIn")
+                                         .index(0)
+                                         .field(Fields::body)
+                                         .field(Fields::scriptElement)
+                                         .field(Fields::statements);
+            QVERIFY(statements);
+            QCOMPARE(statements.index(0).internalKind(), DomType::ScriptVariableDeclaration);
+            DomItem outerForEach = statements.index(1);
+            QVERIFY(outerForEach);
+            auto outerForEachScope = outerForEach.semanticScope();
+            QVERIFY(outerForEachScope);
+            QVERIFY(outerForEachScope->jsIdentifier("a")); // var [a,b,c,d]
+            QVERIFY(outerForEachScope->jsIdentifier("b"));
+            QVERIFY(outerForEachScope->jsIdentifier("c"));
+            QVERIFY(outerForEachScope->jsIdentifier("d"));
+            QCOMPARE(outerForEach.internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(statements.index(1).internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(outerForEach.field(Fields::expression)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "enumerable");
+            auto outerForEachBodyScope = outerForEach.field(Fields::body).semanticScope();
+            QVERIFY(outerForEachBodyScope);
+            QVERIFY(outerForEachBodyScope->ownJSIdentifier("t")); // let t
+            DomItem forInStatements = outerForEach.field(Fields::body).field(Fields::statements);
+            QCOMPARE(forInStatements.index(0).internalKind(), DomType::ScriptVariableDeclaration);
+            QCOMPARE(forInStatements.index(1).internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(forInStatements.index(2).internalKind(), DomType::ScriptForEachStatement);
+            DomItem firstForEach = forInStatements.index(1);
+            QVERIFY(firstForEach);
+            auto firstForEachScope = firstForEach.semanticScope();
+            QVERIFY(firstForEachScope);
+            QVERIFY(firstForEachScope->jsIdentifier("t"));
+            QCOMPARE(firstForEach.field(Fields::bindingElement).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(firstForEach.field(Fields::bindingElement)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "t");
+            QCOMPARE(firstForEach.internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(firstForEach.field(Fields::expression).internalKind(),
+                     DomType::ScriptIdentifierExpression);
+            QCOMPARE(firstForEach.field(Fields::expression)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "enumerable");
+            QVERIFY(firstForEach.field(Fields::body));
+            QCOMPARE(firstForEach.field(Fields::body).internalKind(),
+                     DomType::ScriptBlockStatement);
+
+            DomItem secondForEach = forInStatements.index(2);
+            QVERIFY(secondForEach);
+            auto secondForEachScope = secondForEach.semanticScope();
+            QVERIFY(secondForEachScope);
+            QVERIFY(secondForEachScope->ownJSIdentifier("a1")); // const [a1,,a2,...rest]
+            QVERIFY(secondForEachScope->ownJSIdentifier("a2"));
+            QVERIFY(secondForEachScope->ownJSIdentifier("rest"));
+
+            DomItem bindingElement =
+                    secondForEach.field(Fields::bindingElement).field(Fields::bindingElement);
+            QCOMPARE(bindingElement.internalKind(), DomType::ScriptArray);
+            QCOMPARE(bindingElement.field(Fields::elements)
+                             .index(3)
+                             .field(Fields::identifier)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     "rest");
+            QCOMPARE(secondForEach.internalKind(), DomType::ScriptForEachStatement);
+            QCOMPARE(secondForEach.field(Fields::expression).internalKind(),
+                     DomType::ScriptBinaryExpression);
+            QVERIFY(secondForEach.field(Fields::body));
+            QCOMPARE(secondForEach.field(Fields::body).internalKind(),
+                     DomType::ScriptBlockStatement);
+            DomItem thirdForEach = forInStatements.index(3);
+            QVERIFY(thirdForEach);
+            auto thirdForEachScope = thirdForEach.semanticScope();
+            QVERIFY(thirdForEachScope);
+            QVERIFY(thirdForEachScope->ownJSIdentifier("t"));
+        }
+    }
+
     void doNotCrashEcmaScriptClass()
     {
         using namespace Qt::StringLiterals;
         QString testFile = baseDir + u"/ecmaScriptClass.qml"_s;
         DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
         QVERIFY(rootQmlObject);
+    }
+
+    void bindingAttachedOrGroupedProperties()
+    {
+        using namespace Qt::StringLiterals;
+        QString testFile = baseDir + u"/attachedOrGroupedProperties.qml"_s;
+        DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        QVERIFY(rootQmlObject);
+
+        DomItem dotNotation = rootQmlObject.path(u".children[0].bindings[\"grouped.font.family\"][0].bindingIdentifiers");
+        QVERIFY(dotNotation);
+        QCOMPARE(dotNotation.internalKind(), DomType::ScriptBinaryExpression);
+        QCOMPARE(dotNotation.field(Fields::left).internalKind(), DomType::ScriptBinaryExpression);
+        QCOMPARE(dotNotation.field(Fields::right).field(Fields::identifier).value().toString(), u"family");
+        QCOMPARE(dotNotation.field(Fields::right).internalKind(), DomType::ScriptIdentifierExpression);
+        QCOMPARE(dotNotation.field(Fields::left).field(Fields::left).internalKind(), DomType::ScriptIdentifierExpression);
+        QCOMPARE(dotNotation.field(Fields::left).field(Fields::left).field(Fields::identifier).value().toString(), u"grouped");
+        QCOMPARE(dotNotation.field(Fields::left).field(Fields::right).internalKind(), DomType::ScriptIdentifierExpression);
+        QCOMPARE(dotNotation.field(Fields::left).field(Fields::right).field(Fields::identifier).value().toString(), u"font");
+        auto dotNotationScope = dotNotation.semanticScope();
+        QVERIFY(!dotNotationScope);
+
+        DomItem groupNotationChild1 = rootQmlObject.path(u".children[1].children[0]");
+        QVERIFY(groupNotationChild1);
+        QCOMPARE(groupNotationChild1.internalKind(), DomType::QmlObject);
+        QCOMPARE(groupNotationChild1.field(Fields::name).value().toString(), u"myText");
+        auto myTextScope = groupNotationChild1.semanticScope();
+        QVERIFY(myTextScope);
+        QCOMPARE(myTextScope->scopeType(), QQmlJSScope::ScopeType::GroupedPropertyScope);
+        QVERIFY(myTextScope->hasProperty("font"));
+
+        DomItem groupNotationChild2 = groupNotationChild1.path(u".children[0]");
+        QCOMPARE(groupNotationChild2.internalKind(), DomType::QmlObject);
+        QCOMPARE(groupNotationChild2.field(Fields::name).value().toString(), u"font");
+
+        auto fontScope = groupNotationChild2.semanticScope();
+        QVERIFY(fontScope);
+        QCOMPARE(fontScope->scopeType(), QQmlJSScope::ScopeType::GroupedPropertyScope);
+        QVERIFY(fontScope->hasProperty("pixelSize"));
+
+        DomItem pixelSize = groupNotationChild2.path(u".bindings[\"pixelSize\"][0].bindingIdentifiers");
+        QCOMPARE(pixelSize.internalKind(), DomType::ScriptIdentifierExpression);
+        QCOMPARE(pixelSize.field(Fields::identifier).value().toString(), u"pixelSize");
+
+        DomItem attached = rootQmlObject.path(u".bindings[\"Keys.onPressed\"][0].bindingIdentifiers");
+        QVERIFY(attached);
+        QCOMPARE(attached.internalKind(), DomType::ScriptBinaryExpression);
+        QCOMPARE(attached.field(Fields::left).field(Fields::identifier).value().toString(), u"Keys");
+        QCOMPARE(attached.field(Fields::right).field(Fields::identifier).value().toString(), u"onPressed");
+    }
+
+    void enumDeclarations()
+    {
+        using namespace Qt::StringLiterals;
+        QString testFile = baseDir + u"/enumDeclarations.qml"_s;
+        DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        QVERIFY(fileObject);
+        DomItem enums = fileObject.path(u".components[\"\"][0].enumerations");
+        QVERIFY(enums);
+
+        DomItem catsEnum = enums.key("Cats").index(0);
+        QVERIFY(catsEnum);
+        QCOMPARE(catsEnum.internalKind(), DomType::EnumDecl);
+        QCOMPARE(catsEnum.name(), u"Cats");
+
+        auto values = catsEnum.field(Fields::values);
+        QCOMPARE(values.length(), 3);
+        QCOMPARE(values.index(0).internalKind(), DomType::EnumItem);
+        QCOMPARE(values.index(0).name(), u"Patron");
+        QCOMPARE(values.index(0).field(Fields::value).value().toInteger(), 0);
+        QCOMPARE(values.index(1).internalKind(), DomType::EnumItem);
+        QCOMPARE(values.index(1).name(), u"Mafya");
+        QCOMPARE(values.index(1).field(Fields::value).value().toInteger(), 1);
+        QCOMPARE(values.index(2).internalKind(), DomType::EnumItem);
+        QCOMPARE(values.index(2).name(), u"Kivrik");
+        QCOMPARE(values.index(2).field(Fields::value).value().toInteger(), -1);
+    }
+
+    void tryStatements()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/tryStatements.qml"_s;
+        const DomItem root = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        QVERIFY(root);
+        const DomItem statements = root.path(u".methods[\"f\"][0].body.scriptElement.statements");
+        QCOMPARE(statements.indexes(), 3);
+
+        // test the try blocks
+        for (int i = 0; i < 3; ++i) {
+            const DomItem statement = statements.index(i).field(Fields::block);
+            QVERIFY(statement);
+            QCOMPARE(statement.internalKind(), DomType::ScriptBlockStatement);
+            QCOMPARE(statement.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"insideTry"_s);
+        }
+
+        // test the catch blocks
+        for (int i = 0; i < 3; ++i) {
+            const DomItem statement = statements.index(i).field(Fields::catchBlock);
+            if (i == 2) {
+                QVERIFY(!statement); // no catch in last statement
+                continue;
+            }
+
+            QVERIFY(statement);
+            QCOMPARE(statement.internalKind(), DomType::ScriptBlockStatement);
+            QCOMPARE(statement.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"insideCatch"_s);
+
+            const DomItem expression = statements.index(i).field(Fields::catchParameter);
+            QVERIFY(expression);
+            QCOMPARE(expression.field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"catchExpression"_s);
+        }
+
+        // test the finally blocks
+        for (int i = 0; i < 3; ++i) {
+            const DomItem statement = statements.index(i).field(Fields::finallyBlock);
+            if (i == 1) {
+                QVERIFY(!statement); // no finally in last statement
+                continue;
+            }
+
+            QVERIFY(statement);
+            QCOMPARE(statement.internalKind(), DomType::ScriptBlockStatement);
+            QCOMPARE(statement.field(Fields::statements)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"insideFinally"_s);
+        }
+    }
+
+    void plainJSDOM_data()
+    {
+        QTest::addColumn<QString>("filename");
+        QTest::addColumn<QString>("content");
+
+        QTest::newRow("simplestJSStatement")
+                << "simplestJSStatement.js" << QString(u"let v=1;\n"_s);
+        QTest::newRow("import")
+                << "import.js"
+                << QString(u".import \"main.js\" as Main\nconsole.log(Main.a);\n"_s);
+        QTest::newRow("simplestJSmodule")
+                << "simplestJSmodule.mjs" << QString(u"export function entry() {}\n"_s);
+    }
+
+    // Verifies that DOM can load .js and .mjs files and
+    // parse / store the content inside the ScriptExpression
+    void plainJSDOM()
+    {
+        using namespace Qt::StringLiterals;
+        QFETCH(QString, filename);
+        QFETCH(QString, content);
+
+        QString testFile = baseDir + "/" + filename;
+        auto dom = parse(testFile, qmltypeDirs);
+        QVERIFY(dom);
+        QCOMPARE(dom.internalKind(), DomType::JsFile);
+        auto filePtr = dom.fileObject().ownerAs<JsFile>();
+        QVERIFY(filePtr && filePtr->isValid());
+        auto exprAsString = dom.field(Fields::expression)
+                               .field(Fields::code)
+                               .value()
+                               .toString();
+        QVERIFY(!exprAsString.isEmpty());
+        exprAsString.replace("\r\n", "\n");
+        QCOMPARE(exprAsString, content);
     }
 
 private:
@@ -1865,15 +2469,10 @@ private slots:
     void fileLocations_data()
     {
         QTest::addColumn<QString>("fileName");
-
-        // ignore the very big files for this
-        QSet<QString> blackList = { u"deeplyNested.qml"_s, u"longQmlFile.qml"_s };
-
         QDir dir(baseDir);
         for (const QString &file : dir.entryList(QDir::Files, QDir::Name)) {
-            if (!file.endsWith(".qml") || blackList.contains(file))
+            if (!file.endsWith(".qml"))
                 continue;
-
             QTest::addRow("%s", file.toStdString().c_str()) << baseDir + QDir::separator() + file;
         }
     }
@@ -1906,29 +2505,28 @@ private slots:
                 DomItem childItem = current.item.path(it.key());
                 FileLocations::Tree childTree =
                         std::static_pointer_cast<AttachedInfoT<FileLocations>>(it.value());
+                if (!childItem) {
+                    const auto attachedInfo = FileLocations::findAttachedInfo(current.item);
+                    const DomItem treeItem = current.item.path(attachedInfo.foundTreePath);
+                    qDebug() << current.item.internalKindStr()
+                             << "has incorrect FileLocations! Make sure that "
+                                "finalizeScriptExpression is called with the right arguments. It "
+                                "should print out some debugging information with the "
+                                "qt.qmldom.astcreator.debug logging rule.";
+                    qDebug() << "Current FileLocations has keys:"
+                             << treeItem.field(Fields::subItems).keys()
+                             << "but current Item of type" << current.item.internalKindStr()
+                             << "has fields: " << current.item.fields()
+                             << "and keys: " << current.item.keys()
+                             << "and indexes: " << current.item.indexes();
+                }
                 QVERIFY(childItem.internalKind() != DomType::Empty);
                 queue.push_back({ childItem, childTree });
             }
         }
     }
 
-private:
-    static Path reconstructPathFromFileLocations(DomItem item)
-    {
-        QList<Path> paths;
-        for (FileLocations::Tree current = FileLocations::treeOf(item); current;
-             current = current->parent()) {
-            Q_ASSERT(paths.isEmpty() || FileLocations::find(current, paths.back()));
-            paths.append(current->path());
-        }
-        Path result;
-        for (auto it = paths.crbegin(); it != paths.crend(); ++it) {
-            result = result.path(*it);
-        }
-        return result;
-    }
 private slots:
-
     void finalizeScriptExpressions()
     {
         QString fileName = baseDir + u"/finalizeScriptExpressions.qml"_s;
@@ -1938,11 +2536,12 @@ private slots:
            Check if the path obtained by the filelocations is the same as the DomItem path. Both
            need to be equal to find DomItem's from their location in the source code.
         */
-        auto compareFileLocationsPathWithCanonicalPath = [](DomItem item) {
+        auto compareFileLocationsPathWithCanonicalPath = [](const DomItem &item) {
             Path canonical = item.canonicalPath();
             QVERIFY(canonical.length() > 0);
             if (canonical.length() > 0)
-                QCOMPARE(canonical, reconstructPathFromFileLocations(item));
+                QCOMPARE(canonical.toString(),
+                         FileLocations::treeOf(item)->canonicalPathForTesting());
         };
 
         /*
@@ -1950,6 +2549,9 @@ private slots:
             a) scriptelement is accessible from the DomItem (is it correclty attached?)
             b) scriptelement has the correct path (is its pathFromOwner the path where it was
         attached?)
+
+        For bindings to objects, arrays and scripts, check that the bindingIdentifiers are correctly
+        attached in the Dom.
         */
 
         {
@@ -2024,6 +2626,41 @@ private slots:
             QCOMPARE(scriptElement.pathFromOwner(), Path().field(Fields::scriptElement));
             compareFileLocationsPathWithCanonicalPath(scriptElement);
         }
+
+        {
+            DomItem binding = rootQmlObject.field(Fields::bindings).key("arrayBinding");
+            QCOMPARE(binding.indexes(), 1);
+            QCOMPARE(binding.index(0).field(Fields::value).internalKind(),
+                     DomType::ScriptExpression);
+            QCOMPARE(binding.index(0)
+                             .field(Fields::value)
+                             .field(Fields::scriptElement)
+                             .internalKind(),
+                     DomType::ScriptArray);
+            // Fields::value is in the path of the owner, and therefore should not be in
+            // pathFromOwner!
+            DomItem scriptElement =
+                    binding.index(0).field(Fields::value).field(Fields::scriptElement);
+            QCOMPARE(scriptElement.pathFromOwner(), Path().field(Fields::scriptElement));
+            compareFileLocationsPathWithCanonicalPath(scriptElement);
+            // also check that the left hand side of the binding is correctly attached to the Dom:
+            scriptElement = binding.index(0).field(Fields::bindingIdentifiers);
+            QCOMPARE(scriptElement.pathFromOwner(),
+                     Path::fromString(u".components[\"\"][0].objects[0].bindings[\"arrayBinding\"]["
+                                      u"0].bindingIdentifiers"));
+            compareFileLocationsPathWithCanonicalPath(scriptElement);
+        }
+        {
+            DomItem binding = rootQmlObject.field(Fields::bindings).key("objectBinding");
+            QCOMPARE(binding.indexes(), 1);
+            QCOMPARE(binding.index(0).field(Fields::value).internalKind(), DomType::QmlObject);
+            // check that the left hand side of the binding is correctly attached to the Dom:
+            DomItem scriptElement = binding.index(0).field(Fields::bindingIdentifiers);
+            QCOMPARE(scriptElement.pathFromOwner(),
+                     Path::fromString(u".components[\"\"][0].objects[0].bindings[\"objectBinding\"]["
+                                      u"0].bindingIdentifiers"));
+            compareFileLocationsPathWithCanonicalPath(scriptElement);
+        }
     }
 
     void goToFile()
@@ -2034,54 +2671,113 @@ private slots:
         const QString canonicalFilePathB = QFileInfo(filePathB).canonicalFilePath();
         QVERIFY(!canonicalFilePathB.isEmpty());
 
-        DomItem env = DomEnvironment::create(
-                qmltypeDirs,
-                QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
-
-        DomItem fileA;
-        DomItem fileB;
         DomCreationOptions options;
         options.setFlag(DomCreationOption::WithScriptExpressions);
         options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        auto envPtr = DomEnvironment::create(
+                qmltypeDirs,
+                QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+                options);
 
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), filePathA, options),
-                [&fileA](Path, DomItem &, DomItem &newIt) { fileA = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
+        DomItem fileA;
+        DomItem fileB;
 
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), filePathB, options),
-                [&fileB](Path, DomItem &, DomItem &newIt) { fileB = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, filePathA),
+                         [&fileA](Path, const DomItem &, const DomItem &newIt) {
+                             fileA = newIt.fileObject();
+                         });
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, filePathB),
+                         [&fileB](Path, const DomItem &, const DomItem &newIt) {
+                             fileB = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
 
         QCOMPARE(fileA.goToFile(canonicalFilePathB), fileB);
     }
 
-private:
-    static DomItem rootQmlObjectFromFile(const QString &path, const QStringList &qmltypeDirs)
+    void goUp()
     {
-        DomItem env = DomEnvironment::create(
+        using namespace Qt::StringLiterals;
+        const QString filePath = baseDir + u"/nullStatements.qml"_s;
+        const QString canonicalFilePathB = QFileInfo(filePath).canonicalFilePath();
+        QVERIFY(!canonicalFilePathB.isEmpty());
+
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        auto envPtr = DomEnvironment::create(
                 qmltypeDirs,
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+                options);
 
-        DomItem tFile;
+        DomItem fileA;
+        DomItem fileB;
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, filePath),
+                         [&fileA](Path, const DomItem &, const DomItem &newIt) {
+                             fileA = newIt.fileObject();
+                         });
+
+        envPtr->loadPendingDependencies();
+
+        QCOMPARE(fileA.top().goUp(1), DomItem());
+        QCOMPARE(fileA.top().directParent(), DomItem());
+
+        DomItem component = fileA.field(Fields::components).key(QString()).index(0);
+
+        DomItem forStatement = component.field(Fields::objects)
+                                       .index(0)
+                                       .field(Fields::methods)
+                                       .key(u"testForNull"_s)
+                                       .index(0)
+                                       .field(Fields::body)
+                                       .field(Fields::scriptElement)
+                                       .field(Fields::statements)
+                                       .index(0)
+                                       .field(Fields::body);
+
+        DomItem forStatementBlock = forStatement.field(Fields::statements);
+
+        QCOMPARE(forStatementBlock.directParent(), forStatement);
+        QCOMPARE(forStatementBlock.goUp(1), forStatement);
+        QCOMPARE(forStatementBlock.goUp(11), component);
+
+        QCOMPARE(forStatement.component(GoTo::Strict), component);
+    }
+
+private:
+    static DomItem parse(const QString &path, const QStringList &qmltypeDirs)
+    {
         DomCreationOptions options;
         options.setFlag(DomCreationOption::WithScriptExpressions);
         options.setFlag(DomCreationOption::WithSemanticAnalysis);
 
-        env.loadFile(
-                FileToLoad::fromFileSystem(env.ownerAs<DomEnvironment>(), path, options),
-                [&tFile](Path, DomItem &, DomItem &newIt) { tFile = newIt.fileObject(); },
-                LoadOption::DefaultLoad);
-        env.loadPendingDependencies();
+        auto envPtr = DomEnvironment::create(
+                qmltypeDirs,
+                QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+                options);
 
-        return tFile.rootQmlObject(GoTo::MostLikely);
+        DomItem fileItem;
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, path),
+                         [&fileItem](Path, const DomItem &, const DomItem &newIt) {
+                             fileItem = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
+        return fileItem;
     }
 
-    void fieldMemberExpressionHelper(DomItem &actual, const QStringList &expected)
+    static DomItem rootQmlObjectFromFile(const QString &path, const QStringList &qmltypeDirs)
+    {
+        auto dom = parse(path, qmltypeDirs);
+        return dom.rootQmlObject(GoTo::MostLikely);
+    }
+
+    void fieldMemberExpressionHelper(const DomItem &actual, const QStringList &expected)
     {
         Q_ASSERT(!expected.isEmpty());
         auto currentString = expected.rbegin();
@@ -2097,6 +2793,1556 @@ private:
             QCOMPARE(current.field(Fields::right).field(Fields::identifier).value().toString(),
                      *currentString);
         }
+    }
+
+private slots:
+    void mapsKeyedByFileLocationRegion()
+    {
+        using namespace Qt::StringLiterals;
+        const QString filePath = baseDir + u"/fileLocationRegion.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(filePath, qmltypeDirs);
+        QVERIFY(rootQmlObject);
+
+        // test if preComments map works correctly with DomItem interface
+        const DomItem binding = rootQmlObject.field(Fields::bindings).key(u"helloWorld"_s).index(0);
+        const DomItem bindingRegionComments =
+                binding.field(Fields::comments).field(Fields::regionComments);
+        const DomItem preComments =
+                bindingRegionComments.key(fileLocationRegionName(FileLocationRegion::IdentifierRegion))
+                        .field(Fields::preComments);
+
+        QCOMPARE(preComments.indexes(), 1);
+        QString rawPreComment = preComments.index(0).field(Fields::rawComment).value().toString();
+        QCOMPARE(preComments.index(0)
+                         .field(Fields::rawComment)
+                         .value()
+                         .toString()
+                         // replace weird newlines by \n
+                         .replace("\r\n", "\n")
+                         .replace("\r", "\n"),
+                 u"    // before helloWorld binding\n    "_s);
+
+        // test if postComments map works correctly with DomItem interface
+        const DomItem postComments =
+                bindingRegionComments
+                        .key(fileLocationRegionName(FileLocationRegion::MainRegion))
+                        .field(Fields::postComments);
+        QCOMPARE(postComments.indexes(), 1);
+        QCOMPARE(postComments.index(0)
+                         .field(Fields::rawComment)
+                         .value()
+                         .toString()
+                         // replace the windows newlines by \n
+                         .replace("\r\n", "\n")
+                         .replace("\r", "\n"),
+                 u" // after helloWorld binding\n"_s);
+
+        const auto fileLocations = FileLocations::findAttachedInfo(binding);
+        const DomItem bindingFileLocation =
+                rootQmlObject.path(fileLocations.foundTreePath).field(Fields::infoItem);
+
+        // test if FileLocation Tree map works correctly with DomItem interface
+        QCOMPARE(bindingFileLocation.field(Fields::fullRegion).value(),
+                 bindingFileLocation.field(Fields::regions)
+                         .key(fileLocationRegionName(FileLocationRegion::MainRegion))
+                         .value());
+
+        QCOMPARE(bindingFileLocation.field(Fields::fullRegion).value(),
+                 sourceLocationToQCborValue(fileLocations.foundTree->info().fullRegion));
+
+        QCOMPARE(bindingFileLocation.field(Fields::regions)
+                         .key(fileLocationRegionName(FileLocationRegion::MainRegion))
+                         .value(),
+                 sourceLocationToQCborValue(fileLocations.foundTree->info().regions[MainRegion]));
+
+        QCOMPARE(bindingFileLocation.field(Fields::regions)
+                         .key(fileLocationRegionName(FileLocationRegion::ColonTokenRegion))
+                         .value(),
+                 sourceLocationToQCborValue(fileLocations.foundTree->info().regions[ColonTokenRegion]));
+    }
+
+    // add qml files here that should not crash the dom construction
+    void crashes_data()
+    {
+        QTest::addColumn<QString>("filePath");
+
+        QTest::addRow("inactiveVisitorMarkerCrash")
+                << baseDir + u"/inactiveVisitorMarkerCrash.qml"_s;
+
+        QTest::addRow("templateStrings")
+                << baseDir + u"/crashes/templateStrings.qml"_s;
+
+        QTest::addRow("lambda")
+                << baseDir + u"/crashes/lambda.qml"_s;
+
+        QTest::addRow("bracketsInBinding")
+                << baseDir + u"/crashes/bracketsInBinding.qml"_s;
+    }
+    void crashes()
+    {
+        QFETCH(QString, filePath);
+
+        const DomItem rootQmlObject = rootQmlObjectFromFile(filePath, qmltypeDirs);
+        QVERIFY(rootQmlObject);
+    }
+
+    void continueStatement()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/continueStatement.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        const DomItem block =
+                rootQmlObject.path(".methods[\"f\"][0].body.scriptElement.statements");
+
+        const DomItem firstContinue = block.index(0);
+        QCOMPARE(firstContinue.internalKind(), DomType::ScriptContinueStatement);
+        QCOMPARE(firstContinue.field(Fields::label).value().toString("UNEXISTING"),
+                 u"helloWorld"_s);
+
+        const DomItem secondContinue = block.index(1);
+        QCOMPARE(secondContinue.internalKind(), DomType::ScriptContinueStatement);
+        QCOMPARE(secondContinue.field(Fields::label).internalKind(), DomType::Empty);
+    }
+
+    void breakStatement()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/breakStatement.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        const DomItem block =
+                rootQmlObject.path(".methods[\"f\"][0].body.scriptElement.statements");
+
+        const DomItem firstContinue = block.index(0);
+        QCOMPARE(firstContinue.internalKind(), DomType::ScriptBreakStatement);
+        QCOMPARE(firstContinue.field(Fields::label).value().toString("UNEXISTING"),
+                 u"helloWorld"_s);
+
+        const DomItem secondContinue = block.index(1);
+        QCOMPARE(secondContinue.internalKind(), DomType::ScriptBreakStatement);
+        QCOMPARE(secondContinue.field(Fields::label).internalKind(), DomType::Empty);
+    }
+
+    void emptyMethodBody()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/emptyMethodBody.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        const DomItem block = rootQmlObject.path(".methods[\"f\"][0].body.scriptElement");
+
+        QCOMPARE(block.internalKind(), DomType::ScriptBlockStatement);
+        QCOMPARE(block.field(Fields::statements).indexes(), 0);
+    }
+
+    void commaExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/commaExpression.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        const DomItem commaExpression = rootQmlObject.path(".methods[\"f\"][0].body.scriptElement.statements[0]");
+
+        QCOMPARE(commaExpression.internalKind(), DomType::ScriptBinaryExpression);
+        QCOMPARE(commaExpression.field(Fields::right)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"c"_s);
+        QCOMPARE(commaExpression.field(Fields::left)
+                         .field(Fields::right)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"b"_s);
+        QCOMPARE(commaExpression.field(Fields::left)
+                         .field(Fields::left)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"a"_s);
+    }
+
+    void conditionalExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/conditionalExpression.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+        const DomItem commaExpression = rootQmlObject.path(".methods[\"f\"][0].body.scriptElement.statements[0]");
+
+        QCOMPARE(commaExpression.internalKind(), DomType::ScriptConditionalExpression);
+        QCOMPARE(commaExpression.field(Fields::condition)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"a"_s);
+        QCOMPARE(commaExpression.field(Fields::consequence)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"b"_s);
+        QCOMPARE(commaExpression.field(Fields::alternative)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"c"_s);
+    }
+
+    void unaryExpression_data()
+    {
+        QTest::addColumn<QString>("fileName");
+        QTest::addColumn<DomType>("type");
+
+        const QString folder = baseDir + u"/unaryExpressions/"_s;
+
+        QTest::addRow("minus") << folder + u"unaryMinus.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("plus") << folder + u"unaryPlus.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("tilde") << folder + u"tilde.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("not") << folder + u"not.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("typeof") << folder + u"typeof.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("delete") << folder + u"delete.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("void") << folder + u"void.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("increment") << folder + u"increment.qml"_s << DomType::ScriptUnaryExpression;
+        QTest::addRow("decrement") << folder + u"decrement.qml"_s << DomType::ScriptUnaryExpression;
+
+        // post stuff
+        QTest::addRow("postIncrement")
+                << folder + u"postIncrement.qml"_s << DomType::ScriptPostExpression;
+        QTest::addRow("postDecrement")
+                << folder + u"postDecrement.qml"_s << DomType::ScriptPostExpression;
+    }
+
+    void unaryExpression()
+    {
+        using namespace Qt::StringLiterals;
+        QFETCH(QString, fileName);
+        QFETCH(DomType, type);
+        const DomItem rootQmlObject = rootQmlObjectFromFile(fileName, qmltypeDirs);
+        const DomItem firstStatement =
+                rootQmlObject.path(".methods[\"f\"][0].body.scriptElement.statements[0]");
+
+        QCOMPARE(firstStatement.internalKind(), type);
+        QCOMPARE(firstStatement.field(Fields::expression)
+                         .field(Fields::identifier)
+                         .value()
+                         .toString(),
+                 u"a"_s);
+    }
+
+    void objectBindings()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/objectBindings.qml"_s;
+        const DomItem rootQmlObject = rootQmlObjectFromFile(testFile, qmltypeDirs);
+
+        const DomItem xBinding = rootQmlObject.path(".bindings[\"x\"][0].value");
+        QCOMPARE(xBinding.field(Fields::name).value().toString(), u"root.QQ.Drag");
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers).internalKind(),
+                 DomType::ScriptType);
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers).field(Fields::typeName).internalKind(),
+                 DomType::ScriptBinaryExpression);
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::operation)
+                         .value()
+                         .toInteger(-1),
+                 ScriptElements::BinaryExpression::FieldMemberAccess);
+
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers).field(Fields::typeName).field(Fields::left).internalKind(),
+                 DomType::ScriptBinaryExpression);
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::left)
+                         .field(Fields::right)
+                         .value()
+                         .toString(),
+                 u"QQ");
+        QCOMPARE(xBinding.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::left)
+                         .field(Fields::left)
+                         .value()
+                         .toString(),
+                 u"root");
+
+        const DomItem item = rootQmlObject.path(".children[0]");
+        QCOMPARE(item.field(Fields::nameIdentifiers).field(Fields::typeName).value().toString(),
+                 u"Item");
+
+        const DomItem qqItem = rootQmlObject.path(".children[1]");
+        QCOMPARE(qqItem.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::operation)
+                         .value()
+                         .toInteger(-1),
+                 ScriptElements::BinaryExpression::FieldMemberAccess);
+        QCOMPARE(qqItem.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::right)
+                         .value()
+                         .toString(),
+                 u"Item");
+        QCOMPARE(qqItem.field(Fields::nameIdentifiers)
+                         .field(Fields::typeName)
+                         .field(Fields::left)
+                         .value()
+                         .toString(),
+                 u"QQ");
+    }
+
+    void scriptExpression()
+    {
+        // verifying support of ECMA script modules by ScriptExpression
+        const ScriptExpression esmExport("export function a(){}",
+                                         ScriptExpression::ExpressionType::ESMCode);
+        QVERIFY(esmExport.localErrors().empty());
+    }
+
+    void semanticAnalysis()
+    {
+
+        DomItem baseItem;
+        DomItem derivedItem;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+
+        auto envPtr =
+                DomEnvironment::create(qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option{}, options);
+
+        envPtr->loadFile(
+                FileToLoad::fromFileSystem(envPtr, baseDir + u"/Base.qml"_s),
+                [&baseItem](Path, const DomItem &, const DomItem &newIt) {
+                    baseItem = newIt.rootQmlObject(GoTo::MostLikely);
+                });
+
+        envPtr->loadFile(
+                FileToLoad::fromFileSystem(envPtr, baseDir + u"/Derived.qml"_s),
+                [&derivedItem](Path, const DomItem &, const DomItem &newIt) {
+                    derivedItem = newIt.rootQmlObject(GoTo::MostLikely);
+                });
+        envPtr->loadPendingDependencies();
+
+        const auto baseScope = baseItem.semanticScope();
+        const auto derivedScope = derivedItem.semanticScope();
+
+        QCOMPARE_NE(baseScope, QQmlJSScope::ConstPtr{});
+        QCOMPARE(baseScope, derivedScope->baseType());
+    }
+
+    void propertyDefinitionScopes()
+    {
+        DomItem qmlObject;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+
+        auto envPtr =
+                DomEnvironment::create(qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option{}, options);
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, baseDir + u"/propertyBindings.qml"_s),
+                         [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                             qmlObject = newIt.rootQmlObject(GoTo::MostLikely);
+                         });
+        envPtr->loadPendingDependencies();
+
+        {
+            const auto a = qmlObject.field(Fields::propertyDefs).key(u"a").index(0);
+            const auto scopeA = a.semanticScope();
+            QCOMPARE_NE(scopeA, QQmlJSScope::ConstPtr{});
+            QCOMPARE(scopeA->scopeType(), QQmlSA::ScopeType::QMLScope);
+        }
+
+        {
+            const auto b = qmlObject.field(Fields::propertyDefs).key(u"b").index(0);
+            const auto scopeB = b.semanticScope();
+            QCOMPARE_NE(scopeB, QQmlJSScope::ConstPtr{});
+            QCOMPARE(scopeB->scopeType(), QQmlSA::ScopeType::QMLScope);
+        }
+    }
+
+    // simulate qmlls loading the same file twice like in QTBUG-123591
+    void loadFileTwice()
+    {
+        DomItem qmlObject;
+        DomItem qmlObject2;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        options.setFlag(DomCreationOption::WithRecovery);
+
+        std::shared_ptr<DomEnvironment> envPtr = DomEnvironment::create(
+                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, options);
+
+        const QString fileName{ baseDir + u"/propertyBindings.qml"_s };
+        QFile file(fileName);
+        QVERIFY(file.open(QFile::ReadOnly));
+        const QString content = file.readAll();
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, baseDir + u"/propertyBindings.qml"_s),
+                         [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                             qmlObject = newIt.rootQmlObject(GoTo::MostLikely);
+                         });
+        envPtr->loadPendingDependencies();
+
+        // should not assert when loading the same file again
+        auto envPtrChild = envPtr->makeCopy(DomItem(envPtr));
+        envPtrChild->loadFile(
+                FileToLoad::fromMemory(envPtr, baseDir + u"/propertyBindings.qml"_s, content),
+                [&qmlObject2](Path, const DomItem &, const DomItem &newIt) {
+                    qmlObject2 = newIt.rootQmlObject(GoTo::MostLikely);
+                });
+        envPtrChild->loadPendingDependencies();
+    }
+
+    void populateLazyFileBeforeCommitToBase()
+    {
+        DomItem qmlObject;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        options.setFlag(DomCreationOption::WithRecovery);
+
+        std::shared_ptr<DomEnvironment> envPtr = DomEnvironment::create(
+                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, options);
+
+        const QString fileName{ QDir::cleanPath(baseDir + u"/propertyBindings.qml"_s) };
+
+        {
+            DomItem envChild = DomItem(envPtr).makeCopy(DomItem::CopyOption::EnvConnected).item();
+            auto envPtrChild = envChild.ownerAs<DomEnvironment>();
+            envPtrChild->loadFile(
+                    FileToLoad::fromFileSystem(envPtrChild, fileName),
+                    [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                        qmlObject = newIt.fileObject();
+                    });
+            envPtrChild->loadPendingDependencies();
+
+            const DomItem childEnv = DomItem(envPtrChild->shared_from_this());
+            // populate the lazy file by accessing it via the DomItem interface
+            const DomItem mainComponent =
+                    childEnv.field(Fields::qmlFileWithPath)
+                            .key(fileName)
+                            .field(Fields::currentItem)
+                            .field(Fields::components)
+                            .key(QString());
+            QVERIFY(mainComponent);
+
+            envPtrChild->commitToBase(DomItem(envPtrChild));
+        } // destroy the temporary environment that the file was loaded into
+
+        // also make sure that the main component also exists in the base environment after the
+        // commitToBase call.
+        const DomItem env = DomItem(envPtr->shared_from_this());
+        const DomItem mainComponent = env.field(Fields::qmlFileWithPath)
+                                              .key(fileName)
+                                              .field(Fields::currentItem)
+                                              .field(Fields::components)
+                                              .key(QString());
+        QVERIFY(mainComponent);
+    }
+
+    void populateLazyFileAfterCommitToBase()
+    {
+        DomItem qmlObject;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        options.setFlag(DomCreationOption::WithRecovery);
+
+        std::shared_ptr<DomEnvironment> envPtr = DomEnvironment::create(
+                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, options);
+
+        const QString fileName{ QDir::cleanPath(baseDir + u"/propertyBindings.qml"_s) };
+
+        {
+            DomItem envChild = DomItem(envPtr).makeCopy(DomItem::CopyOption::EnvConnected).item();
+            auto envPtrChild = envChild.ownerAs<DomEnvironment>();
+            envPtrChild->loadFile(
+                    FileToLoad::fromFileSystem(envPtrChild, fileName),
+                    [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                        qmlObject = newIt.fileObject();
+                    });
+            envPtrChild->loadPendingDependencies();
+            envPtrChild->commitToBase(DomItem(envPtrChild));
+        } // destroy the temporary environment that the file was loaded into
+
+        const DomItem env = DomItem(envPtr->shared_from_this());
+        // populate the lazy file by accessing it via the DomItem interface
+        const DomItem mainComponent = env.field(Fields::qmlFileWithPath)
+                                              .key(fileName)
+                                              .field(Fields::currentItem)
+                                              .field(Fields::components)
+                                              .key(QString());
+        QVERIFY(mainComponent);
+    }
+
+    void qtbug_124799()
+    {
+        // reproduces the completion crash in QTBUG-124799 that was actually not completion related:
+        // triggering the completion was triggering the population of a file, that led to a
+        // heap-use-after-free. The steps to reproduce the crash are following:
+        // 1. load a file in a temporary environment
+        // 2. grab an unpopulated qqmljsscope from the type resolver of the loaded file
+        // 3. destroy the temporary environment
+        // 4. update the loaded file with new content, to make sure the QQmlJSImporter (used to
+        // populate of qmlfiles) has no more strong references in the QmlFile.
+        // 5. populate the unpopulated qqmljsscope: its factory should have kept track that its
+        // environment is not the temporary one but the base one (because of the commitToBase()
+        // call) and use the correct QQmlJSImporter (if its the one from the temporary environment
+        // this will lead to the heap-use-after-free memory error you get when triggering
+        // completions before this fix)
+
+        DomItem qmlObject;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+        options.setFlag(DomCreationOption::WithRecovery);
+
+        std::shared_ptr<DomEnvironment> envPtr = DomEnvironment::create(
+                qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option::SingleThreaded, options);
+
+        const QString fileName{ QDir::cleanPath(baseDir + u"/propertyBindings.qml"_s) };
+
+        QQmlJSScope::ConstPtr populateAfterEnvironmentDestruction;
+
+        {
+            DomItem envChild = DomItem(envPtr).makeCopy(DomItem::CopyOption::EnvConnected).item();
+            auto envPtrChild = envChild.ownerAs<DomEnvironment>();
+            envPtrChild->loadFile(
+                    FileToLoad::fromFileSystem(envPtrChild, fileName),
+                    [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                        qmlObject = newIt.fileObject();
+                    });
+            envPtrChild->loadPendingDependencies();
+
+            auto qmlFilePtr = qmlObject.ownerAs<QmlFile>();
+            auto resolver = qmlFilePtr->typeResolver();
+            // simulate completion by grabbing some type from the resolver
+            populateAfterEnvironmentDestruction = resolver->importedTypes()[u"Derived"_s].scope;
+            envPtrChild->commitToBase(DomItem(envPtrChild));
+        }
+
+        // update the file
+        {
+            DomItem envChild = DomItem(envPtr).makeCopy(DomItem::CopyOption::EnvConnected).item();
+            auto envPtrChild = envChild.ownerAs<DomEnvironment>();
+
+            // simulate user typing something
+            QFile file(fileName);
+            QVERIFY(file.open(QFile::ReadOnly));
+            const QString content = file.readAll();
+            const QString newContent = content + "\n // important comment here\n";
+            envPtrChild->loadFile(FileToLoad::fromMemory(envPtrChild, fileName, newContent),
+                                  [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                                      qmlObject = newIt.fileObject();
+                                  });
+            envPtrChild->loadPendingDependencies();
+            envPtrChild->commitToBase(DomItem(envPtrChild));
+        }
+
+        // step 3: populate the lazy qqmljsscope, it should not crash
+        QCOMPARE(populateAfterEnvironmentDestruction->filePath(),
+                 QDir::cleanPath(baseDir + u"/Derived.qml"_s));
+    }
+
+    void visitTreeFilter()
+    {
+        DomItem qmlObject;
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+
+        auto envPtr =
+                DomEnvironment::create(qmltypeDirs, QQmlJS::Dom::DomEnvironment::Option{}, options);
+
+        envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, baseDir + u"/visitTreeFilter.qml"_s),
+                         [&qmlObject](Path, const DomItem &, const DomItem &newIt) {
+                             qmlObject = newIt.rootQmlObject(GoTo::MostLikely);
+                         });
+        envPtr->loadPendingDependencies();
+
+        FieldFilter filter({}, { { QString(), QString::fromUtf16(Fields::propertyDefs) } });
+
+        // check if propertyDefs is visited without the filter
+        bool success = false;
+        qmlObject.visitTree(
+                Path(), emptyChildrenVisitor, VisitOption::Recurse | VisitOption::VisitSelf,
+                [&success](const Path &p, const DomItem &, bool) {
+                    const QString pathString = p.toString();
+                    if (p && p.checkHeadName(Fields::propertyDefs)) {
+                        success = true;
+                    }
+                    return true;
+                },
+                emptyChildrenVisitor);
+        QVERIFY(success);
+
+        // check that propertyDefs is not visited with the filter
+        success = true;
+        qmlObject.visitTree(
+                Path(), emptyChildrenVisitor, VisitOption::Recurse | VisitOption::VisitSelf,
+                [&success](const Path &p, const DomItem &, bool) {
+                    if (p && p.checkHeadName(Fields::propertyDefs)) {
+                        qWarning() << "Filter did not filter propertyDefs at path" << p;
+                        success = false;
+                    }
+                    return true;
+                },
+                emptyChildrenVisitor, filter);
+        QVERIFY(success);
+    }
+
+    void fileLocationRegions_data()
+    {
+        QTest::addColumn<QString>("filePath");
+        QTest::addColumn<FileLocationRegion>("region");
+        QTest::addColumn<QSet<QQmlJS::SourceLocation>>("expectedLocs");
+
+        QTest::newRow("import") << baseDir + u"/fileLocationRegions/imports.qml"_s << ImportTokenRegion <<
+        QSet {
+            QQmlJS::SourceLocation{112, 6, 4, 1},
+            QQmlJS::SourceLocation{127, 6, 5, 1},
+        };
+        QTest::newRow("importUri") << baseDir + u"/fileLocationRegions/imports.qml"_s << ImportUriRegion <<
+        QSet {
+            QQmlJS::SourceLocation{119, 7, 4, 8},
+            QQmlJS::SourceLocation{152, 16, 6, 8},
+            QQmlJS::SourceLocation{186, 9, 7, 8}
+        };
+        QTest::newRow("asToken") << baseDir + u"/fileLocationRegions/imports.qml"_s << AsTokenRegion <<
+        QSet {
+            QQmlJS::SourceLocation{169, 2, 6, 25}
+        };
+        QTest::newRow("version") << baseDir + u"/fileLocationRegions/imports.qml"_s << VersionRegion <<
+        QSet {
+            QQmlJS::SourceLocation{140, 4, 5, 14}
+        };
+        QTest::newRow("namespace") << baseDir + u"/fileLocationRegions/imports.qml"_s << IdNameRegion <<
+        QSet {
+            QQmlJS::SourceLocation{172, 6, 6, 28}
+        };
+
+        QTest::newRow("function") << baseDir + u"/fileLocationRegions/functions.qml"_s
+                                  << FunctionKeywordRegion
+                                  << QSet{ QQmlJS::SourceLocation{ 139, 8, 7, 5 },
+                                           QQmlJS::SourceLocation{ 195, 8, 10, 9 } };
+
+        QTest::newRow("signal") << baseDir + u"/fileLocationRegions/functions.qml"_s
+                                << SignalKeywordRegion
+                                << QSet{ QQmlJS::SourceLocation{ 234, 6, 13, 5 },
+                                         QQmlJS::SourceLocation{ 254, 6, 14, 5 } };
+        QTest::newRow("return-type-identifier")
+                << baseDir + u"/fileLocationRegions/functions.qml"_s << TypeIdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 154, 3, 7, 20 },
+                         QQmlJS::SourceLocation{ 216, 3, 10, 30 } };
+        QTest::newRow("function-parameter-type-identifier")
+                << baseDir + u"/fileLocationRegions/functions.qml"_s << TypeIdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 209, 3, 10, 23 } };
+        QTest::newRow("signal-parameter-type-identifier")
+                << baseDir + u"/fileLocationRegions/functions.qml"_s << TypeIdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 243, 3, 13, 14 },
+                         QQmlJS::SourceLocation{ 267, 3, 14, 18 } };
+        QTest::newRow("signal-parameter-identifier")
+                << baseDir + u"/fileLocationRegions/functions.qml"_s << IdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 247, 1, 13, 18 },
+                         QQmlJS::SourceLocation{ 264, 1, 14, 15 } };
+
+        QTest::newRow("pragma-keyword")
+                << baseDir + u"/fileLocationRegions/pragmas.qml"_s << PragmaKeywordRegion
+                << QSet{ QQmlJS::SourceLocation{ 112, 6, 4, 1 },
+                         QQmlJS::SourceLocation{ 129, 6, 5, 1 },
+                         QQmlJS::SourceLocation{ 161, 6, 6, 1 },
+                         QQmlJS::SourceLocation{ 204, 6, 7, 1 }};
+        QTest::newRow("pragmaId")
+                << baseDir + u"/fileLocationRegions/pragmas.qml"_s << IdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 119, 9, 4, 8 },
+                         QQmlJS::SourceLocation{ 136, 17, 5, 8 },
+                         QQmlJS::SourceLocation{ 168, 25, 6, 8 },
+                         QQmlJS::SourceLocation{ 211, 17, 7, 8 }};
+        QTest::newRow("pragmaValues")
+                << baseDir + u"/fileLocationRegions/pragmas.qml"_s << PragmaValuesRegion
+                << QSet{ QQmlJS::SourceLocation{ 155, 5, 5, 27 },
+                         QQmlJS::SourceLocation{ 195, 8, 6, 35 },
+                         QQmlJS::SourceLocation{ 230, 4, 7, 27 },
+                         QQmlJS::SourceLocation{ 235, 11, 7, 32 }};
+
+        QTest::newRow("enum-keyword")
+                << baseDir + u"/fileLocationRegions/enums.qml"_s << EnumKeywordRegion
+                << QSet{ QQmlJS::SourceLocation{ 139, 4, 7, 5 }};
+        QTest::newRow("enum-id")
+                << baseDir + u"/fileLocationRegions/enums.qml"_s << IdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 144, 3, 7, 10 }};
+        QTest::newRow("enum-member")
+                << baseDir + u"/fileLocationRegions/enums.qml"_s << IdentifierRegion
+                << QSet{ QQmlJS::SourceLocation{ 158, 3, 8, 9 },
+                         QQmlJS::SourceLocation{ 175, 3, 9, 9 },
+                        QQmlJS::SourceLocation{ 188, 3, 10, 9 }};
+        QTest::newRow("enum-value")
+                << baseDir + u"/fileLocationRegions/enums.qml"_s << EnumValueRegion
+                << QSet{ QQmlJS::SourceLocation{ 164, 1, 8, 15 },
+                         QQmlJS::SourceLocation{ 194, 2, 10, 15 }};
+    }
+
+    void fileLocationRegions()
+    {
+        QFETCH(QString, filePath);
+        QFETCH(FileLocationRegion, region);
+        QFETCH(QSet<QQmlJS::SourceLocation>, expectedLocs);
+        auto envPtr = DomEnvironment::create(
+                QStringList(),
+                QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+
+        QFile f(filePath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString code = f.readAll();
+        DomItem file;
+        envPtr->loadFile(FileToLoad::fromMemory(envPtr, filePath, code),
+                         [&file](Path, const DomItem &, const DomItem &newIt) {
+                             file = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
+
+        const auto tree = FileLocations::treeOf(file);
+        using AttachedInfo = AttachedInfoT<FileLocations>;
+        QSet<QQmlJS::SourceLocation> locs;
+        auto visitor = [&](const Path &currentPath, const AttachedInfo::Ptr &attachedInfo){
+            Q_UNUSED(currentPath);
+            const auto regions = attachedInfo->info().regions;
+            if (regions.contains(region)) {
+               locs << regions.value(region);
+            }
+            return true;
+        };
+        AttachedInfo::visitTree(tree, visitor, Path());
+        [&] {
+            QVERIFY(locs.contains(expectedLocs));
+        }();
+
+        if (QTest::currentTestFailed()) {
+            qDebug() << "Got:\n";
+            for (auto &x : locs) {
+                qDebug() << "Offset: " << x.offset
+                         << ", Length:" << x.length
+                         << ", Startline: " << x.startLine
+                         << ", StartColumn: " << x.startColumn;
+            }
+            qDebug() << "But expected: \n";
+            for (auto &x : expectedLocs) {
+                qDebug() << "Offset: " << x.offset
+                         << ", Length:" << x.length
+                         << ", Startline: " << x.startLine
+                         << ", StartColumn: " << x.startColumn;
+            }
+        }
+    }
+
+    void doNotCrashAtAstComments()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/astComments.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem astComments = fileObject.path(".astComments");
+
+        // Visiting astComment element shouldn't fail
+        QSet<QStringView> comments;
+        astComments.visitTree(
+            Path(),
+            [&comments](const Path &, const DomItem &item, bool) {
+                if (item.internalKind() == DomType::Comment) {
+                    auto comment = item.as<Comment>();
+                    comments << comment->rawComment();
+                }
+                return true;
+            }
+        );
+
+        QVERIFY(comments.contains(u"/*Ast Comment*/ "_s));
+    }
+
+    void doNotCrashOnMissingLogger()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = QDir::cleanPath(baseDir + u"/astComments.qml"_s);
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        auto filePtr = fileObject.as<QmlFile>();
+        QVERIFY(filePtr);
+        auto typeResolver = filePtr->typeResolver();
+        QVERIFY(typeResolver);
+        auto logger = typeResolver->logger();
+        // make sure that the logger is not use-after-free by checking its content
+        QCOMPARE(logger->filePath(), testFile);
+    }
+
+    void commentLocations()
+    {
+        auto envPtr = DomEnvironment::create(
+        QStringList(),
+        QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+
+        const auto filePath = baseDir + u"/fileLocationRegions/comments.qml"_s;
+        QFile f(filePath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString code = f.readAll();
+        DomItem file;
+        envPtr->loadFile(FileToLoad::fromMemory(envPtr, filePath, code),
+                         [&file](Path, const DomItem &, const DomItem &newIt) {
+                             file = newIt.fileObject();
+                         });
+        envPtr->loadPendingDependencies();
+
+        const auto expctedCommentLocations = QSet {
+        QQmlJS::SourceLocation(0, 41, 1, 1),
+        QQmlJS::SourceLocation(42,68, 2, 1),
+        QQmlJS::SourceLocation(126,25, 6, 1),
+        QQmlJS::SourceLocation(152,14, 10, 1),
+        QQmlJS::SourceLocation(167,21, 11, 1)
+        };
+
+        QSet<SourceLocation> locs;
+        file.fileObject(GoTo::MostLikely).visitTree(Path(), [&locs](Path, const DomItem &item, bool){
+            if (item.internalKind() == DomType::Comment) {
+                const auto comment = item.as<Comment>();
+                if (comment) {
+                    locs << comment->info().sourceLocation();
+                }
+            }
+            return true;
+        }, VisitOption::Default, emptyChildrenVisitor, emptyChildrenVisitor);
+
+
+        QCOMPARE(locs, expctedCommentLocations);
+    }
+
+private:
+    void checkFunctionKeyword(const DomItem &item) const
+    {
+        auto fileLocationRegions = FileLocations::fileLocationsOf(item)->regions;
+        QVERIFY(fileLocationRegions.contains(FileLocationRegion::FunctionKeywordRegion));
+        QCOMPARE(fileLocationRegions[FileLocationRegion::FunctionKeywordRegion].length,
+                 std::char_traits<char>::length("function"));
+    }
+
+private slots:
+
+    void lambdas()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem lambda = mainObject.field(Fields::methods)
+                                           .key(u"method"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements)
+                                           .index(1)
+                                           .field(Fields::declarations)
+                                           .index(0)
+                                           .field(Fields::initializer);
+            QVERIFY(lambda);
+            QCOMPARE(lambda.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(lambda.field(Fields::name).value().toString(), u"myLambda"_s);
+            QCOMPARE(lambda.field(Fields::parameters).indexes(), 2);
+            QCOMPARE(lambda.field(Fields::parameters).index(0).field(Fields::identifier).value().toString(), u"a");
+            QCOMPARE(lambda.field(Fields::parameters).index(1).field(Fields::identifier).value().toString(), u"b");
+
+            auto scope = lambda.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"b"_s));
+
+            checkFunctionKeyword(lambda);
+
+            const DomItem body = lambda.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+        }
+    }
+    void arrow()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem arrow = mainObject.field(Fields::methods)
+                                          .key(u"method"_s)
+                                          .index(0)
+                                          .field(Fields::body)
+                                          .field(Fields::scriptElement)
+                                          .field(Fields::statements)
+                                          .index(2)
+                                          .field(Fields::declarations)
+                                          .index(0)
+                                          .field(Fields::initializer);
+            QVERIFY(arrow);
+            QCOMPARE(arrow.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(arrow.field(Fields::name).value().toString(), u"myArrow"_s);
+            QCOMPARE(arrow.field(Fields::parameters).indexes(), 2);
+            QCOMPARE(arrow.field(Fields::parameters)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"v");
+            QCOMPARE(arrow.field(Fields::parameters)
+                             .index(1)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"w");
+
+            auto scope = arrow.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"w"_s));
+
+            const DomItem body = arrow.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+            QCOMPARE(body.field(Fields::statements).indexes(), 1);
+            QCOMPARE(body.field(Fields::statements).index(0).internalKind(),
+                     DomType::ScriptReturnStatement);
+        }
+    }
+    void lamdbaInBinding()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem lambda = mainObject.field(Fields::bindings)
+                                           .key(u"onHelloSignal"_s)
+                                           .index(0)
+                                           .field(Fields::value)
+                                           .field(Fields::scriptElement);
+            QVERIFY(lambda);
+            QCOMPARE(lambda.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(lambda.field(Fields::name).value().toString(), QString());
+            QCOMPARE(lambda.field(Fields::parameters).indexes(), 3);
+            QCOMPARE(lambda.field(Fields::parameters).index(0).field(Fields::identifier).value().toString(), u"x");
+            QCOMPARE(lambda.field(Fields::parameters).index(2).field(Fields::identifier).value().toString(), u"z");
+            auto scope = lambda.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"z"_s));
+
+            checkFunctionKeyword(lambda);
+
+            const DomItem body = lambda.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+        }
+    }
+    void nestedFunction()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem nested = mainObject.field(Fields::methods)
+                                           .key(u"testNestedFunctions"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements)
+                                           .index(0);
+            QVERIFY(nested);
+            QCOMPARE(nested.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(nested.field(Fields::name).value().toString(), u"nested"_s);
+            QCOMPARE(nested.field(Fields::parameters).indexes(), 3);
+            QCOMPARE(nested.field(Fields::parameters)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"tic");
+            QCOMPARE(nested.field(Fields::parameters)
+                             .index(2)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"toe");
+            const DomItem body = nested.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+            auto scope = nested.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"toe"_s));
+
+            checkFunctionKeyword(nested);
+        }
+    }
+    void generatorDeclaration()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem generator = mainObject.field(Fields::methods)
+                                              .key(u"generators"_s)
+                                              .index(0)
+                                              .field(Fields::body)
+                                              .field(Fields::scriptElement)
+                                              .field(Fields::statements)
+                                              .index(0);
+            QVERIFY(generator);
+            QCOMPARE(generator.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(generator.field(Fields::name).value().toString(), u"myGeneratorDeclaration"_s);
+            QCOMPARE(generator.field(Fields::parameters).indexes(), 2);
+            QCOMPARE(generator.field(Fields::parameters)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"a");
+            QCOMPARE(generator.field(Fields::parameters)
+                             .index(1)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"b");
+            const DomItem body = generator.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+            auto scope = generator.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"b"_s));
+
+            const DomItem yieldExpression =
+                    generator.field(Fields::body).field(Fields::statements).index(0);
+            QCOMPARE(yieldExpression.internalKind(), DomType::ScriptYieldExpression);
+            QCOMPARE(yieldExpression.field(Fields::expression).value().toInteger(), 5);
+        }
+    }
+    void generatorExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem mainObject = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0);
+        {
+            const DomItem generator = mainObject.field(Fields::methods)
+                                              .key(u"generators"_s)
+                                              .index(0)
+                                              .field(Fields::body)
+                                              .field(Fields::scriptElement)
+                                              .field(Fields::statements)
+                                              .index(1)
+                                              .field(Fields::declarations)
+                                              .index(0)
+                                              .field(Fields::initializer);
+            QVERIFY(generator);
+            QCOMPARE(generator.internalKind(), DomType::ScriptFunctionExpression);
+            QCOMPARE(generator.field(Fields::name).value().toString(), u"myGenerator"_s);
+            QCOMPARE(generator.field(Fields::parameters).indexes(), 3);
+            QCOMPARE(generator.field(Fields::parameters)
+                             .index(0)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"tic");
+            QCOMPARE(generator.field(Fields::parameters)
+                             .index(2)
+                             .field(Fields::identifier)
+                             .value()
+                             .toString(),
+                     u"toe");
+            const DomItem body = generator.field(Fields::body);
+            QCOMPARE(body.internalKind(), DomType::ScriptBlockStatement);
+            auto scope = generator.semanticScope();
+            QVERIFY(scope);
+            QVERIFY(scope->jsIdentifier(u"toe"_s));
+        }
+    }
+    void generatorDeclarationInQmlObject()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"generatorInQmlObject"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+        {
+            const DomItem nested = statements.index(0);
+            QVERIFY(nested);
+            QCOMPARE(nested.internalKind(), DomType::ScriptFunctionExpression);
+
+            const DomItem nested2 = statements.index(1);
+            QVERIFY(nested2);
+            QCOMPARE(nested2.internalKind(), DomType::ScriptFunctionExpression);
+
+            const DomItem yield = statements.index(2);
+            QVERIFY(yield);
+            QCOMPARE(yield.internalKind(), DomType::ScriptYieldExpression);
+
+            const DomItem yieldStar = statements.index(3);
+            QVERIFY(yieldStar);
+            QCOMPARE(yieldStar.internalKind(), DomType::ScriptYieldExpression);
+
+        }
+    }
+    void traditionalLambda()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem initializer = fileObject.field(Fields::components)
+                                            .key(QString())
+                                            .index(0)
+                                            .field(Fields::objects)
+                                            .index(0)
+                                            .field(Fields::methods)
+                                            .key(u"traditionalLambda"_s)
+                                            .index(0)
+                                            .field(Fields::body)
+                                            .field(Fields::scriptElement)
+                                            .field(Fields::statements)
+                                            .index(0)
+                                            .field(Fields::declarations)
+                                            .index(0)
+                                            .field(Fields::initializer);
+        QVERIFY(initializer);
+        QCOMPARE(initializer.internalKind(), DomType::ScriptParenthesizedExpression);
+        const DomItem lambda = initializer.field(Fields::expression);
+        QVERIFY(lambda);
+        QCOMPARE(lambda.internalKind(), DomType::ScriptFunctionExpression);
+    }
+    void doNotCrashOnNestedFunction()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/lambdas.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem lambda = fileObject.field(Fields::components)
+                .key(QString())
+                .index(0)
+                .field(Fields::objects)
+                .index(0)
+                .field(Fields::bindings)
+                .key("Component.onCompleted")
+                .index(0)
+                .field(Fields::value)
+                .field(Fields::scriptElement)
+                .field(Fields::statements)
+                .index(0);
+        QVERIFY(lambda);
+        QCOMPARE(lambda.internalKind(), DomType::ScriptFunctionExpression);
+    }
+
+    void regexpLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/regexpLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        const DomItem noFlag =
+                statements.index(0).field(Fields::declarations).index(0).field(Fields::initializer);
+        QVERIFY(noFlag);
+        QCOMPARE(noFlag.internalKind(), DomType::ScriptRegExpLiteral);
+        const DomItem pattern = noFlag.field(Fields::regExpPattern);
+        QVERIFY(pattern);
+        QCOMPARE(pattern.value().toString(), u"HelloWorld"_s);
+        const DomItem flags = noFlag.field(Fields::regExpFlags);
+        QVERIFY(flags);
+        QCOMPARE(flags.value().toInteger(42), 0);
+    }
+
+    void regexpLiteralWithFlag()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/regexpLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+        const DomItem withFlag =
+                statements.index(1).field(Fields::declarations).index(0).field(Fields::initializer);
+        QVERIFY(withFlag);
+        QCOMPARE(withFlag.internalKind(), DomType::ScriptRegExpLiteral);
+        const DomItem pattern = withFlag.field(Fields::regExpPattern);
+        QVERIFY(pattern);
+        QCOMPARE(pattern.value().toString(), u"H?ello.*[^s]+"_s);
+        const DomItem flags = withFlag.field(Fields::regExpFlags);
+        QVERIFY(flags);
+        QCOMPARE(flags.value().toInteger(), 1);
+    }
+
+    void templateLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/templateLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+        {
+            auto checkIdentifier = [](const DomItem &component, const QStringView value) {
+                QVERIFY(component);
+                QCOMPARE(component.internalKind(), DomType::ScriptIdentifierExpression);
+                QCOMPARE(component.value().toString(), value);
+            };
+            auto checkLiteral = [](const DomItem &component, const QStringView value) {
+                QVERIFY(component);
+                QCOMPARE(component.internalKind(), DomType::ScriptTemplateStringPart);
+                QCOMPARE(component.value().toString(), value);
+            };
+            for (int i = 0; i < 4; ++i) {
+                const DomItem initializer = statements.index(i)
+                                                    .field(Fields::declarations)
+                                                    .index(0)
+                                                    .field(Fields::initializer);
+                QVERIFY(initializer);
+                QCOMPARE(initializer.internalKind(), DomType::ScriptTemplateLiteral);
+                const DomItem components = initializer.field(Fields::components);
+                QVERIFY(components);
+
+                QCOMPARE(components.indexes(), i == 0 ? 5 : (i == 3 ? 3 : 4));
+
+                int currentIndex = 0;
+                if (i == 0 || i == 2)
+                    checkLiteral(components.index(currentIndex++), u"a");
+
+                checkIdentifier(components.index(currentIndex++), u"b");
+                checkLiteral(components.index(currentIndex++), u"c");
+                checkIdentifier(components.index(currentIndex++), u"d");
+
+                if (i == 0 || i == 1)
+                    checkLiteral(components.index(currentIndex++), u"e");
+            }
+        }
+    }
+
+    void newExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/newExpressions.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+        {
+            const DomItem newExpression = statements.index(0).field(Fields::expression);
+            QVERIFY(newExpression);
+            QCOMPARE(newExpression.internalKind(), DomType::ScriptNewExpression);
+            const DomItem expression = newExpression.field((Fields::expression));
+            QVERIFY(expression);
+            QCOMPARE(expression.value().toInteger(), 4);
+        }
+    }
+
+    void newMemberExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/newExpressions.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"g"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+        {
+            const DomItem newMemberExpression = statements.index(0).field(Fields::expression);
+            QVERIFY(newMemberExpression);
+            QCOMPARE(newMemberExpression.internalKind(), DomType::ScriptNewMemberExpression);
+            const DomItem base = newMemberExpression.field((Fields::base));
+            QVERIFY(base);
+            QCOMPARE(base.value().toString(), u"Base"_s);
+            const DomItem arguments = newMemberExpression.field((Fields::arguments));
+            QCOMPARE(arguments.indexes(), 1);
+            QCOMPARE(arguments.index(0).value().toString(), u"argument");
+        }
+    }
+
+    void emptyTemplateLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/templateLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem empty = statements.index(4)
+                                          .field(Fields::declarations)
+                                          .index(0)
+                                          .field(Fields::initializer);
+            QVERIFY(empty);
+            QCOMPARE(empty.internalKind(), DomType::ScriptTemplateLiteral);
+            QVERIFY(empty.field(Fields::components));
+            QCOMPARE(empty.field(Fields::components).indexes(), 0);
+        }
+    }
+
+    void multiLineTemplateLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/templateLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem manyLines = statements.index(5)
+                                              .field(Fields::declarations)
+                                              .index(0)
+                                              .field(Fields::initializer);
+            QVERIFY(manyLines);
+            QCOMPARE(manyLines.internalKind(), DomType::ScriptTemplateLiteral);
+            QVERIFY(manyLines.field(Fields::components));
+            QCOMPARE(manyLines.field(Fields::components).indexes(), 1);
+            QCOMPARE(manyLines.field(Fields::components)
+                             .index(0)
+                             .value()
+                             .toString(),
+                     u"line 1\nline 2\nline 3");
+
+            // should not be a string, or a part of the string.
+            const DomItem afterManyLines = statements.index(6);
+            QCOMPARE(afterManyLines.internalKind(), DomType::ScriptVariableDeclaration);
+        }
+    }
+
+    void taggedTemplateLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/templateLiterals.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem taggedTemplate = statements.index(7)
+                                                   .field(Fields::declarations)
+                                                   .index(0)
+                                                   .field(Fields::initializer);
+            QVERIFY(taggedTemplate);
+            QCOMPARE(taggedTemplate.internalKind(), DomType::ScriptTaggedTemplate);
+            {
+                const DomItem templateLiteral = taggedTemplate.field(Fields::templateLiteral);
+                QVERIFY(templateLiteral);
+                QVERIFY(templateLiteral.field(Fields::components));
+                // That might change in future if we end up needing the non-script parts inside of
+                // the templates in the Dom.
+                QCOMPARE(templateLiteral.field(Fields::components).indexes(), 1);
+                QCOMPARE(templateLiteral.field(Fields::components).index(0).value().toString(),
+                         u"a normal string"_s);
+            }
+            {
+                const DomItem base = taggedTemplate.field(Fields::callee);
+                QVERIFY(base);
+                QCOMPARE(base.internalKind(), DomType::ScriptIdentifierExpression);
+                QCOMPARE(base.value().toString(), u"its"_s);
+            }
+        }
+    }
+
+    void thisExpression()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/thisExpressions.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem thisLiteral = statements.index(0)
+                                          .field(Fields::declarations)
+                                          .index(0)
+                                          .field(Fields::initializer);
+            QVERIFY(thisLiteral);
+            QCOMPARE(thisLiteral.internalKind(), DomType::ScriptThisExpression);
+        }
+        {
+            const DomItem thisAccess = statements.index(1)
+                                          .field(Fields::left)
+                                          .field(Fields::left);
+            QVERIFY(thisAccess);
+            QCOMPARE(thisAccess.internalKind(), DomType::ScriptThisExpression);
+        }
+    }
+
+    void superLiteral()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/superLiteral.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem superCall = statements.index(0).field(Fields::callee);
+            QVERIFY(superCall);
+            QCOMPARE(superCall.internalKind(), DomType::ScriptSuperLiteral);
+        }
+
+        {
+            const DomItem superAccess = statements.index(1)
+                    .field(Fields::declarations)
+                    .index(0)
+                    .field(Fields::initializer)
+                    .field(Fields::callee)
+                    .field(Fields::left);
+            QVERIFY(superAccess);
+            QCOMPARE(superAccess.internalKind(), DomType::ScriptSuperLiteral);
+        }
+    }
+
+    void metaProperty()
+    {
+        using namespace Qt::StringLiterals;
+        const QString testFile = baseDir + u"/metaProperty.qml"_s;
+        const DomItem fileObject = rootQmlObjectFromFile(testFile, qmltypeDirs).fileObject();
+        const DomItem statements = fileObject.field(Fields::components)
+                                           .key(QString())
+                                           .index(0)
+                                           .field(Fields::objects)
+                                           .index(0)
+                                           .field(Fields::methods)
+                                           .key(u"f"_s)
+                                           .index(0)
+                                           .field(Fields::body)
+                                           .field(Fields::scriptElement)
+                                           .field(Fields::statements);
+
+        {
+            const DomItem newTarget = statements.index(0).field(Fields::condition);
+            QVERIFY(newTarget);
+            QCOMPARE(newTarget.internalKind(), DomType::ScriptBinaryExpression);
+        }
+    }
+
+    void environmentSetLoadPaths()
+    {
+        DomCreationOptions options;
+        options.setFlag(DomCreationOption::WithScriptExpressions);
+        options.setFlag(DomCreationOption::WithSemanticAnalysis);
+
+        auto envPtr = DomEnvironment::create(
+                QStringList{},
+                QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                        | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+                options);
+
+        auto semanticAnalysis = envPtr->semanticAnalysis();
+        QVERIFY(semanticAnalysis.m_mapper->isEmpty());
+        envPtr->setLoadPaths(QStringList { baseDir + u"/buildFolderWithQrc"_s });
+        QVERIFY(!semanticAnalysis.m_mapper->isEmpty());
+        QVERIFY(semanticAnalysis.m_mapper->isFile(u"/qt/qml/MyModule/qml/HelloWorld.qml"_s));
     }
 
 private:

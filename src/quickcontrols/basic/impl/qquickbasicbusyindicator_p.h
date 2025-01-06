@@ -49,13 +49,12 @@ protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 private:
+    bool m_running = false;
     int m_elapsed = 0;
     QColor m_pen;
     QColor m_fill;
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickBasicBusyIndicator)
 
 #endif // QQUICKDEFAULTBUSYINDICATOR_P_H

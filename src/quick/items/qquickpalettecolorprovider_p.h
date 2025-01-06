@@ -25,7 +25,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickAbstractPaletteProvider;
 
-class Q_QUICK_PRIVATE_EXPORT QQuickPaletteColorProvider
+class Q_QUICK_EXPORT QQuickPaletteColorProvider
     : public std::enable_shared_from_this<QQuickPaletteColorProvider>
 {
 public:
@@ -34,6 +34,7 @@ public:
     const QColor &color(QPalette::ColorGroup group, QPalette::ColorRole role) const;
     bool setColor(QPalette::ColorGroup group, QPalette::ColorRole role, QColor color);
     bool resetColor(QPalette::ColorGroup group, QPalette::ColorRole role);
+    bool resetColor(QPalette::ColorGroup group);
 
     bool fromQPalette(QPalette p);
     QPalette palette() const;

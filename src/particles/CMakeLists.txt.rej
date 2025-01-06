@@ -1,0 +1,13 @@
+--- src/particles/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/particles/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -63,9 +75,7 @@
+         Qt::GuiPrivate
+         Qt::QmlPrivate
+         Qt::QuickPrivate
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )
+ 
+ # Resources:
+ set(particles_resource_files

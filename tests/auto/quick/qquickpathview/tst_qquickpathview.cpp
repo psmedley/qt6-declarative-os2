@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/QtTest>
 #include <QtQuick/qquickview.h>
@@ -132,6 +132,9 @@ private slots:
     void requiredPropertiesInDelegatePreventUnrelated();
     void touchMove();
     void mousePressAfterFlick();
+    void qtbug90479();
+    void overCached();
+    void qtbug46487();
 
 private:
     QScopedPointer<QPointingDevice> touchDevice = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
@@ -863,10 +866,9 @@ void tst_QQuickPathView::dataModel()
 
     model.moveItem(3, 5);
     QTRY_COMPARE(findItems<QQuickItem>(pathview, "wrapper").size(), 5);
-    QList<QQuickItem*> items = findItems<QQuickItem>(pathview, "wrapper");
-    foreach (QQuickItem *item, items) {
+    const QList<QQuickItem *> items = findItems<QQuickItem>(pathview, "wrapper");
+    for (QQuickItem *item : items)
         QVERIFY(item->property("onPath").toBool());
-    }
     QCOMPARE(pathview->currentItem(), findItem<QQuickItem>(pathview, "wrapper", 1));
 
     // QTBUG-14199
@@ -1377,7 +1379,7 @@ void tst_QQuickPathView::package()
     QQuickPathView *pathView = window->rootObject()->findChild<QQuickPathView*>("photoPathView");
     QVERIFY(pathView);
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     QSKIP("QTBUG-27170 view does not reliably receive polish without a running animation");
 #endif
 
@@ -1566,6 +1568,7 @@ void tst_QQuickPathView::mouseDrag()
 
 void tst_QQuickPathView::nestedMouseAreaDrag()
 {
+    auto device = QPointingDevice::primaryPointingDevice();
     QScopedPointer<QQuickView> window(createView());
     QQuickVisualTestUtils::moveMouseAway(window.data());
     window->setSource(testFileUrl("nestedmousearea.qml"));
@@ -1576,16 +1579,17 @@ void tst_QQuickPathView::nestedMouseAreaDrag()
     QVERIFY(pathview != nullptr);
 
     // Dragging the child mouse area should move it and not animate the PathView
-    flick(window.data(), QPoint(200,200), QPoint(400,200), 200);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,200), QPoint(400,200), 200);
     QVERIFY(!pathview->isMoving());
 
     // Dragging outside the mouse are should animate the PathView.
-    flick(window.data(), QPoint(75,75), QPoint(175,75), 200);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(75,75), QPoint(175,75), 200);
     QVERIFY(pathview->isMoving());
 }
 
 void tst_QQuickPathView::flickNClick() // QTBUG-77173
 {
+    auto device = QPointingDevice::primaryPointingDevice();
     QScopedPointer<QQuickView> window(createView());
     QQuickVisualTestUtils::moveMouseAway(window.data());
     window->setSource(testFileUrl("nestedmousearea2.qml"));
@@ -1617,7 +1621,7 @@ void tst_QQuickPathView::flickNClick() // QTBUG-77173
         flickStartedSpy.clear();
         flickEndedSpy.clear();
         // Dragging the child mouse area should animate the PathView (MA has no drag target)
-        flick(window.data(), QPoint(199,199), QPoint(399,199), duration);
+        QQuickTest::pointerFlick(device, window.data(), 0, QPoint(199,199), QPoint(399,199), duration);
         QVERIFY(pathview->isMoving());
         QCOMPARE(movingChangedSpy.size(), 1);
         QCOMPARE(draggingSpy.size(), 2);
@@ -1922,6 +1926,7 @@ void tst_QQuickPathView::cancelDrag()
 
 void tst_QQuickPathView::maximumFlickVelocity()
 {
+    auto device = QPointingDevice::primaryPointingDevice();
     QScopedPointer<QQuickView> window(createView());
     window->setSource(testFileUrl("dragpath.qml"));
     QQuickVisualTestUtils::moveMouseAway(window.data());
@@ -1932,7 +1937,7 @@ void tst_QQuickPathView::maximumFlickVelocity()
     QVERIFY(pathview != nullptr);
 
     pathview->setMaximumFlickVelocity(700);
-    flick(window.data(), QPoint(200,10), QPoint(10,10), 180);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,10), QPoint(10,10), 180);
     QVERIFY(pathview->isMoving());
     QVERIFY(pathview->isFlicking());
     QTRY_VERIFY_WITH_TIMEOUT(!pathview->isMoving(), 50000);
@@ -1941,7 +1946,7 @@ void tst_QQuickPathView::maximumFlickVelocity()
 
     pathview->setOffset(0.);
     pathview->setMaximumFlickVelocity(300);
-    flick(window.data(), QPoint(200,10), QPoint(10,10), 180);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,10), QPoint(10,10), 180);
     QVERIFY(pathview->isMoving());
     QVERIFY(pathview->isFlicking());
     QTRY_VERIFY_WITH_TIMEOUT(!pathview->isMoving(), 50000);
@@ -1950,7 +1955,7 @@ void tst_QQuickPathView::maximumFlickVelocity()
 
     pathview->setOffset(0.);
     pathview->setMaximumFlickVelocity(500);
-    flick(window.data(), QPoint(200,10), QPoint(10,10), 180);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,10), QPoint(10,10), 180);
     QVERIFY(pathview->isMoving());
     QVERIFY(pathview->isFlicking());
     QTRY_VERIFY_WITH_TIMEOUT(!pathview->isMoving(), 50000);
@@ -1966,6 +1971,7 @@ void tst_QQuickPathView::maximumFlickVelocity()
 void tst_QQuickPathView::snapToItem()
 {
     QFETCH(bool, enforceRange);
+    auto device = QPointingDevice::primaryPointingDevice();
 
     QScopedPointer<QQuickView> window(createView());
     QQuickVisualTestUtils::moveMouseAway(window.data());
@@ -1983,7 +1989,7 @@ void tst_QQuickPathView::snapToItem()
 
     QSignalSpy snapModeSpy(pathview, SIGNAL(snapModeChanged()));
 
-    flick(window.data(), QPoint(200,10), QPoint(10,10), 180);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,10), QPoint(10,10), 180);
 
     QVERIFY(pathview->isMoving());
     QTRY_VERIFY_WITH_TIMEOUT(!pathview->isMoving(), 50000);
@@ -2008,6 +2014,7 @@ void tst_QQuickPathView::snapToItem_data()
 void tst_QQuickPathView::snapOneItem()
 {
     QFETCH(bool, enforceRange);
+    auto device = QPointingDevice::primaryPointingDevice();
 
     QScopedPointer<QQuickView> window(createView());
     QQuickVisualTestUtils::moveMouseAway(window.data());
@@ -2029,7 +2036,7 @@ void tst_QQuickPathView::snapOneItem()
     int currentIndex = pathview->currentIndex();
 
     double startOffset = pathview->offset();
-    flick(window.data(), QPoint(200,10), QPoint(10,10), 180);
+    QQuickTest::pointerFlick(device, window.data(), 0, QPoint(200,10), QPoint(10,10), 180);
 
     QVERIFY(pathview->isMoving());
     QTRY_VERIFY(!pathview->isMoving());
@@ -2504,7 +2511,8 @@ void tst_QQuickPathView::qtbug37815()
     const int pathItemCount = pathView->pathItemCount();
     const int cacheItemCount = pathView->cacheItemCount();
     int totalCount = 0;
-    foreach (QQuickItem *item, pathView->childItems()) {
+    const auto childItems = pathView->childItems();
+    for (QQuickItem *item : childItems) {
         if (item->objectName().startsWith(QLatin1String("delegate")))
             ++totalCount;
     }
@@ -2573,7 +2581,8 @@ void tst_QQuickPathView::qtbug53464()
 
     const int pathItemCount = pathView->pathItemCount();
     int totalCount = 0;
-    foreach (QQuickItem *item, pathView->childItems()) {
+    const auto childItems = pathView->childItems();
+    for (QQuickItem *item : childItems) {
         if (item->objectName().startsWith(QLatin1String("delegate")))
             ++totalCount;
     }
@@ -2855,6 +2864,7 @@ void tst_QQuickPathView::touchMove()
 
 void tst_QQuickPathView::mousePressAfterFlick() // QTBUG-115121
 {
+    auto device = QPointingDevice::primaryPointingDevice();
     QScopedPointer<QQuickView> window(createView());
     QQuickVisualTestUtils::moveMouseAway(window.data());
     window->setSource(testFileUrl("mousePressAfterFlick.qml"));
@@ -2880,7 +2890,7 @@ void tst_QQuickPathView::mousePressAfterFlick() // QTBUG-115121
     // Dragging the child mouse area should animate the PathView (MA has no drag target)
     QPoint from = QPoint((window->width() / 2), (window->height() * 3 / 4));
     QPoint to = QPoint((window->width() / 2), (window->height() / 4));
-    flick(window.data(), from, to, 100);
+    QQuickTest::pointerFlick(device, window.data(), 0, from, to, 100);
     QVERIFY(pathview->isMoving());
     QCOMPARE(flickingSpy.size(), 1);
     QCOMPARE(flickStartedSpy.size(), 1);
@@ -2892,6 +2902,106 @@ void tst_QQuickPathView::mousePressAfterFlick() // QTBUG-115121
     QTRY_VERIFY(!pathview->isMoving());
     QCOMPARE(flickEndedSpy.size(), 1);
     QCOMPARE(pressedSpy.size(), 0);
+}
+
+void tst_QQuickPathView::qtbug90479()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("qtbug90479.qml"));
+
+    window->show();
+    qApp->processEvents();
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview);
+
+    // cache items will be created async. Let's wait...
+    QTest::qWait(1000);
+
+    // Should create just pathItemCount amount and not destroy any
+    QCOMPARE(pathview->property("delegatesCreated").toInt(), 6);
+    QCOMPARE(pathview->property("delegatesDestroyed").toInt(), 0);
+}
+
+void tst_QQuickPathView::overCached()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("overcached.qml"));
+
+    window->show();
+    qApp->processEvents();
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview);
+
+    // cache items will be created async. Let's wait...
+    QTest::qWait(1000);
+
+    // Should create max model + 1 amount with the current implementation
+    QVERIFY(pathview->property("delegatesCreated").toInt() <= 16);
+    QVERIFY(pathview->property("delegatesDestroyed").toInt() <= 1);
+}
+
+class CustomModel : public QAbstractListModel
+{
+public:
+    CustomModel(QObject *parent = 0) : QAbstractListModel(parent) {
+        m_values << 0 << 1 << 2 << 3 << 4;
+    }
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const {
+        Q_UNUSED(parent);
+        return m_values.count();
+    }
+    QVariant data(const QModelIndex &index, int role) const {
+        if (index.row() < 0 || m_values.count() <= index.row())
+            return QVariant();
+
+        return m_values[index.row()];
+    }
+
+    Q_INVOKABLE void shrink() {
+        beginResetModel();
+        m_values.takeLast();
+        m_values.takeLast();
+        endResetModel();
+    }
+
+private:
+    QList<int> m_values;
+};
+
+void tst_QQuickPathView::qtbug46487()
+{
+    QScopedPointer<QQuickView> window(createView());
+
+    CustomModel* model = new CustomModel;
+    QQmlContext *ctxt = window->rootContext();
+    ctxt->setContextProperty("customModel", model);
+
+    window->setSource(testFileUrl("qtbug46487.qml"));
+    window->show();
+    qApp->processEvents();
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview);
+
+    QTest::qWait(500);
+
+    // Should create just pathItemCount amount and not destroy any
+    QCOMPARE(pathview->count(), 5);
+    QCOMPARE(pathview->property("delegatesCreated").toInt(), 5);
+    QCOMPARE(pathview->property("delegatesDestroyed").toInt(), 0);
+
+    // Resets the model and removes 2 items.
+    model->shrink();
+    QTest::qWait(500);
+
+    // Should destroy previous items (begin/endResetModel) and
+    // (re)create 3 new items.
+    QCOMPARE(pathview->count(), 3);
+    QCOMPARE(pathview->property("delegatesCreated").toInt(), 5 + 3);
+    QCOMPARE(pathview->property("delegatesDestroyed").toInt(), 5);
 }
 
 QTEST_MAIN(tst_QQuickPathView)

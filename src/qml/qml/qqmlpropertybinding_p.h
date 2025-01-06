@@ -33,7 +33,7 @@ namespace QV4 {
 class QQmlPropertyBinding;
 class QQmlScriptString;
 
-class Q_QML_PRIVATE_EXPORT QQmlPropertyBindingJS : public QQmlJavaScriptExpression
+class Q_QML_EXPORT QQmlPropertyBindingJS : public QQmlJavaScriptExpression
 {
     bool mustCaptureBindableProperty() const final {return false;}
 
@@ -47,14 +47,14 @@ class Q_QML_PRIVATE_EXPORT QQmlPropertyBindingJS : public QQmlJavaScriptExpressi
     inline QQmlPropertyBinding const *asBinding() const;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlPropertyBindingJSForBoundFunction : public QQmlPropertyBindingJS
+class Q_QML_EXPORT QQmlPropertyBindingJSForBoundFunction : public QQmlPropertyBindingJS
 {
 public:
     QV4::ReturnedValue evaluate(bool *isUndefined);
     QV4::PersistentValue m_boundFunction;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlPropertyBinding : public QPropertyBindingPrivate
+class Q_QML_EXPORT QQmlPropertyBinding : public QPropertyBindingPrivate
 
 {
     friend class QQmlPropertyBindingJS;
@@ -220,10 +220,10 @@ inline const QtPrivate::BindingFunctionVTable *bindingFunctionVTableForQQmlPrope
 class QQmlTranslationPropertyBinding
 {
 public:
-    static QUntypedPropertyBinding Q_QML_PRIVATE_EXPORT create(const QQmlPropertyData *pd,
+    static QUntypedPropertyBinding Q_QML_EXPORT create(const QQmlPropertyData *pd,
                                           const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit,
                                           const QV4::CompiledData::Binding *binding);
-    static QUntypedPropertyBinding Q_QML_PRIVATE_EXPORT
+    static QUntypedPropertyBinding Q_QML_EXPORT
     create(const QMetaType &pd,
            const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit,
            const QQmlTranslation &translationData);
@@ -286,19 +286,27 @@ bool QQmlPropertyBinding::evaluate(QMetaType metaType, void *dataPtr)
     if (!hasBoundFunction()) {
         Q_ASSERT(metaType.sizeOf() > 0);
 
-        // No need to construct here. evaluate() expects uninitialized memory.
-        const auto size = [&]() -> qsizetype {
+        using Tuple = std::tuple<qsizetype, bool, bool>;
+        const auto [size, needsConstruction, needsDestruction] = [&]() -> Tuple {
             switch (type) {
-                case QMetaType::QObjectStar: return sizeof(QObject *);
-                case QMetaType::Bool: return sizeof(bool);
-                case QMetaType::Int: return (sizeof(int));
-                case QMetaType::Double: return (sizeof(double));
-                case QMetaType::Float: return (sizeof(float));
-                case QMetaType::QString: return (sizeof(QString));
-                default: return metaType.sizeOf();
+            case QMetaType::QObjectStar: return Tuple(sizeof(QObject *), false, false);
+            case QMetaType::Bool:        return Tuple(sizeof(bool), false, false);
+            case QMetaType::Int:         return Tuple(sizeof(int), false, false);
+            case QMetaType::Double:      return Tuple(sizeof(double), false, false);
+            case QMetaType::Float:       return Tuple(sizeof(float), false, false);
+            case QMetaType::QString:     return Tuple(sizeof(QString), true, true);
+            default: {
+                const auto flags = metaType.flags();
+                return Tuple(
+                        metaType.sizeOf(),
+                        flags & QMetaType::NeedsConstruction,
+                        flags & QMetaType::NeedsDestruction);
+            }
             }
         }();
         Q_ALLOCA_VAR(void, result, size);
+        if (needsConstruction)
+            metaType.construct(result);
 
         const bool evaluatedToUndefined = !jsExpression()->evaluate(&result, &metaType, 0);
         if (!handleErrorAndUndefined(evaluatedToUndefined))
@@ -326,10 +334,12 @@ bool QQmlPropertyBinding::evaluate(QMetaType metaType, void *dataPtr)
 
         const bool hasChanged = !metaType.equals(result, dataPtr);
         if (hasChanged) {
-            metaType.destruct(dataPtr);
+            if (needsDestruction)
+                metaType.destruct(dataPtr);
             metaType.construct(dataPtr, result);
         }
-        metaType.destruct(result);
+        if (needsDestruction)
+            metaType.destruct(result);
         return hasChanged;
     }
 

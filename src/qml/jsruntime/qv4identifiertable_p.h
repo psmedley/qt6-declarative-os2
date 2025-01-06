@@ -24,7 +24,7 @@ QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
-struct Q_QML_PRIVATE_EXPORT IdentifierTable
+struct Q_QML_EXPORT IdentifierTable
 {
     ExecutionEngine *engine;
 
@@ -57,7 +57,6 @@ public:
 
     enum KeyConversionBehavior { Default, ForceConversionToId };
     PropertyKey asPropertyKey(const QString &s, KeyConversionBehavior conversionBehavior = Default);
-    PropertyKey asPropertyKey(const char *s, int len);
 
     PropertyKey asPropertyKeyImpl(const Heap::String *str);
 

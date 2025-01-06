@@ -296,7 +296,7 @@ struct Function
     Function *next;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT CompiledFunctionOrExpression
+struct Q_QML_COMPILER_EXPORT CompiledFunctionOrExpression
 {
     CompiledFunctionOrExpression()
     {}
@@ -307,7 +307,7 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT CompiledFunctionOrExpression
     CompiledFunctionOrExpression *next = nullptr;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT Object
+struct Q_QML_COMPILER_EXPORT Object
 {
     Q_DECLARE_TR_FUNCTIONS(Object)
 public:
@@ -400,7 +400,7 @@ private:
     PoolList<RequiredPropertyExtraData> *requiredPropertyExtraDatas;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT Pragma
+struct Q_QML_COMPILER_EXPORT Pragma
 {
     enum PragmaType
     {
@@ -411,6 +411,7 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT Pragma
         FunctionSignatureBehavior,
         NativeMethodBehavior,
         ValueTypeBehavior,
+        Translator,
     };
 
     enum ListPropertyAssignBehaviorValue
@@ -442,6 +443,7 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT Pragma
     {
         Copy        = 0x1,
         Addressable = 0x2,
+        Assertable  = 0x4,
     };
     Q_DECLARE_FLAGS(ValueTypeBehaviorValues, ValueTypeBehaviorValue);
 
@@ -453,12 +455,13 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT Pragma
         FunctionSignatureBehaviorValue functionSignatureBehavior;
         NativeMethodBehaviorValue nativeMethodBehavior;
         ValueTypeBehaviorValues::Int valueTypeBehavior;
+        uint translationContextIndex;
     };
 
     QV4::CompiledData::Location location;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT Document
+struct Q_QML_COMPILER_EXPORT Document
 {
     Document(bool debugMode);
     QString code;
@@ -470,7 +473,13 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT Document
     QVector<Object*> objects;
     QV4::Compiler::JSUnitGenerator jsGenerator;
 
-    QV4::CompiledData::CompilationUnit javaScriptCompilationUnit;
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> javaScriptCompilationUnit;
+
+    bool isSingleton() const {
+        return std::any_of(pragmas.constBegin(), pragmas.constEnd(), [](const Pragma *pragma) {
+            return pragma->type == Pragma::Singleton;
+        });
+    }
 
     int registerString(const QString &str) { return jsGenerator.registerString(str); }
     QString stringAt(int index) const { return jsGenerator.stringForIndex(index); }
@@ -479,7 +488,7 @@ struct Q_QML_COMPILER_PRIVATE_EXPORT Document
     Object* objectAt(int i) const {return objects.at(i);}
 };
 
-class Q_QML_COMPILER_PRIVATE_EXPORT ScriptDirectivesCollector : public QQmlJS::Directives
+class Q_QML_COMPILER_EXPORT ScriptDirectivesCollector : public QQmlJS::Directives
 {
     QmlIR::Document *document;
     QQmlJS::Engine *engine;
@@ -493,15 +502,12 @@ public:
     void importModule(const QString &uri, const QString &version, const QString &module, int lineNumber, int column) override;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT IRBuilder : public QQmlJS::AST::Visitor
+struct Q_QML_COMPILER_EXPORT IRBuilder : public QQmlJS::AST::Visitor
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlCodeGenerator)
 public:
     IRBuilder(const QSet<QString> &illegalNames);
     bool generateFromQml(const QString &code, const QString &url, Document *output);
-
-    static bool isSignalPropertyName(const QString &name);
-    static QString signalNameFromSignalPropertyName(const QString &signalPropertyName);
 
     using QQmlJS::AST::Visitor::visit;
     using QQmlJS::AST::Visitor::endVisit;
@@ -615,7 +621,7 @@ public:
     bool insideInlineComponent = false;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT QmlUnitGenerator
+struct Q_QML_COMPILER_EXPORT QmlUnitGenerator
 {
     void generate(Document &output, const QV4::CompiledData::DependentTypesHasher &dependencyHasher = QV4::CompiledData::DependentTypesHasher());
 
@@ -624,7 +630,7 @@ private:
     char *writeBindings(char *bindingPtr, const Object *o, BindingFilter filter) const;
 };
 
-struct Q_QML_COMPILER_PRIVATE_EXPORT JSCodeGen : public QV4::Compiler::Codegen
+struct Q_QML_COMPILER_EXPORT JSCodeGen : public QV4::Compiler::Codegen
 {
     JSCodeGen(Document *document, const QSet<QString> &globalNames,
               QV4::Compiler::CodegenWarningInterface *iface =

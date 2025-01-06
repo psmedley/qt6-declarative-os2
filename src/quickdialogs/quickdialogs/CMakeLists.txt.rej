@@ -1,0 +1,18 @@
+--- src/quickdialogs/quickdialogs/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/quickdialogs/quickdialogs/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -45,13 +45,12 @@
+         Qt::QuickDialogs2UtilsPrivate
+         Qt::QuickDialogs2QuickImpl
+         Qt::QuickDialogs2QuickImplPrivate
++        Qt::QuickTemplates2Private
+     PUBLIC_LIBRARIES
+         Qt::Core
+         Qt::Gui
+         Qt::Quick
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )
+ 
+ qt_internal_add_docs(QuickDialogs2
+     doc/qtquickdialogs.qdocconf

@@ -14,7 +14,7 @@ qt_internal_add_module(QmlDomPrivate
     SOURCES
         qqmldom_fwd_p.h
         qqmldom_global.h
-        qqmldom_utils_p.h
+        qqmldom_utils_p.h qqmldom_utils.cpp
         qqmldomastcreator.cpp qqmldomastcreator_p.h
         qqmldomastdumper.cpp qqmldomastdumper_p.h
         qqmldomattachedinfo.cpp qqmldomattachedinfo_p.h
@@ -47,6 +47,7 @@ qt_internal_add_module(QmlDomPrivate
         Qt::QmlPrivate
         Qt::QmlCompilerPrivate
     NO_UNITY_BUILD
+    NO_GENERATE_CPP_EXPORTS
 )
 
 #### Keys ignored in scope 1:.:.:qmldom.pro:<TRUE>:

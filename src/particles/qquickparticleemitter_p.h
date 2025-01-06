@@ -26,7 +26,7 @@
 #include <QPointF>
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickParticleEmitter : public QQuickItem
+class Q_QUICKPARTICLES_EXPORT QQuickParticleEmitter : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(QQuickParticleSystem* system READ system WRITE setSystem NOTIFY systemChanged)
@@ -101,7 +101,7 @@ public:
     void setVelocityFromMovement(qreal s);
     void componentComplete() override;
 Q_SIGNALS:
-    void emitParticles(const QJSValue &particles);
+    void emitParticles(const QList<QQuickV4ParticleData> &particles);
     void particlesPerSecondChanged(qreal);
     void particleDurationChanged(int);
     void enabledChanged(bool);

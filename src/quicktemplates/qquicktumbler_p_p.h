@@ -18,9 +18,11 @@
 #include <QtQuickTemplates2/private/qquickcontrol_p_p.h>
 #include <QtQuickTemplates2/private/qquicktumbler_p.h>
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickTumblerPrivate : public QQuickControlPrivate
+class Q_QUICKTEMPLATES2_EXPORT QQuickTumblerPrivate : public QQuickControlPrivate
 {
     Q_DECLARE_PUBLIC(QQuickTumbler)
 

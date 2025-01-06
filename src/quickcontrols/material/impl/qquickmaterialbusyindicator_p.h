@@ -45,12 +45,11 @@ protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 private:
+    bool m_running = false;
     int m_elapsed = 0;
     QColor m_color = Qt::black;
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickMaterialBusyIndicator)
 
 #endif // QQUICKMATERIALBUSYINDICATOR_P_H

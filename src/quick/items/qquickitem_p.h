@@ -42,6 +42,9 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qelapsedtimer.h>
+#include <QtCore/qpointer.h>
+
+#include <QtGui/private/qlayoutpolicy_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -100,7 +103,7 @@ public:
 
 #if QT_CONFIG(quick_shadereffect)
 
-class Q_QUICK_PRIVATE_EXPORT QQuickItemLayer : public QObject, public QQuickItemChangeListener
+class Q_QUICK_EXPORT QQuickItemLayer : public QObject, public QQuickItemChangeListener
 {
     Q_OBJECT
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged FINAL)
@@ -217,7 +220,7 @@ private:
 
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QQuickItemPrivate
+class Q_QUICK_EXPORT QQuickItemPrivate
     : public QObjectPrivate
     , public QQuickPaletteProviderPrivateBase<QQuickItem, QQuickItemPrivate>
 {
@@ -282,7 +285,6 @@ public:
     static void children_removeLast(QQmlListProperty<QQuickItem> *);
 
     // visibleChildren property
-    static void visibleChildren_append(QQmlListProperty<QQuickItem> *prop, QQuickItem *o);
     static qsizetype visibleChildren_count(QQmlListProperty<QQuickItem> *prop);
     static QQuickItem *visibleChildren_at(QQmlListProperty<QQuickItem> *prop, qsizetype index);
 
@@ -293,7 +295,7 @@ public:
     static void transform_clear(QQmlListProperty<QQuickTransform> *list);
 
     void _q_resourceObjectDeleted(QObject *);
-    quint64 _q_createJSWrapper(QV4::ExecutionEngine *engine);
+    quint64 _q_createJSWrapper(QQmlV4ExecutionEnginePtr engine);
 
     enum ChangeType {
         Geometry = 0x01,
@@ -483,6 +485,7 @@ public:
     // focus chain and prevents tabbing outside.
     quint32 isTabFence:1;
     quint32 replayingPressEvent:1;
+    // Bit 40
     quint32 touchEnabled:1;
     quint32 hasCursorHandler:1;
     // set true when this item does not expect events via a subscene delivery agent; false otherwise
@@ -491,6 +494,9 @@ public:
     // (e.g. when parent has ItemIsViewport and child has ItemObservesViewport)
     quint32 subtreeTransformChangedEnabled:1;
     quint32 inDestructor:1; // has entered ~QQuickItem
+    quint32 focusReason:4;
+    quint32 focusPolicy:4;
+    // Bit 53
 
     enum DirtyType {
         TransformOrigin         = 0x00000001,
@@ -556,16 +562,18 @@ public:
     QPointer<QQuickItem> subFocusItem;
     void updateSubFocusItem(QQuickItem *scope, bool focus);
 
+    bool setFocusIfNeeded(QEvent::Type);
+    Qt::FocusReason lastFocusChangeReason() const;
+    virtual bool setLastFocusChangeReason(Qt::FocusReason reason);
+
     QTransform windowToItemTransform() const;
     QTransform itemToWindowTransform() const;
     void itemToParentTransform(QTransform *) const;
-    QTransform globalToWindowTransform() const;
-    QTransform windowToGlobalTransform() const;
 
     static bool focusNextPrev(QQuickItem *item, bool forward);
     static QQuickItem *nextTabChildItem(const QQuickItem *item, int start);
     static QQuickItem *prevTabChildItem(const QQuickItem *item, int start);
-    static QQuickItem *nextPrevItemInTabFocusChain(QQuickItem *item, bool forward);
+    static QQuickItem *nextPrevItemInTabFocusChain(QQuickItem *item, bool forward, bool wrap = true);
 
     static bool canAcceptTabFocus(QQuickItem *item);
 
@@ -643,6 +651,8 @@ public:
 #endif
     void deliverShortcutOverrideEvent(QKeyEvent *);
 
+    void deliverPointerEvent(QEvent *);
+
     bool anyPointerHandlerWants(const QPointerEvent *event, const QEventPoint &point) const;
     virtual bool handlePointerEvent(QPointerEvent *, bool avoidGrabbers = false);
 
@@ -685,6 +695,8 @@ public:
 
     void itemChange(QQuickItem::ItemChange, const QQuickItem::ItemChangeData &);
 
+    void enableSubtreeChangeNotificationsForParentHierachy();
+
     virtual void mirrorChange() {}
 
     void setHasCursorInChild(bool hasCursor);
@@ -696,6 +708,10 @@ public:
 
     virtual void updatePolish() { }
     virtual void dumpItemTree(int indent) const;
+
+    QLayoutPolicy sizePolicy() const;
+    void setSizePolicy(const QLayoutPolicy::Policy &horizontalPolicy, const QLayoutPolicy::Policy &verticalPolicy);
+    QLayoutPolicy szPolicy;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickItemPrivate::ExtraDataTags)
@@ -748,7 +764,7 @@ public:
     bool backtabSet : 1;
 };
 
-class Q_QUICK_PRIVATE_EXPORT QQuickKeyNavigationAttached : public QObject, public QQuickItemKeyFilter
+class Q_QUICK_EXPORT QQuickKeyNavigationAttached : public QObject, public QQuickItemKeyFilter
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickKeyNavigationAttached)
@@ -881,7 +897,7 @@ public:
     QQuickKeyEvent theKeyEvent;
 };
 
-class Q_QUICK_PRIVATE_EXPORT QQuickKeysAttached : public QObject, public QQuickItemKeyFilter
+class Q_QUICK_EXPORT QQuickKeysAttached : public QObject, public QQuickItemKeyFilter
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQuickKeysAttached)
@@ -1046,13 +1062,5 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickItemPrivate::ChangeTypes)
 Q_DECLARE_TYPEINFO(QQuickItemPrivate::ChangeListener, Q_PRIMITIVE_TYPE);
 
 QT_END_NAMESPACE
-
-#if QT_CONFIG(quick_shadereffect)
-QML_DECLARE_TYPE(QQuickItemLayer)
-#endif
-QML_DECLARE_TYPE(QQuickKeysAttached)
-QML_DECLARE_TYPE(QQuickKeyNavigationAttached)
-QML_DECLARE_TYPE(QQuickLayoutMirroringAttached)
-QML_DECLARE_TYPE(QQuickEnterKeyAttached)
 
 #endif // QQUICKITEM_P_H

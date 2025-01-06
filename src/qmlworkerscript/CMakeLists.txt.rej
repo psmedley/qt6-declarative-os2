@@ -1,0 +1,13 @@
+--- src/qmlworkerscript/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/qmlworkerscript/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -53,9 +53,7 @@
+     PRIVATE_MODULE_INTERFACE
+         Qt::CorePrivate
+         Qt::QmlPrivate
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )
+ 
+ qt_internal_extend_target(QmlWorkerScript CONDITION disassembler AND ((TEST_architecture_arch STREQUAL "i386") OR (TEST_architecture_arch STREQUAL "x86_64"))
+     DEFINES

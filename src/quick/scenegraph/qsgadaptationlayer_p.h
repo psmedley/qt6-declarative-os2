@@ -52,7 +52,7 @@ class QSGRenderNode;
 class QSGRenderContext;
 class QRhiTexture;
 
-class Q_QUICK_PRIVATE_EXPORT QSGNodeVisitorEx
+class Q_QUICK_EXPORT QSGNodeVisitorEx
 {
 public:
     virtual ~QSGNodeVisitorEx();
@@ -89,7 +89,7 @@ public:
 };
 
 
-class Q_QUICK_PRIVATE_EXPORT QSGVisitableNode : public QSGGeometryNode
+class Q_QUICK_EXPORT QSGVisitableNode : public QSGGeometryNode
 {
 public:
     QSGVisitableNode() { setFlag(IsVisitableNode); }
@@ -98,7 +98,7 @@ public:
     virtual void accept(QSGNodeVisitorEx *) = 0;
 };
 
-class Q_QUICK_PRIVATE_EXPORT QSGInternalRectangleNode : public QSGVisitableNode
+class Q_QUICK_EXPORT QSGInternalRectangleNode : public QSGVisitableNode
 {
 public:
     ~QSGInternalRectangleNode() override;
@@ -110,6 +110,10 @@ public:
     virtual void setGradientStops(const QGradientStops &stops) = 0;
     virtual void setGradientVertical(bool vertical) = 0;
     virtual void setRadius(qreal radius) = 0;
+    virtual void setTopLeftRadius(qreal radius) = 0;
+    virtual void setTopRightRadius(qreal radius) = 0;
+    virtual void setBottomLeftRadius(qreal radius) = 0;
+    virtual void setBottomRightRadius(qreal radius) = 0;
     virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing); }
     virtual void setAligned(bool aligned) = 0;
 
@@ -119,7 +123,7 @@ public:
 };
 
 
-class Q_QUICK_PRIVATE_EXPORT QSGInternalImageNode : public QSGVisitableNode
+class Q_QUICK_EXPORT QSGInternalImageNode : public QSGVisitableNode
 {
 public:
     ~QSGInternalImageNode() override;
@@ -144,7 +148,7 @@ public:
     void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 };
 
-class Q_QUICK_PRIVATE_EXPORT QSGPainterNode : public QSGVisitableNode
+class Q_QUICK_EXPORT QSGPainterNode : public QSGVisitableNode
 {
 public:
     ~QSGPainterNode() override;
@@ -205,7 +209,7 @@ protected:
 
 #if QT_CONFIG(quick_sprite)
 
-class Q_QUICK_PRIVATE_EXPORT QSGSpriteNode : public QSGVisitableNode
+class Q_QUICK_EXPORT QSGSpriteNode : public QSGVisitableNode
 {
 public:
     ~QSGSpriteNode() override;
@@ -226,7 +230,7 @@ public:
 
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QSGGuiThreadShaderEffectManager : public QObject
+class Q_QUICK_EXPORT QSGGuiThreadShaderEffectManager : public QObject
 {
     Q_OBJECT
 
@@ -267,7 +271,6 @@ public:
         QShader rhiShader;
         Type type;
         QVector<Variable> variables;
-        uint constantDataSize;
 
         // Vertex inputs are not tracked here as QSGGeometry::AttributeSet
         // hardwires that anyways so it is up to the shader to provide
@@ -283,10 +286,10 @@ Q_SIGNALS:
 };
 
 #ifndef QT_NO_DEBUG_STREAM
-Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &v);
+Q_QUICK_EXPORT QDebug operator<<(QDebug debug, const QSGGuiThreadShaderEffectManager::ShaderInfo::Variable &v);
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QSGShaderEffectNode : public QObject, public QSGVisitableNode
+class Q_QUICK_EXPORT QSGShaderEffectNode : public QObject, public QSGVisitableNode
 {
     Q_OBJECT
 
@@ -337,6 +340,7 @@ public:
         ShaderSyncData vertex;
         ShaderSyncData fragment;
         void *materialTypeCacheKey;
+        qint8 viewCount;
     };
 
     // Each ShaderEffect item has one node (render thread) and one manager (gui thread).
@@ -353,10 +357,10 @@ Q_SIGNALS:
 Q_DECLARE_OPERATORS_FOR_FLAGS(QSGShaderEffectNode::DirtyShaderFlags)
 
 #ifndef QT_NO_DEBUG_STREAM
-Q_QUICK_PRIVATE_EXPORT QDebug operator<<(QDebug debug, const QSGShaderEffectNode::VariableData &vd);
+Q_QUICK_EXPORT QDebug operator<<(QDebug debug, const QSGShaderEffectNode::VariableData &vd);
 #endif
 
-class Q_QUICK_PRIVATE_EXPORT QSGGlyphNode : public QSGVisitableNode
+class Q_QUICK_EXPORT QSGGlyphNode : public QSGVisitableNode
 {
 public:
     enum AntialiasingMode
@@ -384,16 +388,12 @@ public:
 
     virtual void update() = 0;
 
-    void setOwnerElement(QQuickItem *ownerElement) { m_ownerElement = ownerElement; }
-    QQuickItem *ownerElement() const { return m_ownerElement; }
-
     void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
 protected:
     QRectF m_bounding_rect;
-    QQuickItem *m_ownerElement = nullptr;
 };
 
-class Q_QUICK_PRIVATE_EXPORT QSGDistanceFieldGlyphConsumer
+class Q_QUICK_EXPORT QSGDistanceFieldGlyphConsumer
 {
 public:
     virtual ~QSGDistanceFieldGlyphConsumer();
@@ -403,7 +403,7 @@ public:
 };
 typedef QIntrusiveList<QSGDistanceFieldGlyphConsumer, &QSGDistanceFieldGlyphConsumer::node> QSGDistanceFieldGlyphConsumerList;
 
-class Q_QUICK_PRIVATE_EXPORT QSGDistanceFieldGlyphCache
+class Q_QUICK_EXPORT QSGDistanceFieldGlyphCache
 {
 public:
     QSGDistanceFieldGlyphCache(const QRawFont &font,
@@ -468,8 +468,6 @@ public:
     void registerGlyphNode(QSGDistanceFieldGlyphConsumer *node) { m_registeredNodes.insert(node); }
     void unregisterGlyphNode(QSGDistanceFieldGlyphConsumer *node) { m_registeredNodes.remove(node); }
 
-    virtual void registerOwnerElement(QQuickItem *ownerElement);
-    virtual void unregisterOwnerElement(QQuickItem *ownerElement);
     virtual void processPendingGlyphs();
 
     virtual bool eightBitFormatIsAlphaSwizzled() const = 0;

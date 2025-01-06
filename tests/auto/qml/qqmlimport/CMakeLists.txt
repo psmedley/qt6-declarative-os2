@@ -7,6 +7,12 @@
 ## tst_qqmlimport Test:
 #####################################################################
 
+if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
+    cmake_minimum_required(VERSION 3.16)
+    project(tst_qqmlimport LANGUAGES CXX)
+    find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
+endif()
+
 # Collect test data
 file(GLOB_RECURSE test_data_glob
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -29,6 +35,7 @@ qt_internal_add_test(tst_qqmlimport
     SOURCES
         tst_qqmlimport.cpp
     LIBRARIES
+        Qt::CorePrivate
         Qt::Gui
         Qt::Qml
         Qt::QmlPrivate
@@ -42,6 +49,31 @@ qt_internal_add_resource(tst_qqmlimport "preferred"
         "/qqmlimport/ModuleWithPrefer/"
     FILES
         "Preferred.qml"
+)
+
+qt_internal_add_resource(tst_qqmlimport "preferred2"
+    PREFIX
+        "/qqmlimport/ModuleWithPrefer2/"
+    FILES
+        "Preferred.qml"
+        "qmldir"
+)
+
+qt_internal_add_resource(tst_qqmlimport "nomimport"
+    BASE
+        "data"
+    PREFIX
+        "/qqmlimport/"
+    FILES
+        "data/noimport/Main.qml"
+        "data/noimport/qmldir"
+)
+
+qt_internal_add_resource(tst_qqmlimport "qtconf"
+    PREFIX
+        "/"
+    FILES
+        "qmlimports.qt.conf"
 )
 
 ## Scopes:

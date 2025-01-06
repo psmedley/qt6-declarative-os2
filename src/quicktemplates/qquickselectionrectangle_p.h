@@ -18,13 +18,15 @@
 #include <QtQuick/qquickitem.h>
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 class QQuickSelectionRectanglePrivate;
 class QQuickSelectable;
 class QQuickSelectionRectangleAttached;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickSelectionRectangle : public QQuickControl
+class Q_QUICKTEMPLATES2_EXPORT QQuickSelectionRectangle : public QQuickControl
 {
     Q_OBJECT
     Q_PROPERTY(SelectionMode selectionMode READ selectionMode WRITE setSelectionMode NOTIFY selectionModeChanged FINAL)
@@ -77,7 +79,7 @@ private:
     Q_DECLARE_PRIVATE(QQuickSelectionRectangle)
 };
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickSelectionRectangleAttached : public QObject
+class Q_QUICKTEMPLATES2_EXPORT QQuickSelectionRectangleAttached : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QQuickSelectionRectangle *control READ control NOTIFY controlChanged FINAL)
@@ -104,7 +106,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickSelectionRectangle)
 
 #endif // QQUICKSELECTIONRECTANGLE_P_H

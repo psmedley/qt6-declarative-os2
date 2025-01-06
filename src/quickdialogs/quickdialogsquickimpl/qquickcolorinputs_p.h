@@ -23,9 +23,11 @@
 
 #include "qquickcolordialogutils_p.h"
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKDIALOGS2QUICKIMPL_PRIVATE_EXPORT QQuickColorInputs : public QQuickItem
+class Q_QUICKDIALOGS2QUICKIMPL_EXPORT QQuickColorInputs : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)

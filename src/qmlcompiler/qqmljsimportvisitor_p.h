@@ -14,7 +14,8 @@
 //
 // We mean it.
 
-#include <private/qtqmlcompilerexports_p.h>
+#include <private/qqmljscontextualtypes_p.h>
+#include <qtqmlcompilerexports.h>
 
 #include "qqmljsannotation_p.h"
 #include "qqmljsimporter_p.h"
@@ -38,7 +39,7 @@ class QQmlDomAstCreatorWithQQmlJSScope;
 }
 
 struct QQmlJSResourceFileMapper;
-class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSImportVisitor : public QQmlJS::AST::Visitor
+class Q_QMLCOMPILER_EXPORT QQmlJSImportVisitor : public QQmlJS::AST::Visitor
 {
 public:
     QQmlJSImportVisitor();
@@ -84,6 +85,8 @@ public:
         std::function<QQmlJSMetaPropertyBinding()> create;
         QQmlJSScope::BindingTargetSpecifier specifier = QQmlJSScope::SimplePropertyTarget;
     };
+
+    QStringList seenModuleQualifiers() const { return m_seenModuleQualifiers; }
 
 protected:
     // Linter warnings, we might want to move this at some point
@@ -285,11 +288,13 @@ protected:
         QQmlJS::SourceLocation location;
     };
 
-    struct PendingMethodType
+    struct PendingMethodTypeAnnotations
     {
         QQmlJSScope::Ptr scope;
         QString methodName;
-        QQmlJS::SourceLocation location;
+        // This keeps type annotations' locations in order (parameters then return type).
+        // If an annotation is not present, it is represented by an invalid source location.
+        QVarLengthArray<QQmlJS::SourceLocation, 3> locations;
     };
 
     struct PendingPropertyObjectBinding
@@ -329,7 +334,7 @@ protected:
 
     QHash<QQmlJSScope::Ptr, QVector<QQmlJSScope::Ptr>> m_pendingDefaultProperties;
     QVector<PendingPropertyType> m_pendingPropertyTypes;
-    QVector<PendingMethodType> m_pendingMethodTypes;
+    QVector<PendingMethodTypeAnnotations> m_pendingMethodTypeAnnotations;
     QVector<PendingPropertyObjectBinding> m_pendingPropertyObjectBindings;
     QVector<RequiredProperty> m_requiredProperties;
     QVector<QQmlJSScope::Ptr> m_objectBindingScopes;
@@ -340,18 +345,20 @@ protected:
     QHash<QQmlJS::SourceLocation, QQmlJSMetaSignalHandler> m_signalHandlers;
     QSet<QQmlJSScope::ConstPtr> m_literalScopesToCheck;
     QQmlJS::SourceLocation m_pendingSignalHandler;
+    QStringList m_seenModuleQualifiers;
 
 private:
     void checkSignal(
             const QQmlJSScope::ConstPtr &signalScope, const QQmlJS::SourceLocation &location,
             const QString &handlerName, const QStringList &handlerParameters);
     void importBaseModules();
-    void resolveAliasesAndIds();
+    void resolveAliases();
+    void resolveGroupProperties();
     void handleIdDeclaration(QQmlJS::AST::UiScriptBinding *scriptBinding);
 
     void visitFunctionExpressionHelper(QQmlJS::AST::FunctionExpression *fexpr);
     void processImportWarnings(
-            const QString &what,
+            const QString &what, const QList<QQmlJS::DiagnosticMessage> &warnings,
             const QQmlJS::SourceLocation &srcLocation = QQmlJS::SourceLocation());
     void addImportWithLocation(const QString &name, const QQmlJS::SourceLocation &loc);
     void populateCurrentScope(QQmlJSScope::ScopeType type, const QString &name,
@@ -359,10 +366,10 @@ private:
     void enterRootScope(QQmlJSScope::ScopeType type, const QString &name,
                            const QQmlJS::SourceLocation &location);
 
-    void importFromHost(const QString &path, const QString &prefix,
-                        const QQmlJS::SourceLocation &location);
-    void importFromQrc(const QString &path, const QString &prefix,
-                       const QQmlJS::SourceLocation &location);
+    QList<QQmlJS::DiagnosticMessage> importFromHost(
+            const QString &path, const QString &prefix, const QQmlJS::SourceLocation &location);
+    QList<QQmlJS::DiagnosticMessage> importFromQrc(
+            const QString &path, const QString &prefix, const QQmlJS::SourceLocation &location);
 
 public:
     friend class QQmlJS::Dom::QQmlDomAstCreatorWithQQmlJSScope;

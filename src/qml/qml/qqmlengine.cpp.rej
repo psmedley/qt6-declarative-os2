@@ -1,0 +1,11 @@
+--- src/qml/qml/qqmlengine.cpp	2024-03-19 04:29:15.000000000 +1030
++++ src/qml/qml/qqmlengine.cpp	2024-11-11 22:53:39.000000000 +1030
+@@ -2050,7 +2005,7 @@
+ 
+ bool QQml_isFileCaseCorrect(const QString &fileName, int lengthIn /* = -1 */)
+ {
+-#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
++#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN)
+     QFileInfo info(fileName);
+     const QString absolute = info.absoluteFilePath();
+ 

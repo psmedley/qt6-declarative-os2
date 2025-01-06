@@ -25,7 +25,7 @@
 
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
-#include <QtQuick/private/qquickpixmapcache_p.h>
+#include <QtQuick/private/qquickpixmap_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,6 +67,7 @@ public:
     Qt::DropAction startDrag(Qt::DropActions supportedActions);
     void setTarget(QQuickItem *item);
     QMimeData *createMimeData() const;
+    void loadPixmap();
 
     QQuickDragGrabber dragGrabber;
 
@@ -86,6 +87,7 @@ public:
     bool overrideActions : 1;
     QPointF hotSpot;
     QUrl imageSource;
+    QSize imageSourceSize;
     QQuickPixmap pixmapLoader;
     QStringList keys;
     QVariantMap externalMimeData;

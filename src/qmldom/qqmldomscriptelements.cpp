@@ -71,7 +71,7 @@ using QQmlJS::Dom::ScriptElementVariant;
    \internal
     Helper for fields with elements in iterateDirectSubpaths.
  */
-static bool wrap(QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor, QStringView field,
+static bool wrap(const QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor, QStringView field,
                  const ScriptElementVariant &value)
 {
     if (!value)
@@ -89,7 +89,7 @@ static bool wrap(QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor,
    \internal
     Helper for fields with lists in iterateDirectSubpaths.
  */
-static bool wrap(QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor, QStringView field,
+static bool wrap(const QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor, QStringView field,
                  const ScriptList &value)
 {
     const bool b =
@@ -100,7 +100,7 @@ static bool wrap(QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor,
     return b;
 }
 
-bool GenericScriptElement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool GenericScriptElement::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     for (auto it = m_children.begin(); it != m_children.end(); ++it) {
@@ -108,10 +108,13 @@ bool GenericScriptElement::iterateDirectSubpaths(DomItem &self, DirectVisitor vi
                 [&self, &visitor, &it](auto &&e) { return wrap(self, visitor, it->first, e); },
                 it->second);
     }
+    for (auto it = m_values.begin(); it != m_values.end(); ++it) {
+        cont &= self.dvValueField(visitor, it->first, it->second);
+    }
     return cont;
 }
 
-void GenericScriptElement::updatePathFromOwner(Path p)
+void GenericScriptElement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     for (auto it = m_children.begin(); it != m_children.end(); ++it) {
@@ -125,7 +128,7 @@ void GenericScriptElement::updatePathFromOwner(Path p)
     }
 }
 
-void GenericScriptElement::createFileLocations(FileLocations::Tree base)
+void GenericScriptElement::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     for (auto it = m_children.begin(); it != m_children.end(); ++it) {
@@ -137,7 +140,7 @@ void GenericScriptElement::createFileLocations(FileLocations::Tree base)
     }
 }
 
-bool BlockStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool BlockStatement::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     // TODO: test me
     bool cont = true;
@@ -145,26 +148,26 @@ bool BlockStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     return cont;
 }
 
-void BlockStatement::updatePathFromOwner(Path p)
+void BlockStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     m_statements.updatePathFromOwner(p.field(Fields::statements));
 }
 
-void BlockStatement::createFileLocations(FileLocations::Tree base)
+void BlockStatement::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     m_statements.createFileLocations(base);
 }
 
-bool IdentifierExpression::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool IdentifierExpression::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= self.dvValueField(visitor, Fields::identifier, m_name);
     return cont;
 }
 
-bool Literal::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool Literal::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     std::visit([&cont, &visitor,
@@ -173,7 +176,7 @@ bool Literal::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     return cont;
 }
 
-bool IfStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool IfStatement::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     // TODO: test me
     bool cont = true;
@@ -183,7 +186,7 @@ bool IfStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     return cont;
 }
 
-void IfStatement::updatePathFromOwner(Path p)
+void IfStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_condition.base())
@@ -194,7 +197,7 @@ void IfStatement::updatePathFromOwner(Path p)
         ptr->updatePathFromOwner(p.field(Fields::alternative));
 }
 
-void IfStatement::createFileLocations(FileLocations::Tree base)
+void IfStatement::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     if (auto ptr = m_condition.base())
@@ -205,7 +208,7 @@ void IfStatement::createFileLocations(FileLocations::Tree base)
         ptr->createFileLocations(base);
 }
 
-bool ForStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool ForStatement::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= wrap(self, visitor, Fields::initializer, m_initializer);
@@ -216,7 +219,7 @@ bool ForStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
     return cont;
 }
 
-void ForStatement::updatePathFromOwner(Path p)
+void ForStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_initializer.base())
@@ -231,7 +234,7 @@ void ForStatement::updatePathFromOwner(Path p)
         ptr->updatePathFromOwner(p.field(Fields::body));
 }
 
-void ForStatement::createFileLocations(FileLocations::Tree base)
+void ForStatement::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     if (auto ptr = m_initializer.base())
@@ -246,7 +249,7 @@ void ForStatement::createFileLocations(FileLocations::Tree base)
         ptr->createFileLocations(base);
 }
 
-bool BinaryExpression::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool BinaryExpression::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= wrap(self, visitor, Fields::left, m_left);
@@ -255,7 +258,7 @@ bool BinaryExpression::iterateDirectSubpaths(DomItem &self, DirectVisitor visito
     return cont;
 }
 
-void BinaryExpression::updatePathFromOwner(Path p)
+void BinaryExpression::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_left.base())
@@ -264,7 +267,7 @@ void BinaryExpression::updatePathFromOwner(Path p)
         ptr->updatePathFromOwner(p.field(Fields::right));
 }
 
-void BinaryExpression::createFileLocations(FileLocations::Tree base)
+void BinaryExpression::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     if (auto ptr = m_left.base())
@@ -273,7 +276,7 @@ void BinaryExpression::createFileLocations(FileLocations::Tree base)
         ptr->createFileLocations(base);
 }
 
-bool VariableDeclarationEntry::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool VariableDeclarationEntry::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= self.dvValueField(visitor, Fields::scopeType, m_scopeType);
@@ -282,7 +285,7 @@ bool VariableDeclarationEntry::iterateDirectSubpaths(DomItem &self, DirectVisito
     return cont;
 }
 
-void VariableDeclarationEntry::updatePathFromOwner(Path p)
+void VariableDeclarationEntry::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_identifier.base())
@@ -291,7 +294,7 @@ void VariableDeclarationEntry::updatePathFromOwner(Path p)
         ptr->updatePathFromOwner(p.field(Fields::initializer));
 }
 
-void VariableDeclarationEntry::createFileLocations(FileLocations::Tree base)
+void VariableDeclarationEntry::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     if (auto ptr = m_identifier.base())
@@ -300,42 +303,44 @@ void VariableDeclarationEntry::createFileLocations(FileLocations::Tree base)
         ptr->createFileLocations(base);
 }
 
-bool VariableDeclaration::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool VariableDeclaration::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= wrap(self, visitor, Fields::declarations, m_declarations);
     return cont;
 }
 
-void VariableDeclaration::updatePathFromOwner(Path p)
+void VariableDeclaration::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     m_declarations.updatePathFromOwner(p.field(Fields::declarations));
 }
 
-void VariableDeclaration::createFileLocations(FileLocations::Tree base)
+void VariableDeclaration::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
     m_declarations.createFileLocations(base);
 }
 
-bool ReturnStatement::iterateDirectSubpaths(DomItem &self, DirectVisitor visitor)
+bool ReturnStatement::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
     cont &= wrap(self, visitor, Fields::expression, m_expression);
     return cont;
 }
 
-void ReturnStatement::updatePathFromOwner(Path p)
+void ReturnStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
-    m_expression.base()->updatePathFromOwner(p.field(Fields::expression));
+    if (auto ptr = m_expression.base())
+        ptr->updatePathFromOwner(p.field(Fields::expression));
 }
 
-void ReturnStatement::createFileLocations(FileLocations::Tree base)
+void ReturnStatement::createFileLocations(const FileLocations::Tree &base)
 {
     BaseT::createFileLocations(base);
-    m_expression.base()->createFileLocations(base);
+    if (auto ptr = m_expression.base())
+        ptr->createFileLocations(base);
 }
 
 void ScriptList::replaceKindForGenericChildren(DomType oldType, DomType newType)

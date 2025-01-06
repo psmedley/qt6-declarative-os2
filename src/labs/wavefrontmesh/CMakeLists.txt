@@ -17,7 +17,5 @@ qt_internal_add_qml_module(LabsWavefrontMesh
         Qt::CorePrivate
         Qt::GuiPrivate
         Qt::QuickPrivate
-    GENERATE_CPP_EXPORTS
-    GENERATE_PRIVATE_CPP_EXPORTS
     OS2_SHORT_NAME qmlwavfr
-)
+    )

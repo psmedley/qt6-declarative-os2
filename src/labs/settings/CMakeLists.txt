@@ -14,7 +14,5 @@ qt_internal_add_qml_module(LabsSettings
     PUBLIC_LIBRARIES
          Qt::Core
          Qt::Qml
-     GENERATE_CPP_EXPORTS
-     GENERATE_PRIVATE_CPP_EXPORTS
-     OS2_SHORT_NAME Qt6LabSe
-)
+    OS2_SHORT_NAME Qt6LabSe
+    )

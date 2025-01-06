@@ -9,14 +9,27 @@ set(qml_files
     "ApplicationWindow.qml"
     "Button.qml"
     "CheckBox.qml"
+    "CheckDelegate.qml"
     "ComboBox.qml"
+    "DelayButton.qml"
     "Frame.qml"
     "GroupBox.qml"
+    "ItemDelegate.qml"
+    "Menu.qml"
+    "MenuBar.qml"
+    "MenuBarItem.qml"
+    "MenuItem.qml"
+    "MenuSeparator.qml"
     "ProgressBar.qml"
     "RadioButton.qml"
+    "RadioDelegate.qml"
+    "RangeSlider.qml"
+    "ScrollIndicator.qml"
     "SelectionRectangle.qml"
     "Slider.qml"
     "SpinBox.qml"
+    "Switch.qml"
+    "SwitchDelegate.qml"
     "TextArea.qml"
     "TextField.qml"
     "ScrollBar.qml"
@@ -37,6 +50,13 @@ qt_internal_add_qml_module(qtquickcontrols2windowsstyleplugin
         qtquickcontrols2windowsstyleplugin.cpp
     QML_FILES
         ${qml_files}
+    RESOURCES
+        images/checkmark.png
+        images/checkmark@2x.png
+        images/checkmark@3x.png
+        images/menuarrow.png
+        images/menuarrow@2x.png
+        images/menuarrow@3x.png
     DEFINES
         QT_NO_CAST_FROM_ASCII
         QT_NO_CAST_TO_ASCII
@@ -45,9 +65,12 @@ qt_internal_add_qml_module(qtquickcontrols2windowsstyleplugin
         Qt::GuiPrivate
         Qt::QmlPrivate
         Qt::QuickControls2Private
+        Qt::QuickControls2WindowsStyleImpl
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
 )
+
+add_subdirectory(impl)
 
 # Native style is a dependency of the Windows style.
 _qt_internal_add_qml_static_plugin_dependency(qtquickcontrols2windowsstyleplugin

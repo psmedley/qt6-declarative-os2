@@ -17,13 +17,15 @@
 
 #include <QtQuickTemplates2/private/qquickabstractbutton_p.h>
 
+QT_REQUIRE_CONFIG(quicktemplates2_container);
+
 QT_BEGIN_NAMESPACE
 
 class QQuickMenu;
 class QQuickMenuBar;
 class QQuickMenuBarItemPrivate;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickMenuBarItem : public QQuickAbstractButton
+class Q_QUICKTEMPLATES2_EXPORT QQuickMenuBarItem : public QQuickAbstractButton
 {
     Q_OBJECT
     Q_PROPERTY(QQuickMenuBar *menuBar READ menuBar NOTIFY menuBarChanged FINAL)
@@ -68,7 +70,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickMenuBarItem)
 
 #endif // QQUICKMENUBARITEM_P_H

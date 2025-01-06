@@ -10,7 +10,7 @@
 #include <QtQuick/qquickitem.h>
 #include <QtGui/qguiapplication.h>
 
-#include <private/qquickpixmapcache_p.h>
+#include <private/qquickpixmap_p.h>
 #include <private/qqmldebugconnector_p.h>
 #include <private/qversionedpacket_p.h>
 
@@ -120,8 +120,13 @@ void QQmlPreviewServiceImpl::engineAboutToBeRemoved(QJSEngine *engine)
 
 void QQmlPreviewServiceImpl::stateChanged(QQmlDebugService::State state)
 {
-    m_fileEngine.reset(state == Enabled ? new QQmlPreviewFileEngineHandler(m_loader.data())
-                                        : nullptr);
+    if (state == Enabled) {
+        QV4::ExecutionEngine::setPreviewing(true);
+        m_fileEngine.reset(new QQmlPreviewFileEngineHandler(m_loader.data()));
+    } else {
+        QV4::ExecutionEngine::setPreviewing(false);
+        m_fileEngine.reset();
+    }
 }
 
 void QQmlPreviewServiceImpl::forwardRequest(const QString &file)

@@ -1,0 +1,13 @@
+--- src/labs/sharedimage/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/labs/sharedimage/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -19,9 +19,7 @@
+         Qt::CorePrivate
+         Qt::GuiPrivate
+         Qt::QuickPrivate
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )
+ 
+ # We need to do additional initialization, so we have to provide our own
+ # plugin class rather than using the generated one

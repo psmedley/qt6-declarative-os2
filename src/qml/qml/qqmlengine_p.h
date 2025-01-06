@@ -39,6 +39,7 @@
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qpair.h>
+#include <QtCore/qpointer.h>
 #include <QtCore/qproperty.h>
 #include <QtCore/qstack.h>
 #include <QtCore/qstring.h>
@@ -56,14 +57,6 @@ class QQmlNetworkAccessManagerFactory;
 class QQmlObjectCreator;
 class QQmlProfiler;
 class QQmlPropertyCapture;
-
-struct QObjectForeign {
-    Q_GADGET
-    QML_FOREIGN(QObject)
-    QML_NAMED_ELEMENT(QtObject)
-    QML_ADDED_IN_VERSION(2, 0)
-    Q_CLASSINFO("QML.OmitFromQmlTypes", "true")
-};
 
 // This needs to be declared here so that the pool for it can live in QQmlEnginePrivate.
 // The inline method definitions are in qqmljavascriptexpression_p.h
@@ -104,7 +97,7 @@ struct TriggerList : QPropertyChangeTrigger {
     TriggerList *next = nullptr;
 };
 
-class Q_QML_PRIVATE_EXPORT QQmlEnginePrivate : public QJSEnginePrivate
+class Q_QML_EXPORT QQmlEnginePrivate : public QJSEnginePrivate
 {
     Q_DECLARE_PUBLIC(QQmlEngine)
 public:
@@ -214,8 +207,8 @@ public:
     QQmlGadgetPtrWrapper *valueTypeInstance(QMetaType type)
     {
         int typeIndex = type.id();
-        auto it = cachedValueTypeInstances.find(typeIndex);
-        if (it != cachedValueTypeInstances.end())
+        auto it = cachedValueTypeInstances.constFind(typeIndex);
+        if (it != cachedValueTypeInstances.cend())
             return *it;
 
         if (QQmlValueType *valueType = QQmlMetaType::valueType(type)) {
@@ -252,10 +245,12 @@ public:
     }
 
 private:
-    class SingletonInstances : private QHash<QQmlType, QJSValue>
+    class SingletonInstances : private QHash<QQmlType::SingletonInstanceInfo::ConstPtr, QJSValue>
     {
     public:
-        void convertAndInsert(QV4::ExecutionEngine *engine, const QQmlType &type, QJSValue *value)
+        void convertAndInsert(
+                QV4::ExecutionEngine *engine, const QQmlType::SingletonInstanceInfo::ConstPtr &type,
+                QJSValue *value)
         {
             QJSValuePrivate::manageStringOnV4Heap(engine, value);
             insert(type, *value);
@@ -263,11 +258,11 @@ private:
 
         void clear()
         {
-            const auto canDelete = [](QObject *instance, const auto &type) -> bool {
+            const auto canDelete = [](QObject *instance, const auto &siinfo) -> bool {
                 if (!instance)
                     return false;
 
-                if (!type.singletonInstanceInfo()->url.isEmpty())
+                if (!siinfo->url.isEmpty())
                     return true;
 
                 const auto *ddata = QQmlData::get(instance, false);
@@ -287,11 +282,11 @@ private:
                     delete instance;
             }
 
-            QHash<QQmlType, QJSValue>::clear();
+            QHash<QQmlType::SingletonInstanceInfo::ConstPtr, QJSValue>::clear();
         }
 
-        using QHash<QQmlType, QJSValue>::value;
-        using QHash<QQmlType, QJSValue>::take;
+        using QHash<QQmlType::SingletonInstanceInfo::ConstPtr, QJSValue>::value;
+        using QHash<QQmlType::SingletonInstanceInfo::ConstPtr, QJSValue>::take;
     };
 
     SingletonInstances singletonInstances;
@@ -389,7 +384,7 @@ QQmlEnginePrivate *QQmlEnginePrivate::get(QV4::ExecutionEngine *e)
 }
 
 template<>
-Q_QML_PRIVATE_EXPORT QJSValue QQmlEnginePrivate::singletonInstance<QJSValue>(const QQmlType &type);
+Q_QML_EXPORT QJSValue QQmlEnginePrivate::singletonInstance<QJSValue>(const QQmlType &type);
 
 template<typename T>
 T QQmlEnginePrivate::singletonInstance(const QQmlType &type) {

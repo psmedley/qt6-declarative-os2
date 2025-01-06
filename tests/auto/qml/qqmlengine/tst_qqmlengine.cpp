@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -36,8 +36,10 @@ public:
 private slots:
     void initTestCase() override;
     void rootContext();
+#if QT_CONFIG(qml_network)
     void networkAccessManager();
     void synchronousNetworkAccessManager();
+#endif
     void baseUrl();
     void contextForObject();
     void offlineStoragePath();
@@ -80,6 +82,9 @@ private slots:
     void lockedRootObject();
     void crossReferencingSingletonsDeletion();
     void bindingInstallUseAfterFree();
+    void objectListArgumentMethod();
+    void variantListQJsonConversion();
+    void attachedObjectOfUnregistered();
 
 public slots:
     QObject *createAQObjectForOwnershipTest ()
@@ -152,6 +157,7 @@ void tst_qqmlengine::rootContext()
     QVERIFY(!engine.rootContext()->parentContext());
 }
 
+#if QT_CONFIG(qml_network)
 class NetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory
 {
 public:
@@ -167,21 +173,19 @@ public:
 
 void tst_qqmlengine::networkAccessManager()
 {
-    QQmlEngine *engine = new QQmlEngine;
+    std::unique_ptr<QQmlEngine> engine = std::make_unique<QQmlEngine>();
 
     // Test QQmlEngine created manager
     QPointer<QNetworkAccessManager> manager = engine->networkAccessManager();
     QVERIFY(manager != nullptr);
-    delete engine;
 
     // Test factory created manager
-    engine = new QQmlEngine;
+    engine.reset(new QQmlEngine);
     NetworkAccessManagerFactory factory;
     engine->setNetworkAccessManagerFactory(&factory);
     QCOMPARE(engine->networkAccessManagerFactory(), &factory);
     QNetworkAccessManager *engineNam = engine->networkAccessManager(); // calls NetworkAccessManagerFactory::create()
     QCOMPARE(engineNam, factory.manager);
-    delete engine;
 }
 
 class ImmediateReply : public QNetworkReply {
@@ -229,7 +233,7 @@ void tst_qqmlengine::synchronousNetworkAccessManager()
     // reply is finished, so should not be in loading state.
     QVERIFY(!c.isLoading());
 }
-
+#endif
 
 void tst_qqmlengine::baseUrl()
 {
@@ -270,7 +274,7 @@ void tst_qqmlengine::baseUrl()
 
 void tst_qqmlengine::contextForObject()
 {
-    QQmlEngine *engine = new QQmlEngine;
+    std::unique_ptr<QQmlEngine> engine = std::make_unique<QQmlEngine>();
 
     // Test null-object
     QVERIFY(!QQmlEngine::contextForObject(nullptr));
@@ -297,7 +301,7 @@ void tst_qqmlengine::contextForObject()
     QCOMPARE(QQmlEngine::contextForObject(&object), engine->rootContext());
 
     // Delete context
-    delete engine; engine = nullptr;
+    engine.reset();
     QVERIFY(!QQmlEngine::contextForObject(&object));
 }
 
@@ -375,10 +379,9 @@ void tst_qqmlengine::clearComponentCache()
     // Test "test" property
     {
         QQmlComponent component(&engine, fileUrl);
-        QObject *obj = component.create();
-        QVERIFY(obj != nullptr);
+        std::unique_ptr<QObject> obj { component.create() };
+        QVERIFY(obj.get() != nullptr);
         QCOMPARE(obj->property("test").toInt(), 10);
-        delete obj;
     }
 
     // Modify qml file
@@ -398,22 +401,29 @@ void tst_qqmlengine::clearComponentCache()
     // Test cache hit
     {
         QQmlComponent component(&engine, fileUrl);
-        QObject *obj = component.create();
-        QVERIFY(obj != nullptr);
+        std::unique_ptr<QObject> obj { component.create() };
+        QVERIFY(obj.get() != nullptr);
         QCOMPARE(obj->property("test").toInt(), 10);
-        delete obj;
     }
 
     // Clear cache
     engine.clearComponentCache();
 
+    // Nothing holds on to any CU anymore. They should all be gone.
+    QVERIFY(QQmlEnginePrivate::get(&engine)->v4engine()->compilationUnits().isEmpty());
+
     // Test cache refresh
     {
         QQmlComponent component(&engine, fileUrl);
-        QObject *obj = component.create();
-        QVERIFY(obj != nullptr);
+        std::unique_ptr<QObject> obj { component.create() };
+        QVERIFY(obj.get() != nullptr);
         QCOMPARE(obj->property("test").toInt(), 11);
-        delete obj;
+
+        engine.clearComponentCache();
+
+        // The CU we are holding on to is still alive.
+        // Otherwise we cannot mark its objects for GC anymore.
+        QVERIFY(!QQmlEnginePrivate::get(&engine)->v4engine()->compilationUnits().isEmpty());
     }
 
     // Regular Synchronous loading will leave us with an event posted
@@ -440,7 +450,7 @@ public:
         // There might be JS function objects around that hold a last ref to the compilation unit that's
         // keeping the type compilation data (CompilationUnit) around. Let's collect them as well so that
         // trim works well.
-        engine->collectGarbage();
+        gc(*engine);
 
         engine->trimComponentCache();
     }
@@ -499,22 +509,25 @@ void tst_qqmlengine::trimComponentCache_data()
     // empty apart from their inherited elements, and those that define new properties.
     // For each there are five types of composition: extension, aggregation,
     // aggregation via component, property and object-created-via-transient-component.
-    foreach (const QString &test, (QStringList() << "EmptyComponent"
-                                                 << "VMEComponent"
-                                                 << "EmptyExtendEmptyComponent"
-                                                 << "VMEExtendEmptyComponent"
-                                                 << "EmptyExtendVMEComponent"
-                                                 << "VMEExtendVMEComponent"
-                                                 << "EmptyAggregateEmptyComponent"
-                                                 << "VMEAggregateEmptyComponent"
-                                                 << "EmptyAggregateVMEComponent"
-                                                 << "VMEAggregateVMEComponent"
-                                                 << "EmptyPropertyEmptyComponent"
-                                                 << "VMEPropertyEmptyComponent"
-                                                 << "EmptyPropertyVMEComponent"
-                                                 << "VMEPropertyVMEComponent"
-                                                 << "VMETransientEmptyComponent"
-                                                 << "VMETransientVMEComponent")) {
+    const QStringList components = {
+        "EmptyComponent",
+        "VMEComponent",
+        "EmptyExtendEmptyComponent",
+        "VMEExtendEmptyComponent",
+        "EmptyExtendVMEComponent",
+        "VMEExtendVMEComponent",
+        "EmptyAggregateEmptyComponent",
+        "VMEAggregateEmptyComponent",
+        "EmptyAggregateVMEComponent",
+        "VMEAggregateVMEComponent",
+        "EmptyPropertyEmptyComponent",
+        "VMEPropertyEmptyComponent",
+        "EmptyPropertyVMEComponent",
+        "VMEPropertyVMEComponent",
+        "VMETransientEmptyComponent",
+        "VMETransientVMEComponent",
+    };
+    for (const QString &test : components) {
         // For these cases, we first test that the component instance keeps the components
         // referenced, and then that the instantiated object keeps the components referenced
         for (int i = 1; i <= 2; ++i) {
@@ -906,7 +919,7 @@ void tst_qqmlengine::qtqmlModule()
     QFETCH(QString, expectedError);
     QFETCH(QStringList, expectedWarnings);
 
-    foreach (const QString &w, expectedWarnings)
+    for (const QString &w : std::as_const(expectedWarnings))
         QTest::ignoreMessage(QtWarningMsg, qPrintable(w));
 
     QQmlEngine e;
@@ -1275,9 +1288,9 @@ void tst_qqmlengine::singletonInstance()
 
     {
         // deleted object
-        auto dayfly = new Dayfly{};
-        auto id = qmlRegisterSingletonInstance("Vanity", 1, 0, "Dayfly", dayfly);
-        delete dayfly;
+        auto dayfly = std::make_unique<Dayfly>();
+        auto id = qmlRegisterSingletonInstance("Vanity", 1, 0, "Dayfly", dayfly.get());
+        dayfly.reset();
         QTest::ignoreMessage(QtMsgType::QtWarningMsg, "<Unknown File>: The registered singleton has already been deleted. Ensure that it outlives the engine.");
         QObject *instance = engine.singletonInstance<QObject*>(id);
         QVERIFY(!instance);
@@ -1338,6 +1351,8 @@ void tst_qqmlengine::createComponentOnSingletonDestruction()
 
 void tst_qqmlengine::uiLanguage()
 {
+    const QRegularExpression bindingLoopWarningRegex(".*QML QtObject: Binding loop detected for property \"textToTranslate\".*");
+
     {
         QQmlEngine engine;
 
@@ -1349,19 +1364,19 @@ void tst_qqmlengine::uiLanguage()
 
         QQmlComponent component(&engine, testFileUrl("uiLanguage.qml"));
 
-        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, bindingLoopWarningRegex);
         QScopedPointer<QObject> object(component.create());
         QVERIFY(!object.isNull());
 
         QVERIFY(engine.uiLanguage().isEmpty());
         QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 1);
 
-        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, bindingLoopWarningRegex);
         engine.setUiLanguage("TestLanguage");
         QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 2);
         QCOMPARE(object->property("chosenLanguage").toString(), "TestLanguage");
 
-        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, bindingLoopWarningRegex);
         engine.evaluate("Qt.uiLanguage = \"anotherLanguage\"");
         QCOMPARE(engine.uiLanguage(), QString("anotherLanguage"));
         QCOMPARE(object->property("numberOfTranslationBindingEvaluations").toInt(), 3);
@@ -1372,7 +1387,7 @@ void tst_qqmlengine::uiLanguage()
         QQmlEngine engine;
         QQmlComponent component(&engine, testFileUrl("uiLanguage.qml"));
 
-        QTest::ignoreMessage(QtMsgType::QtWarningMsg, (component.url().toString() + ":2:1: QML QtObject: Binding loop detected for property \"textToTranslate\"").toLatin1());
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, bindingLoopWarningRegex);
         QScopedPointer<QObject> object(component.create());
         QVERIFY(!object.isNull());
 
@@ -1734,6 +1749,68 @@ void tst_qqmlengine::bindingInstallUseAfterFree()
     QVERIFY2(c.isReady(), qPrintable(c.errorString()));
     std::unique_ptr<QObject> o{ c.create() };
     QVERIFY(o);
+}
+
+void tst_qqmlengine::objectListArgumentMethod()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("objectListArgumentMethod.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QTest::ignoreMessage(QtMsgType::QtDebugMsg, "5");
+    std::unique_ptr<QObject> o{ c.create() };
+    QVERIFY(o);
+}
+
+void tst_qqmlengine::variantListQJsonConversion()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("variantListQJsonConversion.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QTest::ignoreMessage(QtMsgType::QtDebugMsg, R"(["cpp","variant","list"])");
+    QTest::ignoreMessage(QtMsgType::QtDebugMsg, R"({"test":["cpp","variant","list"]})");
+    QTest::ignoreMessage(QtMsgType::QtDebugMsg,
+                         R"([{"objectName":"o0"},{"objectName":"o1"},{"objectName":"o2"}])");
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+}
+
+class UnregisteredAttached : public QObject
+{
+    Q_OBJECT
+public:
+    UnregisteredAttached(QObject *parent = nullptr) : QObject(parent) {}
+};
+
+class Unregistered : public QObject
+{
+    Q_OBJECT
+    QML_ATTACHED(UnregisteredAttached)
+public:
+    static UnregisteredAttached *qmlAttachedProperties(QObject *obj)
+    {
+        return new UnregisteredAttached(obj);
+    }
+};
+
+void tst_qqmlengine::attachedObjectOfUnregistered()
+{
+    QObject o;
+
+    QObject *a = qmlAttachedPropertiesObject<Unregistered>(&o);
+    QVERIFY(a);
+    QVERIFY(qobject_cast<UnregisteredAttached *>(a));
+
+    QObject *b = qmlAttachedPropertiesObject<Unregistered>(&o);
+    QCOMPARE(a, b);
+
+    QObject o2;
+    QObject *c = qmlAttachedPropertiesObject<Unregistered>(&o2);
+    QVERIFY(c);
+    QVERIFY(qobject_cast<UnregisteredAttached *>(c));
+    QVERIFY(c != a);
 }
 
 QTEST_MAIN(tst_qqmlengine)

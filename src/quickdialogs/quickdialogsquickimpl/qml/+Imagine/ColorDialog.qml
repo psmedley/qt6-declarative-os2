@@ -57,6 +57,7 @@ ColorDialogImpl {
 
     header: RowLayout {
         Label {
+            objectName: "titleLabel"
             text: control.title
             elide: Label.ElideRight
             font.bold: true
@@ -65,12 +66,15 @@ ColorDialogImpl {
             rightPadding: 16
             topPadding: 16
             bottomPadding: 16
+            visible: parent.parent?.parent === Overlay.overlay
 
             Layout.preferredWidth: control.title.length > 0 ? implicitWidth : 0
+            Layout.preferredHeight: control.title.length > 0 ? implicitHeight : 15
          }
 
         Button {
             id: eyeDropperButton
+            objectName: "eyeDropperButton"
             icon.source: "qrc:/qt-project.org/imports/QtQuick/Dialogs/quickimpl/images/eye-dropper.png"
             flat: true
             topPadding: 16

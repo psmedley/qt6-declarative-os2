@@ -1,10 +1,11 @@
 // Copyright (C) 2017 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 import QtQuick
 import QtQuick.Window
 import QtTest
 import QtQuick.Controls
+import Qt.test.controls
 import QtQuick.NativeStyle as NativeStyle
 
 TestCase {
@@ -74,16 +75,7 @@ TestCase {
                     objectName: "ShaderFX"
                     width: rect.width
                     height: rect.height
-                    fragmentShader: "
-                            uniform lowp sampler2D source; // this item
-                            uniform lowp float qt_Opacity; // inherited opacity of this item
-                            varying highp vec2 qt_TexCoord0;
-                            void main() {
-                                lowp vec4 p = texture2D(source, qt_TexCoord0);
-                                lowp float g = dot(p.xyz, vec3(0.344, 0.5, 0.156));
-                                gl_FragColor = vec4(g, g, g, p.a) * qt_Opacity;
-                            }"
-
+                    fragmentShader: "qrc:/data/combobox/shader.frag.qsb"
                 }
             }
         }
@@ -878,32 +870,51 @@ TestCase {
         // Account for when a transition of a scale from 0.9-1.0 that it is placed above right away and not below
         // first just because there is room at the 0.9 scale
         if (control.popup.enter !== null) {
-            // hide
-            mouseClick(control)
-            compare(control.pressed, false)
-            tryCompare(control.popup, "visible", false)
-            control.y = control.Window.height - (control.popup.contentItem.height * 0.99)
-            var popupYSpy = createTemporaryObject(signalSpy, testCase, {target: control.popup, signalName: "yChanged"})
-            verify(popupYSpy.valid)
-            mousePress(control)
-            compare(control.pressed, true)
-            compare(control.popup.visible, false)
-            mouseRelease(control)
-            compare(control.pressed, false)
-            compare(control.popup.visible, true)
-            tryCompare(control.popup.enter, "running", false)
-            verify(control.popup.contentItem.y < control.y)
-            verify(popupYSpy.count === 1)
+            // test only if there is a scale animation
+            let scaleAnimation = control.popup.enter.animations.some((animation) => {
+                return (animation instanceof PropertyAnimation && animation.property === "scale")
+            });
+            if (scaleAnimation) {
+                // hide
+                mouseClick(control)
+                compare(control.pressed, false)
+                tryCompare(control.popup, "visible", false)
+                control.y = control.Window.height - (control.popup.contentItem.height * 0.99)
+                var popupYSpy = createTemporaryObject(signalSpy, testCase, {target: control.popup, signalName: "yChanged"})
+                verify(popupYSpy.valid)
+                mousePress(control)
+                compare(control.pressed, true)
+                compare(control.popup.visible, false)
+                mouseRelease(control)
+                compare(control.pressed, false)
+                tryCompare(control.popup, "opened", true)
+                verify(control.popup.contentItem.y < control.y)
+                verify(popupYSpy.count === 1)
+            }
         }
 
         var leftLayoutMargin = control.background.layoutMargins === undefined ? 0 : control.popup.layoutMargins.left
         // follow the control outside the horizontal window bounds
+        const prevX = control.popup.contentItem.parent.mapToGlobal(0, 0).x
         control.x = -control.width / 2
         compare(control.x, -control.width / 2)
-        compare(control.popup.contentItem.parent.x, -control.width / 2 + leftLayoutMargin)
+
+        if(control.popup.popupType === Popup.Item) {
+            compare(control.popup.contentItem.parent.x, -control.width / 2 + leftLayoutMargin)
+        } else if (control.popup.popupType === Popup.Window) {
+            const x = control.popup.contentItem.parent.mapToGlobal(0, 0).x
+            compare(x - prevX, -control.width / 2 + leftLayoutMargin)
+        }
+
         control.x = testCase.width - control.width / 2
         compare(control.x, testCase.width - control.width / 2)
-        compare(control.popup.contentItem.parent.x, testCase.width - control.width / 2 + leftLayoutMargin)
+
+        if (control.popup.popupType === Popup.Item) {
+            compare(control.popup.contentItem.parent.x, testCase.width - control.width / 2 + leftLayoutMargin)
+        } else if (control.popup.popupType === Popup.Window) {
+            const x = control.popup.contentItem.parent.mapToGlobal(0, 0).x
+            compare(x - prevX, testCase.width - control.width / 2 + leftLayoutMargin)
+        }
 
         // close the popup when hidden (QTBUG-67684)
         control.popup.open()
@@ -949,11 +960,12 @@ TestCase {
             // Check on the second opening that it has the same y position as before
             if (i !== 0) {
                 // y should not have changed again
-                verify(popupYSpy.count === 0)
+                if (StyleInfo.styleName !== "FluentWinUI3") // the popup y in FluentWinUI3 depends on the implicitHeight
+                    verify(popupYSpy.count === 0)
                 verify(y === control.innerCombo.popup.y)
             } else {
                 // In some cases on the initial show, y changes more than once
-                verify(popupYSpy.count >= 1)
+                tryVerify(function(){ return popupYSpy.count >= 1 })
                 y = control.innerCombo.popup.y
                 mouseClick(control.innerCombo)
                 compare(control.innerCombo.pressed, false)
@@ -1024,6 +1036,7 @@ TestCase {
         compare(activatedSpy.count, 0)
         compare(highlightedSpy.count, 0)
         compare(control.popup.visible, true)
+        tryCompare(control.popup, "opened", true)
 
         // press - move - release inside - activated - closed
         touch.press(0, content).commit()
@@ -1066,8 +1079,7 @@ TestCase {
         compare(control.down, true)
         compare(downSpy.count, 3)
         compare(pressedSpy.count, 2)
-
-        compare(control.popup.y, control.height)
+        tryCompare(control.popup, "y", control.height)
 
         control.down = false
         compare(control.down, false)
@@ -1783,11 +1795,12 @@ TestCase {
     function test_emptyPopupAfterModelCleared() {
         var control = createTemporaryObject(comboBox, testCase, { model: 1 })
         verify(control)
+        control.popup.popupType = Popup.Item
         compare(control.popup.implicitHeight, 0)
 
         // Ensure that it's open so that the popup's implicitHeight changes when we increase the model count.
         control.popup.open()
-        tryCompare(control.popup, "visible", true)
+        tryCompare(control.popup, "opened", true)
 
         // Add lots of items to the model. The popup should take up the entire height of the window.
         control.model = 100
@@ -1799,6 +1812,8 @@ TestCase {
         control.model = 0
         control.popup.open()
         tryCompare(control.popup, "visible", true)
+        if (control.popup.enter !== null)
+            tryCompare(control.popup.enter, "running", false)
         compare(control.popup.height, control.popup.topPadding + control.popup.bottomPadding)
     }
 
@@ -1956,7 +1971,7 @@ TestCase {
     // and then that ComboBox loses focus, its currentIndex should change
     // to the index of the edit text (assuming a match is found).
     function test_currentIndexChangeOnLostFocus() {
-        if (Qt.styleHints.tabFocusBehavior !== Qt.TabFocusAllControls)
+        if (Application.styleHints.tabFocusBehavior !== Qt.TabFocusAllControls)
             skip("This platform only allows tab focus for text controls")
 
         let theModel = []
@@ -2004,11 +2019,16 @@ TestCase {
         compare(currentIndexSpy.count, 1)
     }
 
+    readonly property font testFont: ({
+        family: "Arial",
+        pixelSize: 12
+    })
+
     Component {
-        id: appFontTextFieldComponent
+        id: fixedFontTextFieldComponent
         TextField {
             objectName: "appFontTextField"
-            font: Qt.application.font
+            font: testCase.testFont
             // We don't want the background's implicit width to interfere with our tests,
             // which are about implicit width of the contentItem of ComboBox, which is by default TextField.
             background: null
@@ -2016,14 +2036,14 @@ TestCase {
     }
 
     Component {
-        id: appFontContentItemComboBoxComponent
+        id: fixedFontContentItemComboBoxComponent
         ComboBox {
             // Override the contentItem so that the font doesn't vary between styles.
             contentItem: TextField {
                 objectName: "appFontContentItemTextField"
                 // We do this just to be extra sure that the font never comes from the control,
-                // as we want it to match that of the TextField in the appFontTextFieldComponent.
-                font: Qt.application.font
+                // as we want it to match that of the TextField in the fixedFontTextFieldComponent.
+                font: testCase.testFont
                 background: null
             }
         }
@@ -2077,14 +2097,14 @@ TestCase {
     function test_implicitContentWidthPolicy_ContentItemImplicitWidth() {
         // Set ContentItemImplicitWidth and ensure that implicitContentWidth is as wide as the current item
         // by comparing it against the implicitWidth of an identical TextField
-        let control = createTemporaryObject(appFontContentItemComboBoxComponent, testCase, {
+        let control = createTemporaryObject(fixedFontContentItemComboBoxComponent, testCase, {
             model: ["Short", "Kinda long"],
             implicitContentWidthPolicy: ComboBox.ContentItemImplicitWidth
         })
         verify(control)
         compare(control.implicitContentWidthPolicy, ComboBox.ContentItemImplicitWidth)
 
-        let textField = createTemporaryObject(appFontTextFieldComponent, testCase)
+        let textField = createTemporaryObject(fixedFontTextFieldComponent, testCase)
         verify(textField)
         // Don't set any text on textField because we're not accounting for the widest
         // text here, so we want to compare it against an empty TextField.
@@ -2103,14 +2123,14 @@ TestCase {
     }
 
     function test_implicitContentWidthPolicy_WidestText(data) {
-        let control = createTemporaryObject(appFontContentItemComboBoxComponent, testCase, {
+        let control = createTemporaryObject(fixedFontContentItemComboBoxComponent, testCase, {
             model: data.model,
             implicitContentWidthPolicy: ComboBox.WidestText
         })
         verify(control)
         compare(control.implicitContentWidthPolicy, ComboBox.WidestText)
 
-        let textField = createTemporaryObject(appFontTextFieldComponent, testCase)
+        let textField = createTemporaryObject(fixedFontTextFieldComponent, testCase)
         verify(textField)
         textField.text = "Kinda long"
         // Note that we don't need to change the current index here, as the implicitContentWidth
@@ -2137,7 +2157,7 @@ TestCase {
         // Changes in font should result in the implicitContentWidth being updated.
         textField.font.pixelSize *= 2
         // We have to change the contentItem's font size manually since we break the
-        // style's binding to the control's font when we set Qt.application.font to it.
+        // style's binding to the control's font when we set the fixed font on it.
         control.contentItem.font.pixelSize *= 2
         control.font.pixelSize *= 2
         compare(Math.ceil(control.implicitContentWidth), Math.ceil(textField.implicitWidth))
@@ -2148,14 +2168,14 @@ TestCase {
     }
 
     function test_implicitContentWidthPolicy_WidestTextWhenCompleted(data) {
-        let control = createTemporaryObject(appFontContentItemComboBoxComponent, testCase, {
+        let control = createTemporaryObject(fixedFontContentItemComboBoxComponent, testCase, {
             model: data.model,
             implicitContentWidthPolicy: ComboBox.WidestTextWhenCompleted
         })
         verify(control)
         compare(control.implicitContentWidthPolicy, ComboBox.WidestTextWhenCompleted)
 
-        let textField = createTemporaryObject(appFontTextFieldComponent, testCase)
+        let textField = createTemporaryObject(fixedFontTextFieldComponent, testCase)
         verify(textField)
         textField.text = "Kinda long"
         compare(Math.ceil(control.implicitContentWidth), Math.ceil(textField.implicitWidth))

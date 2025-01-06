@@ -39,6 +39,7 @@ public:
     };
 
     QQmlRefPointer<QQmlScriptData> scriptData() const;
+    bool hasScriptValue() const;
 
 protected:
     void dataReceived(const SourceCodeData &) override;
@@ -49,8 +50,8 @@ protected:
 
 private:
     void scriptImported(const QQmlRefPointer<QQmlScriptBlob> &blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
-    void initializeFromCompilationUnit(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit);
-    void initializeFromNative(const QV4::Value &value);
+    void initializeFromCompilationUnit(QQmlRefPointer<QV4::CompiledData::CompilationUnit> &&cu);
+    void initializeFromNative();
 
     QList<ScriptReference> m_scripts;
     QQmlRefPointer<QQmlScriptData> m_scriptData;

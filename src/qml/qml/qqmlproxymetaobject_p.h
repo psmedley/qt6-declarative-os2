@@ -25,7 +25,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_QML_PRIVATE_EXPORT QQmlProxyMetaObject : public QDynamicMetaObjectData
+class Q_QML_EXPORT QQmlProxyMetaObject : public QDynamicMetaObjectData
 {
 public:
     struct ProxyData {
@@ -36,7 +36,7 @@ public:
         int methodOffset;
     };
 
-    QQmlProxyMetaObject(QObject *, QList<ProxyData> *);
+    QQmlProxyMetaObject(QObject *, const QList<ProxyData> *);
     ~QQmlProxyMetaObject();
 
     static constexpr int extensionObjectId(int id) noexcept
@@ -49,11 +49,12 @@ public:
 protected:
     int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) override;
     QMetaObject *toDynamicMetaObject(QObject *) override;
+    void objectDestroyed(QObject *object) override;
 
 private:
     QObject *getProxy(int index);
 
-    QList<ProxyData> *metaObjects;
+    const QList<ProxyData> *metaObjects;
     QObject **proxies;
 
     QDynamicMetaObjectData *parent;

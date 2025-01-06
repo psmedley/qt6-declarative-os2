@@ -1,25 +1,10 @@
---- src/quickcontrols/imagine/CMakeLists.txt	2023-09-24 17:07:49.000000000 +0930
-+++ src/quickcontrols/imagine/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
-@@ -109,10 +110,22 @@
-         Qt::CorePrivate
-         Qt::GuiPrivate
-         Qt::QmlPrivate
-+        Qt::QuickControls2ImagineStyleImpl
-         Qt::QuickControls2ImplPrivate
+--- src/quickcontrols/imagine/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/quickcontrols/imagine/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -114,7 +114,6 @@
          Qt::QuickControls2Private
          Qt::QuickPrivate
          Qt::QuickTemplates2Private
-+    GENERATE_CPP_EXPORTS
-+)
-+
-+target_sources(qtquickcontrols2imaginestyleplugin
-+    PRIVATE
-+        qtquickcontrols2imaginestyleplugin.cpp
-+)
-+
-+target_link_libraries(qtquickcontrols2imaginestyleplugin
-+    PRIVATE
-+        Qt::QuickControls2Private
+-    GENERATE_CPP_EXPORTS
  )
  
- file(GLOB resource_glob_0 RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "images/*.png")
+ target_sources(qtquickcontrols2imaginestyleplugin

@@ -14,7 +14,7 @@
 //
 // We mean it.
 
-#include <private/qtqmlcompilerexports_p.h>
+#include <qtqmlcompilerexports.h>
 
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
@@ -59,7 +59,8 @@ class QQmlJSMetaEnum
     QString m_typeName;
     QSharedPointer<const QQmlJSScope> m_type;
     bool m_isFlag = false;
-    bool m_scoped = true;
+    bool m_isScoped = false;
+    bool m_isQml = false;
 
 public:
     QQmlJSMetaEnum() = default;
@@ -76,8 +77,11 @@ public:
     bool isFlag() const { return m_isFlag; }
     void setIsFlag(bool isFlag) { m_isFlag = isFlag; }
 
-    bool isScoped() const { return m_scoped; }
-    void setScoped(bool v) { m_scoped = v; }
+    bool isScoped() const { return m_isScoped; }
+    void setIsScoped(bool v) { m_isScoped = v; }
+
+    bool isQml() const { return m_isQml; }
+    void setIsQml(bool v) { m_isQml = v; }
 
     void addKey(const QString &key) { m_keys.append(key); }
     QStringList keys() const { return m_keys; }
@@ -102,7 +106,8 @@ public:
                 && a.m_name == b.m_name
                 && a.m_alias == b.m_alias
                 && a.m_isFlag == b.m_isFlag
-                && a.m_type == b.m_type;
+                && a.m_type == b.m_type
+                && a.m_isScoped == b.m_isScoped;
     }
 
     friend bool operator!=(const QQmlJSMetaEnum &a, const QQmlJSMetaEnum &b)
@@ -112,7 +117,8 @@ public:
 
     friend size_t qHash(const QQmlJSMetaEnum &e, size_t seed = 0)
     {
-        return qHashMulti(seed, e.m_keys, e.m_values, e.m_name, e.m_alias, e.m_isFlag, e.m_type);
+        return qHashMulti(
+                seed, e.m_keys, e.m_values, e.m_name, e.m_alias, e.m_isFlag, e.m_type, e.m_isScoped);
     }
 };
 
@@ -130,10 +136,13 @@ public:
         Const,
     };
 
-    QQmlJSMetaParameter(const QString &name = QString(), const QString &typeName = QString(),
+    QQmlJSMetaParameter(QString name = QString(), QString typeName = QString(),
                         Constness typeQualifier = NonConst,
                         QWeakPointer<const QQmlJSScope> type = {})
-        : m_name(name), m_typeName(typeName), m_type(type), m_typeQualifier(typeQualifier)
+        : m_name(std::move(name)),
+          m_typeName(std::move(typeName)),
+          m_type(type),
+          m_typeQualifier(typeQualifier)
     {
     }
 
@@ -153,7 +162,7 @@ public:
     friend bool operator==(const QQmlJSMetaParameter &a, const QQmlJSMetaParameter &b)
     {
         return a.m_name == b.m_name && a.m_typeName == b.m_typeName
-                && a.m_type.toStrongRef().data() == b.m_type.toStrongRef().data()
+                && a.m_type.owner_equal(b.m_type)
                 && a.m_typeQualifier == b.m_typeQualifier;
     }
 
@@ -164,7 +173,7 @@ public:
 
     friend size_t qHash(const QQmlJSMetaParameter &e, size_t seed = 0)
     {
-        return qHashMulti(seed, e.m_name, e.m_typeName, e.m_type.toStrongRef().data(),
+        return qHashMulti(seed, e.m_name, e.m_typeName, e.m_type.owner_hash(),
                           e.m_typeQualifier);
     }
 
@@ -211,6 +220,9 @@ public:
 
     QString methodName() const { return m_name; }
     void setMethodName(const QString &name) { m_name = name; }
+
+    QQmlJS::SourceLocation sourceLocation() const { return m_sourceLocation; }
+    void setSourceLocation(QQmlJS::SourceLocation location) { m_sourceLocation = location; }
 
     QQmlJSMetaReturnType returnValue() const { return m_returnType; }
     void setReturnValue(const QQmlJSMetaReturnType returnValue) { m_returnType = returnValue; }
@@ -329,6 +341,8 @@ public:
 private:
     QString m_name;
 
+    QQmlJS::SourceLocation m_sourceLocation;
+
     QQmlJSMetaReturnType m_returnType;
     QList<QQmlJSMetaParameter> m_parameters;
     QList<QQmlJSAnnotation> m_annotations;
@@ -355,6 +369,7 @@ class QQmlJSMetaProperty
     QString m_privateClass;
     QString m_aliasExpr;
     QWeakPointer<const QQmlJSScope> m_type;
+    QQmlJS::SourceLocation m_sourceLocation;
     QVector<QQmlJSAnnotation> m_annotations;
     bool m_isList = false;
     bool m_isWritable = false;
@@ -395,6 +410,10 @@ public:
     void setType(const QSharedPointer<const QQmlJSScope> &type) { m_type = type; }
     QSharedPointer<const QQmlJSScope> type() const { return m_type.toStrongRef(); }
 
+    void setSourceLocation(const QQmlJS::SourceLocation &newSourceLocation)
+    { m_sourceLocation = newSourceLocation; }
+    QQmlJS::SourceLocation sourceLocation() const { return m_sourceLocation; }
+
     void setAnnotations(const QList<QQmlJSAnnotation> &annotation) { m_annotations = annotation; }
     const QList<QQmlJSAnnotation> &annotations() const { return m_annotations; }
 
@@ -429,7 +448,7 @@ public:
     {
         return a.m_index == b.m_index && a.m_propertyName == b.m_propertyName
                 && a.m_typeName == b.m_typeName && a.m_bindable == b.m_bindable
-                && a.m_type == b.m_type && a.m_isList == b.m_isList
+                && a.m_type.owner_equal(b.m_type) && a.m_isList == b.m_isList
                 && a.m_isWritable == b.m_isWritable && a.m_isPointer == b.m_isPointer
                 && a.m_aliasExpr == b.m_aliasExpr && a.m_revision == b.m_revision
                 && a.m_isFinal == b.m_isFinal;
@@ -458,7 +477,7 @@ public:
     create a new binding, you know all the details of it already, so you should
     just set all the data at once.
 */
-class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
+class Q_QMLCOMPILER_EXPORT QQmlJSMetaPropertyBinding
 {
     using BindingType = QQmlSA::BindingType;
     using ScriptBindingKind = QQmlSA::ScriptBindingKind;
@@ -527,7 +546,7 @@ class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
             ScriptBindingValueType valueType = ScriptBindingValueType::ScriptValue_Unknown;
         };
         struct Object {
-            friend bool operator==(Object a, Object b) { return a.value == b.value && a.typeName == b.typeName; }
+            friend bool operator==(Object a, Object b) { return a.value.owner_equal(b.value) && a.typeName == b.typeName; }
             friend bool operator!=(Object a, Object b) { return !(a == b); }
             QString typeName;
             QWeakPointer<const QQmlJSScope> value;
@@ -535,7 +554,7 @@ class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
         struct Interceptor {
             friend bool operator==(Interceptor a, Interceptor b)
             {
-                return a.value == b.value && a.typeName == b.typeName;
+                return a.value.owner_equal(b.value) && a.typeName == b.typeName;
             }
             friend bool operator!=(Interceptor a, Interceptor b) { return !(a == b); }
             QString typeName;
@@ -544,7 +563,7 @@ class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
         struct ValueSource {
             friend bool operator==(ValueSource a, ValueSource b)
             {
-                return a.value == b.value && a.typeName == b.typeName;
+                return a.value.owner_equal(b.value) && a.typeName == b.typeName;
             }
             friend bool operator!=(ValueSource a, ValueSource b) { return !(a == b); }
             QString typeName;
@@ -573,7 +592,7 @@ class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
             */
             friend bool operator==(AttachedProperty a, AttachedProperty b)
             {
-                return a.value == b.value;
+                return a.value.owner_equal(b.value);
             }
             friend bool operator!=(AttachedProperty a, AttachedProperty b) { return !(a == b); }
             QWeakPointer<const QQmlJSScope> value;
@@ -595,7 +614,7 @@ class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaPropertyBinding
                ### TODO: Obtaining the effective binding result requires some resolving function
             */
             QWeakPointer<const QQmlJSScope> groupScope;
-            friend bool operator==(GroupProperty a, GroupProperty b) { return a.groupScope == b.groupScope; }
+            friend bool operator==(GroupProperty a, GroupProperty b) { return a.groupScope.owner_equal(b.groupScope); }
             friend bool operator!=(GroupProperty a, GroupProperty b) { return !(a == b); }
         };
         using type = std::variant<Invalid, BoolLiteral, NumberLiteral, StringLiteral,
@@ -727,8 +746,6 @@ public:
         ensureSetBindingTypeOnce();
         m_bindingContent = Content::ValueSource { typeName, type };
     }
-
-    QString literalTypeName() const;
 
     // ### TODO: here and below: Introduce an allowConversion parameter, if yes, enable conversions e.g. bool -> number?
     bool boolValue() const;
@@ -863,7 +880,7 @@ public:
     }
 };
 
-struct Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSMetaSignalHandler
+struct Q_QMLCOMPILER_EXPORT QQmlJSMetaSignalHandler
 {
     QStringList signalParameters;
     bool isMultiline;

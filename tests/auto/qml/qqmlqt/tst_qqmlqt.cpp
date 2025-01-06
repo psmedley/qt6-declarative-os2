@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <private/qqmlengine_p.h>
 
@@ -28,6 +28,7 @@
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <private/qtenvironmentvariables_p.h> // for qTzSet()
+#include <private/qqmlengine_p.h>
 
 class tst_qqmlqt : public QQmlDataTest
 {
@@ -56,8 +57,10 @@ private slots:
     void alpha();
     void tint();
     void color();
+#if QT_CONFIG(desktopservices)
     void openUrlExternally();
     void openUrlExternally_pragmaLibrary();
+#endif
     void md5();
     void createComponent();
     void createComponent_pragmaLibrary();
@@ -81,6 +84,8 @@ private slots:
 
     void timeRoundtrip_data();
     void timeRoundtrip();
+
+    void fontSetsProperties();
 
 private:
     QQmlEngine engine;
@@ -192,6 +197,9 @@ void tst_qqmlqt::hsla()
     QCOMPARE(qvariant_cast<QColor>(object->property("test4")), QColor());
     QCOMPARE(qvariant_cast<QColor>(object->property("test5")), QColor::fromHslF(1, 1, 1, 1));
     QCOMPARE(qvariant_cast<QColor>(object->property("test6")), QColor::fromHslF(0, 0, 0, 0));
+    QColor test7 = qvariant_cast<QColor>(object->property("test7"));
+    QCOMPARE(test7, QColor::fromHslF(-1, 0, 0.5, 1));
+    QCOMPARE(test7.hslHue(), -1.0f);
 }
 
 void tst_qqmlqt::hsva()
@@ -212,6 +220,9 @@ void tst_qqmlqt::hsva()
     QCOMPARE(qvariant_cast<QColor>(object->property("test4")), QColor());
     QCOMPARE(qvariant_cast<QColor>(object->property("test5")), QColor::fromHsvF(1, 1, 1, 1));
     QCOMPARE(qvariant_cast<QColor>(object->property("test6")), QColor::fromHsvF(0, 0, 0, 0));
+    QColor test7 = qvariant_cast<QColor>(object->property("test7"));
+    QCOMPARE(test7, QColor::fromHsvF(-1, 0, 0.5, 1));
+    QCOMPARE(test7.hsvHue(), -1.0f);
 }
 
 void tst_qqmlqt::colorEqual()
@@ -612,6 +623,7 @@ public slots:
     void noteCall(const QUrl &url) { called++; last = url; }
 };
 
+#if QT_CONFIG(desktopservices)
 void tst_qqmlqt::openUrlExternally()
 {
     MyUrlHandler handler;
@@ -658,6 +670,7 @@ void tst_qqmlqt::openUrlExternally_pragmaLibrary()
     QCOMPARE(handler.called,2);
     QCOMPARE(handler.last, htmlTestFile);
 }
+#endif
 
 void tst_qqmlqt::md5()
 {
@@ -805,7 +818,7 @@ void tst_qqmlqt::dateTimeFormatting()
         << component.url().toString() + ":40: TypeError: Passing incompatible arguments to C++ functions from JavaScript is not allowed."
         << component.url().toString() + ":43: TypeError: Passing incompatible arguments to C++ functions from JavaScript is not allowed.";
 
-    foreach (const QString &warning, warnings)
+    for (const QString &warning : std::as_const(warnings))
         QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
 
     warnings.clear();
@@ -820,7 +833,7 @@ void tst_qqmlqt::dateTimeFormatting()
         << "Could not convert argument 1 at"
         << "expression for err_dateTime2@";
 
-    foreach (const QString &warning, warnings)
+    for (const QString &warning : std::as_const(warnings))
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warning));
 
     QScopedPointer<QObject> object(component.createWithInitialProperties({
@@ -833,7 +846,7 @@ void tst_qqmlqt::dateTimeFormatting()
 
     QVERIFY(inputProperties.size() > 0);
     QVariant result;
-    foreach(const QString &prop, inputProperties) {
+    for (const QString &prop : std::as_const(inputProperties)) {
         QVERIFY(QMetaObject::invokeMethod(object.data(), method.toUtf8().constData(),
                 Q_RETURN_ARG(QVariant, result),
                 Q_ARG(QVariant, prop)));
@@ -1280,12 +1293,13 @@ void tst_qqmlqt::later_data()
 
 void tst_qqmlqt::later()
 {
+    QQmlEngine engine;
     QFETCH(QString, function);
     QFETCH(QStringList, expectedWarnings);
     QFETCH(QStringList, propNames);
     QFETCH(QVariantList, values);
 
-    foreach (const QString &w, expectedWarnings)
+    for (const QString &w : std::as_const(expectedWarnings))
         QTest::ignoreMessage(QtWarningMsg, qPrintable(w));
 
     QQmlComponent component(&engine, testFileUrl("later.qml"));
@@ -1300,7 +1314,7 @@ void tst_qqmlqt::later()
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             QCoreApplication::processEvents();
         } else if (propNames.at(i) == QLatin1String("collectGarbage")) {
-            engine.collectGarbage();
+            gc(engine, GCFlags::DontSendPostedEvents);
         } else {
             QCOMPARE(root->property(qPrintable(propNames.at(i))), values.at(i));
         }
@@ -1461,6 +1475,20 @@ void tst_qqmlqt::timeRoundtrip()
     // any perturbation (e.g. by DST effects) from converting from QTime to V4's Date and back
     // again.
     QCOMPARE(tp.m_getTime, tp.m_putTime);
+}
+
+void tst_qqmlqt::fontSetsProperties() {
+    QQmlComponent component(&engine, testFileUrl("fontProperties.qml"));
+
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(object != nullptr);
+
+    QFont fontProperty = qvariant_cast<QFont>(object->property("fontProperty"));
+    QVERIFY(fontProperty.styleStrategy() & QFont::ContextFontMerging);
+    QCOMPARE(fontProperty.variableAxisTags().size(), 1);
+    QCOMPARE(fontProperty.variableAxisValue("abcd"), 23.0625);
+    QCOMPARE(fontProperty.featureTags().size(), 1);
+    QCOMPARE(fontProperty.featureValue("abcd"), 23);
 }
 
 QTEST_MAIN(tst_qqmlqt)

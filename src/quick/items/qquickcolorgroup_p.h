@@ -22,12 +22,14 @@
 
 #include <QtQml/qqml.h>
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 class QQuickPalette;
 class QQuickPaletteColorProvider;
 
-class Q_QUICK_PRIVATE_EXPORT QQuickColorGroup : public QObject
+class Q_QUICK_EXPORT QQuickColorGroup : public QObject
 {
     Q_OBJECT
 
@@ -202,7 +204,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickColorGroup)
 
 #endif // QQUICKCOLORGROUP_H

@@ -13,6 +13,8 @@
 
 #include <QtQml/qqmlengine.h>
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 QV4DebugJob::~QV4DebugJob()
@@ -230,7 +232,8 @@ GatherSourcesJob::GatherSourcesJob(QV4::ExecutionEngine *engine)
 
 void GatherSourcesJob::run()
 {
-    for (QV4::ExecutableCompilationUnit *unit : engine->compilationUnits) {
+    const auto compilationUnits = engine->compilationUnits();
+    for (const auto &unit : compilationUnits) {
         QString fileName = unit->fileName();
         if (!fileName.isEmpty())
             sources.append(fileName);

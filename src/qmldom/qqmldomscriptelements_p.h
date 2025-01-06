@@ -16,6 +16,7 @@
 //
 
 #include "qqmldomitem_p.h"
+#include "qqmldomelements_p.h"
 #include "qqmldomattachedinfo_p.h"
 #include "qqmldompath_p.h"
 #include <algorithm>
@@ -40,27 +41,30 @@ public:
     static constexpr DomKind domKindValue = DomKind::ScriptElement;
 
     ScriptElementBase(QQmlJS::SourceLocation combinedLocation = QQmlJS::SourceLocation{})
-        : ScriptElement(), m_combinedLocation(combinedLocation)
+        : ScriptElement(), m_locations({ { FileLocationRegion::MainRegion, combinedLocation } })
     {
     }
     ScriptElementBase(QQmlJS::SourceLocation first, QQmlJS::SourceLocation last)
-        : ScriptElement(), m_combinedLocation(combine(first, last))
+        : ScriptElementBase(combine(first, last))
     {
     }
     DomType kind() const override { return type; }
     DomKind domKind() const override { return domKindValue; }
 
-    void createFileLocations(FileLocations::Tree base) override
+    void createFileLocations(const FileLocations::Tree &base) override
     {
-        FileLocations::Tree res = FileLocations::ensure(base, pathFromOwner(), AttachedInfo::PathType::Relative);
-        FileLocations::addRegion(res, QString(), m_combinedLocation);
+        FileLocations::Tree res =
+                FileLocations::ensure(base, pathFromOwner(), AttachedInfo::PathType::Relative);
+        for (auto location: m_locations) {
+            FileLocations::addRegion(res, location.first, location.second);
+        }
     }
 
     /*
        Pretty prints the current DomItem. Currently, for script elements, this is done entirely on
        the parser representation (via the AST classes), but it could be moved here if needed.
     */
-    // void writeOut(DomItem &self, OutWriter &lw) const override;
+    // void writeOut(const DomItem &self, OutWriter &lw) const override;
 
     /*!
        All of the following overloads are only required for optimization purposes.
@@ -70,20 +74,42 @@ public:
     */
 
     // // needed for debug
-    // void dump(DomItem &, Sink sink, int indent, FilterT filter) const override;
+    // void dump(const DomItem &, const Sink &sink, int indent, FilterT filter) const override;
 
     // // just required for optimization if iterateDirectSubpaths is slow
-    // QList<QString> fields(DomItem &self) const override;
-    // DomItem field(DomItem &self, QStringView name) const override;
+    // QList<QString> fields(const DomItem &self) const override;
+    // DomItem field(const DomItem &self, QStringView name) const override;
 
-    // index_type indexes(DomItem &self) const override;
-    // DomItem index(DomItem &self, index_type index) const override;
+    // index_type indexes(const DomItem &self) const override;
+    // DomItem index(const DomItem &self, index_type index) const override;
 
-    // QSet<QString> const keys(DomItem &self) const override;
-    // DomItem key(DomItem &self, QString name) const override;
+    // QSet<QString> const keys(const DomItem &self) const override;
+    // DomItem key(const DomItem &self, const QString &name) const override;
+
+    QQmlJS::SourceLocation mainRegionLocation() const
+    {
+        Q_ASSERT(m_locations.size() > 0);
+        Q_ASSERT(m_locations.front().first == FileLocationRegion::MainRegion);
+
+        auto current = m_locations.front();
+        return current.second;
+    }
+    void setMainRegionLocation(const QQmlJS::SourceLocation &location)
+    {
+        Q_ASSERT(m_locations.size() > 0);
+        Q_ASSERT(m_locations.front().first == FileLocationRegion::MainRegion);
+
+        m_locations.front().second = location;
+    }
+    void addLocation(FileLocationRegion region, QQmlJS::SourceLocation location)
+    {
+        Q_ASSERT_X(region != FileLocationRegion::MainRegion, "ScriptElementBase::addLocation",
+                   "use the setCombinedLocation instead!");
+        m_locations.emplace_back(region, location);
+    }
 
 protected:
-    QQmlJS::SourceLocation m_combinedLocation;
+    std::vector<std::pair<FileLocationRegion, QQmlJS::SourceLocation>> m_locations;
 };
 
 class ScriptList : public ScriptElementBase<DomType::List>
@@ -94,13 +120,13 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override
     {
         bool cont =
                 asList(self.pathFromOwner().key(QString())).iterateDirectSubpaths(self, visitor);
         return cont;
     }
-    void updatePathFromOwner(Path p) override
+    void updatePathFromOwner(const Path &p) override
     {
         BaseT::updatePathFromOwner(p);
         for (int i = 0; i < m_list.size(); ++i) {
@@ -108,7 +134,7 @@ public:
             m_list[i].base()->updatePathFromOwner(p.index(i));
         }
     }
-    void createFileLocations(FileLocations::Tree base) override
+    void createFileLocations(const FileLocations::Tree &base) override
     {
         BaseT::createFileLocations(base);
 
@@ -118,11 +144,11 @@ public:
         }
     }
 
-    List asList(Path path) const
+    List asList(const Path &path) const
     {
         auto asList = List::fromQList<ScriptElementVariant>(
                 path, m_list,
-                [](DomItem &list, const PathEls::PathComponent &, ScriptElementVariant &wrapped)
+                [](const DomItem &list, const PathEls::PathComponent &, const ScriptElementVariant &wrapped)
                         -> DomItem { return list.subScriptElementWrapperItem(wrapped); });
 
         return asList;
@@ -144,9 +170,9 @@ public:
     using BaseT::BaseT;
     using VariantT = std::variant<ScriptElementVariant, ScriptList>;
 
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     DomType kind() const override { return m_kind; }
     void setKind(DomType kind) { m_kind = kind; }
@@ -154,6 +180,30 @@ public:
     decltype(auto) insertChild(QStringView name, VariantT v)
     {
         return m_children.insert(std::make_pair(name, v));
+    }
+
+    ScriptElementVariant elementChild(const QQmlJS::Dom::FieldType &field)
+    {
+        auto it = m_children.find(field);
+        if (it == m_children.end())
+            return {};
+        if (!std::holds_alternative<ScriptElementVariant>(it->second))
+            return {};
+        return std::get<ScriptElementVariant>(it->second);
+    }
+
+    void insertValue(QStringView name, const QCborValue &v)
+    {
+        m_values.insert(std::make_pair(name, v));
+    }
+
+    QCborValue value() const override
+    {
+        auto it = m_values.find(Fields::value);
+        if (it == m_values.cend())
+            return {};
+
+        return it->second;
     }
 
 private:
@@ -164,7 +214,9 @@ private:
        a sorted map to always iterate the children in the same order.
      */
     std::map<QQmlJS::Dom::FieldType, VariantT> m_children;
-    DomType m_kind;
+    // value fields
+    std::map<QQmlJS::Dom::FieldType, QCborValue> m_values;
+    DomType m_kind = DomType::Empty;
 };
 
 class BlockStatement : public ScriptElementBase<DomType::ScriptBlockStatement>
@@ -173,9 +225,9 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     ScriptList statements() const { return m_statements; }
     void setStatements(const ScriptList &statements) { m_statements = statements; }
@@ -192,7 +244,7 @@ public:
     QString name() { return m_name; }
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
 
     QCborValue value() const override { return QCborValue(m_name); }
 
@@ -211,7 +263,7 @@ public:
     VariantT literalValue() const { return m_value; }
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
 
     QCborValue value() const override
     {
@@ -229,9 +281,9 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     ScriptElementVariant initializer() const { return m_initializer; }
     void setInitializer(const ScriptElementVariant &newInitializer)
@@ -265,9 +317,9 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     ScriptElementVariant condition() const { return m_condition; }
     void setCondition(const ScriptElementVariant &condition) { m_condition = condition; }
@@ -288,9 +340,9 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     ScriptElementVariant expression() const { return m_expression; }
     void setExpression(ScriptElementVariant expression) { m_expression = expression; }
@@ -311,9 +363,9 @@ public:
     };
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     ScriptElementVariant left() const { return m_left; }
     void setLeft(const ScriptElementVariant &newLeft) { m_left = newLeft; }
@@ -344,9 +396,9 @@ public:
     ScriptElementVariant initializer() const { return m_initializer; }
     void setInitializer(const ScriptElementVariant &initializer) { m_initializer = initializer; }
 
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
 private:
     ScopeType m_scopeType;
@@ -360,9 +412,9 @@ public:
     using BaseT::BaseT;
 
     // minimal required overload for this to be wrapped as DomItem:
-    bool iterateDirectSubpaths(DomItem &self, DirectVisitor visitor) override;
-    void updatePathFromOwner(Path p) override;
-    void createFileLocations(FileLocations::Tree base) override;
+    bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override;
+    void updatePathFromOwner(const Path &p) override;
+    void createFileLocations(const FileLocations::Tree &base) override;
 
     void setDeclarations(const ScriptList &list) { m_declarations = list; }
     ScriptList declarations() { return m_declarations; }

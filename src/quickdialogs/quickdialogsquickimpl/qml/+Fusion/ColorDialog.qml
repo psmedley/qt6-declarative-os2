@@ -62,8 +62,10 @@ ColorDialogImpl {
             elide: Label.ElideRight
             font.bold: true
             padding: 6
+            visible: parent.parent?.parent === Overlay.overlay
 
             Layout.preferredWidth: control.title.length > 0 ? implicitWidth : 0
+            Layout.preferredHeight: control.title.length > 0 ? implicitHeight : 15
             Layout.leftMargin: 12
             Layout.alignment: Qt.AlignLeft
         }

@@ -38,10 +38,12 @@ FileDialogImpl {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
         dim: true
         modal: true
-        title: qsTr("“%1” already exists. Do you want to replace it?").arg(control.fileName)
+        title: qsTr("Overwrite file?")
+        width: control.width - control.leftPadding - control.rightPadding
 
-        Label {
-            text: qsTr("A file with the same name already exists in %1.\nReplacing it will overwrite its current contents.").arg(control.currentFolderName)
+        contentItem: Label {
+            text: qsTr("“%1” already exists.\nDo you want to replace it?").arg(control.fileName)
+            wrapMode: Text.WordWrap
         }
 
         footer: DialogButtonBox {
@@ -99,6 +101,7 @@ FileDialogImpl {
             elide: Label.ElideRight
             font.bold: true
             padding: 6
+            visible: parent.parent?.parent === Overlay.overlay
 
             Layout.fillWidth: true
             Layout.leftMargin: 12
@@ -111,6 +114,7 @@ FileDialogImpl {
             id: breadcrumbBar
             dialog: control
 
+            Layout.topMargin: parent.parent?.parent === Overlay.overlay ? 0 : 12
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Layout.rightMargin: 12

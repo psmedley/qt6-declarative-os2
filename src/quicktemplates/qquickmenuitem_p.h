@@ -16,13 +16,16 @@
 //
 
 #include <QtQuickTemplates2/private/qquickabstractbutton_p.h>
+#include <QtQmlModels/private/qtqmlmodelsglobal_p.h>
+
+QT_REQUIRE_CONFIG(qml_object_model);
 
 QT_BEGIN_NAMESPACE
 
 class QQuickMenu;
 class QQuickMenuItemPrivate;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickMenuItem : public QQuickAbstractButton
+class Q_QUICKTEMPLATES2_EXPORT QQuickMenuItem : public QQuickAbstractButton
 {
     Q_OBJECT
     Q_PROPERTY(bool highlighted READ isHighlighted WRITE setHighlighted NOTIFY highlightedChanged FINAL)
@@ -30,6 +33,8 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickMenuItem : public QQuickAbstractBut
     Q_PROPERTY(QQuickItem *arrow READ arrow WRITE setArrow NOTIFY arrowChanged FINAL REVISION(2, 3))
     Q_PROPERTY(QQuickMenu *menu READ menu NOTIFY menuChanged FINAL REVISION(2, 3))
     Q_PROPERTY(QQuickMenu *subMenu READ subMenu NOTIFY subMenuChanged FINAL REVISION(2, 3))
+    Q_PROPERTY(qreal implicitTextPadding READ implicitTextPadding WRITE setImplicitTextPadding NOTIFY implicitTextPaddingChanged REVISION(6, 8))
+    Q_PROPERTY(qreal textPadding READ textPadding NOTIFY textPaddingChanged REVISION(6, 8))
     Q_CLASSINFO("DeferredPropertyNames", "arrow,background,contentItem,indicator")
     QML_NAMED_ELEMENT(MenuItem)
     QML_ADDED_IN_VERSION(2, 0)
@@ -47,6 +52,10 @@ public:
     QQuickMenu *menu() const;
     QQuickMenu *subMenu() const;
 
+    qreal textPadding() const;
+    qreal implicitTextPadding() const;
+    void setImplicitTextPadding(qreal newImplicitTextPadding);
+
 Q_SIGNALS:
     void triggered();
     void highlightedChanged();
@@ -54,6 +63,8 @@ Q_SIGNALS:
     Q_REVISION(2, 3) void arrowChanged();
     Q_REVISION(2, 3) void menuChanged();
     Q_REVISION(2, 3) void subMenuChanged();
+    Q_REVISION(6, 8) void implicitTextPaddingChanged();
+    Q_REVISION(6, 8) void textPaddingChanged();
 
 protected:
     void componentComplete() override;
@@ -69,8 +80,10 @@ private:
     Q_DECLARE_PRIVATE(QQuickMenuItem)
 };
 
-QT_END_NAMESPACE
+#ifndef QT_NO_DEBUG_STREAM
+Q_QUICKTEMPLATES2_EXPORT QDebug operator<<(QDebug debug, const QQuickMenuItem *menuItem);
+#endif
 
-QML_DECLARE_TYPE(QQuickMenuItem)
+QT_END_NAMESPACE
 
 #endif // QQUICKMENUITEM_P_H

@@ -27,7 +27,7 @@ QT_BEGIN_NAMESPACE
 namespace QV4 {
 
 struct CppStackFrame;
-struct Q_QML_PRIVATE_EXPORT CppStackFrameBase
+struct Q_QML_EXPORT CppStackFrameBase
 {
     enum class Kind : quint8 { JS, Meta };
 
@@ -65,7 +65,7 @@ struct Q_QML_PRIVATE_EXPORT CppStackFrameBase
     Kind kind;
 };
 
-struct Q_QML_PRIVATE_EXPORT CppStackFrame : protected CppStackFrameBase
+struct Q_QML_EXPORT CppStackFrame : protected CppStackFrameBase
 {
     // We want to have those public but we can't declare them as public without making the struct
     // non-standard layout. So we have this other struct with "using" in between.
@@ -122,7 +122,7 @@ protected:
     }
 };
 
-struct Q_QML_PRIVATE_EXPORT MetaTypesStackFrame : public CppStackFrame
+struct Q_QML_EXPORT MetaTypesStackFrame : public CppStackFrame
 {
     using CppStackFrame::push;
     using CppStackFrame::pop;
@@ -147,6 +147,9 @@ struct Q_QML_PRIVATE_EXPORT MetaTypesStackFrame : public CppStackFrame
     const QMetaType *argTypes() const { return metaTypes + 1; }
     void **argv() const { return returnAndArgs + 1; }
 
+    const QMetaType *returnAndArgTypes() const { return metaTypes; }
+    void **returnAndArgValues() const { return returnAndArgs; }
+
     QObject *thisObject() const { return CppStackFrameBase::thisObject; }
 
     ExecutionContext *context() const { return CppStackFrameBase::context; }
@@ -158,7 +161,7 @@ struct Q_QML_PRIVATE_EXPORT MetaTypesStackFrame : public CppStackFrame
     }
 };
 
-struct Q_QML_PRIVATE_EXPORT JSTypesStackFrame : public CppStackFrame
+struct Q_QML_EXPORT JSTypesStackFrame : public CppStackFrame
 {
     using CppStackFrame::jsFrame;
 

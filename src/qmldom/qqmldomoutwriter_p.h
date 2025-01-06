@@ -30,7 +30,7 @@ namespace Dom {
 class QMLDOM_EXPORT OutWriterState
 {
 public:
-    OutWriterState(Path itPath, DomItem &it, FileLocations::Tree fLoc);
+    OutWriterState(const Path &itPath, const DomItem &it, const FileLocations::Tree &fLoc);
 
     void closeState(OutWriter &);
 
@@ -38,8 +38,8 @@ public:
     DomItem item;
     PendingSourceLocationId fullRegionId;
     FileLocations::Tree currentMap;
-    QMap<QString, PendingSourceLocationId> pendingRegions;
-    QMap<QString, CommentedElement> pendingComments;
+    QMap<FileLocationRegion, PendingSourceLocationId> pendingRegions;
+    QMap<FileLocationRegion, CommentedElement> pendingComments;
 };
 
 class QMLDOM_EXPORT OutWriter
@@ -86,21 +86,14 @@ public:
         return indent;
     }
 
-    void itemStart(DomItem &it);
-    void itemEnd(DomItem &it);
-    void regionStart(QString rName);
-    void regionStart(QStringView rName) { regionStart(rName.toString()); }
-    void regionEnd(QString rName);
-    void regionEnd(QStringView rName) { regionEnd(rName.toString()); }
+    void itemStart(const DomItem &it);
+    void itemEnd(const DomItem &it);
+    void regionStart(FileLocationRegion region);
+    void regionEnd(FileLocationRegion regino);
 
     quint32 counter() const { return lineWriter.counter(); }
-    OutWriter &writeRegion(QString rName, QStringView toWrite);
-    OutWriter &writeRegion(QStringView rName, QStringView toWrite)
-    {
-        return writeRegion(rName.toString(), toWrite);
-    }
-    OutWriter &writeRegion(QString t) { return writeRegion(t, t); }
-    OutWriter &writeRegion(QStringView t) { return writeRegion(t.toString(), t); }
+    OutWriter &writeRegion(FileLocationRegion region, QStringView toWrite);
+    OutWriter &writeRegion(FileLocationRegion region);
     OutWriter &ensureNewline(int nNewlines = 1)
     {
         lineWriter.ensureNewline(nNewlines);
@@ -147,14 +140,21 @@ public:
         return lineWriter.addTextAddCallback(callback);
     }
     bool removeTextAddCallback(int i) { return lineWriter.removeTextAddCallback(i); }
-    void addReformattedScriptExpression(Path p, std::shared_ptr<ScriptExpression> exp)
+    void addReformattedScriptExpression(const Path &p, const std::shared_ptr<ScriptExpression> &exp)
     {
         if (auto updExp = UpdatedScriptExpression::ensure(reformattedScriptExpressions, p,
                                                           AttachedInfo::PathType::Canonical)) {
             updExp->info().expr = exp;
         }
     }
-    DomItem updatedFile(DomItem &qmlFile);
+    DomItem restoreWrittenFileItem(const DomItem &fileItem);
+
+private:
+    DomItem writtenQmlFileItem(const DomItem &fileItem, const Path &filePath);
+    DomItem writtenJsFileItem(const DomItem &fileItem, const Path &filePath);
+    static void logScriptExprUpdateSkipped(
+            const DomItem &exprItem, const Path &exprPath,
+            const std::shared_ptr<ScriptExpression> &formattedExpr);
 };
 
 } // end namespace Dom

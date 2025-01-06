@@ -21,10 +21,6 @@ Q_TRACE_POINT(qtquick, QSG_update_exit)
 Q_TRACE_POINT(qtquick, QSG_renderScene_entry)
 Q_TRACE_POINT(qtquick, QSG_renderScene_exit)
 
-#ifndef QT_NO_DEBUG
-bool _q_sg_leak_check = !qEnvironmentVariableIsEmpty("QML_LEAK_CHECK");
-#endif
-
 int qt_sg_envInt(const char *name, int defaultValue)
 {
     if (Q_LIKELY(!qEnvironmentVariableIsSet(name)))
@@ -75,6 +71,8 @@ QSGRenderer::QSGRenderer(QSGRenderContext *context)
     , m_is_rendering(false)
     , m_is_preprocessing(false)
 {
+    m_current_projection_matrix.resize(1);
+    m_current_projection_matrix_native_ndc.resize(1);
 }
 
 
@@ -114,7 +112,7 @@ void QSGRenderer::setNodeUpdater(QSGNodeUpdater *updater)
 
 bool QSGRenderer::isMirrored() const
 {
-    QMatrix4x4 matrix = projectionMatrix();
+    QMatrix4x4 matrix = projectionMatrix(0);
     // Mirrored relative to the usual Qt coordinate system with origin in the top left corner.
     return matrix(0, 0) * matrix(1, 1) - matrix(0, 1) * matrix(1, 0) > 0;
 }

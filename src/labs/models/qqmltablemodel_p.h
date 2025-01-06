@@ -30,7 +30,7 @@ QT_REQUIRE_CONFIG(qml_table_model);
 
 QT_BEGIN_NAMESPACE
 
-class Q_LABSQMLMODELS_PRIVATE_EXPORT QQmlTableModel : public QAbstractTableModel, public QQmlParserStatus
+class Q_LABSQMLMODELS_EXPORT QQmlTableModel : public QAbstractTableModel, public QQmlParserStatus
 {
     Q_OBJECT
     Q_PROPERTY(int columnCount READ columnCount NOTIFY columnCountChanged FINAL)
@@ -81,6 +81,10 @@ Q_SIGNALS:
     void rowCountChanged();
     void rowsChanged();
 
+protected:
+    void classBegin() override;
+    void componentComplete() override;
+
 private:
     class ColumnRoleMetadata
     {
@@ -122,9 +126,6 @@ private:
 
     void doInsert(int rowIndex, const QVariant &row);
 
-    void classBegin() override;
-    void componentComplete() override;
-
     bool componentCompleted = false;
     QVariantList mRows;
     QList<QQmlTableModelColumn *> mColumns;
@@ -138,7 +139,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQmlTableModel)
 
 #endif // QQMLTABLEMODEL_P_H

@@ -154,7 +154,7 @@ const QQmlJSMetaPropertyBinding BindingPrivate::binding(const QQmlSA::Binding &b
 }
 
 /*!
-    Returns the type of the property if this element is a group property,
+    Returns the type of the property of this binding if it is a group property,
     otherwise returns an invalid Element.
  */
 Element Binding::groupType() const
@@ -177,7 +177,7 @@ QString Binding::stringValue() const
 }
 
 /*!
-    Returns the name of the property using this binding.
+    Returns the name of the property bound with this binding.
  */
 QString Binding::propertyName() const
 {
@@ -212,8 +212,8 @@ double Binding::numberValue() const
 }
 
 /*!
-    Returns the kind of associated associated script if the content type of
-    this binding is Script, otherwise returns Script_Invalid.
+    Returns the kind of the associated script if the content type of this
+    binding is Script, otherwise returns Script_Invalid.
  */
 QQmlSA::ScriptBindingKind Binding::scriptKind() const
 {
@@ -230,16 +230,11 @@ bool Binding::hasObject() const
 
 /*!
     Returns the type of the associated object if the content type of this
-    binding is Object, otherwise returns an invlaid Element.
+    binding is Object, otherwise returns an invalid Element.
  */
 QQmlSA::Element Binding::objectType() const
 {
     return QQmlJSScope::createQQmlSAElement(BindingPrivate::binding(*this).objectType());
-}
-
-Element QQmlSA::Binding::literalType(const QQmlJSTypeResolver *resolver) const
-{
-    return QQmlJSScope::createQQmlSAElement(BindingPrivate::binding(*this).literalType(resolver));
 }
 
 bool Binding::hasUndefinedScriptValue() const
@@ -252,7 +247,7 @@ bool Binding::hasUndefinedScriptValue() const
 /*!
     Returns \c true if \a bindingType is a literal type, and \c false
     otherwise. Literal types include strings, booleans, numbers, regular
-    expressions among other.
+    expressions.
  */
 bool QQmlSA::Binding::isLiteralBinding(QQmlSA::BindingType bindingType)
 {
@@ -319,6 +314,11 @@ QString MethodPrivate::methodName() const
     return m_method.methodName();
 }
 
+QQmlSA::SourceLocation MethodPrivate::sourceLocation() const
+{
+    return QQmlSA::SourceLocationPrivate::createQQmlSASourceLocation(m_method.sourceLocation());
+}
+
 MethodType MethodPrivate::methodType() const
 {
     return m_method.methodType();
@@ -381,6 +381,15 @@ MethodType Method::methodType() const
     return d->methodType();
 }
 
+/*!
+    Returns the location in the QML code where this method is defined.
+ */
+QQmlSA::SourceLocation Method::sourceLocation() const
+{
+    Q_D(const Method);
+    return d->sourceLocation();
+}
+
 bool Method::operatorEqualsImpl(const Method &lhs, const Method &rhs)
 {
     return lhs.d_func()->m_method == rhs.d_func()->m_method;
@@ -432,6 +441,24 @@ QString PropertyPrivate::typeName() const
 bool PropertyPrivate::isValid() const
 {
     return m_property.isValid();
+}
+
+/*!
+   Returns whether this property is readonly. Properties defined in QML are readonly when their
+   definition has the 'readonly' keyword. Properties defined in C++ are readonly when they do not
+   have a WRITE accessor function.
+ */
+bool PropertyPrivate::isReadonly() const
+{
+    return !m_property.isWritable();
+}
+
+/*!
+    Returns the type that this property was defined with.
+ */
+QQmlSA::Element PropertyPrivate::type() const
+{
+    return QQmlJSScope::createQQmlSAElement(m_property.type());
 }
 
 QQmlJSMetaProperty PropertyPrivate::property(const QQmlSA::Property &property)
@@ -500,6 +527,19 @@ bool Property::isValid() const
     Q_D(const Property);
     return d->isValid();
 }
+
+bool Property::isReadonly() const
+{
+    Q_D(const Property);
+    return d->isReadonly();
+}
+
+QQmlSA::Element Property::type() const
+{
+    Q_D(const Property);
+    return d->type();
+}
+
 
 bool Property::operatorEqualsImpl(const Property &lhs, const Property &rhs)
 {
@@ -616,6 +656,15 @@ bool Element::hasProperty(const QString &propertyName) const
 }
 
 /*!
+    Returns whether this Element defines a property with the name \a propertyName
+    which is not defined on its base or extension objects.
+ */
+bool Element::hasOwnProperty(const QString &propertyName) const
+{
+    return QQmlJSScope::scope(*this)->hasOwnProperty(propertyName);
+}
+
+/*!
     Returns the property with the name \a propertyName if it is found in this
     Element or its base and extension objects, otherwise returns an invalid property.
  */
@@ -658,7 +707,7 @@ bool Element::hasMethod(const QString &methodName) const
  */
 
 /*!
-    Returns this Elements's method which are not defined on its base or
+    Returns this Elements's methods, which are not defined on its base or
     extension objects.
  */
 Method::Methods Element::ownMethods() const
@@ -667,7 +716,7 @@ Method::Methods Element::ownMethods() const
 }
 
 /*!
-    Returns the location in the QML code where this method is defined.
+    Returns the location in the QML code where this Element is defined.
  */
 QQmlSA::SourceLocation Element::sourceLocation() const
 {
@@ -676,7 +725,7 @@ QQmlSA::SourceLocation Element::sourceLocation() const
 }
 
 /*!
-    Returns the file path of the QML code that defines this method.
+    Returns the file path of the QML code that defines this Element.
  */
 QString Element::filePath() const
 {
@@ -684,7 +733,7 @@ QString Element::filePath() const
 }
 
 /*!
-    Returns whethe this Element has a property binding with the name \a name.
+    Returns whether this Element has a property binding with the name \a name.
  */
 bool Element::hasPropertyBindings(const QString &name) const
 {
@@ -758,22 +807,6 @@ QQmlSA::Binding::Bindings BindingsPrivate::createBindings(
     QQmlSA::Binding::Bindings bindings;
     bindings.d_func()->m_bindings = std::move(saBindings);
     return bindings;
-}
-
-/*!
-    Returns an iterator to the beginning of this Element's children.
- */
-QQmlJS::ConstPtrWrapperIterator Element::childScopesBegin() const
-{
-    return QQmlJSScope::scope(*this)->childScopesBegin();
-}
-
-/*!
-    Returns an iterator to the end of this Element's children.
- */
-QQmlJS::ConstPtrWrapperIterator Element::childScopesEnd() const
-{
-    return QQmlJSScope::scope(*this)->childScopesEnd();
 }
 
 Element::operator bool() const
@@ -908,8 +941,8 @@ Element GenericPass::resolveAttachedInFileScope(QAnyStringView typeName)
 
 /*!
     Returns the type of \a typeName defined in module \a moduleName.
-    If an attached type and and a non-attached type share the same
-    name (e.g. \c ListView), the \l Element corresponding to the
+    If an attached type and a non-attached type share the same name
+    (for example, \c ListView), the \l Element corresponding to the
     non-attached type is returned.
     To obtain the attached type, use \l resolveAttached.
  */
@@ -924,7 +957,7 @@ Element GenericPass::resolveType(QAnyStringView moduleName, QAnyStringView typeN
 
 /*!
     Returns the type of the built-in type identified by \a typeName.
-    Built-in types encompasses \c{C++} types which the  QML engine can handle
+    Built-in types encompass \c{C++} types which the  QML engine can handle
     without any imports (e.g. \l QDateTime and \l QString), global EcmaScript
     objects like \c Number, as well as the \l {QML Global Object}
     {global Qt object}.
@@ -960,7 +993,9 @@ Element GenericPass::resolveAttached(QAnyStringView moduleName, QAnyStringView t
 Element GenericPass::resolveLiteralType(const QQmlSA::Binding &binding)
 {
     Q_D(const GenericPass);
-    return binding.literalType(PassManagerPrivate::resolver(*d->m_manager));
+
+    return QQmlJSScope::createQQmlSAElement(BindingPrivate::binding(binding).literalType(
+            PassManagerPrivate::resolver(*d->m_manager)));
 }
 
 /*!
@@ -1005,15 +1040,9 @@ QString GenericPass::sourceCode(QQmlSA::SourceLocation location)
     \brief Can analyze an element and its children with static analysis passes.
  */
 
-/*!
-    Constructs a pass manager given an import \a visitor and a type \a resolver.
- */
-QQmlSA::PassManager::PassManager(QQmlJSImportVisitor *visitor, QQmlJSTypeResolver *resolver)
-    : d_ptr{ new PassManagerPrivate{ this, visitor, resolver } }
-{
-}
-
-PassManager::~PassManager() = default; // explicitly defaulted out-of-line for PIMPL
+// explicitly defaulted out-of-line for PIMPL
+PassManager::PassManager() = default;
+PassManager::~PassManager() = default;
 
 /*!
     Registers a static analysis \a pass to be run on all elements.
@@ -1159,6 +1188,16 @@ void PassManager::analyze(const Element &root)
     d->analyze(root);
 }
 
+static QQmlJS::ConstPtrWrapperIterator childScopesBegin(const Element &element)
+{
+    return QQmlJSScope::scope(element)->childScopesBegin();
+}
+
+static QQmlJS::ConstPtrWrapperIterator childScopesEnd(const Element &element)
+{
+    return QQmlJSScope::scope(element)->childScopesEnd();
+}
+
 void PassManagerPrivate::analyze(const Element &root)
 {
     QList<Element> runStack;
@@ -1170,7 +1209,7 @@ void PassManagerPrivate::analyze(const Element &root)
             if (elementPass->shouldRun(element))
                 elementPass->run(element);
 
-        for (auto it = element.childScopesBegin(); it != element.childScopesEnd(); ++it) {
+        for (auto it = childScopesBegin(element), end = childScopesEnd(element); it != end; ++it) {
             if ((*it)->scopeType() == QQmlSA::ScopeType::QMLScope)
                 runStack.push_back(QQmlJSScope::createQQmlSAElement(*it));
         }
@@ -1702,7 +1741,8 @@ QString FixSuggestion::hint() const
 }
 
 /*!
-    Sets uses \a autoApplicable to set whtether this suggested fix can be applied automatically.
+    Sets \a autoApplicable to determine whether this suggested fix can be
+    applied automatically.
  */
 void FixSuggestion::setAutoApplicable(bool autoApplicable)
 {

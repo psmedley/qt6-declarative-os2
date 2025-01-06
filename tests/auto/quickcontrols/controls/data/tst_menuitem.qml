@@ -1,5 +1,5 @@
 // Copyright (C) 2017 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 import QtQuick
 import QtTest
@@ -95,8 +95,8 @@ TestCase {
         case MenuItem.IconOnly:
             verify(iconImage)
             verify(!textLabel)
-            compare(iconImage.x, control.mirrored ? control.availableWidth - iconImage.width - padding : padding)
-            compare(iconImage.y, (control.availableHeight - iconImage.height) / 2)
+            compare(iconImage.x, Math.round(control.mirrored ? control.availableWidth - iconImage.width - padding : padding))
+            compare(iconImage.y, Math.round((control.availableHeight - iconImage.height) / 2))
             break;
         case MenuItem.TextOnly:
             verify(!iconImage)
@@ -107,7 +107,7 @@ TestCase {
         case MenuItem.TextUnderIcon:
             verify(iconImage)
             verify(textLabel)
-            compare(iconImage.x, control.mirrored ? control.availableWidth - iconImage.width - (textLabel.width - iconImage.width) / 2 - padding : (textLabel.width - iconImage.width) / 2 + padding)
+            compare(iconImage.x, Math.round(control.mirrored ? control.availableWidth - iconImage.width - (textLabel.width - iconImage.width) / 2 - padding : (textLabel.width - iconImage.width) / 2 + padding))
             compare(textLabel.x, control.mirrored ? control.availableWidth - textLabel.width - padding : padding)
             verify(iconImage.y < textLabel.y)
             break;
@@ -118,7 +118,7 @@ TestCase {
                 verify(textLabel.x < iconImage.x)
             else
                 verify(iconImage.x < textLabel.x)
-            compare(iconImage.y, (control.availableHeight - iconImage.height) / 2)
+            compare(iconImage.y, Math.round((control.availableHeight - iconImage.height) / 2))
             compare(textLabel.y, (control.availableHeight - textLabel.height) / 2)
             break;
         }

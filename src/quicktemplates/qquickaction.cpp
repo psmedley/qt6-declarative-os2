@@ -6,6 +6,8 @@
 #include "qquickactiongroup_p.h"
 #include "qquickshortcutcontext_p_p.h"
 
+#include <QtCore/qpointer.h>
+#include <QtCore/qloggingcategory.h>
 #include <QtGui/qevent.h>
 #if QT_CONFIG(shortcut)
 #  include <QtGui/private/qshortcutmap_p.h>
@@ -15,10 +17,12 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcAction, "qt.quick.controls.action")
+
 /*!
     \qmltype Action
     \inherits QtObject
-//!     \instantiates QQuickAction
+//!     \nativetype QQuickAction
     \inqmlmodule QtQuick.Controls
     \since 5.10
     \ingroup utilities
@@ -314,6 +318,7 @@ QQuickAction::QQuickAction(QObject *parent)
 QQuickAction::~QQuickAction()
 {
     Q_D(QQuickAction);
+    qCDebug(lcAction) << "destroying" << this << d->text;
     if (d->group)
         d->group->removeAction(this);
 

@@ -1,5 +1,5 @@
 // Copyright (C) 2017 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 import QtQuick
 import QtTest
@@ -40,6 +40,45 @@ TestCase {
     Component {
         id: signalSpy
         SignalSpy { }
+    }
+
+    property var expectedPressSignals: [
+        ["activeFocusChanged", { "activeFocus": true }],
+        ["pressedChanged", { "pressed": true }],
+        ["downChanged", { "down": true }],
+        "pressed"
+    ]
+
+    property var expectedReleaseSignals: [
+        ["pressedChanged", { "pressed": false }],
+        ["downChanged", { "down": false }],
+        "released",
+        "clicked"
+    ]
+
+    property var expectedClickSignals
+
+    property var expectedCheckableClickSignals: [
+        ["activeFocusChanged", { "activeFocus": true }],
+        ["pressedChanged", { "pressed": true }],
+        ["downChanged", { "down": true }],
+        "pressed",
+        ["pressedChanged", { "pressed": false }],
+        ["downChanged", { "down": false }],
+        ["checkedChanged", { "checked": true }],
+        "toggled",
+        "released",
+        "clicked"
+    ]
+
+    function initTestCase() {
+        // AbstractButton has TabFocus on macOS, not StrongFocus.
+        if (Qt.platform.os === "osx") {
+            expectedPressSignals.splice(0, 1)
+            expectedCheckableClickSignals.splice(0, 1)
+        }
+
+        expectedClickSignals = [...expectedPressSignals, ...expectedReleaseSignals]
     }
 
     function init() {
@@ -858,7 +897,7 @@ TestCase {
         // Ensure that clicked is emitted when no handler is defined for the pressAndHold() signal.
         // Note that even though signal spies aren't considered in QObject::isSignalConnected(),
         // we can't use one here to check for pressAndHold(), because otherwise clicked() won't be emitted.
-        wait(Qt.styleHints.mousePressAndHoldInterval + 100)
+        wait(Application.styleHints.mousePressAndHoldInterval + 100)
         mouseRelease(control)
         compare(clickedSpy.count, 1)
     }
@@ -1003,5 +1042,138 @@ TestCase {
         compare(pressedSpy.count, 0)
         compare(releasedSpy.count, 0)
         compare(clickedSpy.count, 0)
+    }
+
+    Component {
+        id: signalSequenceSpy
+        SignalSequenceSpy {
+            // List all signals, even ones we might not be interested in for a particular test,
+            // so that it can catch unwanted ones and fail the test.
+            signals: ["pressed", "released", "canceled", "clicked", "toggled", "doubleClicked",
+                "pressedChanged", "downChanged", "checkedChanged", "activeFocusChanged"]
+        }
+    }
+
+    function test_click() {
+        let control = createTemporaryObject(button, testCase)
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedClickSignals
+        control.click()
+        verify(sequenceSpy.success)
+    }
+
+    function test_clickCheckableButton() {
+        let control = createTemporaryObject(button, testCase, { checkable: true })
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedCheckableClickSignals
+        control.click()
+        verify(sequenceSpy.success)
+    }
+
+    function test_animateClick() {
+        let control = createTemporaryObject(button, testCase)
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedClickSignals
+        control.animateClick()
+        tryVerify(() => { return sequenceSpy.success }, 1000)
+    }
+
+    function test_animateClickCheckableButton() {
+        let control = createTemporaryObject(button, testCase, { checkable: true })
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedCheckableClickSignals
+        control.animateClick()
+        tryVerify(() => { return sequenceSpy.success }, 1000)
+    }
+
+    function test_animateClickTwice() {
+        let control = createTemporaryObject(button, testCase)
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedPressSignals
+        // Check that calling it again before it finishes works as expected.
+        control.animateClick()
+        verify(sequenceSpy.success)
+        // Let the timer progress a bit.
+        wait(0)
+        sequenceSpy.expectedSequence = testCase.expectedReleaseSignals
+        control.animateClick()
+        tryVerify(() => { return sequenceSpy.success }, 1000)
+    }
+
+    function test_clickOnDisabledButton() {
+        let control = createTemporaryObject(button, testCase, { enabled: false })
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = []
+        control.click()
+        verify(sequenceSpy.success)
+    }
+
+    function test_animateClickOnDisabledButton() {
+        let control = createTemporaryObject(button, testCase, { enabled: false })
+        verify(control)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = []
+        control.animateClick()
+        verify(sequenceSpy.success)
+    }
+
+    Component {
+        id: destroyOnPressButtonComponent
+
+        AbstractButton {
+            width: 100
+            height: 50
+
+            onPressed: destroy(this)
+        }
+    }
+
+    function test_clickDestroyOnPress() {
+        let control = createTemporaryObject(destroyOnPressButtonComponent, testCase)
+        verify(control)
+
+        // Parent it to the testCase, otherwise it will be destroyed when the control is.
+        let destructionSpy = createTemporaryObject(signalSpy, testCase,
+            { target: control.Component, signalName: "destruction"  })
+        verify(destructionSpy.valid)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedClickSignals
+        // Shouldn't crash, etc. Note that destroy() isn't synchronous, and so
+        // the destruction will happen after the release.
+        control.click()
+        verify(sequenceSpy.success)
+        tryCompare(destructionSpy, "count", 1)
+    }
+
+    function test_animateClickDestroyOnPress() {
+        let control = createTemporaryObject(destroyOnPressButtonComponent, testCase)
+        verify(control)
+
+        // Parent it to the testCase, otherwise it will be destroyed when the control is.
+        let destructionSpy = createTemporaryObject(signalSpy, testCase,
+            { target: control.Component, signalName: "destruction"  })
+        verify(destructionSpy.valid)
+
+        let sequenceSpy = signalSequenceSpy.createObject(control, { target: control })
+        sequenceSpy.expectedSequence = testCase.expectedPressSignals
+        // Shouldn't crash, etc. Note that destroy() isn't synchronous, but it is processed
+        // on the next frame, so should always come before the release's 100 ms delay.
+        control.animateClick()
+        verify(sequenceSpy.success)
+        tryCompare(destructionSpy, "count", 1)
     }
 }

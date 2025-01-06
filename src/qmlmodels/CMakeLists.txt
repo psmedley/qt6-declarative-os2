@@ -12,7 +12,7 @@ qt_internal_add_qml_module(QmlModels
     PLUGIN_TARGET modelsplugin
     CLASS_NAME QtQmlModelsPlugin
     DEPENDENCIES
-        QtQml.Base/auto
+        QML/1.0
     SOURCES
         qqmlchangeset.cpp qqmlchangeset_p.h
         qqmlmodelsmodule.cpp qqmlmodelsmodule_p.h
@@ -30,10 +30,8 @@ qt_internal_add_qml_module(QmlModels
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::QmlPrivate
-    GENERATE_CPP_EXPORTS
-    GENERATE_PRIVATE_CPP_EXPORTS
     OS2_SHORT_NAME QmlModel
-)
+    )
 
 qt_internal_extend_target(QmlModels CONDITION QT_FEATURE_qml_itemmodel
     SOURCES

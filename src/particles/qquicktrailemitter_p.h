@@ -19,7 +19,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickTrailEmitter : public QQuickParticleEmitter
+class Q_QUICKPARTICLES_EXPORT QQuickTrailEmitter : public QQuickParticleEmitter
 {
     Q_OBJECT
     Q_PROPERTY(QString follow READ follow WRITE setFollow NOTIFY followChanged)
@@ -66,7 +66,9 @@ public:
     }
 
 Q_SIGNALS:
-    void emitFollowParticles(const QJSValue &particles, const QJSValue &followed);
+    void emitFollowParticles(
+            const QList<QQuickV4ParticleData> &particles,
+            const QQuickV4ParticleData &followed);
 
     void particlesPerParticlePerSecondChanged(int arg);
 

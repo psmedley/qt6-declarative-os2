@@ -47,6 +47,10 @@
 #include <QtWidgets/qgraphicsview.h>
 #endif
 
+#if QT_CONFIG(vulkan)
+#include <QtGui/private/qvulkandefaultinstance_p.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 QQuickWidgetOffscreenWindow::QQuickWidgetOffscreenWindow(QQuickWindowPrivate &dd, QQuickRenderControl *control)
@@ -196,6 +200,27 @@ void QQuickWidgetPrivate::init(QQmlEngine* e)
     if (!engine.isNull() && !engine.data()->incubationController())
         engine.data()->setIncubationController(offscreenWindow->incubationController());
 
+    q->setMouseTracking(true);
+    q->setFocusPolicy(Qt::StrongFocus);
+#ifndef Q_OS_MACOS
+    /*
+        Usually, a QTouchEvent comes from a touchscreen, and we want those
+        touch events in Qt Quick. But on macOS, there are no touchscreens, and
+        WA_AcceptTouchEvents has a different meaning: QApplication::notify()
+        calls the native-integration function registertouchwindow() to change
+        NSView::allowedTouchTypes to include NSTouchTypeMaskIndirect when the
+        trackpad cursor enters the window, and removes that mask when the
+        cursor exits. In other words, WA_AcceptTouchEvents enables getting
+        discrete touchpoints from the trackpad. We rather prefer to get mouse,
+        wheel and native gesture events from the trackpad (because those
+        provide more of a "native feel"). The only exception is for
+        MultiPointTouchArea, and it takes care of that for itself. So don't
+        automatically set WA_AcceptTouchEvents on macOS. The user can still do
+        it, but we don't recommend it.
+    */
+    q->setAttribute(Qt::WA_AcceptTouchEvents);
+#endif
+
 #if QT_CONFIG(quick_draganddrop)
     q->setAcceptDrops(true);
 #endif
@@ -251,9 +276,7 @@ void QQuickWidgetPrivate::handleWindowChange()
     QObject::connect(renderControl, SIGNAL(renderRequested()), q, SLOT(triggerUpdate()));
     QObject::connect(renderControl, SIGNAL(sceneChanged()), q, SLOT(triggerUpdate()));
 
-    if (!source.isEmpty())
-        execute();
-    else if (QQuickItem *sgItem = qobject_cast<QQuickItem *>(root))
+    if (QQuickItem *sgItem = qobject_cast<QQuickItem *>(root))
         sgItem->setParentItem(offscreenWindow->contentItem());
 }
 
@@ -603,41 +626,22 @@ QImage QQuickWidgetPrivate::grabFramebuffer()
 */
 
 /*!
-  Constructs a QQuickWidget with the given \a parent.
-  The default value of \a parent is 0.
+  Constructs a QQuickWidget with a default QML engine as a child of \a parent.
 
+  The default value of \a parent is \c nullptr.
 */
 QQuickWidget::QQuickWidget(QWidget *parent)
     : QWidget(*(new QQuickWidgetPrivate), parent, {})
 {
-    setMouseTracking(true);
-    setFocusPolicy(Qt::StrongFocus);
-#ifndef Q_OS_MACOS
-    /*
-        Usually, a QTouchEvent comes from a touchscreen, and we want those
-        touch events in Qt Quick. But on macOS, there are no touchscreens, and
-        WA_AcceptTouchEvents has a different meaning: QApplication::notify()
-        calls the native-integration function registertouchwindow() to change
-        NSView::allowedTouchTypes to include NSTouchTypeMaskIndirect when the
-        trackpad cursor enters the window, and removes that mask when the
-        cursor exits. In other words, WA_AcceptTouchEvents enables getting
-        discrete touchpoints from the trackpad. We rather prefer to get mouse,
-        wheel and native gesture events from the trackpad (because those
-        provide more of a "native feel"). The only exception is for
-        MultiPointTouchArea, and it takes care of that for itself. So don't
-        automatically set WA_AcceptTouchEvents on macOS. The user can still do
-        it, but we don't recommend it.
-    */
-    setAttribute(Qt::WA_AcceptTouchEvents);
-#endif
     d_func()->init();
 }
 
 /*!
-  Constructs a QQuickWidget with the given QML \a source and \a parent.
-  The default value of \a parent is 0.
+  Constructs a QQuickWidget with a default QML engine and the given QML \a source
+  as a child of \a parent.
 
-*/
+  The default value of \a parent is \c nullptr.
+ */
 QQuickWidget::QQuickWidget(const QUrl &source, QWidget *parent)
     : QQuickWidget(parent)
 {
@@ -645,19 +649,15 @@ QQuickWidget::QQuickWidget(const QUrl &source, QWidget *parent)
 }
 
 /*!
-  Constructs a QQuickWidget with the given QML \a engine and \a parent.
+  Constructs a QQuickWidget with the given QML \a engine as a child of \a parent.
 
-  Note: In this case, the QQuickWidget does not own the given \a engine object;
+  \note The QQuickWidget does not take ownership of the given \a engine object;
   it is the caller's responsibility to destroy the engine. If the \a engine is deleted
-  before the view, status() will return QQuickWidget::Error.
-
-  \sa Status, status(), errors()
+  before the view, \l status() will return \l QQuickWidget::Error.
 */
 QQuickWidget::QQuickWidget(QQmlEngine* engine, QWidget *parent)
     : QWidget(*(new QQuickWidgetPrivate), parent, {})
 {
-    setMouseTracking(true);
-    setFocusPolicy(Qt::StrongFocus);
     d_func()->init(engine);
 }
 
@@ -1023,13 +1023,10 @@ void QQuickWidgetPrivate::initializeWithRhi()
 {
     Q_Q(QQuickWidget);
 
-    QWidgetPrivate *tlwd = QWidgetPrivate::get(q->window());
     // when reparenting, the rhi may suddenly be different
     if (rhi) {
-        QRhi *tlwRhi = nullptr;
-        if (QWidgetRepaintManager *repaintManager = tlwd->maybeRepaintManager())
-            tlwRhi = repaintManager->rhi();
-        if (tlwRhi && rhi != tlwRhi)
+        QRhi *backingStoreRhi = QWidgetPrivate::rhi();
+        if (backingStoreRhi && rhi != backingStoreRhi)
             rhi = nullptr;
     }
 
@@ -1041,18 +1038,16 @@ void QQuickWidgetPrivate::initializeWithRhi()
         if (rhi)
             return;
 
-        if (QWidgetRepaintManager *repaintManager = tlwd->maybeRepaintManager()) {
-            rhi = repaintManager->rhi();
-            if (rhi) {
-                // We don't own the RHI, so make sure we clean up if it goes away
-                rhi->addCleanupCallback(q, [this](QRhi *rhi) {
-                    if (this->rhi == rhi) {
-                        invalidateRenderControl();
-                        deviceLost = true;
-                        this->rhi = nullptr;
-                    }
-                });
-            }
+        if (QRhi *backingStoreRhi = QWidgetPrivate::rhi()) {
+            rhi = backingStoreRhi;
+            // We don't own the RHI, so make sure we clean up if it goes away
+            rhi->addCleanupCallback(q, [this](QRhi *rhi) {
+                if (this->rhi == rhi) {
+                    invalidateRenderControl();
+                    deviceLost = true;
+                    this->rhi = nullptr;
+                }
+            });
         }
 
         if (!rhi) {
@@ -1084,6 +1079,8 @@ void QQuickWidgetPrivate::initializeWithRhi()
 #if QT_CONFIG(vulkan)
             if (QWindow *w = q->window()->windowHandle())
                 offscreenWindow->setVulkanInstance(w->vulkanInstance());
+            else if (rhi == offscreenRenderer.rhi())
+                offscreenWindow->setVulkanInstance(QVulkanDefaultInstance::instance());
 #endif
             renderControl->initialize();
         }
@@ -1106,6 +1103,7 @@ void QQuickWidget::createFramebufferObject()
     // Note: The position will be update when we get a move event (see: updatePosition()).
     const QPoint &globalPos = mapToGlobal(QPoint(0, 0));
     d->offscreenWindow->setGeometry(globalPos.x(), globalPos.y(), width(), height());
+    d->offscreenWindow->contentItem()->setSize(QSizeF(width(), height()));
 
     if (d->useSoftwareRenderer) {
         const QSize imageSize = size() * devicePixelRatio();
@@ -1126,11 +1124,21 @@ void QQuickWidget::createFramebufferObject()
     else
         samples = 0;
 
-    const QSize fboSize = size() * devicePixelRatio();
+    const int minTexSize = d->rhi->resourceLimit(QRhi::TextureSizeMin);
+    const int maxTexSize = d->rhi->resourceLimit(QRhi::TextureSizeMax);
+
+    QSize fboSize = size() * devicePixelRatio();
+    if (fboSize.width() > maxTexSize || fboSize.height() > maxTexSize) {
+        qWarning("QQuickWidget: Requested backing texture size is %dx%d, but the maximum texture size for the 3D API implementation is %dx%d",
+                 fboSize.width(), fboSize.height(),
+                 maxTexSize, maxTexSize);
+    }
+    fboSize.setWidth(qMin(maxTexSize, qMax(minTexSize, fboSize.width())));
+    fboSize.setHeight(qMin(maxTexSize, qMax(minTexSize, fboSize.height())));
 
     // Could be a simple hide - show, in which case the previous texture is just fine.
     if (!d->outputTexture) {
-        d->outputTexture = d->rhi->newTexture(QRhiTexture::RGBA8, fboSize, 1, QRhiTexture::RenderTarget);
+        d->outputTexture = d->rhi->newTexture(QRhiTexture::RGBA8, fboSize, 1, QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource);
         if (!d->outputTexture->create()) {
             qWarning("QQuickWidget: failed to create output texture of size %dx%d",
                      fboSize.width(), fboSize.height());
@@ -1314,12 +1322,6 @@ QPlatformBackingStoreRhiConfig QQuickWidgetPrivate::rhiConfig() const
 
 QWidgetPrivate::TextureData QQuickWidgetPrivate::texture() const
 {
-    Q_Q(const QQuickWidget);
-    if (!q->isWindow() && q->internalWinId()) {
-        qWarning() << "QQuickWidget cannot be used as a native child widget."
-                   << "Consider setting Qt::AA_DontCreateNativeWidgetSiblings";
-        return {};
-    }
     return { outputTexture, nullptr };
 }
 
@@ -1447,15 +1449,28 @@ void QQuickWidget::resizeEvent(QResizeEvent *e)
 bool QQuickWidget::focusNextPrevChild(bool next)
 {
     Q_D(QQuickWidget);
-    QKeyEvent event(QEvent::KeyPress, next ? Qt::Key_Tab : Qt::Key_Backtab, Qt::NoModifier);
-    Q_QUICK_INPUT_PROFILE(QQuickProfiler::Key, QQuickProfiler::InputKeyPress, event.key(),
-                          Qt::NoModifier);
+
+    const auto *da = QQuickWindowPrivate::get(d->offscreenWindow)->deliveryAgentPrivate();
+    Q_ASSERT(da);
+
+    auto *currentTarget = da->focusTargetItem();
+    Q_ASSERT(currentTarget);
+
+    auto *nextTarget = QQuickItemPrivate::nextPrevItemInTabFocusChain(currentTarget, next, false);
+    // If no child to focus, behaves like its base class (QWidget)
+    if (!nextTarget)
+        return QWidget::focusNextPrevChild(next);
+
+    // Otherwise, simulates focus event for the offscreen window (QQuickWindow)
+    const Qt::Key k = next ? Qt::Key_Tab : Qt::Key_Backtab;
+    QKeyEvent event(QEvent::KeyPress, k, Qt::NoModifier);
+    Q_QUICK_INPUT_PROFILE(QQuickProfiler::Key, QQuickProfiler::InputKeyPress, k, Qt::NoModifier);
     QCoreApplication::sendEvent(d->offscreenWindow, &event);
 
-    QKeyEvent releaseEvent(QEvent::KeyRelease, next ? Qt::Key_Tab : Qt::Key_Backtab, Qt::NoModifier);
-    Q_QUICK_INPUT_PROFILE(QQuickProfiler::Key, QQuickProfiler::InputKeyRelease, releaseEvent.key(),
-                          Qt::NoModifier);
+    QKeyEvent releaseEvent(QEvent::KeyRelease, k, Qt::NoModifier);
+    Q_QUICK_INPUT_PROFILE(QQuickProfiler::Key, QQuickProfiler::InputKeyRelease, k, Qt::NoModifier);
     QCoreApplication::sendEvent(d->offscreenWindow, &releaseEvent);
+
     return event.isAccepted();
 }
 
@@ -1612,6 +1627,24 @@ void QQuickWidget::wheelEvent(QWheelEvent *e)
 void QQuickWidget::focusInEvent(QFocusEvent * event)
 {
     Q_D(QQuickWidget);
+
+    using FocusTarget = QWindowPrivate::FocusTarget;
+    const Qt::FocusReason reason = event->reason();
+
+    switch (reason) {
+    // if there has been an item focused:
+    // set the first item focused, when the reason is TabFocusReason
+    // set the last item focused, when the reason is BacktabFocusReason
+    case Qt::TabFocusReason:
+    case Qt::BacktabFocusReason: {
+        const bool forward = reason == Qt::FocusReason::TabFocusReason;
+        const FocusTarget target = forward ? FocusTarget::First : FocusTarget::Last;
+        QQuickWindowPrivate::get(d->offscreenWindow)->setFocusToTarget(target, reason);
+    } break;
+    default:
+        break;
+    }
+
     d->offscreenWindow->focusInEvent(event);
 }
 

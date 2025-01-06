@@ -1,5 +1,5 @@
 // Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include "visualtestutils_p.h"
 
@@ -57,9 +57,7 @@ void QQuickVisualTestUtils::moveMouseAway(QQuickWindow *window)
 
 void QQuickVisualTestUtils::centerOnScreen(QQuickWindow *window)
 {
-    const QRect screenGeometry = window->screen()->availableGeometry();
-    const QPoint offset = QPoint(window->width() / 2, window->height() / 2);
-    window->setFramePosition(screenGeometry.center() - offset);
+    QQuickViewTestUtils::centerOnScreen(window);
 }
 
 QPoint QQuickVisualTestUtils::lerpPoints(const QPoint &point1, const QPoint &point2, qreal t)
@@ -111,7 +109,13 @@ void QQuickVisualTestUtils::PointLerper::move(int x, int y, int steps, int delay
     move(QPoint(x, y), steps, delayInMilliseconds);
 };
 
-bool QQuickVisualTestUtils::delegateVisible(QQuickItem *item)
+/*!
+    \internal
+
+    Returns \c true if \c {item->isVisible()} returns \c true, and
+    the item is not culled.
+*/
+bool QQuickVisualTestUtils::isDelegateVisible(QQuickItem *item)
 {
     return item->isVisible() && !QQuickItemPrivate::get(item)->culled;
 }
@@ -153,8 +157,8 @@ bool QQuickVisualTestUtils::compareImages(const QImage &ia, const QImage &ib, QS
             // No tolerance for error in the alpha.
             if ((a & 0xff000000) != (b & 0xff000000)
                 || qAbs(qRed(a) - qRed(b)) > tolerance
-                || qAbs(qRed(a) - qRed(b)) > tolerance
-                || qAbs(qRed(a) - qRed(b)) > tolerance) {
+                || qAbs(qGreen(a) - qGreen(b)) > tolerance
+                || qAbs(qBlue(a) - qBlue(b)) > tolerance) {
                 QDebug(errorMessage) << "Mismatch at:" << x << y << ':'
                     << Qt::hex << Qt::showbase << a << b;
                 return false;

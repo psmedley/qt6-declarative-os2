@@ -44,7 +44,7 @@ static constexpr bool is_valid(QPalette::ColorGroup cg) noexcept
 
 /*!
     \qmltype Palette
-    \instantiates QQuickPalette
+    \nativetype QQuickPalette
     \inherits QQuickColorGroup
     \inqmlmodule QtQuick
     \ingroup qtquick-visual
@@ -151,6 +151,24 @@ QQuickColorGroup *QQuickPalette::inactive() const
 QQuickColorGroup *QQuickPalette::disabled() const
 {
     return colorGroup(QPalette::Disabled);
+}
+
+void QQuickPalette::resetActive()
+{
+    if (colorProvider().resetColor(QPalette::Active))
+        Q_EMIT changed();
+}
+
+void QQuickPalette::resetInactive()
+{
+    if (colorProvider().resetColor(QPalette::Inactive))
+        Q_EMIT changed();
+}
+
+void QQuickPalette::resetDisabled()
+{
+    if (colorProvider().resetColor(QPalette::Disabled))
+        Q_EMIT changed();
 }
 
 /*!

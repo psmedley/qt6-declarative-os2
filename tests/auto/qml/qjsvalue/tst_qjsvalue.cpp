@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include "tst_qjsvalue.h"
 
@@ -17,11 +17,6 @@
 tst_QJSValue::tst_QJSValue()
     : engine(nullptr)
 {
-}
-
-tst_QJSValue::~tst_QJSValue()
-{
-    delete engine;
 }
 
 void tst_QJSValue::ctor_invalid()
@@ -369,10 +364,11 @@ void tst_QJSValue::toString()
     // variant should use internal valueOf(), then fall back to QVariant::toString(),
     // then fall back to "QVariant(typename)"
     QJSValue variant = eng.toScriptValue(QPoint(10, 20));
+    QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED
     QVERIFY(!variant.isVariant());
+    QT_WARNING_POP
     QCOMPARE(variant.toString(), QString::fromLatin1("QPoint(10, 20)"));
     variant = eng.toScriptValue(QUrl());
-    QVERIFY(!variant.isVariant());
     QVERIFY(variant.isUrl());
     QVERIFY(variant.toString().isEmpty());
 
@@ -1085,12 +1081,7 @@ void tst_QJSValue::toVariant()
         QVariantList listIn;
         listIn << 123 << "hello";
         QJSValue array = eng.toScriptValue(listIn);
-        QVERIFY(array.isArray());
         QCOMPARE(array.property("length").toInt(), 2);
-
-        QVariant retained = array.toVariant(QJSValue::RetainJSObjects);
-        QCOMPARE(retained.metaType(), QMetaType::fromType<QJSValue>());
-        QVERIFY(retained.value<QJSValue>().strictlyEquals(array));
 
         QVariant ret = array.toVariant();
         QCOMPARE(ret.typeId(), QMetaType::QVariantList);
@@ -1100,7 +1091,6 @@ void tst_QJSValue::toVariant()
             QCOMPARE(listOut.at(i), listIn.at(i));
         // round-trip conversion
         QJSValue array2 = eng.toScriptValue(ret);
-        QVERIFY(array2.isArray());
         QCOMPARE(array2.property("length").toInt(), array.property("length").toInt());
         for (int i = 0; i < array.property("length").toInt(); ++i)
             QVERIFY(array2.property(i).strictlyEquals(array.property(i)));
@@ -2364,8 +2354,6 @@ void tst_QJSValue::strictlyEquals()
     {
         QJSValue var1 = eng.toScriptValue(QVariant(QStringList() << "a"));
         QJSValue var2 = eng.toScriptValue(QVariant(QStringList() << "a"));
-        QVERIFY(var1.isArray());
-        QVERIFY(var2.isArray());
         QVERIFY(!var1.strictlyEquals(var2));
     }
     {
@@ -2605,7 +2593,7 @@ void tst_QJSValue::prettyPrinter()
 
 void tst_QJSValue::engineDeleted()
 {
-    QJSEngine *eng = new QJSEngine;
+    std::unique_ptr<QJSEngine> eng = std::make_unique<QJSEngine>();
     QObject *temp = new QObject(); // Owned by JS engine, as newQObject() sets JS ownership explicitly
     QJSValue v1 = eng->toScriptValue(123);
     QVERIFY(v1.isNumber());
@@ -2618,7 +2606,7 @@ void tst_QJSValue::engineDeleted()
     QJSValue v5 = "Hello";
     QVERIFY(v2.isString());
 
-    delete eng;
+    eng.reset();
 
     QVERIFY(!v1.isUndefined()); // Primitive value is stored inline
     QVERIFY(v2.isUndefined());
@@ -2829,6 +2817,7 @@ void tst_QJSValue::deleteFromDifferentThread()
     thread->start();
     condition.wait(&mutex);
     QTRY_VERIFY(thread->isFinished());
+    storage.clearFreePageHint();
     QTRY_COMPARE(storage.firstPage, nullptr);
 #endif
 }

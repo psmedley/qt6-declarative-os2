@@ -36,7 +36,7 @@ void IdentifierTable::addEntry(Heap::StringOrSymbol *str)
     if (str->subtype == Heap::String::StringType_ArrayIndex)
         return;
 
-    str->identifier = PropertyKey::fromStringOrSymbol(str);
+    str->identifier = PropertyKey::fromStringOrSymbol(engine, str);
 
     bool grow = (alloc <= size*2);
 
@@ -165,6 +165,9 @@ PropertyKey IdentifierTable::asPropertyKeyImpl(const Heap::String *str)
     while (Heap::StringOrSymbol *e = entriesByHash[idx]) {
         if (e->stringHash == hash && e->toQString() == str->toQString()) {
             str->identifier = e->identifier;
+            QV4::WriteBarrier::markCustom(engine, [&](QV4::MarkStack *stack) {
+                e->identifier.asStringOrSymbol()->mark(stack);
+            });
             return e->identifier;
         }
         ++idx;
@@ -261,15 +264,6 @@ PropertyKey IdentifierTable::asPropertyKey(const QString &s,
             return PropertyKey::fromArrayIndex(hash);
     }
     return resolveStringEntry(s, hash, subtype)->identifier;
-}
-
-PropertyKey IdentifierTable::asPropertyKey(const char *s, int len)
-{
-    uint subtype;
-    uint hash = String::createHashValue(s, len, &subtype);
-    if (subtype == Heap::String::StringType_ArrayIndex)
-        return PropertyKey::fromArrayIndex(hash);
-    return resolveStringEntry(QString::fromLatin1(s, len), hash, subtype)->identifier;
 }
 
 }

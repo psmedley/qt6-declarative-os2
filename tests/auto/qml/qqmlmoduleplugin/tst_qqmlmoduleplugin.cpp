@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
+
 #include <qtest.h>
 #include <qdir.h>
 #include <QtQml/qqmlengine.h>
@@ -16,7 +17,7 @@
 
 #include <QtQuickShapes/private/qquickshapesglobal_p.h>
 
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_DARWIN)
 // For _PC_CASE_SENSITIVE
 #include <unistd.h>
 #endif
@@ -130,7 +131,9 @@ void registerStaticPlugin(const char *uri)
     PluginType::metaData.append(char(QT_VERSION_MAJOR));
     PluginType::metaData.append(char(QT_VERSION_MINOR));
     PluginType::metaData.append(char(qPluginArchRequirements()));
+#if QT_CONFIG(cborstreamwriter)
     PluginType::metaData.append(QCborValue(QCborMap::fromJsonObject(md)).toCbor());
+#endif
 
     auto rawMetaDataFunctor = []() -> QPluginMetaData {
         return {reinterpret_cast<const uchar *>(PluginType::metaData.constData()), size_t(PluginType::metaData.size())};
@@ -207,13 +210,13 @@ void tst_qqmlmoduleplugin::importsPlugin()
     QTest::ignoreMessage(QtWarningMsg, qPrintable(QString("import%1 worked").arg(suffix)));
     QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestQmlPluginType' does not contain a module identifier directive - it cannot be protected from external registrations.");
     QQmlComponent component(&engine, testFileUrl(qmlFile));
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
-    delete object;
 }
 
 void tst_qqmlmoduleplugin::importsPlugin_data()
@@ -239,20 +242,16 @@ void tst_qqmlmoduleplugin::incorrectPluginCase()
 
     QString expectedError = QLatin1String("module \"org.qtproject.WrongCase\" plugin \"PluGin\" not found");
 
-#if defined(Q_OS_MAC) || defined(Q_OS_WIN32) || defined(Q_OS_OS2)
-    bool caseSensitive = true;
-#if defined(Q_OS_MAC)
-    int res = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE);
-    if (res == -1)
-        QSKIP("Could not establish case sensitivity of file system");
-    caseSensitive = res != 0 && res != -1;
-#ifdef QT_DEBUG
+#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN32) || defined(Q_OS_OS2)
+#if defined(Q_OS_DARWIN)
+    bool caseSensitive = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE) == 1;
+#if QT_CONFIG(debug) && !QT_CONFIG(framework)
     QString libname = "libPluGin_debug.dylib";
 #else
     QString libname = "libPluGin.dylib";
 #endif
 #elif defined(Q_OS_WIN32) || defined(Q_OS_OS2)
-    caseSensitive = false;
+    bool caseSensitive = false;
     QString libname = "PluGin.dll";
 #endif
     if (!caseSensitive) {
@@ -282,12 +281,12 @@ void tst_qqmlmoduleplugin::importPluginWithQmlFile()
     QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestPluginWithQmlFile' does not contain a module identifier directive - it cannot be protected from external registrations.");
 
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("pluginWithQmlFile.qml")));
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
-    delete object;
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
 }
 
 void tst_qqmlmoduleplugin::remoteImportWithQuotedUrl()
@@ -300,12 +299,12 @@ void tst_qqmlmoduleplugin::remoteImportWithQuotedUrl()
     component.setData(qml.toUtf8(), QUrl());
 
     QTRY_COMPARE(component.status(), QQmlComponent::Ready);
-    QObject *object = component.create();
+    std::unique_ptr<QObject> object { component.create() };
     QCOMPARE(object->property("width").toInt(), 300);
-    QVERIFY(object != nullptr);
-    delete object;
+    QVERIFY(object.get() != nullptr);
 
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
 }
@@ -323,12 +322,12 @@ void tst_qqmlmoduleplugin::remoteImportWithUnquotedUri()
 
 
     QTRY_COMPARE(component.status(), QQmlComponent::Ready);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(object->property("width").toInt(), 300);
-    delete object;
 
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
 }
@@ -368,20 +367,18 @@ void tst_qqmlmoduleplugin::importsMixedQmlCppPlugin()
     {
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("importsMixedQmlCppPlugin.qml")));
 
-    QObject *o = component.create();
-    QVERIFY2(o != nullptr, msgComponentError(component, &engine));
+    std::unique_ptr<QObject> o { component.create() };
+    QVERIFY2(o.get() != nullptr, msgComponentError(component, &engine));
     QCOMPARE(o->property("test").toBool(), true);
-    delete o;
     }
 
     {
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("importsMixedQmlCppPlugin.2.qml")));
 
-    QObject *o = component.create();
-    QVERIFY2(o != nullptr, msgComponentError(component, &engine));
+    std::unique_ptr<QObject> o { component.create() };
+    QVERIFY2(o.get() != nullptr, msgComponentError(component, &engine));
     QCOMPARE(o->property("test").toBool(), true);
     QCOMPARE(o->property("test2").toBool(), true);
-    delete o;
     }
 
 
@@ -444,9 +441,8 @@ void tst_qqmlmoduleplugin::implicitQmldir()
     QList<QQmlError> errors = component.errors();
     VERIFY_ERRORS(errorFileName.toLatin1().constData());
     QTest::ignoreMessage(QtWarningMsg, "QQmlComponent: Component is not ready");
-    QObject *obj = component.create();
-    QVERIFY(!obj);
-    delete obj;
+    std::unique_ptr<QObject> obj { component.create() };
+    QVERIFY(!obj.get());
 }
 
 void tst_qqmlmoduleplugin::importsNested_data()
@@ -481,17 +477,17 @@ void tst_qqmlmoduleplugin::importsNested()
         QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestQmlNestedPluginType' does not contain a module identifier directive - it cannot be protected from external registrations.");
 
     QQmlComponent component(&engine, testFile(file));
-    QObject *obj = component.create();
+    std::unique_ptr<QObject> obj { component.create() };
 
     if (errorFile.isEmpty()) {
         if (qgetenv("DEBUG") != "" && !component.errors().isEmpty())
             qWarning() << "Unexpected Errors:" << component.errors();
-        QVERIFY(obj);
-        delete obj;
+        QVERIFY(obj.get());
+        obj.reset();
     } else {
         QList<QQmlError> errors = component.errors();
         VERIFY_ERRORS(errorFile.toLatin1().constData());
-        QVERIFY(!obj);
+        QVERIFY(!obj.get());
     }
 }
 
@@ -684,13 +680,13 @@ void tst_qqmlmoduleplugin::importsChildPlugin()
     QTest::ignoreMessage(QtWarningMsg, "child import worked");
     QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestQmlPluginType.ChildPlugin' does not contain a module identifier directive - it cannot be protected from external registrations.");
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("child.qml")));
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
-    delete object;
 }
 
 void tst_qqmlmoduleplugin::importsChildPlugin2()
@@ -701,13 +697,13 @@ void tst_qqmlmoduleplugin::importsChildPlugin2()
     QTest::ignoreMessage(QtWarningMsg, "child import2 worked");
     QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestQmlPluginType.ChildPlugin' does not contain a module identifier directive - it cannot be protected from external registrations.");
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("child2.qml")));
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
-    delete object;
 }
 
 void tst_qqmlmoduleplugin::importsChildPlugin21()
@@ -718,13 +714,13 @@ void tst_qqmlmoduleplugin::importsChildPlugin21()
     QTest::ignoreMessage(QtWarningMsg, "child import2.1 worked");
     QTest::ignoreMessage(QtWarningMsg, "Module 'org.qtproject.AutoTestQmlPluginType.ChildPlugin' does not contain a module identifier directive - it cannot be protected from external registrations.");
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("child21.qml")));
-    foreach (QQmlError err, component.errors())
+    const auto errors = component.errors();
+    for (const QQmlError &err : errors)
         qWarning() << err;
     VERIFY_ERRORS(0);
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
-    delete object;
 }
 
 void tst_qqmlmoduleplugin::parallelPluginImport()
@@ -780,10 +776,9 @@ void tst_qqmlmoduleplugin::multiSingleton()
     engine.addImportPath(m_importsDirectory);
     QQmlComponent component(&engine, testFileUrl("multiSingleton.qml"));
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
-    QObject *object = component.create();
-    QVERIFY(object != nullptr);
+    std::unique_ptr<QObject> object { component.create() };
+    QVERIFY(object.get() != nullptr);
     QCOMPARE(obj.objectName(), QLatin1String("first"));
-    delete object;
 }
 
 void tst_qqmlmoduleplugin::optionalPlugin()

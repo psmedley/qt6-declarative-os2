@@ -25,6 +25,8 @@
 #include <QtQuick/private/qquicktransitionmanager_p_p.h>
 #include <QtQuick/private/qquickitem_p.h>
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 class QQuickTransition;
@@ -32,10 +34,11 @@ class QQuickTransitionManager;
 class QQuickPopup;
 class QQuickPopupAnchors;
 class QQuickPopupItem;
+class QQuickPopupWindow;
 class QQuickPopupPrivate;
 class QQuickPopupPositioner;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickPopupTransitionManager : public QQuickTransitionManager
+class Q_QUICKTEMPLATES2_EXPORT QQuickPopupTransitionManager : public QQuickTransitionManager
 {
 public:
     QQuickPopupTransitionManager(QQuickPopupPrivate *popup);
@@ -50,7 +53,7 @@ private:
     QQuickPopupPrivate *popup = nullptr;
 };
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickPopupPrivate
+class Q_QUICKTEMPLATES2_EXPORT QQuickPopupPrivate
     : public QObjectPrivate
     , public QQuickItemChangeListener
     , public QQuickPaletteProviderPrivateBase<QQuickPopup, QQuickPopupPrivate>
@@ -82,6 +85,7 @@ public:
     virtual bool handlePress(QQuickItem* item, const QPointF &point, ulong timestamp);
     virtual bool handleMove(QQuickItem* item, const QPointF &point, ulong timestamp);
     virtual bool handleRelease(QQuickItem* item, const QPointF &point, ulong timestamp);
+    virtual bool handleReleaseWithoutGrab(const QEventPoint &) { return false; }
     virtual void handleUngrab();
 
     bool handleMouseEvent(QQuickItem *item, QMouseEvent *event);
@@ -90,12 +94,21 @@ public:
     bool handleTouchEvent(QQuickItem *item, QTouchEvent *event);
 #endif
 
+    QMarginsF windowInsets() const;
+    QPointF windowInsetsTopLeft() const;
+    void setEffectivePosFromWindowPos(const QPointF &windowPos);
     void reposition();
 
+    bool usePopupWindow() const;
+    void adjustPopupItemParentAndWindow();
     void createOverlay();
+    QQuickItem *createDimmer(QQmlComponent *component, QQuickPopup *popup, QQuickItem *parent) const;
     void destroyDimmer();
     void toggleOverlay();
     void updateContentPalettes(const QPalette& parentPalette);
+
+    virtual QQuickPopup::PopupType resolvedPopupType() const;
+
     virtual void showDimmer();
     virtual void hideDimmer();
     virtual void resizeDimmer();
@@ -106,6 +119,8 @@ public:
     virtual void finalizeExitTransition();
 
     virtual void opened();
+
+    virtual Qt::WindowFlags popupWindowType() const;
 
     QMarginsF getMargins() const;
 
@@ -154,11 +169,12 @@ public:
     bool outsidePressed = false;
     bool outsideParentPressed = false;
     bool inDestructor = false;
+    bool relaxEdgeConstraint = false;
+    bool popupWindowDirty = false;
     int touchId = -1;
     qreal x = 0;
     qreal y = 0;
-    qreal effectiveX = 0;
-    qreal effectiveY = 0;
+    QPointF effectivePos;
     qreal margins = -1;
     qreal topMargin = 0;
     qreal leftMargin = 0;
@@ -173,6 +189,7 @@ public:
     QQuickTransition *enter = nullptr;
     QQuickTransition *exit = nullptr;
     QQuickPopupItem *popupItem = nullptr;
+    QQuickPopupWindow *popupWindow = nullptr;
     QQuickPopupPositioner *positioner = nullptr;
     QList<QQuickStateAction> enterActions;
     QList<QQuickStateAction> exitActions;
@@ -181,6 +198,8 @@ public:
     qreal explicitDimmerOpacity = 0;
     qreal prevOpacity = 0;
     qreal prevScale = 0;
+    QString m_title;
+    QQuickPopup::PopupType m_popupType = QQuickPopup::Item;
 
     friend class QQuickPopupTransitionManager;
 };

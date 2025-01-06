@@ -18,28 +18,26 @@
 #include "qquickimplicitsizeitem_p_p.h"
 #include "qquickimagebase_p.h"
 
-#include <QtQuick/private/qquickpixmapcache_p.h>
+#include <QtQuick/private/qquickpixmap_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QNetworkReply;
-class Q_QUICK_PRIVATE_EXPORT QQuickImageBasePrivate : public QQuickImplicitSizeItemPrivate
+class Q_QUICK_EXPORT QQuickImageBasePrivate : public QQuickImplicitSizeItemPrivate
 {
     Q_DECLARE_PUBLIC(QQuickImageBase)
 
 public:
     QQuickImageBasePrivate()
-      : status(QQuickImageBase::Null),
-        progress(0.0),
-        devicePixelRatio(1.0),
-        currentFrame(0),
-        frameCount(0),
-        async(false),
+      : async(false),
         cache(true),
         mirrorHorizontally(false),
         mirrorVertically(false),
-        oldAutoTransform(false)
+        oldAutoTransform(false),
+        retainWhileLoading(false)
     {
+        pendingPix = &pix1;
+        currentPix = &pix1;
     }
 
     virtual bool updateDevicePixelRatio(qreal targetDevicePixelRatio);
@@ -47,23 +45,29 @@ public:
     void setStatus(QQuickImageBase::Status value);
     void setProgress(qreal value);
 
-    QQuickPixmap pix;
-    QQuickImageBase::Status status;
     QUrl url;
-    qreal progress;
+    QQuickPixmap *pendingPix = nullptr;
+    QQuickPixmap *currentPix = nullptr;
+    QQuickPixmap pix1;
+    QQuickPixmap pix2;
     QSize sourcesize;
     QSize oldSourceSize;
-    qreal devicePixelRatio;
     QRectF sourceClipRect;
     QQuickImageProviderOptions providerOptions;
     QColorSpace colorSpace;
-    int currentFrame;
-    int frameCount;
+
+    int currentFrame = 0;
+    int frameCount = 0;
+    qreal progress = 0;
+    qreal devicePixelRatio = 1;
+    QQuickImageBase::Status status = QQuickImageBase::Null;
+
     bool async : 1;
     bool cache : 1;
     bool mirrorHorizontally: 1;
     bool mirrorVertically : 1;
     bool oldAutoTransform : 1;
+    bool retainWhileLoading : 1;
 };
 
 QT_END_NAMESPACE

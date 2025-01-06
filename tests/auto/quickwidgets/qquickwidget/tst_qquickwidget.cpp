@@ -1,5 +1,5 @@
 // Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <qtest.h>
 #include <qtesttouch.h>
@@ -14,6 +14,7 @@
 #include <QtQuick/private/qquicktaphandler_p.h>
 #include <QtQuickTemplates2/private/qquickbutton_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
 #include <QtGui/QImage>
@@ -133,6 +134,8 @@ private slots:
     void touchTapHandler();
     void touchMultipleWidgets();
     void tabKey();
+    void focusChain_data();
+    void focusChain();
     void resizeOverlay();
     void controls();
     void focusOnClick();
@@ -142,6 +145,7 @@ private slots:
     void focusPreserved();
     void accessibilityHandlesViewChange();
     void cleanupRhi();
+    void dontRecreateRootElementOnWindowChange();
 
 private:
     QPointingDevice *device = QTest::createTouchDevice();
@@ -220,6 +224,7 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(view->size(), QSize(200, 200));
     QCOMPARE(view->size(), view->sizeHint());
     QCOMPARE(view->size(), view->initialSize());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     // size update from view
     view->resize(QSize(80,100));
@@ -228,6 +233,8 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(item->height(), 100.0);
     QCOMPARE(view->size(), QSize(80, 100));
     QCOMPARE(view->size(), view->sizeHint());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
+
 
     view->setResizeMode(QQuickWidget::SizeViewToRootObject);
 
@@ -236,6 +243,8 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(item->width(), 80.0);
     QCOMPARE(item->height(), 100.0);
     QTRY_COMPARE(view->size(), QSize(60, 80));
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
+
 
     // size update from root object
     item->setWidth(250);
@@ -245,6 +254,7 @@ void tst_qquickwidget::resizemodeitem()
     QTRY_COMPARE(view->size(), QSize(250, 350));
     QCOMPARE(view->size(), QSize(250, 350));
     QCOMPARE(view->size(), view->sizeHint());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     // reset window
     window.hide();
@@ -262,6 +272,7 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(item->height(), 200.0);
     QCOMPARE(view->size(), view->sizeHint());
     QCOMPARE(view->size(), view->initialSize());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     // size update from root object
     item->setWidth(80);
@@ -270,6 +281,7 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(item->height(), 100.0);
     QTRY_COMPARE(view->size(), QSize(80, 100));
     QCOMPARE(view->size(), view->sizeHint());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     // size update from root object disabled
     view->setResizeMode(QQuickWidget::SizeRootObjectToView);
@@ -278,6 +290,7 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(view->width(), 80);
     QCOMPARE(view->height(), 100);
     QCOMPARE(QSize(item->width(), item->height()), view->sizeHint());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     // size update from view
     view->resize(QSize(200,300));
@@ -285,6 +298,7 @@ void tst_qquickwidget::resizemodeitem()
     QCOMPARE(item->height(), 300.0);
     QCOMPARE(view->size(), QSize(200, 300));
     QCOMPARE(view->size(), view->sizeHint());
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
 
     window.hide();
 
@@ -308,6 +322,8 @@ void tst_qquickwidget::resizemodeitem()
     QTRY_COMPARE(view->size(), QSize(300, 300));
     QCOMPARE(view->size(), view->sizeHint());
     QCOMPARE(view->initialSize(), QSize(200, 200)); // initial object size
+    QCOMPARE(view->quickWindow()->contentItem()->size(), view->size());
+
 }
 
 void tst_qquickwidget::layoutSizeChange()
@@ -779,9 +795,9 @@ void tst_qquickwidget::tabKey()
     qqw2->setSource(testFileUrl("noActiveFocusOnTab.qml"));
     qqw2->move(100, 0);
     window1.show();
-    qqw->setFocus();
     QVERIFY(QTest::qWaitForWindowExposed(&window1, 5000));
-    QVERIFY(qqw->hasFocus());
+    qqw->setFocus();
+    QTRY_VERIFY(qqw->hasFocus());
     QQuickItem *item = qobject_cast<QQuickItem *>(qqw->rootObject());
     QQuickItem *topItem = item->findChild<QQuickItem *>("topRect");
     QQuickItem *middleItem = item->findChild<QQuickItem *>("middleRect");
@@ -802,7 +818,98 @@ void tst_qquickwidget::tabKey()
     QVERIFY(topItem2->property("activeFocus").toBool());
     QTest::keyClick(qqw2, Qt::Key_Tab);
     QTRY_VERIFY(qqw->hasFocus());
-    QVERIFY(middleItem->property("activeFocus").toBool());
+    // Focus-in by tab/backtab events makes the first/last focusable item to be focused
+    QVERIFY(topItem->property("activeFocus").toBool());
+}
+
+void tst_qquickwidget::focusChain_data()
+{
+    if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
+        QSKIP("This function doesn't support NOT iterating all.");
+
+    QTest::addColumn<bool>("forward");
+
+    QTest::addRow("Forward") << true;
+    QTest::addRow("Backward") << false;
+}
+
+void tst_qquickwidget::focusChain()
+{
+    QFETCH(bool, forward);
+
+    QWidget window;
+    window.resize(300, 300);
+    QHBoxLayout layout(&window);
+    QQuickWidget qqw1;
+    qqw1.setObjectName("qqw1");
+    qqw1.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    qqw1.setSource(testFileUrl("activeFocusOnTab.qml"));
+    QWidget middleWidget;
+    middleWidget.setObjectName("middleWidget");
+    middleWidget.setFocusPolicy(Qt::FocusPolicy::TabFocus);
+    QQuickWidget qqw2;
+    qqw2.setObjectName("qqw2");
+    qqw1.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    qqw2.setSource(testFileUrl("activeFocusOnTab.qml"));
+    layout.addWidget(&qqw1);
+    layout.addWidget(&middleWidget);
+    layout.addWidget(&qqw2);
+    window.show();
+    window.windowHandle()->requestActivate();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QQuickItem *root1 = qqw1.rootObject();
+    QVERIFY(root1);
+    QQuickItem *topItem1 = root1->findChild<QQuickItem *>("topRect");
+    topItem1->setObjectName("topRect1");
+    QVERIFY(topItem1);
+    QQuickItem *middleItem1 = root1->findChild<QQuickItem *>("middleRect");
+    middleItem1->setObjectName("middleRect1");
+    QVERIFY(middleItem1);
+    QQuickItem *bottomItem1 = root1->findChild<QQuickItem *>("bottomRect");
+    bottomItem1->setObjectName("bottomRect1");
+    QVERIFY(bottomItem1);
+
+    QQuickItem *root2 = qqw2.rootObject();
+    QVERIFY(root2);
+    QQuickItem *topItem2 = root2->findChild<QQuickItem *>("topRect");
+    topItem2->setObjectName("topRect2");
+    QVERIFY(topItem2);
+    QQuickItem *middleItem2 = root2->findChild<QQuickItem *>("middleRect");
+    middleItem2->setObjectName("middleRect2");
+    QVERIFY(middleItem2);
+    QQuickItem *bottomItem2 = root2->findChild<QQuickItem *>("bottomRect");
+    bottomItem2->setObjectName("bottomRect2");
+    QVERIFY(bottomItem2);
+
+    qqw1.setFocus();
+    QTRY_VERIFY(qqw1.hasFocus());
+
+    auto hasActiveFocus = [](const QObject *targetObject) -> bool
+    {
+        if (const QQuickItem *targetItem = qobject_cast<const QQuickItem *>(targetObject))
+            return targetItem->hasActiveFocus();
+        else if (const QWidget *targetWidget = qobject_cast<const QWidget *>(targetObject))
+            return targetWidget->hasFocus();
+        return false;
+    };
+
+    QList<QObject *> expectedFocusChain;
+    if (forward) {
+        expectedFocusChain << topItem1 << middleItem1 << bottomItem1 << &middleWidget << topItem2
+                           << middleItem2 << bottomItem2 << topItem1;
+    } else {
+        expectedFocusChain << topItem1 << bottomItem2 << middleItem2 << topItem2 << &middleWidget
+                           << bottomItem1 << middleItem1 << topItem1;
+    }
+
+    const Qt::Key tabKey = forward ? Qt::Key_Tab : Qt::Key_Backtab;
+
+    for (QObject *expectedFocusTarget : expectedFocusChain) {
+        const QByteArray objectName = expectedFocusTarget->objectName().toLatin1();
+        QTRY_VERIFY2(hasActiveFocus(expectedFocusTarget), "expectedFocusTarget: " + objectName);
+        QTest::keyClick(QGuiApplication::focusWindow(), tabKey);
+    }
 }
 
 class Overlay : public QQuickItem, public QQuickItemChangeListener
@@ -991,8 +1098,7 @@ void tst_qquickwidget::focusOnClickInProxyWidget()
 
 void tst_qquickwidget::focusPreserved()
 {
-    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
-        QSKIP("Window Activation is not supported.");
+    SKIP_IF_NO_WINDOW_ACTIVATION
     if (QGuiApplication::platformName() == "android")
         QSKIP("Test doesn't exit cleanly on Android and generates many warnings - QTBUG-112696");
 
@@ -1007,6 +1113,16 @@ void tst_qquickwidget::focusPreserved()
     root->setFlag(QQuickItem::ItemHasContents);
     content->setParentItem(root);
 
+    // added content2 and content3 to test more complicated case
+    QScopedPointer<QQuickItem> content2(new QQuickItem());
+    content2->setActiveFocusOnTab(true);
+    content2->setFocus(true);
+    content2->setParentItem(root);
+    QScopedPointer<QQuickItem> content3(new QQuickItem());
+    content3->setActiveFocusOnTab(true);
+    content3->setFocus(true);
+    content3->setParentItem(root);
+
     quick->setGeometry(0, 0, 200, 200);
     quick->show();
     quick->setFocus();
@@ -1015,6 +1131,10 @@ void tst_qquickwidget::focusPreserved()
     QTRY_VERIFY(quick->hasFocus());
     QTRY_VERIFY(content->hasFocus());
     QTRY_VERIFY(content->hasActiveFocus());
+
+    content2->forceActiveFocus();
+    QVERIFY(content2->hasFocus());
+    QVERIFY(content2->hasActiveFocus());
 
     widget->show();
     widget->setFocus();
@@ -1028,8 +1148,8 @@ void tst_qquickwidget::focusPreserved()
     quick->setFocus();
     quick->activateWindow();
     QTRY_VERIFY(quick->hasFocus());
-    QTRY_VERIFY(content->hasFocus());
-    QTRY_VERIFY(content->hasActiveFocus());
+    QTRY_VERIFY(content2->hasFocus());
+    QTRY_VERIFY(content2->hasActiveFocus());
 }
 
 /*
@@ -1083,9 +1203,6 @@ public:
 
 void tst_qquickwidget::cleanupRhi()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("This test crashes on Android (QTBUG-121133)");
-#endif
     CreateDestroyWidget topLevel;
     QQuickWidget quickWidget(&topLevel);
     quickWidget.setSource(testFileUrl("rectangle.qml"));
@@ -1094,6 +1211,21 @@ void tst_qquickwidget::cleanupRhi()
 
     topLevel.destroy();
     topLevel.create();
+}
+
+void tst_qquickwidget::dontRecreateRootElementOnWindowChange()
+{
+    auto *quickWidget = new QQuickWidget();
+    quickWidget->setSource(testFileUrl("rectangle.qml"));
+    QObject *item = quickWidget->rootObject();
+
+    bool wasDestroyed = false;
+    QObject::connect(item, &QObject::destroyed, this, [&] { wasDestroyed = true; });
+
+    QEvent event(QEvent::WindowChangeInternal);
+    QCoreApplication::sendEvent(quickWidget, &event);
+
+    QVERIFY(!wasDestroyed);
 }
 
 QTEST_MAIN(tst_qquickwidget)

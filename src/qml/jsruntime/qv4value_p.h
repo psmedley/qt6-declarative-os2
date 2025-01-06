@@ -34,7 +34,7 @@ namespace Heap {
     struct Base;
 }
 
-struct Q_QML_PRIVATE_EXPORT Value : public StaticValue
+struct Q_QML_EXPORT Value : public StaticValue
 {
     using ManagedPtr = Managed *;
 
@@ -309,7 +309,10 @@ inline bool Value::isObject() const
 inline bool Value::isFunctionObject() const
 {
     HeapBasePtr b = heapObject();
-    return b && b->internalClass->vtable->isFunctionObject;
+    if (!b)
+        return false;
+    const VTable *vtable = b->internalClass->vtable;
+    return vtable->call || vtable->callAsConstructor;
 }
 
 inline bool Value::isPrimitive() const
@@ -440,19 +443,6 @@ struct ValueArray {
     }
     inline const Value *data() const {
         return values;
-    }
-
-    void insertData(EngineBase *e, uint index, Value v) {
-        for (uint i = size - 1; i > index; --i) {
-            values[i] = values[i - 1];
-        }
-        set(e, index, v);
-    }
-    void removeData(EngineBase *e, uint index, int n = 1) {
-        Q_UNUSED(e);
-        for (uint i = index; i < size - n; ++i) {
-            values[i] = values[i + n];
-        }
     }
 
     void mark(MarkStack *markStack) {

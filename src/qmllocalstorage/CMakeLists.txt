@@ -15,7 +15,5 @@ qt_internal_add_qml_module(QmlLocalStorage
         Qt::CorePrivate
         Qt::QmlPrivate
         Qt::Sql
-    GENERATE_CPP_EXPORTS
-    GENERATE_PRIVATE_CPP_EXPORTS
     OS2_SHORT_NAME QmlLocal
-)
+    )

@@ -199,7 +199,6 @@ bool FormatPartialStatus::tryStatement()
     case QQmlJSGrammar::T_REQUIRED:
     case QQmlJSGrammar::T_READONLY:
     case QQmlJSGrammar::T_FUNCTION:
-    case QQmlJSGrammar::T_FUNCTION_STAR:
     case QQmlJSGrammar::T_NUMERIC_LITERAL:
     case QQmlJSGrammar::T_LPAREN:
         enterState(StateType::Expression);
@@ -224,9 +223,8 @@ void FormatPartialStatus::dump() const
 {
     qCDebug(formatterLog) << "Current token index" << tokenIndex;
     qCDebug(formatterLog) << "Current state:";
-    foreach (const State &s, currentStatus.states) {
+    for (const State &s : currentStatus.states)
         qCDebug(formatterLog) << FormatTextStatus::stateToString(s.type) << s.savedIndentDepth;
-    }
     qCDebug(formatterLog) << "Current lexerState:" << currentStatus.lexerState.state;
     qCDebug(formatterLog) << "Current indent:" << currentIndent;
 }
@@ -434,7 +432,6 @@ void FormatPartialStatus::handleTokens()
                 enter(StateType::ComponentStart);
                 break;
             case QQmlJSGrammar::T_FUNCTION:
-            case QQmlJSGrammar::T_FUNCTION_STAR:
                 enter(StateType::FunctionStart);
                 break;
             case QQmlJSGrammar::T_SIGNAL:

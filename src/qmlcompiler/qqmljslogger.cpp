@@ -1,23 +1,24 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include <qglobal.h>
-
+#include <QtCore/qcompilerdetection.h>
 // GCC 11 thinks diagMsg.fixSuggestion.fixes.d.ptr is somehow uninitialized in
 // QList::emplaceBack(), probably called from QQmlJsLogger::log()
 // Ditto for GCC 12, but it emits a different warning
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_GCC("-Wuninitialized")
 QT_WARNING_DISABLE_GCC("-Wmaybe-uninitialized")
-#include <qlist.h>
+#include <QtCore/qlist.h>
 QT_WARNING_POP
 
-#include "qqmljslogger_p.h"
-#include "qqmljsloggingutils.h"
-#include "qqmlsa_p.h"
+#include <private/qqmljslogger_p.h>
+#include <private/qqmlsa_p.h>
 
+#include <QtQmlCompiler/qqmljsloggingutils.h>
+
+#include <QtCore/qglobal.h>
 #include <QtCore/qfile.h>
-#include <QtCore/qfileinfo.h>
+
 
 QT_BEGIN_NAMESPACE
 
@@ -248,9 +249,9 @@ void QQmlJSLogger::log(const QString &message, QQmlJS::LoggerWarningId id,
 
     QString prefix;
 
-    if ((!overrideFileName.isEmpty() || !m_fileName.isEmpty()) && showFileName)
+    if ((!overrideFileName.isEmpty() || !m_filePath.isEmpty()) && showFileName)
         prefix =
-                (!overrideFileName.isEmpty() ? overrideFileName : m_fileName) + QStringLiteral(":");
+                (!overrideFileName.isEmpty() ? overrideFileName : m_filePath) + QStringLiteral(":");
 
     if (srcLocation.isValid())
         prefix += QStringLiteral("%1:%2:").arg(srcLocation.startLine).arg(srcLocation.startColumn);
@@ -308,7 +309,7 @@ void QQmlJSLogger::printContext(const QString &overrideFileName,
 {
     QString code = m_code;
 
-    if (!overrideFileName.isEmpty() && overrideFileName != QFileInfo(m_fileName).absolutePath()) {
+    if (!overrideFileName.isEmpty() && overrideFileName != m_filePath) {
         QFile file(overrideFileName);
         const bool success = file.open(QFile::ReadOnly);
         Q_ASSERT(success);
@@ -339,7 +340,7 @@ void QQmlJSLogger::printContext(const QString &overrideFileName,
 
 void QQmlJSLogger::printFix(const QQmlJSFixSuggestion &fixItem)
 {
-    const QString currentFileAbsPath = QFileInfo(m_fileName).absolutePath();
+    const QString currentFileAbsPath = m_filePath;
     QString code = m_code;
     QString currentFile;
     m_output.writePrefixedMessage(fixItem.fixDescription(), QtInfoMsg);

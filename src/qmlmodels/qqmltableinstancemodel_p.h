@@ -18,6 +18,8 @@
 #include <QtQmlModels/private/qqmldelegatemodel_p.h>
 #include <QtQmlModels/private/qqmldelegatemodel_p_p.h>
 
+#include <QtCore/qpointer.h>
+
 QT_REQUIRE_CONFIG(qml_table_model);
 
 QT_BEGIN_NAMESPACE
@@ -45,7 +47,7 @@ public:
     QQmlTableInstanceModel *tableInstanceModel = nullptr;
 };
 
-class Q_QMLMODELS_PRIVATE_EXPORT QQmlTableInstanceModel : public QQmlInstanceModel
+class Q_QMLMODELS_EXPORT QQmlTableInstanceModel : public QQmlInstanceModel
 {
     Q_OBJECT
 

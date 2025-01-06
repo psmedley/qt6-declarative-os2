@@ -7,6 +7,12 @@
 ## tst_qqmllanguage Test:
 #####################################################################
 
+if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
+    cmake_minimum_required(VERSION 3.16)
+    project(tst_qqmllanguage LANGUAGES CXX)
+    find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
+endif()
+
 # Collect test data
 file(GLOB_RECURSE test_data_glob
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -27,13 +33,7 @@ qt_internal_add_test(tst_qqmllanguage
     TESTDATA ${test_data}
 )
 
-#### Keys ignored in scope 1:.:.:qqmllanguage.pro:<TRUE>:
-# OTHER_FILES = "data/readonlyObjectProperty.qml"
-# QML_IMPORT_NAME = "StaticTest"
-# QML_IMPORT_VERSION = "1.0"
-
-## Scopes:
-#####################################################################
+add_subdirectory(testhelper)
 
 if(ANDROID)
     # Resources:
@@ -62,9 +62,14 @@ qt_internal_extend_target(tst_qqmllanguage CONDITION NOT ANDROID AND NOT IOS
         QT_QMLTEST_DATADIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
 )
 
-set_target_properties(tst_qqmllanguage PROPERTIES
-    QT_QML_MODULE_VERSION 1.0
-    QT_QML_MODULE_URI StaticTest
+qt6_add_qml_module(tst_qqmllanguage
+    URI StaticTest
+    VERSION 1.0
+    QML_FILES
+        data/InnerObject.qml
+        data/ObjectWithProperty.qml
+        data/outerObject.qml
+        data/testlib.js
+    RESOURCE_PREFIX "/"
+    NO_GENERATE_EXTRA_QMLDIRS
 )
-
-_qt_internal_qml_type_registration(tst_qqmllanguage)

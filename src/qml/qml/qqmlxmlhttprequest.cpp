@@ -19,6 +19,8 @@
 #include <QtQml/qjsengine.h>
 #include <QtQml/qqmlfile.h>
 #include <QtNetwork/qnetworkreply.h>
+
+#include <QtCore/qpointer.h>
 #include <QtCore/qstringconverter.h>
 #include <QtCore/qxmlstream.h>
 #include <QtCore/qstack.h>
@@ -116,7 +118,7 @@ public:
     QList<NodeImpl *> attributes;
 };
 
-class DocumentImpl : public QQmlRefCounted<DocumentImpl>, public NodeImpl
+class DocumentImpl final : public QQmlRefCounted<DocumentImpl>, public NodeImpl
 {
     using Base1 = QQmlRefCounted<DocumentImpl>;
 public:
@@ -1706,7 +1708,7 @@ DEFINE_OBJECT_VTABLE(QQmlXMLHttpRequestWrapper);
 
 void Heap::QQmlXMLHttpRequestCtor::init(ExecutionEngine *engine)
 {
-    Heap::FunctionObject::init(engine->rootContext(), QStringLiteral("XMLHttpRequest"));
+    Heap::FunctionObject::init(engine, QStringLiteral("XMLHttpRequest"));
     Scope scope(engine);
     Scoped<QV4::QQmlXMLHttpRequestCtor> ctor(scope, this);
 

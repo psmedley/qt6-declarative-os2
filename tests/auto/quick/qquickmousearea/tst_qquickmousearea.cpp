@@ -1,5 +1,5 @@
 // Copyright (C) 2020 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
@@ -143,6 +143,7 @@ private slots:
     void mask();
     void nestedEventDelivery();
     void settingHiddenInPressUngrabs();
+    void pressAfterHiding();
     void negativeZStackingOrder();
     void containsMouseAndVisibility();
     void containsMouseAndVisibilityMasked();
@@ -939,6 +940,9 @@ void tst_QQuickMouseArea::doubleClick()
     QCOMPARE(window.rootObject()->property("clicked").toInt(), 1);
     QCOMPARE(window.rootObject()->property("doubleClicked").toInt(), 1);
     QCOMPARE(window.rootObject()->property("released").toInt(), 2);
+
+    // wait long enough to avoid affecting the next test function
+    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval());
 }
 
 void tst_QQuickMouseArea::doubleTap() // QTBUG-112434
@@ -970,6 +974,9 @@ void tst_QQuickMouseArea::doubleTap() // QTBUG-112434
     QCOMPARE(mouseArea->isPressed(), false);
     QCOMPARE(window.rootObject()->property("clicked").toInt(), 1);
 
+    // avoid getting a double-click event next
+    QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval());
+
     // now tap with two fingers simultaneously: only one of them generates synth-mouse
     QPoint p2 = p1 + QPoint(50, 5);
     QTest::touchEvent(&window, device).press(2, p1).press(3, p2);
@@ -991,8 +998,8 @@ void tst_QQuickMouseArea::doubleTap() // QTBUG-112434
     QTest::touchEvent(&window, device).release(4, p1).release(5, p2);
     QQuickTouchUtils::flush(&window);
     QCOMPARE(window.rootObject()->property("released").toInt(), 4);
-    QCOMPARE(window.rootObject()->property("clicked").toInt(), 2);
-    QCOMPARE(window.rootObject()->property("doubleClicked").toInt(), 2);
+    QCOMPARE(window.rootObject()->property("clicked").toInt(), 3);
+    QCOMPARE(window.rootObject()->property("doubleClicked").toInt(), 1);
     QCOMPARE(mouseArea->isPressed(), false); // make sure it doesn't get stuck
 }
 
@@ -2443,7 +2450,7 @@ void tst_QQuickMouseArea::nestedEventDelivery() // QTBUG-70898
     QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, QPoint(50,150));
 }
 
-void tst_QQuickMouseArea::settingHiddenInPressUngrabs()
+void tst_QQuickMouseArea::settingHiddenInPressUngrabs() // QTBUG-74987
 {
     // When an item sets itself hidden, while handling pressed, it doesn't receive the grab.
     // But that in turn means it doesn't see any release events, so we need to make sure it
@@ -2478,6 +2485,22 @@ void tst_QQuickMouseArea::settingHiddenInPressUngrabs()
     QTRY_VERIFY(!mouseArea->isEnabled());
     // The mouse area is not stuck in pressed state.
     QVERIFY(!mouseArea->isPressed());
+}
+
+void tst_QQuickMouseArea::pressAfterHiding() // QTBUG-128577
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("simple.qml")));
+    QQuickItem *root = window.rootObject();
+    QVERIFY(root);
+    QQuickMouseArea *mouseArea = window.rootObject()->findChild<QQuickMouseArea *>();
+    QVERIFY(mouseArea);
+
+    mouseArea->setVisible(false);
+    const QPointF p(100, 100);
+    QMouseEvent me(QEvent::MouseButtonPress, p, window.mapToGlobal(p), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QGuiApplication::sendEvent(mouseArea, &me);
+    QCOMPARE(mouseArea->isPressed(), false);
 }
 
 void tst_QQuickMouseArea::negativeZStackingOrder() // QTBUG-83114

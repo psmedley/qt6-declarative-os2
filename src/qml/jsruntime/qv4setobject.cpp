@@ -8,19 +8,20 @@
 #include "qv4symbol_p.h"
 
 using namespace QV4;
+using namespace Qt::Literals::StringLiterals;
 
 DEFINE_OBJECT_VTABLE(SetCtor);
 DEFINE_OBJECT_VTABLE(WeakSetCtor);
 DEFINE_OBJECT_VTABLE(SetObject);
 
-void Heap::WeakSetCtor::init(QV4::ExecutionContext *scope)
+void Heap::WeakSetCtor::init(QV4::ExecutionEngine *engine)
 {
-    Heap::FunctionObject::init(scope, QStringLiteral("WeakSet"));
+    Heap::FunctionObject::init(engine, QStringLiteral("WeakSet"));
 }
 
-void Heap::SetCtor::init(QV4::ExecutionContext *scope)
+void Heap::SetCtor::init(QV4::ExecutionEngine *engine)
 {
-    Heap::FunctionObject::init(scope, QStringLiteral("Set"));
+    Heap::FunctionObject::init(engine, QStringLiteral("Set"));
 }
 
 ReturnedValue WeakSetCtor::construct(const FunctionObject *f, const Value *argv, int argc, const Value *newTarget, bool isWeak)
@@ -37,7 +38,7 @@ ReturnedValue WeakSetCtor::construct(const FunctionObject *f, const Value *argv,
     if (argc > 0) {
         ScopedValue iterable(scope, argv[0]);
         if (!iterable->isUndefined() && !iterable->isNull()) {
-            ScopedFunctionObject adder(scope, a->get(ScopedString(scope, scope.engine->newString(QString::fromLatin1("add")))));
+            ScopedFunctionObject adder(scope, a->get(ScopedString(scope, scope.engine->newString(u"add"_s))));
             if (!adder)
                 return scope.engine->throwTypeError();
             ScopedObject iter(scope, Runtime::GetIterator::call(scope.engine, iterable, true));
@@ -54,10 +55,8 @@ ReturnedValue WeakSetCtor::construct(const FunctionObject *f, const Value *argv,
                     return a.asReturnedValue();
 
                 adder->call(a, nextValue, 1);
-                if (scope.hasException()) {
-                    ScopedValue falsey(scope, Encode(false));
-                    return Runtime::IteratorClose::call(scope.engine, iter, falsey);
-                }
+                if (scope.hasException())
+                    return Runtime::IteratorClose::call(scope.engine, iter);
             }
         }
     }
@@ -104,6 +103,12 @@ ReturnedValue WeakSetPrototype::method_add(const FunctionObject *b, const Value 
     if ((!that || !that->d()->isWeakSet) ||
         (!argc || !argv[0].isObject()))
         return scope.engine->throwTypeError();
+
+    QV4::WriteBarrier::markCustom(scope.engine, [&](QV4::MarkStack *ms) {
+        if (scope.engine->memoryManager->gcStateMachine->state <= GCState::FreeWeakSets)
+            return;
+        argv[0].heapObject()->mark(ms);
+    });
 
     that->d()->esTable->set(argv[0], Value::undefinedValue());
     return that.asReturnedValue();
@@ -193,6 +198,11 @@ ReturnedValue SetPrototype::method_add(const FunctionObject *b, const Value *thi
     if (!that || that->d()->isWeakSet)
         return scope.engine->throwTypeError();
 
+    QV4::WriteBarrier::markCustom(scope.engine, [&](QV4::MarkStack *ms) {
+        if (auto *h = argv[0].heapObject())
+            h->mark(ms);
+    });
+
     that->d()->esTable->set(argv[0], Value::undefinedValue());
     return that.asReturnedValue();
 }
@@ -245,15 +255,23 @@ ReturnedValue SetPrototype::method_forEach(const FunctionObject *b, const Value 
     if (argc > 1)
         thisArg = ScopedValue(scope, argv[1]);
 
+    ESTable::ShiftObserver observer{};
+    that->d()->esTable->observeShifts(observer);
+
     Value *arguments = scope.alloc(3);
-    for (uint i = 0; i < that->d()->esTable->size(); ++i) {
-        that->d()->esTable->iterate(i, &arguments[0], &arguments[1]); // fill in key (0), value (1)
+    while (observer.pivot < that->d()->esTable->size()) {
+        that->d()->esTable->iterate(observer.pivot, &arguments[0], &arguments[1]); // fill in key (0), value (1)
         arguments[1] = arguments[0]; // but for set, we want to return the key twice; value is always undefined.
 
         arguments[2] = that;
         callbackfn->call(thisArg, arguments, 3);
         CHECK_EXCEPTION();
+
+        observer.next();
     }
+
+    that->d()->esTable->stopObservingShifts(observer);
+
     return Encode::undefined();
 }
 

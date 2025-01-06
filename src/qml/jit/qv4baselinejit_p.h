@@ -33,10 +33,10 @@ class BaselineAssembler;
 class BaselineJIT final: public Moth::ByteCodeHandler
 {
 public:
-    BaselineJIT(QV4::Function *);
-    ~BaselineJIT() override;
+    Q_AUTOTEST_EXPORT BaselineJIT(QV4::Function *);
+    Q_AUTOTEST_EXPORT ~BaselineJIT() override;
 
-    void generate();
+    Q_AUTOTEST_EXPORT void generate();
 
     void generate_Ret() override;
     void generate_Debug() override;
@@ -106,9 +106,9 @@ public:
     void generate_PopScriptContext() override;
     void generate_PopContext() override;
     void generate_GetIterator(int iterator) override;
-    void generate_IteratorNext(int value, int done) override;
-    void generate_IteratorNextForYieldStar(int iterator, int object) override;
-    void generate_IteratorClose(int done) override;
+    void generate_IteratorNext(int value, int offset) override;
+    void generate_IteratorNextForYieldStar(int iterator, int object, int offset) override;
+    void generate_IteratorClose() override;
     void generate_DestructureRestElement() override;
     void generate_DeleteProperty(int base, int index) override;
     void generate_DeleteName(int name) override;

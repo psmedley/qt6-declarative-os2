@@ -61,8 +61,7 @@ bool Parameter::initType(
     auto builtinType = stringToBuiltinType(typeName);
     if (builtinType == QV4::CompiledData::CommonType::Invalid) {
         if (typeName.isEmpty()) {
-            paramType->set(
-                    listFlag | QV4::CompiledData::ParameterType::Common, quint32(builtinType));
+            paramType->set(listFlag, 0);
             return false;
         }
         Q_ASSERT(quint32(typeNameIndex) < (1u << 31));
@@ -441,38 +440,6 @@ bool IRBuilder::generateFromQml(const QString &code, const QString &url, Documen
         object->simplifyRequiredProperties();
 
     return errors.isEmpty();
-}
-
-bool IRBuilder::isSignalPropertyName(const QString &name)
-{
-    if (name.size() < 3) return false;
-    if (!name.startsWith(QLatin1String("on"))) return false;
-    int ns = name.size();
-    for (int i = 2; i < ns; ++i) {
-        const QChar curr = name.at(i);
-        if (curr.unicode() == '_') continue;
-        if (curr.isUpper()) return true;
-        return false;
-    }
-    return false; // consists solely of underscores - invalid.
-}
-
-QString IRBuilder::signalNameFromSignalPropertyName(const QString &signalPropertyName)
-{
-    Q_ASSERT(signalPropertyName.startsWith(QLatin1String("on")));
-    QString signalNameCandidate = signalPropertyName;
-    signalNameCandidate.remove(0, 2);
-
-    // Note that the property name could start with any alpha or '_' or '$' character,
-    // so we need to do the lower-casing of the first alpha character.
-    for (int firstAlphaIndex = 0; firstAlphaIndex < signalNameCandidate.size(); ++firstAlphaIndex) {
-        if (signalNameCandidate.at(firstAlphaIndex).isUpper()) {
-            signalNameCandidate[firstAlphaIndex] = signalNameCandidate.at(firstAlphaIndex).toLower();
-            return signalNameCandidate;
-        }
-    }
-
-    Q_UNREACHABLE_RETURN(QString());
 }
 
 bool IRBuilder::visit(QQmlJS::AST::UiArrayMemberList *ast)
@@ -894,6 +861,15 @@ private:
                     return true;
                 }
 
+                if (value == "Inassertable"_L1) {
+                    setFlag(Pragma::Assertable, false);
+                    return true;
+                }
+                if (value == "Assertable"_L1) {
+                    setFlag(Pragma::Assertable, true);
+                    return true;
+                }
+
                 return false;
             });
         }
@@ -954,6 +930,10 @@ bool IRBuilder::visit(QQmlJS::AST::UiPragma *node)
         } else if (node->name == "ValueTypeBehavior"_L1) {
             if (!PragmaParser<Pragma::ValueTypeBehaviorValue>::run(this, node, pragma))
                 return false;
+        } else if (node->name == "Translator"_L1) {
+            pragma->type = Pragma::Translator;
+            pragma->translationContextIndex = registerString(node->values->value.toString());
+
         } else {
             recordError(node->pragmaToken, QCoreApplication::translate(
                             "QQmlParser", "Unknown pragma '%1'").arg(node->name));
@@ -1674,10 +1654,14 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
 
     Unit *jsUnit = nullptr;
 
+    if (!output.javaScriptCompilationUnit)
+        output.javaScriptCompilationUnit.adopt(new QV4::CompiledData::CompilationUnit);
+
     // We may already have unit data if we're loading an ahead-of-time generated cache file.
-    if (output.javaScriptCompilationUnit.data) {
-        jsUnit = const_cast<Unit *>(output.javaScriptCompilationUnit.data);
-        output.javaScriptCompilationUnit.dynamicStrings = output.jsGenerator.stringTable.allStrings();
+    if (output.javaScriptCompilationUnit->unitData()) {
+        jsUnit = const_cast<Unit *>(output.javaScriptCompilationUnit->unitData());
+        output.javaScriptCompilationUnit->dynamicStrings
+                = output.jsGenerator.stringTable.allStrings();
     } else {
         Unit *createdUnit;
         jsUnit = createdUnit = output.jsGenerator.generateUnit();
@@ -1718,10 +1702,9 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
             case Pragma::FunctionSignatureBehavior:
                 switch (p->functionSignatureBehavior) {
                 case Pragma::Enforced:
-                    createdUnit->flags |= Unit::FunctionSignaturesEnforced;
                     break;
                 case Pragma::Ignored:
-                    //this is the default;
+                    createdUnit->flags |= Unit::FunctionSignaturesIgnored;
                     break;
                 }
                 break;
@@ -1744,6 +1727,15 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
                         .testFlag(Pragma::Addressable)) {
                     createdUnit->flags |= Unit::ValueTypesAddressable;
                 }
+                if (Pragma::ValueTypeBehaviorValues(p->valueTypeBehavior)
+                            .testFlag(Pragma::Assertable)) {
+                    createdUnit->flags |= Unit::ValueTypesAssertable;
+                }
+                break;
+            case Pragma::Translator:
+                if (createdUnit->translationTableSize)
+                    if (quint32_le *index = createdUnit->translationContextIndex())
+                        *index = p->translationContextIndex;
                 break;
             }
         }
@@ -1946,7 +1938,7 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         }
     }
 
-    if (!output.javaScriptCompilationUnit.data) {
+    if (!output.javaScriptCompilationUnit->unitData()) {
         // Combine the qml data into the general unit data.
         jsUnit = static_cast<QV4::CompiledData::Unit *>(realloc(jsUnit, jsUnit->unitSize + totalSize));
         jsUnit->offsetToQmlUnit = jsUnit->unitSize;
@@ -1979,8 +1971,8 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         qDebug() << "    " << totalStringSize << "bytes total strings";
     }
 
-    output.javaScriptCompilationUnit.setUnitData(jsUnit, qmlUnit, output.jsModule.fileName,
-                                                 output.jsModule.finalUrl);
+    output.javaScriptCompilationUnit->setUnitData(
+            jsUnit, qmlUnit, output.jsModule.fileName, output.jsModule.finalUrl);
 }
 
 char *QmlUnitGenerator::writeBindings(char *bindingPtr, const Object *o, BindingFilter filter) const

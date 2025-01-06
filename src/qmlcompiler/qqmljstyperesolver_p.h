@@ -14,20 +14,22 @@
 //
 // We mean it.
 
-#include <private/qtqmlcompilerexports_p.h>
+#include <memory>
+#include <qtqmlcompilerexports.h>
 
 #include <private/qqmlirbuilder_p.h>
 #include <private/qqmljsast_p.h>
 #include "qqmljsimporter_p.h"
 #include "qqmljslogger_p.h"
 #include "qqmljsregistercontent_p.h"
+#include "qqmljsresourcefilemapper_p.h"
 #include "qqmljsscope_p.h"
 #include "qqmljsscopesbyid_p.h"
 
 QT_BEGIN_NAMESPACE
 
 class QQmlJSImportVisitor;
-class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSTypeResolver
+class Q_QMLCOMPILER_EXPORT QQmlJSTypeResolver
 {
 public:
     enum ParentMode { UseDocumentParent, UseParentProperty };
@@ -52,6 +54,7 @@ public:
     QQmlJSScope::ConstPtr uint32Type() const { return m_uint32Type; }
     QQmlJSScope::ConstPtr int64Type() const { return m_int64Type; }
     QQmlJSScope::ConstPtr uint64Type() const { return m_uint64Type; }
+    QQmlJSScope::ConstPtr sizeType() const { return m_sizeType; }
     QQmlJSScope::ConstPtr boolType() const { return m_boolType; }
     QQmlJSScope::ConstPtr stringType() const { return m_stringType; }
     QQmlJSScope::ConstPtr stringListType() const { return m_stringListType; }
@@ -71,23 +74,42 @@ public:
     QQmlJSScope::ConstPtr jsGlobalObject() const { return m_jsGlobalObject; }
     QQmlJSScope::ConstPtr qObjectType() const { return m_qObjectType; }
     QQmlJSScope::ConstPtr qObjectListType() const { return m_qObjectListType; }
-    QQmlJSScope::ConstPtr arrayType() const { return m_arrayType; }
+    QQmlJSScope::ConstPtr arrayPrototype() const { return m_arrayPrototype; }
+    QQmlJSScope::ConstPtr forInIteratorPtr() const { return m_forInIteratorPtr; }
+    QQmlJSScope::ConstPtr forOfIteratorPtr() const { return m_forOfIteratorPtr; }
+
+    QQmlJSScope::ConstPtr mathObject() const;
+    QQmlJSScope::ConstPtr consoleObject() const;
 
     QQmlJSScope::ConstPtr scopeForLocation(const QV4::CompiledData::Location &location) const;
-    QQmlJSScope::ConstPtr scopeForId(
-            const QString &id, const QQmlJSScope::ConstPtr &referrer) const;
-    QString idForScope(
-            const QQmlJSScope::ConstPtr &scope, const QQmlJSScope::ConstPtr &referrer) const;
 
     bool isPrefix(const QString &name) const
     {
         return m_imports.hasType(name) && !m_imports.type(name).scope;
     }
 
+    const QHash<QString, QQmlJS::ImportedScope<QQmlJSScope::ConstPtr>> &importedTypes() const
+    {
+        return m_imports.types();
+    }
+
+    const auto &importedNames() const
+    {
+        return m_imports.contextualTypes().names();
+    }
+
     QQmlJSScope::ConstPtr typeForName(const QString &name) const
     {
         return m_imports.type(name).scope;
     }
+    QString nameForType(const QQmlJSScope::ConstPtr &type) const
+    {
+        // We want here not the name of the original type. That one may not exist.
+        // We want the name of the type we've used as replacement since that is
+        // whatever we do with the type expects.
+        return m_imports.name(comparableType(type));
+    }
+
     QQmlJSScope::ConstPtr typeFromAST(QQmlJS::AST::Type *type) const;
     QQmlJSScope::ConstPtr typeForConst(QV4::ReturnedValue rv) const;
     QQmlJSRegisterContent typeForBinaryOperation(QSOperator::Op oper,
@@ -99,6 +121,8 @@ public:
             UnaryOperator op, const QQmlJSRegisterContent &operand) const;
 
     bool isPrimitive(const QQmlJSRegisterContent &type) const;
+    bool isPrimitive(const QQmlJSScope::ConstPtr &type) const;
+
     bool isNumeric(const QQmlJSRegisterContent &type) const;
     bool isIntegral(const QQmlJSRegisterContent &type) const;
 
@@ -114,12 +138,20 @@ public:
 
     QQmlJSRegisterContent builtinType(const QQmlJSScope::ConstPtr &type) const;
     QQmlJSRegisterContent globalType(const QQmlJSScope::ConstPtr &type) const;
-    QQmlJSRegisterContent scopedType(const QQmlJSScope::ConstPtr &scope, const QString &name) const;
-    QQmlJSRegisterContent memberType(const QQmlJSRegisterContent &type, const QString &name) const;
+    QQmlJSRegisterContent scopedType(const QQmlJSScope::ConstPtr &scope, const QString &name,
+                                     int lookupIndex = QQmlJSRegisterContent::InvalidLookupIndex,
+                                     QQmlJSScopesByIdOptions options = Default) const;
+    QQmlJSRegisterContent memberType(
+            const QQmlJSRegisterContent &type, const QString &name,
+            int lookupIndex = QQmlJSRegisterContent::InvalidLookupIndex) const;
     QQmlJSRegisterContent valueType(const QQmlJSRegisterContent &list) const;
     QQmlJSRegisterContent returnType(
             const QQmlJSScope::ConstPtr &type, QQmlJSRegisterContent::ContentVariant variant,
             const QQmlJSScope::ConstPtr &scope) const;
+
+    QQmlJSRegisterContent iteratorPointer(
+            const QQmlJSRegisterContent &listType, QQmlJS::AST::ForEachType type,
+            int lookupIndex) const;
 
     bool registerIsStoredIn(const QQmlJSRegisterContent &reg,
                             const QQmlJSScope::ConstPtr &type) const;
@@ -168,6 +200,8 @@ public:
 
     QQmlJSRegisterContent convert(
             const QQmlJSRegisterContent &from, const QQmlJSRegisterContent &to) const;
+    QQmlJSRegisterContent cast(
+            const QQmlJSRegisterContent &from, const QQmlJSScope::ConstPtr &to) const;
 
     QQmlJSScope::ConstPtr merge(const QQmlJSScope::ConstPtr &a,
                                 const QQmlJSScope::ConstPtr &b) const;
@@ -181,9 +215,14 @@ public:
     bool isIntegral(const QQmlJSScope::ConstPtr &type) const;
     bool isSignedInteger(const QQmlJSScope::ConstPtr &type) const;
     bool isUnsignedInteger(const QQmlJSScope::ConstPtr &type) const;
+    bool isNativeArrayIndex(const QQmlJSScope::ConstPtr &type) const;
 
     bool canHold(const QQmlJSScope::ConstPtr &container,
                  const QQmlJSScope::ConstPtr &contained) const;
+
+    bool canPopulate(
+            const QQmlJSScope::ConstPtr &type, const QQmlJSScope::ConstPtr &argument,
+            bool *isExtension) const;
 
     QQmlJSMetaMethod selectConstructor(
             const QQmlJSScope::ConstPtr &type, const QQmlJSScope::ConstPtr &argument,
@@ -191,14 +230,19 @@ public:
 
     bool areEquivalentLists(const QQmlJSScope::ConstPtr &a, const QQmlJSScope::ConstPtr &b) const;
 
+    bool isTriviallyCopyable(const QQmlJSScope::ConstPtr &type) const;
+
     bool inherits(const QQmlJSScope::ConstPtr &derived, const QQmlJSScope::ConstPtr &base) const;
+    QQmlJSLogger *logger() const { return m_logger; }
+    QStringList seenModuleQualifiers() const { return m_seenModuleQualifiers; }
 
 protected:
 
-    QQmlJSRegisterContent memberType(const QQmlJSScope::ConstPtr &type, const QString &name) const;
+    QQmlJSRegisterContent memberType(
+            const QQmlJSScope::ConstPtr &type, const QString &name,
+            int baseLookupIndex, int resultLookupIndex) const;
     QQmlJSRegisterContent memberEnumType(const QQmlJSScope::ConstPtr &type,
                                          const QString &name) const;
-    bool isPrimitive(const QQmlJSScope::ConstPtr &type) const;
     bool checkEnums(const QQmlJSScope::ConstPtr &scope, const QString &name,
                     QQmlJSRegisterContent *result, QQmlJSScope::ExtensionKind mode) const;
     bool canPrimitivelyConvertFromTo(
@@ -218,7 +262,7 @@ protected:
     QQmlJSScope::ConstPtr m_emptyType;
     QQmlJSScope::ConstPtr m_nullType;
     QQmlJSScope::ConstPtr m_numberPrototype;
-    QQmlJSScope::ConstPtr m_arrayType;
+    QQmlJSScope::ConstPtr m_arrayPrototype;
     QQmlJSScope::ConstPtr m_realType;
     QQmlJSScope::ConstPtr m_floatType;
     QQmlJSScope::ConstPtr m_int8Type;
@@ -229,6 +273,7 @@ protected:
     QQmlJSScope::ConstPtr m_uint32Type;
     QQmlJSScope::ConstPtr m_int64Type;
     QQmlJSScope::ConstPtr m_uint64Type;
+    QQmlJSScope::ConstPtr m_sizeType;
     QQmlJSScope::ConstPtr m_boolType;
     QQmlJSScope::ConstPtr m_stringType;
     QQmlJSScope::ConstPtr m_stringListType;
@@ -245,14 +290,18 @@ protected:
     QQmlJSScope::ConstPtr m_listPropertyType;
     QQmlJSScope::ConstPtr m_qObjectType;
     QQmlJSScope::ConstPtr m_qObjectListType;
+    QQmlJSScope::ConstPtr m_qQmlScriptStringType;
     QQmlJSScope::ConstPtr m_metaObjectType;
     QQmlJSScope::ConstPtr m_functionType;
     QQmlJSScope::ConstPtr m_jsGlobalObject;
+    QQmlJSScope::ConstPtr m_forInIteratorPtr;
+    QQmlJSScope::ConstPtr m_forOfIteratorPtr;
 
     QQmlJSScopesById m_objectsById;
     QHash<QV4::CompiledData::Location, QQmlJSScope::ConstPtr> m_objectsByLocation;
     QQmlJSImporter::ImportedTypes m_imports;
     QHash<QQmlJS::SourceLocation, QQmlJSMetaSignalHandler> m_signalHandlers;
+    QStringList m_seenModuleQualifiers;
 
     ParentMode m_parentMode = UseParentProperty;
     CloneMode m_cloneMode = CloneTypes;
@@ -272,6 +321,22 @@ protected:
     };
 
     std::unique_ptr<QHash<QQmlJSScope::ConstPtr, TrackedType>> m_trackedTypes;
+};
+
+/*!
+\internal
+
+QQmlJSTypeResolver expects to be outlived by its importer and mapper. It crashes when its importer
+or mapper gets destructed. Therefore, you can use this struct to extend the lifetime of its
+dependencies in case you need to store the resolver as a class member.
+QQmlJSTypeResolver also expects to be outlived by the logger used by the importvisitor, while the
+importvisitor actually does not and will not outlive the QQmlJSTypeResolver.
+*/
+struct QQmlJSTypeResolverDependencies
+{
+    std::shared_ptr<QQmlJSImporter> importer;
+    std::shared_ptr<QQmlJSResourceFileMapper> mapper;
+    std::shared_ptr<QQmlJSLogger> logger;
 };
 
 QT_END_NAMESPACE

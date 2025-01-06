@@ -1,5 +1,16 @@
 # See qtbase/src/testlib/qtestblacklist.cpp for format
 
+# QTBUG-114718 (begin)
+[overlay]
+macos
+[invisibleToolTipOpen]
+macos
+[cursorShape]
+macos
+[doubleClickInMouseArea]
+macos
+# QTBUG-114718 (end)
+
 [overlay]
 macos # QTBUG-89938
 
@@ -12,3 +23,10 @@ opensuse-leap
 
 [cursorShape]
 opensuse-leap
+
+# QTBUG-126667
+[popupWindowPositioning]
+linux
+
+[popupWindowFocus]
+offscreen # QTBUG-128321

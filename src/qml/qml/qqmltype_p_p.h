@@ -15,38 +15,60 @@
 // We mean it.
 //
 
-#include <private/qqmltype_p.h>
-#include <private/qstringhash_p.h>
+#include <private/qqmlengine_p.h>
+#include <private/qqmlmetatype_p.h>
+#include <private/qqmlpropertycache_p.h>
 #include <private/qqmlproxymetaobject_p.h>
 #include <private/qqmlrefcount_p.h>
-#include <private/qqmlpropertycache_p.h>
-#include <private/qqmlmetatype_p.h>
+#include <private/qqmltype_p.h>
+#include <private/qqmltypeloader_p.h>
+#include <private/qstringhash_p.h>
+#include <private/qv4engine_p.h>
+#include <private/qv4executablecompilationunit_p.h>
+#include <private/qv4resolvedtypereference_p.h>
 
 #include <QAtomicInteger>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlTypePrivate : public QQmlRefCounted<QQmlTypePrivate>
+class QQmlTypePrivate final : public QQmlRefCounted<QQmlTypePrivate>
 {
     Q_DISABLE_COPY_MOVE(QQmlTypePrivate)
 public:
+    struct ProxyMetaObjects
+    {
+        ~ProxyMetaObjects()
+        {
+            for (const QQmlProxyMetaObject::ProxyData &metaObject : data)
+                free(metaObject.metaObject);
+        }
+
+        QList<QQmlProxyMetaObject::ProxyData> data;
+        bool containsRevisionedAttributes = false;
+    };
+
+    struct Enums
+    {
+        ~Enums() { qDeleteAll(scopedEnums); }
+
+        QStringHash<int> enums;
+        QStringHash<int> scopedEnumIndex; // maps from enum name to index in scopedEnums
+        QList<QStringHash<int> *> scopedEnums;
+    };
+
     QQmlTypePrivate(QQmlType::RegistrationType type);
 
-    void init() const;
-    void initEnums(QQmlEnginePrivate *engine) const;
-    void insertEnums(const QMetaObject *metaObject) const;
-    void insertEnumsFromPropertyCache(const QQmlPropertyCache::ConstPtr &cache) const;
-    void setContainingType(QQmlType *containingType);
+    const ProxyMetaObjects *init() const;
 
     QUrl sourceUrl() const
     {
         switch (regType) {
         case QQmlType::CompositeType:
-            return extraData.fd->url;
+            return extraData.compositeTypeData;
         case QQmlType::CompositeSingletonType:
-            return extraData.sd->singletonInstanceInfo->url;
+            return extraData.singletonTypeData->singletonInstanceInfo->url;
         case QQmlType::InlineComponentType:
-            return extraData.id->url;
+            return extraData.inlineComponentTypeData;
         default:
             return QUrl();
         }
@@ -56,7 +78,7 @@ public:
     {
         for (const QQmlTypePrivate *d = this; d; d = d->resolveCompositeBaseType(engine).d.data()) {
             if (d->regType == QQmlType::CppType)
-                return d->extraData.cd->attachedPropertiesType ? d : nullptr;
+                return d->extraData.cppTypeData->attachedPropertiesType ? d : nullptr;
 
             if (d->regType != QQmlType::CompositeType)
                 return nullptr;
@@ -76,8 +98,6 @@ public:
 
     QQmlType resolveCompositeBaseType(QQmlEnginePrivate *engine) const;
     QQmlPropertyCache::ConstPtr compositePropertyCache(QQmlEnginePrivate *engine) const;
-
-    QQmlType::RegistrationType regType;
 
     struct QQmlCppTypeData
     {
@@ -103,69 +123,94 @@ public:
 
     struct QQmlSingletonTypeData
     {
-        QQmlType::SingletonInstanceInfo *singletonInstanceInfo;
+        QQmlType::SingletonInstanceInfo::ConstPtr singletonInstanceInfo;
         QObject *(*extFunc)(QObject *);
         const QMetaObject *extMetaObject;
     };
 
-    struct QQmlCompositeTypeData
-    {
-        QUrl url;
-    };
-
-    struct QQmlInlineTypeData
-    {
-        QUrl url;
-        // The containing type stores a pointer to the inline component type
-        // Using QQmlType here would create a reference cycle
-        // As the inline component type cannot outlive the containing type
-        // this should still be fine
-        QQmlTypePrivate const * containingType = nullptr;
-    };
-
-    using QQmlSequenceTypeData = QMetaSequence;
+    int index = -1;
 
     union extraData {
-        QQmlCppTypeData* cd;
-        QQmlSingletonTypeData* sd;
-        QQmlCompositeTypeData* fd;
-        QQmlInlineTypeData* id;
-        QQmlSequenceTypeData* ld;
-    } extraData;
+        extraData() {}  // QQmlTypePrivate() does the actual construction.
+        ~extraData() {} // ~QQmlTypePrivate() does the actual destruction.
 
-    const char *iid;
+        QQmlCppTypeData *cppTypeData;
+        QQmlSingletonTypeData *singletonTypeData;
+        QUrl compositeTypeData;
+        QUrl inlineComponentTypeData;
+        QMetaSequence sequentialContainerTypeData;
+        const char *interfaceTypeData;
+    } extraData;
+    static_assert(sizeof(extraData) == sizeof(void *));
+
     QHashedString module;
     QString name;
     QString elementName;
     QMetaType typeId;
     QMetaType listId;
+    QQmlType::RegistrationType regType;
     QTypeRevision version;
-    QTypeRevision revision;
-    mutable bool containsRevisionedAttributes;
-    mutable QQmlType superType;
-    const QMetaObject *baseMetaObject;
-
-    int index;
-    mutable QAtomicInteger<bool> isSetup;
-    mutable QAtomicInteger<bool> isEnumFromCacheSetup;
-    mutable QAtomicInteger<bool> isEnumFromBaseSetup;
-    mutable bool haveSuperType;
-    mutable QList<QQmlProxyMetaObject::ProxyData> metaObjects;
-    mutable QStringHash<int> enums;
-    mutable QStringHash<int> scopedEnumIndex; // maps from enum name to index in scopedEnums
-    mutable QList<QStringHash<int>*> scopedEnums;
+    QTypeRevision revision = QTypeRevision::zero();
+    const QMetaObject *baseMetaObject = nullptr;
 
     void setName(const QString &uri, const QString &element);
+
+    template<typename String>
+    static int enumValue(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlEnginePrivate *engine,
+            const String &name, bool *ok)
+    {
+        return doGetEnumValue(d, engine, [&](const QQmlTypePrivate::Enums *enums) {
+            return enums->enums.value(name);
+        }, ok);
+    }
+
+    template<typename String>
+    static int scopedEnumIndex(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlEnginePrivate *engine,
+            const String &name, bool *ok)
+    {
+        return doGetEnumValue(d, engine, [&](const QQmlTypePrivate::Enums *enums) {
+            return enums->scopedEnumIndex.value(name);
+        }, ok);
+    }
+
+    template<typename String>
+    static int scopedEnumValue(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlEnginePrivate *engine, int index,
+            const String &name, bool *ok)
+    {
+        return doGetEnumValue(d, engine, [&](const QQmlTypePrivate::Enums *enums) {
+            Q_ASSERT(index > -1 && index < enums->scopedEnums.size());
+            return enums->scopedEnums.at(index)->value(name);
+        }, ok);
+    }
+
+    template<typename String1, typename String2>
+    static int scopedEnumValue(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlEnginePrivate *engine,
+            const String1 &scopedEnumName, const String2 &name, bool *ok)
+    {
+        return doGetEnumValue(d, engine, [&](const QQmlTypePrivate::Enums *enums) -> const int * {
+            const int *rv = enums->scopedEnumIndex.value(scopedEnumName);
+            if (!rv)
+                return nullptr;
+
+            const int index = *rv;
+            Q_ASSERT(index > -1 && index < enums->scopedEnums.size());
+            return enums->scopedEnums.at(index)->value(name);
+        }, ok);
+    }
 
     const QMetaObject *metaObject() const
     {
         if (isValueType())
             return metaObjectForValueType();
 
-        init();
-        return metaObjects.isEmpty()
+        const QQmlTypePrivate::ProxyMetaObjects *proxies = init();
+        return proxies->data.isEmpty()
                 ? baseMetaObject
-                : metaObjects.constFirst().metaObject;
+                : proxies->data.constFirst().metaObject;
     }
 
     const QMetaObject *metaObjectForValueType() const
@@ -174,7 +219,7 @@ public:
 
         // Prefer the extension meta object, if any.
         // Extensions allow registration of non-gadget value types.
-        if (const QMetaObject *extensionMetaObject = extraData.cd->extMetaObject) {
+        if (const QMetaObject *extensionMetaObject = extraData.cppTypeData->extMetaObject) {
             // This may be a namespace even if the original metaType isn't.
             // You can do such things with QML_FOREIGN declarations.
             if (extensionMetaObject->metaType().flags() & QMetaType::IsGadget)
@@ -191,8 +236,57 @@ public:
         return nullptr;
     }
 
+    static QQmlType visibleQmlTypeByName(
+            const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit,
+            const QString &elementName, QQmlTypeLoader *typeLoader)
+    {
+        const QQmlType qmltype = unit->typeNameCache->query<QQmlImport::AllowRecursion>(
+                                                            elementName, typeLoader).type;
+
+        if (qmltype.isValid() && qmltype.isInlineComponentType()
+                && !QQmlMetaType::obtainCompilationUnit(qmltype.typeId())) {
+            // If it seems to be an IC type, make sure there is an actual
+            // compilation unit for it. We create inline component types speculatively.
+            return QQmlType();
+        }
+
+        return qmltype;
+    }
+
+    // Tries the base unit's resolvedTypes first. If successful, that is cheap
+    // because it's just a hash. Otherwise falls back to typeNameCache.
+    // typeNameCache is slower because it will do a generic type search on all imports.
+    // This can involve iterating all the types of an import or querying QQmlMetaType for
+    // further details.
+    // TODO: Not all referenced types are pre-resolved when loading. That should be fixed.
+    //       In particular, types only used in function signatures are not resolved.
+    static QQmlType visibleQmlTypeByName(
+            const QV4::ExecutableCompilationUnit *unit, int elementNameId,
+            QQmlTypeLoader *typeLoader = nullptr)
+    {
+        const auto &base = unit->baseCompilationUnit();
+        const auto it = base->resolvedTypes.constFind(elementNameId);
+        if (it == base->resolvedTypes.constEnd()) {
+            return visibleQmlTypeByName(
+                    base, base->stringAt(elementNameId),
+                    typeLoader ? typeLoader : unit->engine->typeLoader());
+        }
+
+        if (const QQmlType type = (*it)->type(); type.isValid())
+            return type;
+
+        if (const auto cu = (*it)->compilationUnit())
+            return cu->qmlType;
+
+        return QQmlType();
+    }
+
 private:
-    ~QQmlTypePrivate() override;
+    mutable QAtomicPointer<const ProxyMetaObjects> proxyMetaObjects;
+    mutable QAtomicPointer<const Enums> enums;
+
+    ~QQmlTypePrivate();
+    friend class QQmlRefCounted<QQmlTypePrivate>;
 
     struct EnumInfo {
         QStringList path;
@@ -202,6 +296,29 @@ private:
         QString metaEnumScope;
         bool scoped;
     };
+
+    template<typename Op>
+    static int doGetEnumValue(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlEnginePrivate *engine,
+            Op &&op, bool *ok)
+    {
+        Q_ASSERT(ok);
+        if (d) {
+            if (const QQmlTypePrivate::Enums *enums = d->initEnums(engine)) {
+                if (const int *rv = op(enums)) {
+                    *ok = true;
+                    return *rv;
+                }
+            }
+        }
+
+        *ok = false;
+        return -1;
+    }
+
+    const Enums *initEnums(QQmlEnginePrivate *engine) const;
+    void insertEnums(Enums *enums, const QMetaObject *metaObject) const;
+    void insertEnumsFromPropertyCache(Enums *enums, const QQmlPropertyCache::ConstPtr &cache) const;
 
     void createListOfPossibleConflictingItems(const QMetaObject *metaObject, QList<EnumInfo> &enumInfoList, QStringList path) const;
     void createEnumConflictReport(const QMetaObject *metaObject, const QString &conflictingKey) const;

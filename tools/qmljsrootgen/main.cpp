@@ -10,6 +10,7 @@
 
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qfile.h>
+#include <QtCore/qcommandlineparser.h>
 
 #include <QtCore/qjsondocument.h>
 #include <QtCore/qjsonarray.h>
@@ -141,8 +142,8 @@ static QString buildClass(const QJSManagedValue &value, QJsonArray *classes,
                 protoName = name.at(0).toUpper() + name.mid(1) + QStringLiteral("Prototype");
             }
 
-            auto it = seen->prototypes.find(protoName);
-            if (it == seen->prototypes.end()) {
+            auto it = seen->prototypes.constFind(protoName);
+            if (it == seen->prototypes.cend()) {
                 seen->prototypes.insert(protoName, prototype.toJSValue());
                 buildClass(prototype, classes, seen, protoName);
             } else if (!it->strictlyEquals(prototype.toJSValue())) {
@@ -311,8 +312,8 @@ static QString buildConstructor(const QJSManagedValue &constructor, QJsonArray *
         Q_UNREACHABLE();
     }
 
-    auto it = seen->constructors.find(name);
-    if (it == seen->constructors.end()) {
+    auto it = seen->constructors.constFind(name);
+    if (it == seen->constructors.cend()) {
         seen->constructors.insert(name, constructor.toJSValue());
         return buildClass(*constructed, classes, seen, name);
     } else if (!constructor.strictlyEquals(QJSManagedValue(*it, constructor.engine()))) {
@@ -326,14 +327,22 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
 
-    QStringList args = app.arguments();
+    QCommandLineParser parser;
+    parser.addHelpOption();
+    parser.setApplicationDescription("Internal development tool.");
+    parser.addPositionalArgument("path", "Output json path.", "path");
 
-    if (args.size() != 2) {
-        qWarning().noquote() << app.applicationName() << "[output json path]";
-        return 1;
+    parser.process(app);
+
+    const QStringList args = parser.positionalArguments();
+    if (auto size = args.size(); size == 0) {
+        qWarning().noquote().nospace() << app.applicationName() << ": Output path missing.";
+        return EXIT_FAILURE;
+    } else if (size >= 2) {
+        qWarning().noquote().nospace() << app.applicationName() << ": Too many output paths given. Only one allowed.";
     }
 
-    QString fileName = args.at(1);
+    const QString fileName = args.at(0);
 
     QJSEngine engine;
     engine.installExtensions(QJSEngine::AllExtensions);

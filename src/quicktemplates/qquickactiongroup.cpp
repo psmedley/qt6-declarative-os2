@@ -11,12 +11,14 @@
 #include "qquickaction_p.h"
 #include "qquickaction_p_p.h"
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype ActionGroup
     \inherits QtObject
-//!     \instantiates QQuickActionGroup
+//!     \nativetype QQuickActionGroup
     \inqmlmodule QtQuick.Controls
     \since 5.10
     \ingroup utilities

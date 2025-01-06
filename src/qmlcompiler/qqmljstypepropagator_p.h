@@ -24,13 +24,14 @@ namespace QQmlSA {
 class PassManager;
 };
 
-struct Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSTypePropagator : public QQmlJSCompilePass
+struct Q_QMLCOMPILER_EXPORT QQmlJSTypePropagator : public QQmlJSCompilePass
 {
     QQmlJSTypePropagator(const QV4::Compiler::JSUnitGenerator *unitGenerator,
                          const QQmlJSTypeResolver *typeResolver, QQmlJSLogger *logger,
+                         BasicBlocks basicBlocks = {}, InstructionAnnotations annotations = {},
                          QQmlSA::PassManager *passManager = nullptr);
 
-    InstructionAnnotations run(const Function *m_function, QQmlJS::DiagnosticMessage *error);
+    BlocksAndAnnotations run(const Function *m_function, QQmlJS::DiagnosticMessage *error);
 
     void generate_Ret() override;
     void generate_Debug() override;
@@ -101,9 +102,9 @@ struct Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSTypePropagator : public QQmlJSCompileP
     void generate_PopScriptContext() override;
     void generate_PopContext() override;
     void generate_GetIterator(int iterator) override;
-    void generate_IteratorNext(int value, int done) override;
-    void generate_IteratorNextForYieldStar(int iterator, int object) override;
-    void generate_IteratorClose(int done) override;
+    void generate_IteratorNext(int value, int offset) override;
+    void generate_IteratorNextForYieldStar(int iterator, int object, int offset) override;
+    void generate_IteratorClose() override;
     void generate_DestructureRestElement() override;
     void generate_DeleteProperty(int base, int index) override;
     void generate_DeleteName(int name) override;
@@ -168,7 +169,7 @@ struct Q_QMLCOMPILER_PRIVATE_EXPORT QQmlJSTypePropagator : public QQmlJSCompileP
     void generate_ThrowOnNullOrUndefined() override;
     void generate_GetTemplateObject(int index) override;
 
-    bool checkForEnumProblems(const QQmlJSRegisterContent &base, const QString &propertyName) const;
+    bool checkForEnumProblems(const QQmlJSRegisterContent &base, const QString &propertyName);
 
     Verdict startInstruction(QV4::Moth::Instr::Type instr) override;
     void endInstruction(QV4::Moth::Instr::Type instr) override;
@@ -215,7 +216,8 @@ private:
     bool propagateTranslationMethod(const QList<QQmlJSMetaMethod> &methods, int argc, int argv);
     void propagateStringArgCall(int argv);
     bool propagateArrayMethod(const QString &name, int argc, int argv, const QQmlJSRegisterContent &valueType);
-    void propagatePropertyLookup(const QString &name);
+    void propagatePropertyLookup(
+            const QString &name, int lookupIndex = QQmlJSRegisterContent::InvalidLookupIndex);
     void propagateScopeLookupCall(const QString &functionName, int argc, int argv);
     void saveRegisterStateForJump(int offset);
     bool canConvertFromTo(const QQmlJSRegisterContent &from, const QQmlJSRegisterContent &to);
@@ -240,6 +242,21 @@ private:
     void recordEqualsIntType();
     void recordEqualsType(int lhs);
     void recordCompareType(int lhs);
+
+    // helper functions to deal with special cases in generate_ methods
+    void generate_CallProperty_SCMath(int base, int arcg, int argv);
+    void generate_CallProperty_SCconsole(int base, int argc, int argv);
+    void generate_Construct_SCDate(int argc, int argv);
+    void generate_Construct_SCArray(int argc, int argv);
+
+    // helper functions to perform QQmlSA checks
+    void generate_ret_SAcheck();
+    void generate_LoadQmlContextPropertyLookup_SAcheck(const QString &name);
+    void generate_StoreNameCommon_SAcheck(const QQmlJSRegisterContent &in, const QString &name);
+    void propagatePropertyLookup_SAcheck(const QString &propertyName);
+    void generate_StoreProperty_SAcheck(const QString propertyName, const QQmlJSRegisterContent &callBase);
+    void generate_callProperty_SAcheck(const QString propertyName, const QQmlJSScope::ConstPtr &baseType);
+
 
     QQmlJSRegisterContent m_returnType;
     QQmlSA::PassManager *m_passManager = nullptr;

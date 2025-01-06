@@ -15,18 +15,53 @@
 // We mean it.
 //
 
+#include <QtCore/qdebug.h>
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlV4Function;
 class QQuickTransition;
 class QQuickStackElement;
 class QQuickStackViewPrivate;
 class QQuickStackViewAttached;
 class QQuickStackViewAttachedPrivate;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickStackView : public QQuickControl
+/*!
+    \internal
+
+    Input from the user that is turned into QQuickStackElements.
+
+    This was added to support the QML-compiler-friendly pushElement[s]
+    functions.
+*/
+class QQuickStackViewArg
+{
+    Q_GADGET
+    QML_CONSTRUCTIBLE_VALUE
+    QML_ANONYMOUS
+
+public:
+    QQuickStackViewArg() = default;
+    Q_INVOKABLE QQuickStackViewArg(QQuickItem *item);
+    Q_INVOKABLE QQuickStackViewArg(const QUrl &url);
+    Q_INVOKABLE QQuickStackViewArg(QQmlComponent *component);
+    Q_INVOKABLE QQuickStackViewArg(const QVariantMap &properties);
+
+#ifndef QT_NO_DEBUG_STREAM
+    friend QDebug operator<<(QDebug debug, const QQuickStackViewArg &arg);
+#endif
+
+private:
+    friend class QQuickStackViewPrivate;
+    friend class QQuickStackElement;
+
+    QQuickItem *mItem = nullptr;
+    QQmlComponent *mComponent = nullptr;
+    QUrl mUrl;
+    QVariantMap mProperties;
+};
+
+class Q_QUICKTEMPLATES2_EXPORT QQuickStackView : public QQuickControl
 {
     Q_OBJECT
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged FINAL)
@@ -106,9 +141,31 @@ public:
     };
     Q_ENUM(Operation)
 
-    Q_INVOKABLE void push(QQmlV4Function *args);
-    Q_INVOKABLE void pop(QQmlV4Function *args);
-    Q_INVOKABLE void replace(QQmlV4Function *args);
+    Q_INVOKABLE void push(QQmlV4FunctionPtr args);
+    Q_INVOKABLE void pop(QQmlV4FunctionPtr args);
+    Q_INVOKABLE void replace(QQmlV4FunctionPtr args);
+
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItems(QList<QQuickStackViewArg> args,
+        Operation operation = Immediate);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(QQuickItem *item, const QVariantMap &properties = {},
+        Operation operation = Immediate);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(QQmlComponent *component, const QVariantMap &properties = {},
+        Operation operation = Immediate);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(const QUrl &url, const QVariantMap &properties = {},
+        Operation operation = Immediate);
+
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *popToItem(QQuickItem *item, Operation operation = PopTransition);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *popToIndex(int index, Operation operation = PopTransition);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *popCurrentItem(Operation operation = PopTransition);
+
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *replaceCurrentItem(const QList<QQuickStackViewArg> &args,
+        Operation operation = ReplaceTransition);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *replaceCurrentItem(QQuickItem *item,
+        const QVariantMap &properties = {}, Operation operation = ReplaceTransition);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *replaceCurrentItem(QQmlComponent *component,
+        const QVariantMap &properties = {}, Operation operation = ReplaceTransition);
+    Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *replaceCurrentItem(const QUrl &url,
+        const QVariantMap &properties = {}, Operation operation = ReplaceTransition);
 
     // 2.3 (Qt 5.10)
     bool isEmpty() const;
@@ -149,7 +206,7 @@ private:
     Q_DECLARE_PRIVATE(QQuickStackView)
 };
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickStackViewAttached : public QObject
+class Q_QUICKTEMPLATES2_EXPORT QQuickStackViewAttached : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int index READ index NOTIFY indexChanged FINAL)
@@ -190,7 +247,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-QML_DECLARE_TYPE(QQuickStackView)
 
 #endif // QQUICKSTACKVIEW_P_H

@@ -1,0 +1,10 @@
+--- src/quickwidgets/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/quickwidgets/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -33,7 +33,6 @@
+         Qt::QmlPrivate
+         Qt::QuickPrivate
+         Qt::WidgetsPrivate
+-    GENERATE_CPP_EXPORTS
+ )
+ 
+ qt_internal_extend_target(QuickWidgets CONDITION QT_FEATURE_accessibility

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 using namespace QV4;
+using namespace Qt::Literals::StringLiterals;
 
 Q_LOGGING_CATEGORY(lcJavaScriptGlobals, "qt.qml.js.globals")
 
@@ -182,16 +183,16 @@ void Object::defineAccessorProperty(StringOrSymbol *name, VTable::Call getter, V
     QV4::Scope scope(v4);
     ScopedProperty p(scope);
     QString n = name->toQString();
-    if (!n.isEmpty() && n.at(0) == QLatin1Char('@'))
-        n = QChar::fromLatin1('[') + QStringView{n}.mid(1) + QChar::fromLatin1(']');
+    if (!n.isEmpty() && n.at(0) == '@'_L1)
+        n = '['_L1 + QStringView{n}.mid(1) + ']'_L1;
     if (getter) {
-        ScopedString getName(scope, v4->newString(QString::fromLatin1("get ") + n));
+        ScopedString getName(scope, v4->newString("get "_L1 + n));
         p->setGetter(ScopedFunctionObject(scope, FunctionObject::createBuiltinFunction(v4, getName, getter, 0)));
     } else {
         p->setGetter(nullptr);
     }
     if (setter) {
-        ScopedString setName(scope, v4->newString(QString::fromLatin1("set ") + n));
+        ScopedString setName(scope, v4->newString("set "_L1 + n));
         p->setSetter(ScopedFunctionObject(scope, FunctionObject::createBuiltinFunction(v4, setName, setter, 0)));
     } else {
         p->setSetter(nullptr);
@@ -746,6 +747,12 @@ ReturnedValue Object::virtualResolveLookupGetter(const Object *object, Execution
 
     Heap::Object *obj = object->d();
     PropertyKey name = engine->identifierTable->asPropertyKey(engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[lookup->nameIndex]);
+    if (object->as<QV4::ProxyObject>()) {
+        // proxies invalidate assumptions that we normally maek in lookups
+        // so we always need to use the fallback path
+        lookup->getter = Lookup::getterFallback;
+        return lookup->getter(lookup, engine, *object);
+    }
     if (name.isArrayIndex()) {
         lookup->indexedLookup.index = name.asArrayIndex();
         lookup->getter = Lookup::getterIndexed;
@@ -767,7 +774,7 @@ ReturnedValue Object::virtualResolveLookupGetter(const Object *object, Execution
         } else {
             lookup->getter = Lookup::getterAccessor;
         }
-        lookup->objectLookup.ic = obj->internalClass;
+        lookup->objectLookup.ic.set(engine, obj->internalClass.get());
         lookup->objectLookup.offset = index.index;
         return lookup->getter(lookup, engine, *object);
     }
@@ -794,7 +801,7 @@ bool Object::virtualResolveLookupSetter(Object *object, ExecutionEngine *engine,
             lookup->setter = Lookup::arrayLengthSetter;
             return lookup->setter(lookup, engine, *object, value);
         } else if (idx.attrs.isData() && idx.attrs.isWritable()) {
-            lookup->objectLookup.ic = object->internalClass();
+            lookup->objectLookup.ic.set(engine, object->internalClass());
             lookup->objectLookup.index = idx.index;
             const auto nInline = object->d()->vtable()->nInlineProperties;
             if (idx.index < nInline) {
@@ -828,7 +835,7 @@ bool Object::virtualResolveLookupSetter(Object *object, ExecutionEngine *engine,
         lookup->setter = Lookup::setterFallback;
         return false;
     }
-    lookup->insertionLookup.newClass = object->internalClass();
+    lookup->insertionLookup.newClass.set(engine, object->internalClass());
     lookup->insertionLookup.offset = idx.index;
     lookup->setter = Lookup::setterInsert;
     return true;
@@ -1183,6 +1190,7 @@ QStringList ArrayObject::toQStringList() const
     ScopedValue v(scope);
 
     uint length = getLength();
+    result.reserve(length);
     for (uint i = 0; i < length; ++i) {
         v = const_cast<ArrayObject *>(this)->get(i);
         result.append(v->toQStringNoThrow());

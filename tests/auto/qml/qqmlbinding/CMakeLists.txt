@@ -7,6 +7,12 @@
 ## tst_qqmlbinding Test:
 #####################################################################
 
+if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
+    cmake_minimum_required(VERSION 3.16)
+    project(tst_qqmlbinding LANGUAGES CXX)
+    find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
+endif()
+
 # Collect test data
 file(GLOB_RECURSE test_data_glob
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -22,6 +28,7 @@ qt_internal_add_test(tst_qqmlbinding
         Qt::Gui
         Qt::GuiPrivate
         Qt::QmlPrivate
+        Qt::QmlMetaPrivate
         Qt::QuickPrivate
         Qt::QuickTestUtilsPrivate
     TESTDATA ${test_data}
@@ -36,6 +43,7 @@ qt_internal_add_test(tst_qqmlbinding_no_deferred_properties
         Qt::Gui
         Qt::GuiPrivate
         Qt::QmlPrivate
+        Qt::QmlMetaPrivate
         Qt::QuickPrivate
         Qt::QuickTestUtilsPrivate
     TESTDATA ${test_data}

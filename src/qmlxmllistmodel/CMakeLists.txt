@@ -21,10 +21,8 @@ qt_internal_add_qml_module(QmlXmlListModel
         Qt::Qml
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
-    GENERATE_CPP_EXPORTS
-    GENERATE_PRIVATE_CPP_EXPORTS
     OS2_SHORT_NAME QmlXMLLM
-)
+    )
 
 qt_internal_add_docs(QmlXmlListModel
     doc/qtqmlxmllistmodel.qdocconf

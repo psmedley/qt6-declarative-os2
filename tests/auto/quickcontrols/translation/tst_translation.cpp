@@ -1,5 +1,5 @@
 // Copyright (C) 2019 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/qsignalspy.h>
 #include <QtTest/qtest.h>
@@ -157,7 +157,7 @@ void tst_translation::stackView()
     QVERIFY(button);
     // Shouldn't crash when calling retranslate.
     QVERIFY(clickButton(button));
-    QTRY_COMPARE(calledTranslateSpy.size(), 1);
+    QTRY_VERIFY(calledTranslateSpy.size() > 0);
 }
 
 QTEST_MAIN(tst_translation)

@@ -228,6 +228,11 @@ void QQmlContext::setContextProperty(const QString &name, const QVariant &value)
         return;
     }
 
+    if (bool isNumber = false; name.toUInt(&isNumber), isNumber) {
+        qWarning("QQmlContext: Using numbers as context properties will be disallowed in a future Qt version.");
+        QT7_ONLY(return;)
+    }
+
     int idx = data->propertyIndex(name);
     if (idx == -1) {
         data->addPropertyNameAndIndex(name, data->numIdValues() + d->numPropertyValues());
@@ -448,9 +453,9 @@ QJSValue QQmlContext::importedScript(const QString &name) const
 {
     Q_D(const QQmlContext);
 
-    QQmlTypeNameCache::Result r = d->m_data->imports()->query(name);
+    QQmlTypeNameCache::Result r = d->m_data->imports()->query(name, QQmlTypeLoader::get(engine()));
     QV4::Scope scope(engine()->handle());
-    QV4::ScopedObject scripts(scope, d->m_data->importedScripts().valueRef());
+    QV4::ScopedObject scripts(scope, d->m_data->importedScripts());
     return scripts ? QJSValuePrivate::fromReturnedValue(scripts->get(r.scriptIndex))
                    : QJSValue(QJSValue::UndefinedValue);
 }

@@ -10,6 +10,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcItemViewDelegateLifecycle, "qt.quick.itemview.lifecycle")
+Q_LOGGING_CATEGORY(lcCount, "qt.quick.itemview.count")
 
 // Default cacheBuffer for all views.
 #ifndef QML_VIEW_DEFAULTCACHEBUFFER
@@ -223,7 +224,7 @@ void QQuickItemView::setModel(const QVariant &m)
                 this, SLOT(modelUpdated(QQmlChangeSet,bool)));
         if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model))
             QObjectPrivate::connect(dataModel, &QQmlDelegateModel::delegateChanged, d, &QQuickItemViewPrivate::applyDelegateChange);
-        emit countChanged();
+        d->emitCountChanged();
     }
     emit modelChanged();
     d->moveReason = QQuickItemViewPrivate::Other;
@@ -255,7 +256,7 @@ void QQuickItemView::setDelegate(QQmlComponent *delegate)
         int oldCount = dataModel->count();
         dataModel->setDelegate(delegate);
         if (oldCount != dataModel->count())
-            emit countChanged();
+            d->emitCountChanged();
     }
     emit delegateChanged();
     d->delegateValidated = false;
@@ -1086,8 +1087,7 @@ qreal QQuickItemViewPrivate::calculatedMaxExtent() const
 void QQuickItemViewPrivate::applyDelegateChange()
 {
     releaseVisibleItems(QQmlDelegateModel::NotReusable);
-    releaseItem(currentItem, QQmlDelegateModel::NotReusable);
-    currentItem = nullptr;
+    releaseCurrentItem(QQmlDelegateModel::NotReusable);
     updateSectionCriteria();
     refill();
     moveReason = QQuickItemViewPrivate::SetIndex;
@@ -1124,6 +1124,14 @@ void QQuickItemViewPrivate::showVisibleItems() const
                  << item->item->objectName()
                  << item->position();
     }
+}
+
+// Simplifies debugging of count.
+void QQuickItemViewPrivate::emitCountChanged()
+{
+    Q_Q(QQuickItemView);
+    qCDebug(lcCount).nospace() << "about to emit countChanged for " << q << "; count changed to " << q->count();
+    emit q->countChanged();
 }
 
 void QQuickItemViewPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change,
@@ -1225,7 +1233,7 @@ void QQuickItemView::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
             d->updateTrackedItem();
         }
         d->moveReason = QQuickItemViewPrivate::Other;
-        emit countChanged();
+        d->emitCountChanged();
 #if QT_CONFIG(quick_viewtransitions)
         if (d->transitioner && d->transitioner->populateTransition)
             d->forceLayoutPolish();
@@ -1267,7 +1275,9 @@ void QQuickItemView::trackedPositionChanged()
         return;
     }
 
-    if (d->moveReason == QQuickItemViewPrivate::SetIndex) {
+    const bool needMoveToTrackHighlight = d->autoHighlight || d->highlightRange != NoHighlightRange;
+
+    if (d->moveReason == QQuickItemViewPrivate::SetIndex && needMoveToTrackHighlight) {
         qreal trackedPos = d->trackedItem->position();
         qreal trackedSize = d->trackedItem->size();
         qreal viewPos = d->isContentFlowReversed() ? -d->position()-d->size() : d->position();
@@ -1486,7 +1496,7 @@ void QQuickItemView::componentComplete()
         d->fixupPosition();
     }
     if (d->model && d->model->count())
-        emit countChanged();
+        d->emitCountChanged();
 }
 
 
@@ -1652,8 +1662,7 @@ void QQuickItemViewPrivate::updateCurrent(int modelIndex)
         if (currentItem) {
             if (currentItem->attached)
                 currentItem->attached->setIsCurrentItem(false);
-            releaseItem(currentItem, reusableFlag);
-            currentItem = nullptr;
+            releaseCurrentItem(reusableFlag);
             currentIndex = modelIndex;
             emit q->currentIndexChanged();
             emit q->currentItemChanged();
@@ -1714,10 +1723,9 @@ void QQuickItemViewPrivate::clear(bool onDestruction)
     releasePendingTransition.clear();
 #endif
 
-    auto oldCurrentItem = currentItem;
-    releaseItem(currentItem, QQmlDelegateModel::NotReusable);
-    currentItem = nullptr;
-    if (oldCurrentItem)
+    const bool hadCurrentItem = currentItem != nullptr;
+    releaseCurrentItem(QQmlDelegateModel::NotReusable);
+    if (hadCurrentItem)
         emit q->currentItemChanged();
     createHighlight(onDestruction);
     trackedItem = nullptr;
@@ -1762,7 +1770,7 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
     Q_Q(QQuickItemView);
     if (!model || !model->isValid() || !q->isComponentComplete())
         return;
-    if (q->size().isEmpty() && visibleItems.isEmpty())
+    if (q->size().isNull() && visibleItems.isEmpty())
         return;
     if (!model->count()) {
         updateHeader();
@@ -1787,7 +1795,6 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
         qreal fillTo = to;
 
         bool added = addVisibleItems(fillFrom, fillTo, bufferFrom, bufferTo, false);
-        bool removed = removeNonVisibleItems(bufferFrom, bufferTo);
 
         if (requestedIndex == -1 && buffer && bufferMode != NoBuffer) {
             if (added) {
@@ -1803,6 +1810,8 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
             }
         }
 
+        bool removed = removeNonVisibleItems(bufferFrom, bufferTo);
+
         if (added || removed) {
             markExtentsDirty();
             updateBeginningEnd();
@@ -1813,7 +1822,7 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
         }
 
         if (prevCount != itemCount)
-            emit q->countChanged();
+            emitCountChanged();
     } while (currentChanges.hasPendingChanges() || bufferedChanges.hasPendingChanges());
     storeFirstVisibleItemPosition();
 }
@@ -1860,7 +1869,20 @@ void QQuickItemViewPrivate::layout()
     // viewBounds contains bounds before any add/remove/move operation to the view
     QRectF viewBounds(q->contentX(),  q->contentY(), q->width(), q->height());
 
-    if (!isValid() && !visibleItems.size()) {
+    // We use isNull for the size check, because isEmpty returns true
+    // if either dimension is negative, but apparently we support negative-sized
+    // views (see tst_QQuickListView::resizeView).
+    if ((!isValid() && !visibleItems.size()) || q->size().isNull()) {
+        if (q->size().isNull() && hasPendingChanges()) {
+            // count() refers to the number of items in the model, not in the view
+            // (which is why we don't emit for the !visibleItems.size() case).
+            // If there are pending model changes, emit countChanged in order to
+            // support the use case of QTBUG-129165, where visible is bound to count > 0
+            // and the ListView is in a layout with Layout.preferredHeight bound to
+            // contentHeight. This ensures that a hidden ListView will become visible.
+            emitCountChanged();
+        }
+
         clear();
         setPosition(contentStartOffset());
         updateViewport();
@@ -2120,10 +2142,9 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
         if (currentChanges.currentRemoved && currentItem) {
             if (currentItem->item && currentItem->attached)
                 currentItem->attached->setIsCurrentItem(false);
-            auto oldCurrentItem = currentItem;
-            releaseItem(currentItem, reusableFlag);
-            currentItem = nullptr;
-            if (oldCurrentItem)
+            const bool hadCurrentItem = currentItem != nullptr;
+            releaseCurrentItem(reusableFlag);
+            if (hadCurrentItem)
                 emit q->currentItemChanged();
         }
         if (!currentIndexCleared)
@@ -2136,7 +2157,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
     updateSections();
     if (prevItemCount != itemCount)
-        emit q->countChanged();
+        emitCountChanged();
     if (!visibleAffected && viewportChanged)
         updateViewport();
 
@@ -2478,7 +2499,9 @@ bool QQuickItemViewPrivate::releaseItem(FxViewItem *item, QQmlInstanceModel::Reu
                 // One case where this can happen is moving an item out of one ObjectModel and into another.
                 QQuickItemPrivate::get(item->item)->setCulled(true);
             }
-            if (!isClearing)
+            // If deleteLater was called, the item isn't long for this world and so we shouldn't store references to it.
+            // This can happen when a Repeater is used to populate items in SwipeView's ListView contentItem.
+            if (!isClearing && !QObjectPrivate::get(item->item)->deleteLaterCalled)
                 unrequestedItems.insert(item->item, model->indexOf(item->item, q));
         } else if (flags & QQmlInstanceModel::Destroyed) {
             item->item->setParentItem(nullptr);
@@ -2490,9 +2513,15 @@ bool QQuickItemViewPrivate::releaseItem(FxViewItem *item, QQmlInstanceModel::Reu
     return flags != QQmlInstanceModel::Referenced;
 }
 
-QQuickItem *QQuickItemViewPrivate::createHighlightItem() const
+QQuickItem *QQuickItemViewPrivate::createHighlightItem()
 {
-    return createComponentItem(highlightComponent, 0.0, true);
+    QQuickItem *item = nullptr;
+    if (!inRequest) {
+        inRequest = true;
+        item = createComponentItem(highlightComponent, 0.0, true);
+        inRequest = false;
+    }
+    return item;
 }
 
 QQuickItem *QQuickItemViewPrivate::createComponentItem(QQmlComponent *component, qreal zValue, bool createDefault) const

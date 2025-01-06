@@ -23,11 +23,13 @@
 
 #include "qquickfiledialogimpl_p.h"
 
+#include <QtCore/qpointer.h>
+
 QT_BEGIN_NAMESPACE
 
 class QQuickFileNameFilter;
 
-class Q_QUICKDIALOGS2QUICKIMPL_PRIVATE_EXPORT QQuickFileDialogImplPrivate : public QQuickDialogPrivate
+class Q_QUICKDIALOGS2QUICKIMPL_EXPORT QQuickFileDialogImplPrivate : public QQuickDialogPrivate
 {
 public:
     Q_DECLARE_PUBLIC(QQuickFileDialogImpl)

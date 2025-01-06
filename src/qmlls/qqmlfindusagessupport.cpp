@@ -6,6 +6,7 @@
 #include <QtLanguageServer/private/qlanguageserverspectypes_p.h>
 #include <QtQmlDom/private/qqmldomexternalitems_p.h>
 #include <QtQmlDom/private/qqmldomtop_p.h>
+#include <variant>
 
 QT_BEGIN_NAMESPACE
 
@@ -37,38 +38,24 @@ void QQmlFindUsagesSupport::registerHandlers(QLanguageServer *, QLanguageServerP
 void QQmlFindUsagesSupport::process(QQmlFindUsagesSupport::RequestPointerArgument request)
 {
     QList<QLspSpecification::Location> results;
-    QScopeGuard onExit([&results, &request]() { request->m_response.sendResponse(results); });
+    ResponseScopeGuard guard(results, request->m_response);
 
     auto itemsFound = itemsForRequest(request);
-    if (!itemsFound) {
+    if (guard.setErrorFrom(itemsFound))
         return;
-    }
 
-    auto usages = QQmlLSUtils::findUsagesOf(itemsFound->front().domItem);
+    QQmlLSUtils::ItemLocation &front =
+            std::get<QList<QQmlLSUtils::ItemLocation>>(itemsFound).front();
 
-    QQmlJS::Dom::DomItem files =
-            itemsFound->front().domItem.top().field(QQmlJS::Dom::Fields::qmlFileWithPath);
+    auto usages = QQmlLSUtils::findUsagesOf(front.domItem);
 
-    QHash<QString, QString> codeCache;
+    QQmlJS::Dom::DomItem files = front.domItem.top().field(QQmlJS::Dom::Fields::qmlFileWithPath);
 
-    for (const auto &usage : usages) {
+    // note: ignore usages in filenames here as that is not supported by the protocol.
+    for (const auto &usage : usages.usagesInFile()) {
         QLspSpecification::Location location;
-        location.uri = QUrl::fromLocalFile(usage.filename).toEncoded();
-
-        auto cacheEntry = codeCache.find(usage.filename);
-        if (cacheEntry == codeCache.end()) {
-            auto file = files.key(usage.filename)
-                                .field(QQmlJS::Dom::Fields::currentItem)
-                                .ownerAs<QQmlJS::Dom::QmlFile>();
-            if (!file) {
-                qDebug() << "File" << usage.filename << "not found in DOM! Available files are"
-                         << files.keys();
-                continue;
-            }
-            cacheEntry = codeCache.insert(usage.filename, file->code());
-        }
-
-        location.range = QQmlLSUtils::qmlLocationToLspLocation(cacheEntry.value(), usage.location);
+        location.uri = QUrl::fromLocalFile(usage.filename()).toEncoded();
+        location.range = QQmlLSUtils::qmlLocationToLspLocation(usage);
 
         results.append(location);
     }

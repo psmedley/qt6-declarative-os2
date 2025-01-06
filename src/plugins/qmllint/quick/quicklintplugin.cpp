@@ -37,7 +37,7 @@ bool ForbiddenChildrenPropertyValidatorPass::shouldRun(const QQmlSA::Element &el
     if (!element.parentScope())
         return false;
 
-    for (const auto pair : m_types.asKeyValueRange()) {
+    for (const auto &pair : std::as_const(m_types).asKeyValueRange()) {
         if (element.parentScope().inherits(pair.first))
             return true;
     }
@@ -47,7 +47,7 @@ bool ForbiddenChildrenPropertyValidatorPass::shouldRun(const QQmlSA::Element &el
 
 void ForbiddenChildrenPropertyValidatorPass::run(const QQmlSA::Element &element)
 {
-    for (const auto elementPair : m_types.asKeyValueRange()) {
+    for (const auto &elementPair : std::as_const(m_types).asKeyValueRange()) {
         const QQmlSA::Element &type = elementPair.first;
         if (!element.parentScope().inherits(type))
             continue;
@@ -75,8 +75,13 @@ QString AttachedPropertyTypeValidatorPass::addWarning(TypeDescription attachType
 {
     QVarLengthArray<QQmlSA::Element, 4> elements;
 
-    const QQmlSA::Element baseType = resolveType(attachType.module, attachType.name);
     const QQmlSA::Element attachedType = resolveAttached(attachType.module, attachType.name);
+    if (!attachedType) {
+        emitWarning(
+                "Cannot find attached type for %1/%2"_L1.arg(attachType.module, attachType.name),
+                quickAttachedPropertyType);
+        return QString();
+    }
 
     for (const TypeDescription &desc : allowedTypes) {
         const QQmlSA::Element type = resolveType(desc.module, desc.name);
@@ -434,7 +439,7 @@ VarBindingTypeValidatorPass::VarBindingTypeValidatorPass(
 {
     QMultiHash<QString, QQmlSA::Element> propertyTypes;
 
-    for (const auto pair : expectedPropertyTypes.asKeyValueRange()) {
+    for (const auto &pair : expectedPropertyTypes.asKeyValueRange()) {
         const QQmlSA::Element propType = pair.second.module.isEmpty()
                 ? resolveBuiltinType(pair.second.name)
                 : resolveType(pair.second.module, pair.second.name);
@@ -542,7 +547,7 @@ void AttachedPropertyReuse::onRead(const QQmlSA::Element &element, const QString
                                                            attachedLocation.startLine(),
                                                            attachedLocation.startColumn() };
             QQmlSA::FixSuggestion suggestion{ "Reference it by id instead:"_L1, idInsertLocation,
-                                              id.isEmpty() ? "<id>."_L1 : (id + '.'_L1) };
+                                              id.isEmpty() ? u"<id>."_s : (id + '.'_L1) };
 
             if (id.isEmpty())
                 suggestion.setHint("You first have to give the element an id"_L1);
@@ -552,6 +557,7 @@ void AttachedPropertyReuse::onRead(const QQmlSA::Element &element, const QString
             emitWarning("Using attached type %1 already initialized in a parent scope."_L1.arg(
                                 element.name()),
                         category, attachedLocation, suggestion);
+            return;
         }
 
         return;
@@ -655,6 +661,9 @@ void QmlLintQuickPlugin::registerPasses(QQmlSA::PassManager *manager,
                                   QAnyStringView warning, bool allowInDelegate = false) {
         QString attachedTypeName = attachedPropertyType->addWarning(attachedType, allowedTypes,
                                                                     allowInDelegate, warning);
+        if (attachedTypeName.isEmpty())
+            return;
+
         manager->registerPropertyPass(attachedPropertyType, attachedType.module,
                                       u"$internal$."_s + attachedTypeName, {}, false);
     };
@@ -675,10 +684,10 @@ void QmlLintQuickPlugin::registerPasses(QQmlSA::PassManager *manager,
                              { { "columnWidthProvider", { "", "function" } },
                                { "rowHeightProvider", { "", "function" } } });
         addAttachedWarning({ "QtQuick", "Accessible" }, { { "QtQuick", "Item" } },
-                           "Accessible must be attached to an Item");
+                           "Accessible must be attached to an Item or an Action");
         addAttachedWarning({ "QtQuick", "LayoutMirroring" },
                            { { "QtQuick", "Item" }, { "QtQuick", "Window" } },
-                           "LayoutDirection attached property only works with Items and Windows");
+                           "LayoutMirroring attached property only works with Items and Windows");
         addAttachedWarning({ "QtQuick", "EnterKey" }, { { "QtQuick", "Item" } },
                            "EnterKey attached property only works with Items");
     }
@@ -713,10 +722,6 @@ void QmlLintQuickPlugin::registerPasses(QQmlSA::PassManager *manager,
                            "Attached properties of SwipeDelegate must be accessed through an Item");
         addAttachedWarning({ "QtQuick.Templates", "SwipeView" }, { { "QtQuick", "Item" } },
                            "SwipeView must be attached to an Item");
-        addAttachedWarning(
-                { "QtQuick.Templates", "Tumbler" }, { { "QtQuick", "Tumbler" } },
-                "Tumbler: attached properties of Tumbler must be accessed through a delegate item",
-                true);
         addVarBindingWarning("QtQuick.Templates", "Tumbler",
                              { { "contentItem", { "QtQuick", "PathView" } },
                                { "contentItem", { "QtQuick", "ListView" } } });

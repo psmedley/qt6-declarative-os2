@@ -1,6 +1,8 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
+#undef QT_NO_FOREACH // this file contains unported legacy Q_FOREACH uses
+
 #include "qquickparticleaffector_p.h"
 #include <QDebug>
 #include <private/qqmlglobal_p.h>
@@ -8,7 +10,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype Affector
-//!    \instantiates QQuickParticleAffector
+//!    \nativetype QQuickParticleAffector
     \inqmlmodule QtQuick.Particles
     \brief Applies alterations to the attributes of logical particles at any
     point in their lifetime.

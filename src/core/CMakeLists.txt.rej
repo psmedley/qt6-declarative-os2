@@ -1,0 +1,13 @@
+--- src/core/CMakeLists.txt	2024-03-19 04:29:15.000000000 +1030
++++ src/core/CMakeLists.txt	2024-11-11 22:53:39.000000000 +1030
+@@ -20,9 +20,7 @@
+     PUBLIC_LIBRARIES
+         Qt::Core
+         Qt::Qml
+-    GENERATE_CPP_EXPORTS
+-    GENERATE_PRIVATE_CPP_EXPORTS
+-)
++    )
+ 
+ qt_internal_extend_target(QmlCore CONDITION QT_FEATURE_settings
+     SOURCES

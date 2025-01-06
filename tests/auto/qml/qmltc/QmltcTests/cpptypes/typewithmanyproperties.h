@@ -1,5 +1,5 @@
 // Copyright (C) 2021 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #ifndef PROPERTYALIASATTRIBUTES_H
 #define PROPERTYALIASATTRIBUTES_H
@@ -80,7 +80,7 @@ public:
     QString hasAllAttributes2() { return u"Some Constant string"_s; }
     QString hasAllAttributes() { return m_hasAllAttributes; }
     void setHasAllAttributes(const QString &s) { m_hasAllAttributes = s; }
-    void resetHasAllAttributes() { m_hasAllAttributes = "This value has been reset."; }
+    void resetHasAllAttributes() { m_hasAllAttributes = u"This value has been reset."_s; }
 
 signals:
     void notifiableChanged(const QString &newValue);

@@ -2,19 +2,14 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquickspinbox_p.h"
-#include "qquickcontrol_p_p.h"
-#include "qquickindicatorbutton_p.h"
-#include "qquickdeferredexecute_p_p.h"
 
-#include <QtGui/qguiapplication.h>
-#include <QtGui/qstylehints.h>
+#include <private/qquickcontrol_p_p.h>
+#include <private/qquickindicatorbutton_p.h>
+#include <private/qquicktextinput_p.h>
+
+#include <private/qqmlengine_p.h>
 
 #include <QtQml/qqmlinfo.h>
-#if QT_CONFIG(qml_locale)
-#include <QtQml/private/qqmllocale_p.h>
-#endif
-#include <QtQml/private/qqmlengine_p.h>
-#include <QtQuick/private/qquicktextinput_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -25,7 +20,7 @@ static const int AUTO_REPEAT_INTERVAL = 100;
 /*!
     \qmltype SpinBox
     \inherits Control
-//!     \instantiates QQuickSpinBox
+//!     \nativetype QQuickSpinBox
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup input
@@ -61,6 +56,10 @@ static const int AUTO_REPEAT_INTERVAL = 100;
     \image qtquickcontrols-spinbox-double.png
 
     \snippet qtquickcontrols-spinbox-double.qml 1
+
+    A prefix and suffix can be added using regular expressions:
+
+    \snippet qtquickcontrols-spinbox-prefix.qml 1
 
     \sa Tumbler, {Customizing SpinBox}, {Focus Management in Qt Quick Controls}
 */
@@ -240,7 +239,7 @@ void QQuickSpinBoxPrivate::contentItemTextChanged()
         return;
     QString text = inputTextItem->text();
 #if QT_CONFIG(validator)
-    if (validator)
+    if (validator && live)
         validator->fixup(text);
 #endif
 
@@ -434,7 +433,8 @@ QString QQuickSpinBoxPrivate::evaluateTextFromValue(int val) const
         QJSValue loc;
 #if QT_CONFIG(qml_locale)
         QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
-        loc = QJSValuePrivate::fromReturnedValue(QQmlLocale::wrap(v4, locale));
+        loc = QJSValuePrivate::fromReturnedValue(
+                v4->fromData(QMetaType::fromType<QLocale>(), &locale));
 #endif
         text = textFromValue.call(QJSValueList() << val << loc).toString();
     } else {
@@ -452,7 +452,8 @@ int QQuickSpinBoxPrivate::evaluateValueFromText(const QString &text) const
         QJSValue loc;
 #if QT_CONFIG(qml_locale)
         QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
-        loc = QJSValuePrivate::fromReturnedValue(QQmlLocale::wrap(v4, locale));
+        loc = QJSValuePrivate::fromReturnedValue(
+                v4->fromData(QMetaType::fromType<QLocale>(), &locale));
 #endif
         value = valueFromText.call(QJSValueList() << text << loc).toInt();
     } else {
@@ -467,6 +468,7 @@ QQuickSpinBox::QQuickSpinBox(QQuickItem *parent)
     Q_D(QQuickSpinBox);
     d->up = new QQuickIndicatorButton(this);
     d->down = new QQuickIndicatorButton(this);
+    d->setSizePolicy(QLayoutPolicy::Preferred, QLayoutPolicy::Fixed);
 
     setFlag(ItemIsFocusScope);
     setFiltersChildMouseEvents(true);
@@ -1097,7 +1099,7 @@ void QQuickSpinBox::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
     if (newItem) {
         newItem->setActiveFocusOnTab(true);
         if (d->activeFocus)
-            newItem->forceActiveFocus(d->focusReason);
+            newItem->forceActiveFocus(static_cast<Qt::FocusReason>(d->focusReason));
 #if QT_CONFIG(cursor)
         if (d->editable)
             newItem->setCursor(Qt::IBeamCursor);

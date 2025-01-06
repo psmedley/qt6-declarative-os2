@@ -35,7 +35,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype Animation
-    \instantiates QQuickAbstractAnimation
+    \nativetype QQuickAbstractAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \brief Is the base of all QML animations.
@@ -130,7 +130,8 @@ void QQuickAbstractAnimationPrivate::commence()
     QQmlProperties properties;
 
     auto *newInstance = q->transition(actions, properties, QQuickAbstractAnimation::Forward);
-    Q_ASSERT(newInstance != animationInstance);
+    // transition can return a nullptr; that's the only allowed case were old and new have the same value
+    Q_ASSERT(newInstance != animationInstance || !newInstance);
     delete animationInstance;
     animationInstance = newInstance;
 
@@ -290,6 +291,11 @@ void QQuickAbstractAnimation::setRunning(bool r)
         // Therefore, the state of d->running will in that case be different than r if we are back in
         // the root stack frame of the recursive calls to setRunning()
         emit runningChanged(d->running);
+    } else if (d->animationInstance) {
+        // If there was a recursive call, make sure the d->running is set correctly
+        d->running = d->animationInstance->isRunning();
+    } else {
+        d->running = r;
     }
 }
 
@@ -664,7 +670,7 @@ QQuickAbstractAnimation::ThreadingModel QQuickAbstractAnimation::threadingModel(
 
 /*!
     \qmltype PauseAnimation
-    \instantiates QQuickPauseAnimation
+    \nativetype QQuickPauseAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \inherits Animation
@@ -737,7 +743,7 @@ QAbstractAnimationJob* QQuickPauseAnimation::transition(QQuickStateActions &acti
 
 /*!
     \qmltype ColorAnimation
-    \instantiates QQuickColorAnimation
+    \nativetype QQuickColorAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-animation-properties
     \inherits PropertyAnimation
@@ -895,7 +901,7 @@ void QActionAnimation::debugAnimation(QDebug d) const
 
 /*!
     \qmltype ScriptAction
-    \instantiates QQuickScriptAction
+    \nativetype QQuickScriptAction
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \inherits Animation
@@ -1038,7 +1044,7 @@ QAbstractAnimationJob* QQuickScriptAction::transition(QQuickStateActions &action
 
 /*!
     \qmltype PropertyAction
-    \instantiates QQuickPropertyAction
+    \nativetype QQuickPropertyAction
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \inherits Animation
@@ -1075,7 +1081,7 @@ QAbstractAnimationJob* QQuickScriptAction::transition(QQuickStateActions &action
     PropertyAction object) so that the rotation animation begins with the
     correct transform origin.
 
-    \sa {Animation and Transitions in Qt Quick}, {Qt QML}
+    \sa {Animation and Transitions in Qt Quick}, {Qt Qml}
 */
 QQuickPropertyAction::QQuickPropertyAction(QObject *parent)
 : QQuickAbstractAnimation(*(new QQuickPropertyActionPrivate), parent)
@@ -1188,7 +1194,7 @@ QVariant QQuickPropertyAction::value() const
 void QQuickPropertyAction::setValue(const QVariant &v)
 {
     Q_D(QQuickPropertyAction);
-    if (d->value.isNull || d->value != v) {
+    if (!d->value.isValid() || d->value != v) {
         d->value = v;
         emit valueChanged(v);
     }
@@ -1305,7 +1311,7 @@ QAbstractAnimationJob* QQuickPropertyAction::transition(QQuickStateActions &acti
 
 /*!
     \qmltype NumberAnimation
-    \instantiates QQuickNumberAnimation
+    \nativetype QQuickNumberAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-animation-properties
     \inherits PropertyAnimation
@@ -1418,7 +1424,7 @@ void QQuickNumberAnimation::setTo(qreal t)
 
 /*!
     \qmltype Vector3dAnimation
-    \instantiates QQuickVector3dAnimation
+    \nativetype QQuickVector3dAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-animation-properties
     \inherits PropertyAnimation
@@ -1495,7 +1501,7 @@ void QQuickVector3dAnimation::setTo(QVector3D t)
 
 /*!
     \qmltype RotationAnimation
-    \instantiates QQuickRotationAnimation
+    \nativetype QQuickRotationAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-animation-properties
     \inherits PropertyAnimation
@@ -1804,7 +1810,7 @@ QQmlListProperty<QQuickAbstractAnimation> QQuickAnimationGroup::animations()
 
 /*!
     \qmltype SequentialAnimation
-    \instantiates QQuickSequentialAnimation
+    \nativetype QQuickSequentialAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \inherits Animation
@@ -1898,7 +1904,7 @@ QAbstractAnimationJob* QQuickSequentialAnimation::transition(QQuickStateActions 
 
 /*!
     \qmltype ParallelAnimation
-    \instantiates QQuickParallelAnimation
+    \nativetype QQuickParallelAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \inherits Animation
@@ -2087,7 +2093,7 @@ void QQuickBulkValueAnimator::debugAnimation(QDebug d) const
 
 /*!
     \qmltype PropertyAnimation
-    \instantiates QQuickPropertyAnimation
+    \nativetype QQuickPropertyAnimation
     \inqmlmodule QtQuick
     \ingroup qtquick-animation-properties
     \inherits Animation

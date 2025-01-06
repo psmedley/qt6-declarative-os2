@@ -24,7 +24,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKPARTICLES_PRIVATE_EXPORT QQuickCustomAffector : public QQuickParticleAffector
+class Q_QUICKPARTICLES_EXPORT QQuickCustomAffector : public QQuickParticleAffector
 {
     Q_OBJECT
     Q_PROPERTY(bool relative READ relative WRITE setRelative NOTIFY relativeChanged)
@@ -75,7 +75,7 @@ public:
 
 
 Q_SIGNALS:
-    void affectParticles(const QJSValue &particles, qreal dt);
+    void affectParticles(const QList<QQuickV4ParticleData> &particles, qreal dt);
 
     void positionChanged(QQuickDirection * arg);
 

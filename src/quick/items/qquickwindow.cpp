@@ -8,6 +8,7 @@
 #include "qquickitem_p.h"
 #include "qquickevents_p_p.h"
 #include "qquickgraphicsdevice_p.h"
+#include "qquickwindowcontainer_p.h"
 
 #include <QtQuick/private/qsgrenderer_p.h>
 #include <QtQuick/private/qsgplaintexture_p.h>
@@ -37,11 +38,12 @@
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/private/qqmlmetatype_p.h>
 
-#include <QtQuick/private/qquickpixmapcache_p.h>
+#include <QtQuick/private/qquickpixmap_p.h>
 
 #include <private/qqmldebugserviceinterfaces_p.h>
 #include <private/qqmldebugconnector_p.h>
 #include <private/qsgdefaultrendercontext_p.h>
+#include <private/qsgsoftwarerenderer_p.h>
 #if QT_CONFIG(opengl)
 #include <private/qopengl_p.h>
 #include <QOpenGLContext>
@@ -49,8 +51,12 @@
 #ifndef QT_NO_DEBUG_STREAM
 #include <private/qdebug_p.h>
 #endif
+#include <QtCore/qpointer.h>
 
 #include <rhi/qrhi.h>
+
+#include <utility>
+#include <mutex>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,6 +65,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcMouse)
 Q_DECLARE_LOGGING_CATEGORY(lcTouch)
 Q_DECLARE_LOGGING_CATEGORY(lcPtr)
 Q_LOGGING_CATEGORY(lcDirty, "qt.quick.dirty")
+Q_LOGGING_CATEGORY(lcQuickWindow, "qt.quick.window")
 Q_LOGGING_CATEGORY(lcTransient, "qt.quick.window.transient")
 
 bool QQuickWindowPrivate::defaultAlphaBuffer = false;
@@ -82,8 +89,8 @@ public:
 
         QAnimationDriver *animationDriver = m_renderLoop->animationDriver();
         if (animationDriver) {
-            connect(animationDriver, SIGNAL(stopped()), this, SLOT(animationStopped()));
-            connect(m_renderLoop, SIGNAL(timeToIncubate()), this, SLOT(incubate()));
+            connect(animationDriver, &QAnimationDriver::stopped, this, &QQuickWindowIncubationController::animationStopped);
+            connect(m_renderLoop, &QSGRenderLoop::timeToIncubate, this, &QQuickWindowIncubationController::incubate);
         }
     }
 
@@ -286,37 +293,31 @@ struct PolishLoopDetector
         if (itemsToPolish.size() > itemsRemainingBeforeUpdatePolish) {
             // Detected potential polish loop.
             ++numPolishLoopsInSequence;
-            if (numPolishLoopsInSequence >= 1000) {
+            if (numPolishLoopsInSequence == 10000) {
+                // We have looped 10,000 times without actually reducing the list of items to
+                // polish, give up for now.
+                // This is not a fix, just a remedy so that the application can be somewhat
+                // responsive.
+                numPolishLoopsInSequence = 0;
+                return true;
+            }
+            if (numPolishLoopsInSequence >= 1000 && numPolishLoopsInSequence < 1005) {
                 // Start to warn about polish loop after 1000 consecutive polish loops
-                if (numPolishLoopsInSequence == 100000) {
-                    // We have looped 100,000 times without actually reducing the list of items to
-                    // polish, give up for now.
-                    // This is not a fix, just a remedy so that the application can be somewhat
-                    // responsive.
-                    numPolishLoopsInSequence = 0;
-                    return true;
-                } else if (numPolishLoopsInSequence < 1005) {
-                    // Show the 5 next items involved in the polish loop.
-                    // (most likely they will be the same 5 items...)
-                    QQuickItem *guiltyItem = itemsToPolish.last();
-                    qmlWarning(item) << "possible QQuickItem::polish() loop";
+                // Show the 5 next items involved in the polish loop.
+                // (most likely they will be the same 5 items...)
+                QQuickItem *guiltyItem = itemsToPolish.last();
+                qmlWarning(item) << "possible QQuickItem::polish() loop";
 
-                    auto typeAndObjectName = [](QQuickItem *item) {
-                        QString typeName = QQmlMetaType::prettyTypeName(item);
-                        QString objName = item->objectName();
-                        if (!objName.isNull())
-                            return QLatin1String("%1(%2)").arg(typeName, objName);
-                        return typeName;
-                    };
+                auto typeAndObjectName = [](QQuickItem *item) {
+                    QString typeName = QQmlMetaType::prettyTypeName(item);
+                    QString objName = item->objectName();
+                    if (!objName.isNull())
+                        return QLatin1String("%1(%2)").arg(typeName, objName);
+                    return typeName;
+                };
 
-                    qmlWarning(guiltyItem) << typeAndObjectName(guiltyItem)
-                               << " called polish() inside updatePolish() of " << typeAndObjectName(item);
-
-                    if (numPolishLoopsInSequence == 1004)
-                        // Enough warnings. Reset counter in order to speed things up and re-detect
-                        // more loops
-                        numPolishLoopsInSequence = 0;
-                }
+                qmlWarning(guiltyItem) << typeAndObjectName(guiltyItem)
+                            << " called polish() inside updatePolish() of " << typeAndObjectName(item);
             }
         } else {
             numPolishLoopsInSequence = 0;
@@ -360,6 +361,11 @@ void QQuickWindowPrivate::polishItems()
             deliveryAgentPrivate()->updateFocusItemTransform();
     }
 #endif
+
+    if (needsChildWindowStackingOrderUpdate) {
+        updateChildWindowStackingOrder();
+        needsChildWindowStackingOrderUpdate = false;
+    }
 }
 
 /*!
@@ -448,27 +454,37 @@ void forceUpdate(QQuickItem *item)
         forceUpdate(items.at(i));
 }
 
-void QQuickWindowRenderTarget::reset(QRhi *rhi)
+void QQuickWindowRenderTarget::reset(QRhi *rhi, ResetFlags flags)
 {
-    if (owns) {
-        if (rhi) {
-            delete renderTarget;
-            delete rpDesc;
-            delete texture;
-            delete renderBuffer;
-            delete depthStencil;
-        }
+    if (rhi) {
+        if (rt.owns)
+            delete rt.renderTarget;
 
-        delete paintDevice;
+        delete res.texture;
+        delete res.renderBuffer;
+        delete res.rpDesc;
     }
 
-    renderTarget = nullptr;
-    rpDesc = nullptr;
-    texture = nullptr;
-    renderBuffer = nullptr;
-    depthStencil = nullptr;
-    paintDevice = nullptr;
-    owns = false;
+    rt = {};
+    res = {};
+
+    if (!flags.testFlag(ResetFlag::KeepImplicitBuffers))
+        implicitBuffers.reset(rhi);
+
+    if (sw.owns)
+        delete sw.paintDevice;
+
+    sw = {};
+}
+
+void QQuickWindowRenderTarget::ImplicitBuffers::reset(QRhi *rhi)
+{
+    if (rhi) {
+        delete depthStencil;
+        delete depthStencilTexture;
+        delete multisampleTexture;
+    }
+    *this = {};
 }
 
 void QQuickWindowPrivate::invalidateFontData(QQuickItem *item)
@@ -485,19 +501,18 @@ void QQuickWindowPrivate::invalidateFontData(QQuickItem *item)
 void QQuickWindowPrivate::ensureCustomRenderTarget()
 {
     // resolve() can be expensive when importing an existing native texture, so
-    // it is important to only do it when the QQuickRenderTarget* was really changed
+    // it is important to only do it when the QQuickRenderTarget was really changed.
     if (!redirect.renderTargetDirty)
         return;
 
     redirect.renderTargetDirty = false;
 
-    redirect.rt.reset(rhi);
+    redirect.rt.reset(rhi, QQuickWindowRenderTarget::ResetFlag::KeepImplicitBuffers);
 
-    // a default constructed QQuickRenderTarget means no redirection
-    if (customRenderTarget.isNull())
-        return;
-
-    QQuickRenderTargetPrivate::get(&customRenderTarget)->resolve(rhi, &redirect.rt);
+    if (!QQuickRenderTargetPrivate::get(&customRenderTarget)->resolve(rhi, &redirect.rt)) {
+        qWarning("Failed to set up render target redirection for QQuickWindow");
+        redirect.rt.reset(rhi);
+    }
 }
 
 void QQuickWindowPrivate::setCustomCommandBuffer(QRhiCommandBuffer *cb)
@@ -510,6 +525,7 @@ void QQuickWindowPrivate::syncSceneGraph()
 {
     Q_Q(QQuickWindow);
 
+    const bool wasRtDirty = redirect.renderTargetDirty;
     ensureCustomRenderTarget();
 
     QRhiCommandBuffer *cb = nullptr;
@@ -531,7 +547,7 @@ void QQuickWindowPrivate::syncSceneGraph()
         invalidateFontData(contentItem);
     }
 
-    if (!renderer) {
+    if (Q_UNLIKELY(!renderer)) {
         forceUpdate(contentItem);
 
         QSGRootNode *rootNode = new QSGRootNode;
@@ -541,19 +557,17 @@ void QQuickWindowPrivate::syncSceneGraph()
                                                                      : QSGRendererInterface::RenderMode2DNoDepthBuffer;
         renderer = context->createRenderer(renderMode);
         renderer->setRootNode(rootNode);
+    } else if (Q_UNLIKELY(wasRtDirty)
+               && q->rendererInterface()->graphicsApi() == QSGRendererInterface::Software) {
+        auto softwareRenderer = static_cast<QSGSoftwareRenderer *>(renderer);
+        softwareRenderer->markDirty();
     }
 
     updateDirtyNodes();
 
     animationController->afterNodeSync();
 
-    // Copy the current state of clearing from window into renderer.
     renderer->setClearColor(clearColor);
-    // Cannot skip clearing the color buffer in Qt 6 anymore.
-    const QSGAbstractRenderer::ClearMode mode = QSGAbstractRenderer::ClearColorBuffer
-                                                | QSGAbstractRenderer::ClearStencilBuffer
-                                                | QSGAbstractRenderer::ClearDepthBuffer;
-    renderer->setClearMode(mode);
 
     renderer->setVisualizationMode(visualizationMode);
 
@@ -578,6 +592,30 @@ void QQuickWindowPrivate::emitAfterRenderPassRecording(void *ud)
     emit w->afterRenderPassRecording();
 }
 
+int QQuickWindowPrivate::multiViewCount()
+{
+    if (rhi) {
+        ensureCustomRenderTarget();
+        if (redirect.rt.rt.renderTarget)
+            return redirect.rt.rt.multiViewCount;
+    }
+
+    // Note that on QRhi level 0 and 1 are often used interchangeably, as both mean
+    // no-multiview. Here in Qt Quick let's always use 1 as the default
+    // (no-multiview), so that higher layers (effects, materials) do not need to
+    // handle both 0 and 1, only 1.
+    return 1;
+}
+
+QRhiRenderTarget *QQuickWindowPrivate::activeCustomRhiRenderTarget()
+{
+    if (rhi) {
+        ensureCustomRenderTarget();
+        return redirect.rt.rt.renderTarget;
+    }
+    return nullptr;
+}
+
 void QQuickWindowPrivate::renderSceneGraph()
 {
     Q_Q(QQuickWindow);
@@ -591,8 +629,8 @@ void QQuickWindowPrivate::renderSceneGraph()
         QRhiRenderTarget *rt;
         QRhiRenderPassDescriptor *rp;
         QRhiCommandBuffer *cb;
-        if (redirect.rt.renderTarget) {
-            rt = redirect.rt.renderTarget;
+        if (redirect.rt.rt.renderTarget) {
+            rt = redirect.rt.rt.renderTarget;
             rp = rt->renderPassDescriptor();
             if (!rp) {
                 qWarning("Custom render target is set but no renderpass descriptor has been provided.");
@@ -613,8 +651,9 @@ void QQuickWindowPrivate::renderSceneGraph()
             cb = swapchain->currentFrameCommandBuffer();
         }
         sgRenderTarget = QSGRenderTarget(rt, rp, cb);
+        sgRenderTarget.multiViewCount = multiViewCount();
     } else {
-        sgRenderTarget = QSGRenderTarget(redirect.rt.paintDevice);
+        sgRenderTarget = QSGRenderTarget(redirect.rt.sw.paintDevice);
     }
 
     context->beginNextFrame(renderer,
@@ -629,10 +668,10 @@ void QQuickWindowPrivate::renderSceneGraph()
 
     const qreal devicePixelRatio = q->effectiveDevicePixelRatio();
     QSize pixelSize;
-    if (redirect.rt.renderTarget)
-        pixelSize = redirect.rt.renderTarget->pixelSize();
-    else if (redirect.rt.paintDevice)
-        pixelSize = QSize(redirect.rt.paintDevice->width(), redirect.rt.paintDevice->height());
+    if (redirect.rt.rt.renderTarget)
+        pixelSize = redirect.rt.rt.renderTarget->pixelSize();
+    else if (redirect.rt.sw.paintDevice)
+        pixelSize = QSize(redirect.rt.sw.paintDevice->width(), redirect.rt.sw.paintDevice->height());
     else if (rhi)
         pixelSize = swapchain->currentPixelSize();
     else // software or other backend
@@ -678,7 +717,6 @@ QQuickWindowPrivate::QQuickWindowPrivate()
     , clearColor(Qt::white)
     , persistentGraphics(true)
     , persistentSceneGraph(true)
-    , componentComplete(true)
     , inDestructor(false)
     , incubationController(nullptr)
     , hasActiveSwapchain(false)
@@ -695,6 +733,24 @@ QQuickWindowPrivate::~QQuickWindowPrivate()
     if (QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>())
         service->removeWindow(q_func());
     deliveryAgent = nullptr;
+}
+
+void QQuickWindowPrivate::setPalette(QQuickPalette* palette)
+{
+    if (windowPaletteRef == palette)
+        return;
+
+    if (windowPaletteRef)
+        disconnect(windowPaletteRef, &QQuickPalette::changed, this, &QQuickWindowPrivate::updateWindowPalette);
+    windowPaletteRef = palette;
+    updateWindowPalette();
+    if (windowPaletteRef)
+        connect(windowPaletteRef, &QQuickPalette::changed, this, &QQuickWindowPrivate::updateWindowPalette);
+}
+
+void QQuickWindowPrivate::updateWindowPalette()
+{
+    QQuickPaletteProviderPrivateBase::setPalette(windowPaletteRef);
 }
 
 void QQuickWindowPrivate::updateChildrenPalettes(const QPalette &parentPalette)
@@ -764,15 +820,14 @@ void QQuickWindowPrivate::init(QQuickWindow *c, QQuickRenderControl *control)
 
     animationController.reset(new QQuickAnimatorController(q));
 
-    QObject::connect(context, SIGNAL(initialized()), q, SIGNAL(sceneGraphInitialized()), Qt::DirectConnection);
-    QObject::connect(context, SIGNAL(invalidated()), q, SIGNAL(sceneGraphInvalidated()), Qt::DirectConnection);
-    QObject::connect(context, SIGNAL(invalidated()), q, SLOT(cleanupSceneGraph()), Qt::DirectConnection);
+    QObject::connect(context, &QSGRenderContext::initialized, q, &QQuickWindow::sceneGraphInitialized, Qt::DirectConnection);
+    QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::sceneGraphInvalidated, Qt::DirectConnection);
+    QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::cleanupSceneGraph, Qt::DirectConnection);
 
-    QObject::connect(q, SIGNAL(focusObjectChanged(QObject*)), q, SIGNAL(activeFocusItemChanged()));
-    QObject::connect(q, SIGNAL(screenChanged(QScreen*)), q, SLOT(handleScreenChanged(QScreen*)));
-    QObject::connect(qApp, SIGNAL(applicationStateChanged(Qt::ApplicationState)),
-                     q, SLOT(handleApplicationStateChanged(Qt::ApplicationState)));
-    QObject::connect(q, SIGNAL(frameSwapped()), q, SLOT(runJobsAfterSwap()), Qt::DirectConnection);
+    QObject::connect(q, &QQuickWindow::focusObjectChanged, q, &QQuickWindow::activeFocusItemChanged);
+    QObject::connect(q, &QQuickWindow::screenChanged, q, &QQuickWindow::handleScreenChanged);
+    QObject::connect(qApp, &QGuiApplication::applicationStateChanged, q, &QQuickWindow::handleApplicationStateChanged);
+    QObject::connect(q, &QQuickWindow::frameSwapped, q, &QQuickWindow::runJobsAfterSwap, Qt::DirectConnection);
 
     if (QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>())
         service->addWindow(q);
@@ -795,18 +850,27 @@ void QQuickWindow::handleApplicationStateChanged(Qt::ApplicationState state)
 
 QQmlListProperty<QObject> QQuickWindowPrivate::data()
 {
-    return QQmlListProperty<QObject>(q_func(), nullptr,
-                                     QQuickWindowPrivate::data_append,
-                                     QQuickWindowPrivate::data_count,
-                                     QQuickWindowPrivate::data_at,
-                                     QQuickWindowPrivate::data_clear,
-                                     QQuickWindowPrivate::data_replace,
-                                     QQuickWindowPrivate::data_removeLast);
+    QQmlListProperty<QObject> ret;
+
+    ret.object = q_func();
+    ret.append = QQuickWindowPrivate::data_append;
+    ret.count = QQuickWindowPrivate::data_count;
+    ret.at = QQuickWindowPrivate::data_at;
+    ret.clear = QQuickWindowPrivate::data_clear;
+    // replace is not supported by QQuickItem. Don't synthesize it.
+    ret.removeLast = QQuickWindowPrivate::data_removeLast;
+
+    return ret;
 }
 
-void QQuickWindowPrivate::dirtyItem(QQuickItem *)
+void QQuickWindowPrivate::dirtyItem(QQuickItem *item)
 {
     Q_Q(QQuickWindow);
+
+    QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(item);
+    if (itemPriv->dirtyAttributes & QQuickItemPrivate::ChildrenStackingChanged)
+        needsChildWindowStackingOrderUpdate = true;
+
     q->maybeUpdate();
 }
 
@@ -845,7 +909,7 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
 
 /*!
     \qmltype Window
-    \instantiates QQuickWindow
+    \nativetype QQuickWindow
     \inqmlmodule QtQuick
     \ingroup qtquick-visual
     \brief Creates a new top-level window.
@@ -885,6 +949,22 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
     // The confirmExitPopup allows user to save or discard the document,
     // or to cancel the closing.
     \endcode
+
+    \section1 Styling
+
+    As with all visual types in Qt Quick, Window supports
+    \l {palette}{palettes}. However, as with types like \l Text, Window does
+    not use palettes by default. For example, to change the background color
+    of the window when the operating system's theme changes, the \l color must
+    be set:
+
+    \snippet qml/windowPalette.qml declaration-and-color
+    \codeline
+    \snippet qml/windowPalette.qml text-item
+    \snippet qml/windowPalette.qml closing-brace
+
+    Use \l {ApplicationWindow} (and \l {Label}) from \l {Qt Quick Controls}
+    instead of Window to get automatic styling.
 */
 
 /*!
@@ -1115,18 +1195,15 @@ QQuickWindow::~QQuickWindow()
     delete root;
     d->deliveryAgent = nullptr; // avoid forwarding events there during destruction
 
-    d->renderJobMutex.lock();
-    qDeleteAll(d->beforeSynchronizingJobs);
-    d->beforeSynchronizingJobs.clear();
-    qDeleteAll(d->afterSynchronizingJobs);
-    d->afterSynchronizingJobs.clear();
-    qDeleteAll(d->beforeRenderingJobs);
-    d->beforeRenderingJobs.clear();
-    qDeleteAll(d->afterRenderingJobs);
-    d->afterRenderingJobs.clear();
-    qDeleteAll(d->afterSwapJobs);
-    d->afterSwapJobs.clear();
-    d->renderJobMutex.unlock();
+
+    {
+        const std::lock_guard locker(d->renderJobMutex);
+        qDeleteAll(std::exchange(d->beforeSynchronizingJobs, {}));
+        qDeleteAll(std::exchange(d->afterSynchronizingJobs, {}));
+        qDeleteAll(std::exchange(d->beforeRenderingJobs, {}));
+        qDeleteAll(std::exchange(d->afterRenderingJobs, {}));;
+        qDeleteAll(std::exchange(d->afterSwapJobs, {}));
+    }
 
     // It is important that the pixmap cache is cleaned up during shutdown.
     // Besides playing nice, this also solves a practical problem that
@@ -1330,41 +1407,6 @@ QObject *QQuickWindow::focusObject() const
     return const_cast<QQuickWindow*>(this);
 }
 
-/*!
-    \internal
-
-    Clears all exclusive and passive grabs for the points in \a pointerEvent.
-
-    We never allow any kind of grab to persist after release, unless we're waiting
-    for a synth event from QtGui (as with most tablet events), so for points that
-    are fully released, the grab is cleared.
-
-    Called when QQuickWindow::event dispatches events, or when the QQuickOverlay
-    has filtered an event so that it bypasses normal delivery.
-*/
-void QQuickWindowPrivate::clearGrabbers(QPointerEvent *pointerEvent)
-{
-    if (pointerEvent->isEndEvent()
-        && !(QQuickDeliveryAgentPrivate::isTabletEvent(pointerEvent)
-             && (qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTabletEvents)
-                 || QWindowSystemInterfacePrivate::TabletEvent::platformSynthesizesMouse))) {
-        if (pointerEvent->isSinglePointEvent()) {
-            if (static_cast<QSinglePointEvent *>(pointerEvent)->buttons() == Qt::NoButton) {
-                auto &firstPt = pointerEvent->point(0);
-                pointerEvent->setExclusiveGrabber(firstPt, nullptr);
-                pointerEvent->clearPassiveGrabbers(firstPt);
-            }
-        } else {
-            for (auto &point : pointerEvent->points()) {
-                if (point.state() == QEventPoint::State::Released) {
-                    pointerEvent->setExclusiveGrabber(point, nullptr);
-                    pointerEvent->clearPassiveGrabbers(point);
-                }
-            }
-        }
-    }
-}
-
 /*! \reimp */
 bool QQuickWindow::event(QEvent *event)
 {
@@ -1507,7 +1549,7 @@ bool QQuickWindow::event(QEvent *event)
         // or fix QTBUG-90851 so that the event always has points?
         bool ret = (da && da->event(event));
 
-        d->clearGrabbers(pe);
+        d->deliveryAgentPrivate()->clearGrabbers(pe);
 
         if (ret)
             return true;
@@ -1567,6 +1609,23 @@ bool QQuickWindow::event(QEvent *event)
     case QEvent::DevicePixelRatioChange:
         physicalDpiChanged();
         break;
+    case QEvent::ChildWindowAdded: {
+        auto *childEvent = static_cast<QChildWindowEvent*>(event);
+        auto *childWindow = childEvent->child();
+        qCDebug(lcQuickWindow) << "Child window" << childWindow << "added to" << this;
+        if (childWindow->handle()) {
+            // The reparenting has already resulted in the native window
+            // being added to its parent, on top of all other windows. We need
+            // to do a synchronous re-stacking of the windows here, to avoid
+            // leaving the window in the wrong position while waiting for the
+            // asynchronous callback to QQuickWindow::polishItems().
+            d->updateChildWindowStackingOrder();
+        } else {
+            qCDebug(lcQuickWindow) << "No platform window yet."
+                << "Deferring child window stacking until surface creation";
+        }
+        break;
+    }
     default:
         break;
     }
@@ -1580,6 +1639,35 @@ bool QQuickWindow::event(QEvent *event)
         return true;
     else
         return QWindow::event(event);
+}
+
+void QQuickWindowPrivate::updateChildWindowStackingOrder(QQuickItem *item)
+{
+    Q_Q(QQuickWindow);
+
+    if (!item) {
+        qCDebug(lcQuickWindow) << "Updating child window stacking order for" << q;
+        item = contentItem;
+    }
+    auto *itemPrivate = QQuickItemPrivate::get(item);
+    const auto paintOrderChildItems = itemPrivate->paintOrderChildItems();
+    for (auto *child : paintOrderChildItems) {
+        if (auto *windowContainer = qobject_cast<QQuickWindowContainer*>(child)) {
+            auto *window = windowContainer->containedWindow();
+            if (!window) {
+                qCDebug(lcQuickWindow) << windowContainer << "has no contained window yet";
+                continue;
+            }
+            if (window->parent() != q) {
+                qCDebug(lcQuickWindow) << window << "is not yet child of this window";
+                continue;
+            }
+            qCDebug(lcQuickWindow) << "Raising" << window << "owned by" << windowContainer;
+            window->raise();
+        }
+
+        updateChildWindowStackingOrder(child);
+    }
 }
 
 /*! \reimp */
@@ -1739,6 +1827,41 @@ void QQuickWindowPrivate::clearFocusObject()
         da->clearFocusObject();
 }
 
+void QQuickWindowPrivate::setFocusToTarget(FocusTarget target, Qt::FocusReason reason)
+{
+    if (!contentItem)
+        return;
+
+    QQuickItem *newFocusItem = nullptr;
+    switch (target) {
+    case FocusTarget::First:
+    case FocusTarget::Last: {
+        const bool forward = (target == FocusTarget::First);
+        newFocusItem = QQuickItemPrivate::nextPrevItemInTabFocusChain(contentItem, forward);
+        if (newFocusItem) {
+            const auto *itemPriv = QQuickItemPrivate::get(newFocusItem);
+            if (itemPriv->subFocusItem && itemPriv->flags & QQuickItem::ItemIsFocusScope)
+                clearFocusInScope(newFocusItem, itemPriv->subFocusItem, reason);
+        }
+        break;
+    }
+    case FocusTarget::Next:
+    case FocusTarget::Prev: {
+        const auto da = deliveryAgentPrivate();
+        Q_ASSERT(da);
+        QQuickItem *focusItem = da->focusTargetItem() ? da->focusTargetItem() : contentItem;
+        bool forward = (target == FocusTarget::Next);
+        newFocusItem = QQuickItemPrivate::nextPrevItemInTabFocusChain(focusItem, forward);
+        break;
+    }
+    default:
+        break;
+    }
+
+    if (newFocusItem)
+        newFocusItem->forceActiveFocus(reason);
+}
+
 /*!
     \qmlproperty list<QtObject> Window::data
     \qmldefault
@@ -1768,10 +1891,6 @@ void QQuickWindowPrivate::data_append(QQmlListProperty<QObject> *property, QObje
     if (!o)
         return;
     QQuickWindow *that = static_cast<QQuickWindow *>(property->object);
-    if (QQuickWindow *window = qmlobject_cast<QQuickWindow *>(o)) {
-        qCDebug(lcTransient) << window << "is transient for" << that;
-        window->setTransientParent(that);
-    }
     QQmlListProperty<QObject> itemProperty = QQuickItemPrivate::get(that->contentItem())->data();
     itemProperty.append(&itemProperty, o);
 }
@@ -1799,13 +1918,6 @@ void QQuickWindowPrivate::data_clear(QQmlListProperty<QObject> *property)
     itemProperty.clear(&itemProperty);
 }
 
-void QQuickWindowPrivate::data_replace(QQmlListProperty<QObject> *property, qsizetype i, QObject *o)
-{
-    QQuickWindow *win = static_cast<QQuickWindow*>(property->object);
-    QQmlListProperty<QObject> itemProperty = QQuickItemPrivate::get(win->contentItem())->data();
-    itemProperty.replace(&itemProperty, i, o);
-}
-
 void QQuickWindowPrivate::data_removeLast(QQmlListProperty<QObject> *property)
 {
     QQuickWindow *win = static_cast<QQuickWindow*>(property->object);
@@ -1831,9 +1943,7 @@ void QQuickWindowPrivate::rhiCreationFailureMessage(const QString &backendName,
 
 void QQuickWindowPrivate::cleanupNodes()
 {
-    for (int ii = 0; ii < cleanupNodeList.size(); ++ii)
-        delete cleanupNodeList.at(ii);
-    cleanupNodeList.clear();
+    qDeleteAll(std::exchange(cleanupNodeList, {}));
 }
 
 void QQuickWindowPrivate::cleanupNodesOnShutdown(QQuickItem *item)
@@ -2237,14 +2347,6 @@ void QQuickWindow::cleanupSceneGraph()
     d->runAndClearJobs(&d->afterSwapJobs);
 }
 
-void QQuickWindow::setTransientParent_helper(QQuickWindow *window)
-{
-    qCDebug(lcTransient) << this << "is transient for" << window;
-    setTransientParent(window);
-    disconnect(sender(), SIGNAL(windowChanged(QQuickWindow*)),
-               this, SLOT(setTransientParent_helper(QQuickWindow*)));
-}
-
 QOpenGLContext *QQuickWindowPrivate::openglContext()
 {
 #if QT_CONFIG(opengl)
@@ -2360,7 +2462,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
 */
 /*!
     \qmltype CloseEvent
-    \instantiates QQuickCloseEvent
+    \nativetype QQuickCloseEvent
     \inqmlmodule QtQuick
     \ingroup qtquick-visual
     \brief Notification that a \l Window is about to be closed.
@@ -2674,9 +2776,16 @@ QQmlIncubationController *QQuickWindow::incubationController() const
     text. Using such features in combination with the NativeTextRendering
     render type will lend poor and sometimes pixelated results.
 
-    \value QtTextRendering Use Qt's own rasterization algorithm.
+    Both \c QtTextRendering and \c CurveTextRendering are hardware-accelerated techniques.
+    \c QtTextRendering is the faster of the two, but uses more memory and will exhibit rendering
+    artifacts at large sizes. \c CurveTextRendering should be considered as an alternative in cases
+    where \c QtTextRendering does not give good visual results or where reducing graphics memory
+    consumption is a priority.
 
+    \value QtTextRendering Use Qt's own rasterization algorithm.
     \value NativeTextRendering Use the operating system's native rasterizer for text.
+    \value CurveTextRendering  Text is rendered using a curve rasterizer running directly on
+                               the graphics hardware. (Introduced in Qt 6.7.0.)
 */
 
 /*!
@@ -3581,14 +3690,21 @@ void QQuickWindow::endExternalCommands()
     shown, that minimizing the parent window will also minimize the transient
     window, and so on; however results vary somewhat from platform to platform.
 
-    Declaring a Window inside an Item or inside another Window will automatically
-    set up a transient parent relationship to the containing Item or Window,
+    Declaring a Window inside an Item or another Window, either via the
+    \l{Window::data}{default property} or a dedicated property, will automatically
+    set up a transient parent relationship to the containing window,
     unless the \l transientParent property is explicitly set. This applies
-    when creating Window items via \l Qt.createComponent or \l Qt.createQmlObject
-    as well, if an Item or Window is passed as the \c parent argument.
+    when creating Window items via \l [QML] {QtQml::Qt::createComponent()}
+    {Qt.createComponent} or \l [QML] {QtQml::Qt::createQmlObject()}
+    {Qt.createQmlObject} as well, as long as an Item or Window is passed
+    as the \c parent argument.
 
     A Window with a transient parent will not be shown until its transient
-    parent is shown, even if the \l visible property is \c true. Setting
+    parent is shown, even if the \l visible property is \c true. This also
+    applies for the automatic transient parent relationship described above.
+    In particular, if the Window's containing element is an Item, the window
+    will not be shown until the containing item is added to a scene, via its
+    \l{Concepts - Visual Parent in Qt Quick}{visual parent hierarchy}. Setting
     the \l transientParent to \c null will override this behavior:
 
     \snippet qml/nestedWindowTransientParent.qml 0
@@ -3598,6 +3714,8 @@ void QQuickWindow::endExternalCommands()
     default, depending on the window manager, it may also be necessary to set
     the \l Window::flags property with a suitable \l Qt::WindowType (such as
     \c Qt::Dialog).
+
+    \sa {QQuickWindow::}{parent()}
 */
 
 /*!
@@ -4223,8 +4341,8 @@ void QQuickWindow::setGraphicsConfiguration(const QQuickGraphicsConfiguration &c
 }
 
 /*!
-    \return the QQuickGraphicsDevice passed to setGraphicsDevice(), or a
-    default constructed one otherwise
+    \return the QQuickGraphicsConfiguration passed to
+    setGraphicsConfiguration(), or a default constructed one otherwise.
 
     \since 6.0
 
@@ -4234,6 +4352,18 @@ QQuickGraphicsConfiguration QQuickWindow::graphicsConfiguration() const
 {
     Q_D(const QQuickWindow);
     return d->graphicsConfig;
+}
+
+/*!
+    Creates a text node. When the scenegraph is not initialized, the return value is null.
+
+    \since 6.7
+    \sa QSGTextNode
+ */
+QSGTextNode *QQuickWindow::createTextNode() const
+{
+    Q_D(const QQuickWindow);
+    return isSceneGraphInitialized() ? d->context->sceneGraphContext()->createTextNode(d->context) : nullptr;
 }
 
 /*!

@@ -1,0 +1,13 @@
+--- tests/auto/qml/qqmllanguage/tst_qqmllanguage.cpp	2024-03-19 04:29:15.000000000 +1030
++++ tests/auto/qml/qqmllanguage/tst_qqmllanguage.cpp	2024-11-11 22:53:39.000000000 +1030
+@@ -48,8 +49,8 @@
+ 
+ static inline bool isCaseSensitiveFileSystem(const QString &path) {
+     Q_UNUSED(path);
+-#if defined(Q_OS_MAC)
+-    return pathconf(path.toLatin1().constData(), _PC_CASE_SENSITIVE);
++#if defined(Q_OS_DARWIN)
++    return pathconf(path.toLatin1().constData(), _PC_CASE_SENSITIVE) == 1;
+ #elif defined(Q_OS_WIN)
+     return false;
+ #else

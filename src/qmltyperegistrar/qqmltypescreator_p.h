@@ -30,27 +30,33 @@ public:
 
     bool generate(const QString &outFileName);
 
-    void setOwnTypes(QVector<QJsonObject> ownTypes) { m_ownTypes = std::move(ownTypes); }
-    void setForeignTypes(QVector<QJsonObject> foreignTypes) { m_foreignTypes = std::move(foreignTypes); }
-    void setReferencedTypes(QStringList referencedTypes) { m_referencedTypes = std::move(referencedTypes); }
-    void setModule(QString module) { m_module = std::move(module); }
+    void setOwnTypes(QVector<MetaType> ownTypes) { m_ownTypes = std::move(ownTypes); }
+    void setForeignTypes(QVector<MetaType> foreignTypes) { m_foreignTypes = std::move(foreignTypes); }
+    void setReferencedTypes(QList<QAnyStringView> referencedTypes) { m_referencedTypes = std::move(referencedTypes); }
+    void setModule(QByteArray module) { m_module = std::move(module); }
     void setVersion(QTypeRevision version) { m_version = version; }
+    void setUsingDeclarations(QList<UsingDeclaration> usingDeclarations) { m_usingDeclarations = std::move(usingDeclarations);}
+    void setGeneratingJSRoot(bool jsroot) { m_generatingJSRoot = jsroot; }
 
 private:
+    void writeComponent(const QmlTypesClassDescription &collector);
     void writeClassProperties(const QmlTypesClassDescription &collector);
-    void writeType(const QJsonObject &property, const QString &key);
-    void writeProperties(const QJsonArray &properties);
-    void writeMethods(const QJsonArray &methods, const QString &type);
-    void writeEnums(const QJsonArray &enums);
+    void writeType(QAnyStringView type);
+    void writeProperties(const Property::Container &properties);
+    void writeMethods(const Method::Container &methods, QLatin1StringView type);
+    void writeEnums(const Enum::Container &enums);
     void writeComponents();
+    void writeRootMethods(const MetaType &classDef);
 
     QByteArray m_output;
     QQmlJSStreamWriter m_qml;
-    QVector<QJsonObject> m_ownTypes;
-    QVector<QJsonObject> m_foreignTypes;
-    QStringList m_referencedTypes;
-    QString m_module;
+    QVector<MetaType> m_ownTypes;
+    QVector<MetaType> m_foreignTypes;
+    QList<QAnyStringView> m_referencedTypes;
+    QList<UsingDeclaration> m_usingDeclarations;
+    QByteArray m_module;
     QTypeRevision m_version = QTypeRevision::zero();
+    bool m_generatingJSRoot = false;
 };
 
 QT_END_NAMESPACE
