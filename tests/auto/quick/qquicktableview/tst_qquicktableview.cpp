@@ -122,7 +122,7 @@ private slots:
     void isColumnLoadedAndIsRowLoaded();
     void checkForceLayoutFunction();
     void checkForceLayoutEndUpDoingALayout();
-    void checkForceLayoutDuringModelChange();
+    void checkForceLayoutInbetweenAddingRowsToModel();
     void checkForceLayoutWhenAllItemsAreHidden();
     void checkContentWidthAndHeight();
     void checkContentWidthAndHeightForSmallTables();
@@ -213,6 +213,8 @@ private slots:
     void testSelectableStartPosEndPosOutsideView();
     void testSelectableScrollTowardsPos();
     void resettingRolesRespected();
+    void deletedDelegate();
+    void checkRebuildJsModel();
 };
 
 tst_QQuickTableView::tst_QQuickTableView()
@@ -681,10 +683,11 @@ void tst_QQuickTableView::checkForceLayoutEndUpDoingALayout()
     QCOMPARE(tableView->contentHeight(), (9 * (newDelegateSize + rowSpacing)) - rowSpacing);
 }
 
-void tst_QQuickTableView::checkForceLayoutDuringModelChange()
+void tst_QQuickTableView::checkForceLayoutInbetweenAddingRowsToModel()
 {
-    // Check that TableView doesn't assert if we call
-    // forceLayout() in the middle of a model change.
+    // Check that TableView doesn't assert if we call forceLayout() while waiting
+    // for a callback from the model that the row count has changed. Also make sure
+    // that we don't move the contentItem while doing so.
     LOAD_TABLEVIEW("plaintableview.qml");
 
     const int initialRowCount = 10;
@@ -699,9 +702,13 @@ void tst_QQuickTableView::checkForceLayoutDuringModelChange()
 
     WAIT_UNTIL_POLISHED;
 
+    const int contentY = 10;
+    tableView->setContentY(contentY);
     QCOMPARE(tableView->rows(), initialRowCount);
+    QCOMPARE(tableView->contentY(), contentY);
     model.addRow(0);
     QCOMPARE(tableView->rows(), initialRowCount + 1);
+    QCOMPARE(tableView->contentY(), contentY);
 }
 
 void tst_QQuickTableView::checkForceLayoutWhenAllItemsAreHidden()
@@ -3987,6 +3994,45 @@ void tst_QQuickTableView::resettingRolesRespected()
     QVERIFY(!tableView->property("success").toBool());
     model.useCustomRoleNames(true);
     QTRY_VERIFY(tableView->property("success").toBool());
+}
+
+void tst_QQuickTableView::deletedDelegate()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("deletedDelegate.qml"));
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY(root);
+    auto tv = root->findChild<QQuickTableView *>("tableview");
+    QVERIFY(tv);
+    // we need one event loop iteration for the deferred delete to trigger
+    // thus the QTRY_VERIFY
+    QTRY_COMPARE(tv->delegate(), nullptr);
+}
+
+void tst_QQuickTableView::checkRebuildJsModel()
+{
+    LOAD_TABLEVIEW("resetJsModelData.qml"); // gives us 'tableView' variable
+
+    // Generate javascript model
+    const int size = 5;
+    const char* modelUpdated = "modelUpdated";
+
+    QJSEngine jsEngine;
+    QJSValue jsArray;
+    jsArray = jsEngine.newArray(size);
+    for (int i = 0; i < size; ++i)
+        jsArray.setProperty(i, QRandomGenerator::global()->generate());
+
+    QVariant jsModel = QVariant::fromValue(jsArray);
+    tableView->setModel(jsModel);
+    WAIT_UNTIL_POLISHED;
+
+    // Model change would be triggered for the first time
+    QCOMPARE(tableView->property(modelUpdated).toInt(), 1);
+
+    // Set the same model once again and check if model changes
+    tableView->setModel(jsModel);
+    QCOMPARE(tableView->property(modelUpdated).toInt(), 1);
 }
 
 QTEST_MAIN(tst_QQuickTableView)

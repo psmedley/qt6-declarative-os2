@@ -249,7 +249,7 @@ public:
     // When the applications assignes a new model or delegate to the view, we keep them
     // around until we're ready to take them into use (syncWithPendingChanges).
     QVariant assignedModel = QVariant(int(0));
-    QQmlComponent *assignedDelegate = nullptr;
+    QQmlGuard<QQmlComponent> assignedDelegate;
 
     // loadedRows/Columns describes the rows and columns that are currently loaded (from top left
     // row/column to bottom right row/column). loadedTableOuterRect describes the actual
@@ -477,6 +477,7 @@ public:
     void columnsRemovedCallback(const QModelIndex &parent, int begin, int end);
     void layoutChangedCallback(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint);
     void modelResetCallback();
+    bool compareModel(const QVariant& model1, const QVariant& model2) const;
 
     void scheduleRebuildIfFastFlick();
     void setLocalViewportX(qreal contentX);

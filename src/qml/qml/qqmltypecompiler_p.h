@@ -132,6 +132,15 @@ public:
         return resolvedTypes->value(id);
     }
 
+    QV4::ResolvedTypeReference *resolvedType(QMetaType type) const
+    {
+        for (QV4::ResolvedTypeReference *ref : std::as_const(*resolvedTypes)) {
+            if (ref->type().typeId() == type)
+                return ref;
+        }
+        return nullptr;
+    }
+
     CompositeMetaTypeIds typeIdsForComponent(int objectId = 0) const;
 
 private:

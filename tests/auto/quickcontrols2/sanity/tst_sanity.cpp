@@ -458,11 +458,6 @@ void tst_Sanity::attachedObjects_data()
     QTest::newRow("Basic/HorizontalHeaderView.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Basic/ItemDelegate.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Basic/Label.qml") << ignoredNames << StringPairSet {};
-    QTest::newRow("Basic/Menu.qml") << ignoredNames << StringPairSet {
-        { "QQuickOverlayAttached", "Menu_QMLTYPE" },
-        { "QQuickScrollIndicatorAttached", "QQuickListView" },
-        { "QQuickWindowAttached", "QQuickListView" }
-    };
     QTest::newRow("Basic/MenuBar.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Basic/MenuBarItem.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Basic/MenuItem.qml") << ignoredNames << StringPairSet {};
@@ -513,11 +508,6 @@ void tst_Sanity::attachedObjects_data()
     QTest::newRow("Fusion/HorizontalHeaderView.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Fusion/ItemDelegate.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Fusion/Label.qml") << ignoredNames << StringPairSet {};
-    QTest::newRow("Fusion/Menu.qml") << ignoredNames << StringPairSet {
-        { "QQuickOverlayAttached", "Menu_QMLTYPE" },
-        { "QQuickScrollIndicatorAttached", "QQuickListView" },
-        { "QQuickWindowAttached", "QQuickListView" }
-    };
     QTest::newRow("Fusion/MenuBar.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Fusion/MenuBarItem.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Fusion/MenuItem.qml") << ignoredNames << StringPairSet {};
@@ -573,13 +563,6 @@ void tst_Sanity::attachedObjects_data()
     QTest::newRow("Material/HorizontalHeaderView.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Material/ItemDelegate.qml") << ignoredNames << StringPairSet {{ "QQuickMaterialStyle", "ItemDelegate_QMLTYPE" }};
     QTest::newRow("Material/Label.qml") << ignoredNames << StringPairSet {{ "QQuickMaterialStyle", "Label_QMLTYPE" }};
-    QTest::newRow("Material/Menu.qml") << ignoredNames << StringPairSet {
-        { "QQuickOverlayAttached", "Menu_QMLTYPE" },
-        { "QQuickMaterialStyle", "Menu_QMLTYPE" },
-        { "QQuickScrollIndicatorAttached", "QQuickListView" },
-        { "QQuickWindowAttached", "QQuickListView" },
-        { "QQuickMaterialStyle", "ScrollIndicator_QMLTYPE" }
-    };
     QTest::newRow("Material/MenuBar.qml") << ignoredNames << StringPairSet {{ "QQuickMaterialStyle", "MenuBar_QMLTYPE" }};
     QTest::newRow("Material/MenuBarItem.qml") << ignoredNames << StringPairSet {{ "QQuickMaterialStyle", "MenuBarItem_QMLTYPE" }};
     QTest::newRow("Material/MenuItem.qml") << ignoredNames << StringPairSet {{ "QQuickMaterialStyle", "MenuItem_QMLTYPE" }};
@@ -646,13 +629,6 @@ void tst_Sanity::attachedObjects_data()
     QTest::newRow("Universal/HorizontalHeaderView.qml") << ignoredNames << StringPairSet {};
     QTest::newRow("Universal/ItemDelegate.qml") << ignoredNames << StringPairSet {{ "QQuickUniversalStyle", "ItemDelegate_QMLTYPE" }};
     QTest::newRow("Universal/Label.qml") << ignoredNames << StringPairSet {{ "QQuickUniversalStyle", "Label_QMLTYPE" }};
-    QTest::newRow("Universal/Menu.qml") << ignoredNames << StringPairSet {
-        { "QQuickOverlayAttached", "Menu_QMLTYPE" },
-        { "QQuickUniversalStyle", "Menu_QMLTYPE" },
-        { "QQuickScrollIndicatorAttached", "QQuickListView" },
-        { "QQuickWindowAttached", "QQuickListView" },
-        { "QQuickUniversalStyle", "ScrollIndicator_QMLTYPE" }
-    };
     QTest::newRow("Universal/MenuBar.qml") << ignoredNames << StringPairSet {{ "QQuickUniversalStyle", "MenuBar_QMLTYPE" }};
     QTest::newRow("Universal/MenuBarItem.qml") << ignoredNames << StringPairSet {{ "QQuickUniversalStyle", "MenuBarItem_QMLTYPE" }};
     QTest::newRow("Universal/MenuItem.qml") << ignoredNames << StringPairSet {{ "QQuickUniversalStyle", "MenuItem_QMLTYPE" }};

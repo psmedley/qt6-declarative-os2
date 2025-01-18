@@ -76,15 +76,15 @@ Rectangle {
         }
         ListElement {
             name: "Dash pattern"
-            shapeUrl: "linearGradient.qml"
+            shapeUrl: "dashPattern.qml"
         }
         ListElement {
             name: "Linear gradient"
-            shapeUrl: "radialGradient.qml"
+            shapeUrl: "linearGradient.qml"
         }
         ListElement {
             name: "Radial gradient"
-            shapeUrl: "dashPattern.qml"
+            shapeUrl: "radialGradient.qml"
         }
         ListElement {
             name: "Fill rules"

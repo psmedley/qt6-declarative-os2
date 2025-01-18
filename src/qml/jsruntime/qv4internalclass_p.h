@@ -343,7 +343,7 @@ struct InternalClass : Base {
     void init(InternalClass *other);
     void destroy();
 
-    Q_QML_PRIVATE_EXPORT QString keyAt(uint index) const;
+    Q_QML_PRIVATE_EXPORT ReturnedValue keyAt(uint index) const;
     Q_REQUIRED_RESULT InternalClass *nonExtensible();
 
     static void addMember(QV4::Object *object, PropertyKey id, PropertyAttributes data, InternalClassEntry *entry);

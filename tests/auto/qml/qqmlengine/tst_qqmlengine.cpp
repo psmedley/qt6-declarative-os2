@@ -92,6 +92,7 @@ private slots:
     void attachedObjectAsObject();
     void listPropertyAsQJSValue();
     void stringToColor();
+    void bindingInstallUseAfterFree();
 
 public slots:
     QObject *createAQObjectForOwnershipTest ()
@@ -1434,6 +1435,15 @@ void tst_qqmlengine::stringToColor()
     QCOMPARE(variant.metaType(), metaType);
 
     QCOMPARE(color, variant);
+}
+
+void tst_qqmlengine::bindingInstallUseAfterFree()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("bindingInstallUseAfterFree.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    std::unique_ptr<QObject> o{ c.create() };
+    QVERIFY(o);
 }
 
 QTEST_MAIN(tst_qqmlengine)

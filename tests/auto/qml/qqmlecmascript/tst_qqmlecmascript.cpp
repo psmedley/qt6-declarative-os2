@@ -437,6 +437,8 @@ private slots:
 
     void doNotCrashOnReadOnlyBindable();
 
+
+    void methodCallOnDerivedSingleton();
 private:
 //    static void propertyVarWeakRefCallback(v8::Persistent<v8::Value> object, void* parameter);
     static void verifyContextLifetime(const QQmlRefPointer<QQmlContextData> &ctxt);
@@ -10144,6 +10146,20 @@ void tst_qqmlecmascript::doNotCrashOnReadOnlyBindable()
     QScopedPointer<QObject> o(c.create());
     QVERIFY(o);
     QCOMPARE(o->property("x").toInt(), 7);
+}
+
+
+void tst_qqmlecmascript::methodCallOnDerivedSingleton()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFile("methodCallOnDerivedSingleton.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    int singletonTypeId = qmlTypeId("Qt.test", 1, 0, "SingletonInheritanceTest");
+    auto singleton = engine.singletonInstance<SingletonBase *>(singletonTypeId);
+    QVERIFY(singleton);
+    QVERIFY(singleton->m_okay);
 }
 
 QTEST_MAIN(tst_qqmlecmascript)

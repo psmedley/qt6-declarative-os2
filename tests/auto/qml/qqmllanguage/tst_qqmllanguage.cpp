@@ -390,6 +390,9 @@ private slots:
 
     void callMethodOfAttachedDerived();
 
+    void typeAnnotationCycle();
+    void deepAliasOnICOrReadonly();
+
 private:
     QQmlEngine engine;
     QStringList defaultImportPathList;
@@ -6690,6 +6693,45 @@ void tst_qqmllanguage::callMethodOfAttachedDerived()
     QVERIFY(!o.isNull());
 
     QCOMPARE(o->property("v").toInt(), 99);
+}
+
+void tst_qqmllanguage::typeAnnotationCycle()
+{
+    QQmlEngine engine;
+
+    const QUrl url = testFileUrl("TypeAnnotationCycle1.qml");
+    const QUrl url2 = testFileUrl("TypeAnnotationCycle2.qml");
+
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            qPrintable(
+                    QLatin1String("Cyclic dependency detected between \"%1\" and \"%2\"")
+                            .arg(url.toString(), url2.toString())));
+
+    QQmlComponent c(&engine, url);
+    QVERIFY(!c.isReady());
+}
+
+void tst_qqmllanguage::deepAliasOnICOrReadonly()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("deepAliasOnICUser.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->property("borderColor").toString(), QLatin1String("black"));
+    QCOMPARE(o->property("borderObjectName").toString(), QLatin1String("theLeaf"));
+
+    const QVariant var = o->property("borderVarvar");
+    QCOMPARE(var.metaType(), QMetaType::fromType<QString>());
+    QCOMPARE(var.toString(), QLatin1String("mauve"));
+
+    QQmlComponent c2(&engine, testFileUrl("deepAliasOnReadonly.qml"));
+    QVERIFY(c2.isError());
+    QVERIFY(c2.errorString().contains(
+            QLatin1String(
+                    "Invalid property assignment: \"readonlyRectX\" is a read-only property")));
 }
 
 QTEST_MAIN(tst_qqmllanguage)

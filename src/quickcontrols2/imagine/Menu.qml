@@ -68,9 +68,7 @@ T.Menu {
     contentItem: ListView {
         implicitHeight: contentHeight
         model: control.contentModel
-        interactive: Window.window
-                        ? contentHeight + control.topPadding + control.bottomPadding > Window.window.height
-                        : false
+        interactive: contentHeight + control.topPadding + control.bottomPadding > control.height
         clip: true
         currentIndex: control.currentIndex
 
