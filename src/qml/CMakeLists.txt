@@ -443,7 +443,6 @@ qt_internal_add_qml_module(Qml
         QTP0005
     ATTRIBUTION_FILE_DIR_PATHS
         ../3rdparty/masm
-    OS2_SHORT_NAME qmlplugn
 )
 
 _qt_internal_add_qml_deploy_info_finalizer(Qml)

@@ -49,6 +49,7 @@ qt_internal_add_qml_module(QmlMeta
         ${qmlmeta_public_dependencies}
     PRIVATE_MODULE_INTERFACE
         ${qmlmeta_private_dependencies}
+    OS2_SHORT_NAME qmlplugn
 )
 
 add_dependencies(QmlMeta BuiltinsOutput)
