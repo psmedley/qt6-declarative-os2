@@ -1,6 +1,8 @@
 # Copyright (C) 2022 The Qt Company Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
 
+add_subdirectory(Confused)
+
 set(cpp_sources
     ambiguous.h
     birthdayparty.cpp birthdayparty.h
@@ -19,10 +21,12 @@ set(cpp_sources
     multiforeign.h
     objectwithmethod.h
     person.cpp person.h
+    qmlusing.h
     resettable.h
     sequenceToIterable.h
     sequencetypeexample.cpp sequencetypeexample.h
     state.h
+    takenumber.cpp takenumber.h
     theme.cpp theme.h
     timelinetheme.cpp timelinetheme.h
     variantMapLookup.h
@@ -236,6 +240,7 @@ set(qml_files
     popContextAfterRet.qml
     prefixedMetaType.qml
     pressAndHoldButton.qml
+    qmlUsing.qml
     qtbug113150.qml
     reduceWithNullThis.qml
     readEnumFromInstance.qml
@@ -270,6 +275,7 @@ set(qml_files
     stringLength.qml
     stringToByteArray.qml
     structuredValueType.qml
+    takenumber.qml
     testlogger.js
     text.qml
     themerbad.qml

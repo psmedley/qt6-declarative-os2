@@ -1105,7 +1105,8 @@ void QQuickPopupPrivate::adjustPopupItemParentAndWindow()
             popupItem->setParentItem(popupWindow->contentItem());
             popupItem->forceActiveFocus(Qt::PopupFocusReason);
         }
-        popupWindow->setVisible(visible);
+        if (popupWindow)
+            popupWindow->setVisible(visible);
     } else {
         if (visible) {
             popupItem->setParentItem(overlay);
@@ -1234,10 +1235,15 @@ void QQuickPopupPrivate::toggleOverlay()
 void QQuickPopupPrivate::updateContentPalettes(const QPalette& parentPalette)
 {
     // Inherit parent palette to all child objects
-    inheritPalette(parentPalette);
-
+    if (providesPalette())
+        inheritPalette(parentPalette);
     // Inherit parent palette to items within popup (such as headers and footers)
     QQuickItemPrivate::get(popupItem)->updateChildrenPalettes(parentPalette);
+}
+
+void QQuickPopupPrivate::updateChildrenPalettes(const QPalette& parentPalette)
+{
+    updateContentPalettes(parentPalette);
 }
 
 void QQuickPopupPrivate::showDimmer()
@@ -3232,7 +3238,8 @@ void QQuickPopup::geometryChange(const QRectF &newGeometry, const QRectF &oldGeo
 {
     Q_D(QQuickPopup);
     qCDebug(lcQuickPopup) << "geometryChange called on" << this << "with newGeometry" << newGeometry << "oldGeometry" << oldGeometry;
-    d->reposition();
+    if (!d->usePopupWindow())
+        d->reposition();
     if (!qFuzzyCompare(newGeometry.width(), oldGeometry.width())) {
         emit widthChanged();
         emit availableWidthChanged();

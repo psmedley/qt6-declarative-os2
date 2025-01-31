@@ -3,6 +3,8 @@
 
 #include "qquickfocusframe.h"
 
+#include <private/qquickitem_p.h>
+
 #include <QtCore/qmetaobject.h>
 
 #include <QtGui/qguiapplication.h>
@@ -28,7 +30,7 @@ QQuickFocusFrame::QQuickFocusFrame()
         if (auto item = qobject_cast<QQuickItem *>(focusObject))
             moveToItem(item);
         else
-            m_focusFrame.reset();
+            moveToItem(nullptr);
     });
 }
 
@@ -46,6 +48,7 @@ void QQuickFocusFrame::moveToItem(QQuickItem *item)
             qWarning() << "Failed to create FocusFrame";
             return;
         }
+        QQuickItemPrivate::get(m_focusFrame.get())->setTransparentForPositioner(true);
     }
 
     const QQuickFocusFrameDescription &config = getDescriptionForItem(item);
@@ -57,6 +60,9 @@ void QQuickFocusFrame::moveToItem(QQuickItem *item)
 
 QQuickFocusFrameDescription QQuickFocusFrame::getDescriptionForItem(QQuickItem *focusItem) const
 {
+    if (!focusItem)
+        return QQuickFocusFrameDescription::Invalid;
+
     qCDebug(lcFocusFrame) << "new focusobject:" << focusItem;
     const auto parentItem = focusItem->parentItem();
     if (!parentItem)

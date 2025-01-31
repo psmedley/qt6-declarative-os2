@@ -49,7 +49,7 @@ QQmlRefPointer<QQmlContextData> QQmlScriptData::qmlContextDataForContext(
 
     QV4::Scope scope(v4);
     QV4::ScopedObject scriptsArray(scope);
-    if (qmlContextData->importedScripts().isNullOrUndefined()) {
+    if (QV4::Value::fromReturnedValue(qmlContextData->importedScripts()).isNullOrUndefined()) {
         scriptsArray = v4->newArrayObject(scripts.size());
         qmlContextData->setImportedScripts(v4, scriptsArray);
     } else {
@@ -62,14 +62,6 @@ QQmlRefPointer<QQmlContextData> QQmlScriptData::qmlContextDataForContext(
     }
 
     return qmlContextData;
-}
-
-QV4::ReturnedValue QQmlScriptData::ownScriptValue(QV4::ExecutionEngine *v4) const
-{
-    return handleOwnScriptValueOrExecutableCU(
-            v4, [](const QQmlRefPointer<QV4::ExecutableCompilationUnit> &executableCU) {
-        return executableCU->value();
-    });
 }
 
 QV4::ReturnedValue QQmlScriptData::scriptValueForContext(
