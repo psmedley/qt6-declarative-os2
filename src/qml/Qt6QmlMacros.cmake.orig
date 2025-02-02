@@ -58,6 +58,8 @@ function(qt6_add_qml_module target)
         INSTALL_DIRECTORY
         INSTALL_LOCATION
         TYPE_COMPILER_NAMESPACE
+        QMLTC_EXPORT_DIRECTIVE
+        QMLTC_EXPORT_FILE_NAME
         OS2_SHORT_NAME
     )
 
@@ -148,11 +150,32 @@ function(qt6_add_qml_module target)
             )
     endif()
 
-    if (DEFINED arg_TYPE_COMPILER_NAMESPACE AND NOT arg_ENABLE_TYPE_COMPILER)
-        message(WARNING
-            "TYPE_COMPILER_NAMESPACE is set, but ENABLE_TYPE_COMPILER is not specified. "
-            "The TYPE_COMPILER_NAMESPACE value will be ignored."
-        )
+    if (NOT arg_ENABLE_TYPE_COMPILER)
+        if (DEFINED arg_TYPE_COMPILER_NAMESPACE)
+            message(WARNING
+                "TYPE_COMPILER_NAMESPACE is set, but ENABLE_TYPE_COMPILER is not specified. "
+                "The TYPE_COMPILER_NAMESPACE value will be ignored."
+            )
+        endif()
+
+        if (DEFINED arg_QMLTC_EXPORT_DIRECTIVE)
+            message(WARNING
+                "QMLTC_EXPORT_DIRECTIVE is set, but ENABLE_TYPE_COMPILER is not specified. "
+                "The QMLTC_EXPORT_DIRECTIVE value will be ignored."
+            )
+        endif()
+        if (DEFINED arg_QMLTC_EXPORT_FILE_NAME)
+            message(WARNING
+                "QMLTC_EXPORT_FILE_NAME is set, but ENABLE_TYPE_COMPILER is not specified. "
+                "The QMLTC_EXPORT_FILE_NAME will be ignored."
+            )
+        endif()
+    else()
+        if ((DEFINED arg_QMLTC_EXPORT_FILE_NAME) AND (NOT (DEFINED arg_QMLTC_EXPORT_DIRECTIVE)))
+            message(FATAL_ERROR
+                "Specifying a value for QMLTC_EXPORT_FILE_NAME also requires one for QMLTC_EXPORT_DIRECTIVE."
+            )
+        endif()
     endif()
 
     set(is_executable FALSE)
@@ -662,10 +685,18 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     endif()
 
     if (arg_ENABLE_TYPE_COMPILER)
+        if (DEFINED arg_TYPE_COMPILER_NAMESPACE AND NOT $<STREQUAL:"${arg_TYPE_COMPILER_NAMESPACE}","">)
+            set(qmltc_namespace ${arg_TYPE_COMPILER_NAMESPACE})
+        else()
+            string(REPLACE "." "::" qmltc_namespace "${arg_URI}")
+        endif()
         _qt_internal_target_enable_qmltc(${target}
             QML_FILES ${arg_QML_FILES}
             IMPORT_PATHS ${arg_IMPORT_PATH}
-            NAMESPACE ${arg_TYPE_COMPILER_NAMESPACE}
+            NAMESPACE ${qmltc_namespace}
+            EXPORT_MACRO_NAME ${arg_QMLTC_EXPORT_DIRECTIVE}
+            EXPORT_FILE_NAME ${arg_QMLTC_EXPORT_FILE_NAME}
+            MODULE ${arg_URI}
         )
     endif()
 
@@ -820,36 +851,68 @@ function(_qt_internal_target_enable_qmllint target)
     _qt_internal_extend_qml_import_paths(import_args)
 
     _qt_internal_get_tool_wrapper_script_path(tool_wrapper)
-    set(cmd
-        ${tool_wrapper}
-        $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmllint>
+
+    set(qmllint_args
         --bare
         ${import_args}
         ${qrc_args}
         ${qmllint_files}
     )
 
+    get_target_property(target_binary_dir ${target} BINARY_DIR)
+    set(qmllint_dir ${target_binary_dir}/.rcc/qmllint)
+    set(qmllint_rsp_path ${qmllint_dir}/${target}.rsp)
+
+    file(GENERATE
+        OUTPUT "${qmllint_rsp_path}"
+        CONTENT "$<JOIN:${qmllint_args},\n>\n"
+    )
+
+    set(cmd
+        ${tool_wrapper}
+        $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmllint>
+        @${qmllint_rsp_path}
+    )
+
+    set(cmd_dummy ${CMAKE_COMMAND} -E echo "Nothing to do for target ${lint_target}.")
+
     # We need this target to depend on all qml type registrations. This is the
     # only way we can be sure that all *.qmltypes files for any QML modules we
     # depend on will have been generated.
     add_custom_target(${lint_target}
-        COMMAND "$<${have_qmllint_files}:${cmd}>"
+        COMMAND "$<IF:${have_qmllint_files},${cmd},${cmd_dummy}>"
         COMMAND_EXPAND_LISTS
         DEPENDS
             ${QT_CMAKE_EXPORT_NAMESPACE}::qmllint
             ${qmllint_files}
+            ${qmllint_rsp_path}
             $<TARGET_NAME_IF_EXISTS:all_qmltyperegistrations>
         WORKING_DIRECTORY "$<TARGET_PROPERTY:${target},SOURCE_DIR>"
     )
     _qt_internal_assign_to_qmllint_targets_folder(${lint_target})
 
-    set(lint_args "--json" "${CMAKE_BINARY_DIR}/${lint_target}.json")
+    list(APPEND qmllint_args "--json" "${CMAKE_BINARY_DIR}/${lint_target}.json")
+
+    set(qmllint_rsp_path ${qmllint_dir}/${target}_json.rsp)
+
+    file(GENERATE
+        OUTPUT "${qmllint_rsp_path}"
+        CONTENT "$<JOIN:${qmllint_args},\n>\n"
+    )
+
+    set(cmd
+        ${tool_wrapper}
+        $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmllint>
+        @${qmllint_rsp_path}
+    )
+
     add_custom_target(${lint_target_json}
-        COMMAND "$<${have_qmllint_files}:${cmd};${lint_args}>"
+        COMMAND "$<${have_qmllint_files}:${cmd}>"
         COMMAND_EXPAND_LISTS
         DEPENDS
             ${QT_CMAKE_EXPORT_NAMESPACE}::qmllint
             ${qmllint_files}
+            ${qmllint_rsp_path}
             $<TARGET_NAME_IF_EXISTS:all_qmltyperegistrations>
         WORKING_DIRECTORY "$<TARGET_PROPERTY:${target},SOURCE_DIR>"
     )
@@ -860,18 +923,34 @@ function(_qt_internal_target_enable_qmllint target)
    get_target_property(module_uri ${target} QT_QML_MODULE_URI)
 
    _qt_internal_get_tool_wrapper_script_path(tool_wrapper)
+
+   set(qmllint_args
+       ${import_args}
+       ${qrc_args}
+       --module
+       ${module_uri}
+   )
+
+   set(qmllint_rsp_path ${qmllint_dir}/${target}_module.rsp)
+
+   file(GENERATE
+       OUTPUT "${qmllint_rsp_path}"
+       CONTENT "$<JOIN:${qmllint_args},\n>\n"
+   )
+
+   set(cmd
+       ${tool_wrapper}
+       $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmllint>
+       @${qmllint_rsp_path}
+   )
+
    add_custom_target(${lint_target_module}
-       COMMAND
-           ${tool_wrapper}
-           $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmllint>
-           ${import_args}
-           ${qrc_args}
-           --module
-           ${module_uri}
+       COMMAND ${cmd}
        COMMAND_EXPAND_LISTS
        DEPENDS
            ${QT_CMAKE_EXPORT_NAMESPACE}::qmllint
            ${qmllint_files}
+           ${qmllint_rsp_path}
            $<TARGET_NAME_IF_EXISTS:all_qmltyperegistrations>
        WORKING_DIRECTORY "$<TARGET_PROPERTY:${target},SOURCE_DIR>"
    )
@@ -881,32 +960,12 @@ function(_qt_internal_target_enable_qmllint target)
     # Note that the caller is free to change the value of QT_QMLLINT_ALL_TARGET
     # for different QML modules if they wish, which means they can implement
     # their own grouping of the ${target}_qmllint targets.
-    if("${QT_QMLLINT_ALL_TARGET}" STREQUAL "")
-        set(QT_QMLLINT_ALL_TARGET all_qmllint)
-    endif()
-    if(NOT TARGET ${QT_QMLLINT_ALL_TARGET})
-        add_custom_target(${QT_QMLLINT_ALL_TARGET})
-    endif()
-    add_dependencies(${QT_QMLLINT_ALL_TARGET} ${lint_target})
-
-    if("${QT_QMLLINT_JSON_ALL_TARGET}" STREQUAL "")
-        set(QT_QMLLINT_JSON_ALL_TARGET all_qmllint_json)
-    endif()
-    if(NOT TARGET ${QT_QMLLINT_JSON_ALL_TARGET})
-        add_custom_target(${QT_QMLLINT_JSON_ALL_TARGET})
-        _qt_internal_assign_to_qmllint_targets_folder(${QT_QMLLINT_JSON_ALL_TARGET})
-    endif()
-    add_dependencies(${QT_QMLLINT_JSON_ALL_TARGET} ${lint_target_json})
-
-    if("${QT_QMLLINT_MODULE_ALL_TARGET}" STREQUAL "")
-        set(QT_QMLLINT_MODULE_ALL_TARGET all_qmllint_module)
-    endif()
-    if(NOT TARGET ${QT_QMLLINT_MODULE_ALL_TARGET})
-        add_custom_target(${QT_QMLLINT_MODULE_ALL_TARGET})
-        _qt_internal_assign_to_qmllint_targets_folder(${QT_QMLLINT_MODULE_ALL_TARGET})
-    endif()
-    add_dependencies(${QT_QMLLINT_MODULE_ALL_TARGET} ${lint_target_module})
-
+    _qt_internal_add_all_qmllint_target(QT_QMLLINT_ALL_TARGET
+        all_qmllint ${lint_target})
+    _qt_internal_add_all_qmllint_target(QT_QMLLINT_JSON_ALL_TARGET
+        all_qmllint_json ${lint_target_json})
+    _qt_internal_add_all_qmllint_target(QT_QMLLINT_MODULE_ALL_TARGET
+        all_qmllint_module ${lint_target_module})
 endfunction()
 
 # This is a  modified version of __qt_propagate_generated_resource from qtbase.
@@ -958,6 +1017,62 @@ function(_qt_internal_propagate_qmlcache_object_lib
     set(${output_generated_target} "${resource_target}" PARENT_SCOPE)
 endfunction()
 
+# Create an 'all_qmllint' target. The target's name can be user-controlled by ${target_var} with the
+# default name ${default_target_name}. The parameter ${lint_target} holds the name of the single
+# foo_qmllint target that should be triggered by the all_qmllint target.
+function(_qt_internal_add_all_qmllint_target target_var default_target_name lint_target)
+    set(target_name "${${target_var}}")
+    if("${target_name}" STREQUAL "")
+        set(target_name ${default_target_name})
+    endif()
+    if(CMAKE_GENERATOR MATCHES "^Visual Studio ")
+        # For the Visual Studio generators we cannot use add_dependencies, because this would enable
+        # ${lint_target} in the default build of the solution. See QTBUG-115166 and upstream CMake
+        # issue #16668 for details. Instead, we record ${lint_target} and create an all_qmllint
+        # target at the end of the top-level directory scope.
+        if(${CMAKE_VERSION} VERSION_LESS "3.19.0")
+            if(NOT QT_NO_QMLLINT_CREATION_WARNING)
+                message(WARNING "Cannot create target ${target_name} with this CMake version. "
+                    "Please upgrade to CMake 3.19.0 or newer. "
+                    "Set QT_NO_QMLLINT_CREATION_WARNING to ON to disable this warning."
+                )
+            endif()
+            return()
+        endif()
+        set(property_name _qt_target_${target_name}_dependencies)
+        get_property(recorded_targets GLOBAL PROPERTY ${property_name})
+        if("${recorded_targets}" STREQUAL "")
+            cmake_language(EVAL CODE
+                "cmake_language(DEFER DIRECTORY \"${CMAKE_SOURCE_DIR}\" CALL _qt_internal_add_all_qmllint_target_deferred \"${target_name}\")"
+            )
+        endif()
+        set_property(GLOBAL APPEND PROPERTY ${property_name} ${lint_target})
+
+        # Exclude ${lint_target} from the solution's default build to avoid it being enabled should
+        # the user add a dependency to it.
+        set_property(TARGET ${lint_target} PROPERTY EXCLUDE_FROM_DEFAULT_BUILD ON)
+    else()
+        if(NOT TARGET ${target_name})
+            add_custom_target(${target_name})
+            _qt_internal_assign_to_qmllint_targets_folder(${target_name})
+        endif()
+        add_dependencies(${target_name} ${lint_target})
+    endif()
+endfunction()
+
+# Hack for the Visual Studio generator. Create the all_qmllint target named ${target} and work
+# around the lack of a working add_dependencies by calling 'cmake --build' for every dependency.
+function(_qt_internal_add_all_qmllint_target_deferred target)
+    get_property(target_dependencies GLOBAL PROPERTY _qt_target_${target}_dependencies)
+    set(target_commands "")
+    foreach(dependency IN LISTS target_dependencies)
+        list(APPEND target_commands
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}" -t ${dependency}
+        )
+    endforeach()
+    add_custom_target(${target} ${target_commands})
+    _qt_internal_assign_to_qmllint_targets_folder(${target})
+endfunction()
 function(_qt_internal_target_enable_qmlcachegen target output_targets_var qmlcachegen)
 
     set(output_targets)
@@ -998,14 +1113,13 @@ function(_qt_internal_target_enable_qmlcachegen target output_targets_var qmlcac
         ${tool_wrapper}
         ${qmlcachegen}
         --resource-name "${qmlcache_resource_name}"
-        ${qrc_resource_args}
         -o "${qmlcache_loader_cpp}"
         "@${qmlcache_loader_list}"
     )
 
     file(GENERATE
         OUTPUT ${qmlcache_loader_list}
-        CONTENT "$<JOIN:${qmlcache_resource_paths},\n>\n"
+        CONTENT "$<JOIN:${qrc_resource_args},\n>\n$<JOIN:${qmlcache_resource_paths},\n>\n"
     )
 
     add_custom_command(
@@ -1257,7 +1371,7 @@ endfunction()
 # Compile Qml files (.qml) to C++ source files with QML type compiler (qmltc).
 function(_qt_internal_target_enable_qmltc target)
     set(args_option "")
-    set(args_single NAMESPACE)
+    set(args_single NAMESPACE EXPORT_MACRO_NAME EXPORT_FILE_NAME MODULE)
     set(args_multi QML_FILES IMPORT_PATHS)
 
     cmake_parse_arguments(PARSE_ARGV 1 arg
@@ -1289,6 +1403,15 @@ function(_qt_internal_target_enable_qmltc target)
     set(common_args "")
     if(arg_NAMESPACE)
         list(APPEND common_args --namespace "${arg_NAMESPACE}")
+    endif()
+    if(arg_MODULE)
+        list(APPEND common_args --module "${arg_MODULE}")
+    endif()
+    if(arg_EXPORT_MACRO_NAME)
+        list(APPEND common_args --export "${arg_EXPORT_MACRO_NAME}")
+        if(arg_EXPORT_FILE_NAME)
+            list(APPEND common_args --exportInclude "${arg_EXPORT_FILE_NAME}")
+        endif()
     endif()
 
     get_target_property(output_dir ${target} QT_QML_MODULE_OUTPUT_DIRECTORY)
@@ -1507,6 +1630,35 @@ if(NOT QT_NO_CREATE_VERSIONLESS_FUNCTIONS)
         qt6_target_compile_qml_to_cpp(${ARGV})
     endfunction()
 endif()
+
+function(_qt_internal_set_qml_target_multi_config_output_directory target output_directory)
+    # In multi-config builds we need to make sure that at least one configuration has the dynamic
+    # plugin that is located next to qmldir file, otherwise QML engine won't be able to load the
+    # plugin.
+    get_cmake_property(is_multi_config GENERATOR_IS_MULTI_CONFIG)
+    if(is_multi_config)
+        # We don't care about static plugins here since, they are linked at build time and
+        # their location doesn't affect the runtime.
+        get_target_property(target_type ${target} TYPE)
+        if(target_type STREQUAL "SHARED_LIBRARY" OR target_type STREQUAL "MODULE_LIBRARY")
+            if(NOT "${output_directory}")
+                set(output_directory "${CMAKE_CURRENT_BINARY_DIR}")
+            endif()
+
+            list(GET CMAKE_CONFIGURATION_TYPES 0 default_config)
+            string(JOIN "" output_directory_with_default_config
+                "$<IF:$<CONFIG:${default_config}>,"
+                    "${output_directory},"
+                    "${output_directory}/$<CONFIG>"
+                ">"
+            )
+            set_target_properties(${target} PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${output_directory_with_default_config}"
+                LIBRARY_OUTPUT_DIRECTORY "${output_directory_with_default_config}"
+            )
+        endif()
+    endif()
+endfunction()
 
 function(qt6_add_qml_plugin target)
     set(args_option
@@ -1753,6 +1905,8 @@ function(qt6_add_qml_plugin target)
         )
     endif()
 
+    _qt_internal_set_qml_target_multi_config_output_directory(${target} "${arg_OUTPUT_DIRECTORY}")
+
     if(NOT arg_NO_GENERATE_PLUGIN_SOURCE)
         set(generated_cpp_file_name_base "${target}_${arg_CLASS_NAME}")
         set(register_types_function_name "qml_register_types_${escaped_uri}")
@@ -1849,8 +2003,9 @@ function(qt6_target_qml_sources target)
         message(FATAL_ERROR "Unknown/unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
     endif()
 
-    if (NOT arg_QML_FILES AND NOT arg_RESOURCES)
-        if(NOT arg_NO_LINT)
+    get_target_property(no_lint ${target} QT_QML_MODULE_NO_LINT)
+    if(NOT arg_QML_FILES AND NOT arg_RESOURCES)
+        if(NOT arg_NO_LINT AND NOT no_lint)
             _qt_internal_target_enable_qmllint(${target})
         endif()
 
@@ -1869,7 +2024,6 @@ function(qt6_target_qml_sources target)
         )
     endif()
 
-    get_target_property(no_lint                ${target} QT_QML_MODULE_NO_LINT)
     get_target_property(no_cachegen            ${target} QT_QML_MODULE_NO_CACHEGEN)
     get_target_property(no_qmldir              ${target} QT_QML_MODULE_NO_GENERATE_QMLDIR)
     get_target_property(resource_prefix        ${target} QT_QML_MODULE_RESOURCE_PREFIX)
@@ -2058,6 +2212,7 @@ function(qt6_target_qml_sources target)
                     DEPENDS ${file_absolute}
                     WORKING_DIRECTORY $<TARGET_PROPERTY:${target},SOURCE_DIR>
                     VERBATIM
+                    COMMENT "Copying ${file_src} to ${file_out}"
                 )
                 list(APPEND copied_files ${file_out})
             endif()
@@ -2406,6 +2561,11 @@ function(_qt_internal_qml_type_registration target)
     set(args_option)
     set(args_single NAMESPACE)
     set(args_multi  MANUAL_MOC_JSON_FILES)
+
+    get_target_property(skipped ${target} _qt_is_skipped_test)
+    if(skipped)
+        return()
+    endif()
 
     cmake_parse_arguments(PARSE_ARGV 1 arg
         "${args_option}" "${args_single}" "${args_multi}"

@@ -1,0 +1,34 @@
+--- tests/auto/qml/qmllint/tst_qmllint.cpp	2024-11-11 22:53:39.000000000 +1030
++++ tests/auto/qml/qmllint/tst_qmllint.cpp	2025-01-24 16:34:38.000000000 +1030
+@@ -194,30 +188,14 @@
+ {
+     QQmlDataTest::initTestCase();
+     m_qmllintPath = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QLatin1String("/qmllint");
+-    m_qmljsrootgenPath = QLibraryInfo::path(QLibraryInfo::LibraryExecutablesPath)
+-            + QLatin1String("/qmljsrootgen");
+-    m_qmltyperegistrarPath = QLibraryInfo::path(QLibraryInfo::LibraryExecutablesPath)
+-            + QLatin1String("/qmltyperegistrar");
++
+ #ifdef Q_OS_WIN
+     m_qmllintPath += QLatin1String(".exe");
+-    m_qmljsrootgenPath += QLatin1String(".exe");
+-    m_qmltyperegistrarPath += QLatin1String(".exe");
+ #endif
+     if (!QFileInfo(m_qmllintPath).exists()) {
+         QString message = QStringLiteral("qmllint executable not found (looked for %0)").arg(m_qmllintPath);
+         QFAIL(qPrintable(message));
+     }
+-
+-#ifdef QT_QMLJSROOTGEN_PRESENT
+-    if (!QFileInfo(m_qmljsrootgenPath).exists()) {
+-        QString message = QStringLiteral("qmljsrootgen executable not found (looked for %0)").arg(m_qmljsrootgenPath);
+-        QFAIL(qPrintable(message));
+-    }
+-    if (!QFileInfo(m_qmltyperegistrarPath).exists()) {
+-        QString message = QStringLiteral("qmltypesregistrar executable not found (looked for %0)").arg(m_qmltyperegistrarPath);
+-        QFAIL(qPrintable(message));
+-    }
+-#endif
+ }
+ 
+ void TestQmllint::testUnqualified()
