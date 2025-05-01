@@ -776,6 +776,8 @@ void QSvgVisitorImpl::visitTextNode(const QSvgText *node)
     if (font.pixelSize() <= 0 && font.pointSize() > 0)
         font.setPixelSize(font.pointSize()); // Pixel size stored as point size by SVG parser
 
+    font.setHintingPreference(QFont::PreferNoHinting);
+
 #if QT_CONFIG(texthtmlparser)
     if (needsPathNode) {
         QTextDocument document;

@@ -53,7 +53,7 @@ class Q_QUICK_EXPORT QQuickAccessibleAttached : public QObject
     Q_PROPERTY(QAccessible::Role role READ role WRITE setRole NOTIFY roleChanged FINAL)
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged FINAL)
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY descriptionChanged FINAL)
-    Q_PROPERTY(QString id READ id WRITE setId NOTIFY idChanged REVISION(6, 8) FINAL)
+    Q_PROPERTY(QString id READ id WRITE setId NOTIFY idChanged FINAL)
     Q_PROPERTY(bool ignored READ ignored WRITE setIgnored NOTIFY ignoredChanged FINAL)
 
     QML_NAMED_ELEMENT(Accessible)

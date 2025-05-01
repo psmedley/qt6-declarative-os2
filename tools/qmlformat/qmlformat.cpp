@@ -228,8 +228,9 @@ Options buildCommandLineOptions(const QCoreApplication &app)
                                         QStringLiteral("Reorders the attributes of the objects "
                                                        "according to the QML Coding Guidelines.")));
 
-    parser.addOption(QCommandLineOption(
-            { "F", "files" }, QStringLiteral("Format all files listed in file, in-place"), "file"));
+    QCommandLineOption filesOption(
+            { "F"_L1, "files"_L1 }, "Format all files listed in file, in-place"_L1, "file"_L1);
+    parser.addOption(filesOption);
 
     parser.addOption(QCommandLineOption(
             { "l", "newline" },
@@ -251,6 +252,12 @@ Options buildCommandLineOptions(const QCoreApplication &app)
         return options;
     }
 
+    if (parser.positionalArguments().empty() && !parser.isSet(filesOption)) {
+        Options options;
+        options.errors.push_back("Error: Expected at least one input file."_L1);
+        return options;
+    }
+
     bool indentWidthOkay = false;
     const int indentWidth = parser.value("indent-width").toInt(&indentWidthOkay);
     if (!indentWidthOkay) {
@@ -260,17 +267,47 @@ Options buildCommandLineOptions(const QCoreApplication &app)
     }
 
     QStringList files;
-    if (!parser.value("files").isEmpty()) {
-        QFile file(parser.value("files"));
-        if (file.open(QIODevice::Text | QIODevice::ReadOnly)) {
-            QTextStream in(&file);
-            while (!in.atEnd()) {
-                QString file = in.readLine();
+    if (!parser.value("files"_L1).isEmpty()) {
+        const QString path = parser.value("files"_L1);
+        QFile file(path);
+        if (!file.open(QIODevice::Text | QIODevice::ReadOnly)) {
+            Options options;
+            options.errors.push_back(
+                    "Error: Could not open file \"" + path + "\" for option -F."_L1);
+            return options;
+        }
 
-                if (file.isEmpty())
-                    continue;
+        QTextStream in(&file);
+        while (!in.atEnd()) {
+            QString file = in.readLine();
 
-                files.push_back(file);
+            if (file.isEmpty())
+                continue;
+
+            files.push_back(file);
+        }
+
+        if (files.isEmpty()) {
+            Options options;
+            options.errors.push_back("Error: File \""_L1 + path + "\" for option -F is empty."_L1);
+            return options;
+        }
+
+        for (const auto &file : std::as_const(files)) {
+            if (!QFile::exists(file)) {
+                Options options;
+                options.errors.push_back("Error: Entry \"" + file + "\" of file \"" + path
+                                         + "\" passed to option -F could not be found.");
+                return options;
+            }
+        }
+    } else {
+        const auto &args = parser.positionalArguments();
+        for (const auto &file : args) {
+            if (!QFile::exists(file)) {
+                Options options;
+                options.errors.push_back("Error: Could not find file \"" + file + "\".");
+                return options;
             }
         }
     }

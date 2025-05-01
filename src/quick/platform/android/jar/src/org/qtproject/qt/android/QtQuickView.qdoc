@@ -39,6 +39,8 @@
     of Qt Quick into your Android app, making it possible to use various Qt Quick
     APIs in Android apps.
 
+    \note Methods in this class are assumed thread-safe unless otherwise specified.
+
     A typical use of the class:
 
     \code
@@ -93,7 +95,7 @@
 
     Orientation and other configuration changes will recreate the Activity.
 
-    See {https://bugreports.qt.io/browse/QTBUG-123711}{QTBUG-123711} for more information.
+    See \l{https://bugreports.qt.io/browse/QTBUG-123711}{QTBUG-123711} for more information.
 
     See \l{Qt Quick for Android Studio Projects} for an example of how to handle rotation
     manually inside an application without recreating the Activity.

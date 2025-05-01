@@ -5,8 +5,6 @@ cmake_minimum_required(VERSION 3.5)
 
 project(svg VERSION 0.1 LANGUAGES CXX)
 
-qt_standard_project_setup(REQUIRES 6.8)
-
 set(CMAKE_AUTORCC ON)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -14,6 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick Qml Svg SvgWidgets QuickWidgets QuickVectorImageGeneratorPrivate)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick Qml Svg SvgWidgets QuickWidgets QuickVectorImageGeneratorPrivate)
+
+qt_standard_project_setup(REQUIRES 6.8)
 
 set(PROJECT_SOURCES
         main.cpp
@@ -65,7 +65,9 @@ install(TARGETS svg
 qt_add_qml_module(svg
     VERSION 1.0
     URI SvgImageTest
-    QML_FILES SvgImage.qml QmlGenerator.qml
+    QML_FILES
+        SvgImage.qml
+        QmlGenerator.qml
 )
 
 

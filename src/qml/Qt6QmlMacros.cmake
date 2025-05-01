@@ -235,9 +235,14 @@ function(qt6_add_qml_module target)
         ENABLE_TYPE_COMPILER
 
         # Used to mark modules as having static side effects (i.e. if they install an image provider)
+        # The main effect is that we don't warn about such modules being unused. This is also
+        # applied to the builtins since we never want to warn about them being unused.
         __QT_INTERNAL_STATIC_MODULE
-        # Used to mark modules as being a system module that provides all builtins
+
+        # Used to mark modules as being a system module that provides all builtins.
+        # This also includes the JavaScript root object as denoted by a jsroot.qmltypes file.
         __QT_INTERNAL_SYSTEM_MODULE
+
         # Give the resource for the qmldir a unique name; TODO: Remove once we can
         __QT_INTERNAL_DISAMBIGUATE_QMLDIR_RESOURCE
     )
@@ -684,6 +689,12 @@ function(qt6_add_qml_module target)
     list(REMOVE_DUPLICATES all_dependency_targets)
     set_property(TARGET ${target} PROPERTY QT_QML_DEPENDENT_QML_MODULE_TARGETS "${all_dependency_targets}")
     _qt_internal_collect_qml_module_dependencies(${target})
+    # add a dependency at the build system level, too - we know that
+    # the module wouldn't run if the dependencies
+    # do not exist yet
+    if(all_dependency_targets)
+        add_dependencies(${target} ${all_dependency_targets})
+    endif()
 
     if(arg_AUTO_RESOURCE_PREFIX)
         if(arg_RESOURCE_PREFIX)
@@ -903,6 +914,15 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     # special (and is not a real resource file)
     set_property(TARGET ${target} APPEND PROPERTY _qt_qml_meta_qrc_files "${dir_map_qrc}")
 
+    set(do_qml_aotstats OFF)
+    if(NOT DEFINED QT_QML_GENERATE_AOTSTATS OR QT_QML_GENERATE_AOTSTATS)
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.19)
+            set(do_qml_aotstats ON)
+        else()
+            message(WARNING "aotstats is not supported on CMake versions < 3.19")
+        endif()
+    endif()
+
     set(cache_target)
     qt6_target_qml_sources(${target}
         __QT_INTERNAL_FORCE_DEFER_QMLDIR
@@ -1084,7 +1104,7 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
         endif()
     endif()
 
-    if("${CMAKE_VERSION}" VERSION_GREATER_EQUAL "3.19.0")
+    if(do_qml_aotstats)
         set_property(GLOBAL APPEND PROPERTY _qt_qml_aotstats_module_targets ${target})
         set_target_properties(${target} PROPERTIES
             QT_QML_MODULE_RCC_QMLCACHE_PATH "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmlcache"
@@ -1095,13 +1115,6 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
             set_property(GLOBAL PROPERTY _qt_internal_deferred_aotstats_setup TRUE)
             cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY \"${CMAKE_BINARY_DIR}\" "
                 "CALL _qt_internal_deferred_aotstats_setup)")
-        endif()
-    else()
-        if(NOT TARGET all_aotstats)
-            add_custom_target(
-                all_aotstats
-                ${CMAKE_COMMAND} -E echo "aotstats is not supported on CMake versions < 3.19"
-            )
         endif()
     endif()
 endfunction()
@@ -1796,6 +1809,21 @@ function(_qt_internal_target_generate_qmldir target)
     _qt_internal_qmldir_item_list(import QT_QML_MODULE_IMPORTS)
     _qt_internal_qmldir_item_list("optional import" QT_QML_MODULE_OPTIONAL_IMPORTS)
     _qt_internal_qmldir_item_list("default import" QT_QML_MODULE_DEFAULT_IMPORTS)
+
+    # User convenience: Add QtQuick to dependencies if it hasn't been added so far
+    # and the target links against  Qt::Quick
+    if(NOT "QtQuick" IN_LIST QT_QML_MODULE_DEPENDENCIES)
+        get_target_property(linked_libraries ${target} LINK_LIBRARIES)
+        if((TARGET Qt6::Quick AND Qt6::Quick IN_LIST linked_libraries) OR
+            (TARGET Qt::Quick AND Qt::Quick IN_LIST linked_libraries))
+            set_property(
+                TARGET ${target}
+                APPEND
+                PROPERTY QT_QML_MODULE_DEPENDENCIES
+                "QtQuick"
+            )
+        endif()
+    endif()
 
     _qt_internal_qmldir_item_list(depends QT_QML_MODULE_DEPENDENCIES)
 
@@ -3027,11 +3055,17 @@ function(qt6_target_qml_sources target)
             "$<${have_direct_calls}:--direct-calls>"
             "$<${have_arguments}:${arguments}>"
             ${qrc_resource_args}
+        )
+
+        if(do_qml_aotstats)
             # The --only-bytecode argument is mutually exclusive with aotstats and can
             # be added after qt_add_qml_module. Conditionally add aotstats flags via genex.
-            "$<$<NOT:$<IN_LIST:--only-bytecode,${arguments}>>:--dump-aot-stats>"
-            "$<$<NOT:$<IN_LIST:--only-bytecode,${arguments}>>:--module-id=${uri}(${target})>"
-        )
+            set(aotstats_args
+                "$<$<NOT:$<IN_LIST:--only-bytecode,${arguments}>>:--dump-aot-stats>"
+                "$<$<NOT:$<IN_LIST:--only-bytecode,${arguments}>>:--module-id=${uri}(${target})>"
+            )
+            list(APPEND cachegen_args ${aotstats_args})
+        endif()
 
         # For direct evaluation in if() below
         get_target_property(cachegen_prop ${target} QT_QMLCACHEGEN_EXECUTABLE)
@@ -3347,7 +3381,7 @@ function(qt6_target_qml_sources target)
             endif()
 
             set(aotstats_file "")
-            if("${qml_file_src}" MATCHES ".+\\.qml")
+            if(do_qml_aotstats AND "${qml_file_src}" MATCHES ".+\\.qml")
                 set(aotstats_file "${compiled_file}.aotstats")
                 list(APPEND aotstats_files ${aotstats_file})
             endif()
@@ -3400,7 +3434,7 @@ function(qt6_target_qml_sources target)
         endif()
     endforeach()
 
-    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.19)
+    if(do_qml_aotstats)
         set_property(TARGET ${target} APPEND PROPERTY
             QT_QML_MODULE_AOTSTATS_FILES ${aotstats_files})
     endif()
@@ -4093,14 +4127,14 @@ function(_qt_internal_scan_qml_imports target imports_file_var when_to_scan)
     endif()
 
     _qt_internal_get_tool_wrapper_script_path(tool_wrapper)
-    set(import_scanner_args ${tool_wrapper} ${tool_path} ${cmd_args})
+    set(import_scanner_args "${tool_path}" ${cmd_args})
 
     # Run qmlimportscanner to generate the cmake file that records the import entries
     if(scan_at_build_time)
         add_custom_command(
             OUTPUT "${imports_file}"
             COMMENT "Running qmlimportscanner for ${target}"
-            COMMAND ${import_scanner_args}
+            COMMAND ${tool_wrapper} ${import_scanner_args}
             WORKING_DIRECTORY ${target_source_dir}
             DEPENDS
                 ${tool_path}
@@ -4115,11 +4149,14 @@ function(_qt_internal_scan_qml_imports target imports_file_var when_to_scan)
         message(VERBOSE "Running qmlimportscanner for ${target}.")
         list(JOIN import_scanner_args " " import_scanner_args_string)
         message(DEBUG "qmlimportscanner command: ${import_scanner_args_string}")
-        execute_process(
+
+        # Pack arguments to avoid escaping issues.
+        set(import_scanner_execute_process_args
             COMMAND ${import_scanner_args}
-            WORKING_DIRECTORY ${target_source_dir}
+            WORKING_DIRECTORY "${target_source_dir}"
             RESULT_VARIABLE result
         )
+        _qt_internal_execute_proccess_in_qt_env(import_scanner_execute_process_args)
         if(result)
             message(FATAL_ERROR
                 "Failed to scan target ${target} for QML imports: ${result}"

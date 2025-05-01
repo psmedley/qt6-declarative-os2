@@ -4278,7 +4278,7 @@ void tst_qquicktext::baselineOffset_data()
     QTest::newRow("scaled font")
             << "hello world"
             << "hello\nworld"
-            << QByteArray("width: 200; minimumPointSize: 1; font.pointSize: 64; fontSizeMode: Text.HorizontalFit")
+            << QByteArray("width: 200; minimumPointSize: 1; font.pointSize: 10000; fontSizeMode: Text.HorizontalFit")
             << &expectedBaselineScaled
             << &expectedBaselineTop;
 
@@ -4375,7 +4375,7 @@ void tst_qquicktext::baselineOffset_data()
     QTest::newRow("scaled font with padding")
             << "hello world"
             << "hello\nworld"
-            << QByteArray("width: 200; topPadding: 10; bottomPadding: 20; minimumPointSize: 1; font.pointSize: 64; fontSizeMode: Text.HorizontalFit")
+            << QByteArray("width: 200; topPadding: 10; bottomPadding: 20; minimumPointSize: 1; font.pointSize: 10000; fontSizeMode: Text.HorizontalFit")
             << &expectedBaselineScaled
             << &expectedBaselineTop;
 

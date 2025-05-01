@@ -421,9 +421,9 @@ void tst_qquickmenubar::keys()
 
     // navigate up, back to the menubar
     QTest::keyClick(window.data(), Qt::Key_Up);
+    QTRY_VERIFY(!editMenuBarMenu->isVisible());
     QVERIFY(editMenuBarItem->isHighlighted());
     QVERIFY(editMenuBarItem->hasActiveFocus());
-    QTRY_VERIFY(!editMenuBarMenu->isVisible());
 
 // There seem to be problems in focus handling in webOS QPA, see https://bugreports.qt.io/browse/WEBOSCI-45
 #ifdef Q_OS_WEBOS
@@ -1605,12 +1605,13 @@ void tst_qquickmenubar::menuPosition()
     QVERIFY(window);
     QQuickMenuBar *menuBar = window->property("menuBar").value<QQuickMenuBar *>();
     QVERIFY(menuBar);
-
-    const QPoint requestedPos{50, 50};
-
     QQuickMenu *editMenu = menuBar->menuAt(1);
     QVERIFY(editMenu);
     QQuickMenuPrivate *editMenuPrivate = QQuickMenuPrivate::get(editMenu);
+
+    const QPoint requestedPos {50, 50};
+    const QPointF insetAdjustments {-editMenu->leftInset(), -editMenu->topInset()};
+
     editMenu->setPopupType(popupType);
     editMenu->setX(requestedPos.x());
     editMenu->setY(requestedPos.y());
@@ -1621,17 +1622,17 @@ void tst_qquickmenubar::menuPosition()
         QVERIFY(QTest::qWaitForWindowExposed(editMenuPrivate->popupWindow));
     }
 
-    QVERIFY(pixelsCloseEnough(editMenu->x(), requestedPos.x()));
-    QVERIFY(pixelsCloseEnough(editMenu->y(), requestedPos.y()));
+    static const QString errorString1("Expected %1, was %2");
+    QVERIFY2(pixelsCloseEnough(editMenu->x(), requestedPos.x()), qPrintable(errorString1.arg(requestedPos.x()).arg(editMenu->x())));
+    QVERIFY2(pixelsCloseEnough(editMenu->y(), requestedPos.y()), qPrintable(errorString1.arg(requestedPos.y()).arg(editMenu->y())));
 
     QQuickItem *background = editMenu->background();
     QVERIFY(background);
 
-    const QPoint bgPos = editMenu->parentItem()->mapFromGlobal(background->mapToGlobal({0, 0})).toPoint();
-    QVERIFY2(pixelsCloseEnough(requestedPos.x(), bgPos.x()),
-             "The background's x coordinate changed when mapped to the overlay's coordinate space.");
-    QVERIFY2(pixelsCloseEnough(requestedPos.y(), bgPos.y()),
-             "The background's y coordinate changed when mapped to the overlay's coordinate space.");
+    static const QString errorString2("The background's %1 coordinate changed when mapped to the overlay's coordinate space. %2");
+    const QPoint bgPos = editMenu->parentItem()->mapFromGlobal(background->mapToGlobal(insetAdjustments)).toPoint();
+    QVERIFY2(pixelsCloseEnough(requestedPos.x(), bgPos.x()), qPrintable(errorString2.arg("x").arg(errorString1.arg(requestedPos.x()).arg(bgPos.x()))));
+    QVERIFY2(pixelsCloseEnough(requestedPos.y(), bgPos.y()), qPrintable(errorString2.arg("y").arg(errorString1.arg(requestedPos.y()).arg(bgPos.y()))));
 }
 
 void tst_qquickmenubar::changeDelegate_data()

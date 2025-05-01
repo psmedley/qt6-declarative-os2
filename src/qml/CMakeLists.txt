@@ -25,7 +25,8 @@ qt_internal_add_qml_module(Qml
     URI "QML"
     VERSION "1.0"
     DESIGNER_SUPPORTED
-    __QT_INTERNAL_SYSTEM_MODULE
+    __QT_INTERNAL_SYSTEM_MODULE # This module includes the JavaScript root object
+    __QT_INTERNAL_STATIC_MODULE # This module is never "unused" where it's imported
     PLUGIN_TYPES qmltooling
     NO_PLUGIN
     SOURCES
@@ -455,13 +456,13 @@ get_target_property(qml_build_dir Qml QT_QML_MODULE_OUTPUT_DIRECTORY)
 _qt_internal_get_tool_wrapper_script_path(tool_wrapper)
 add_custom_command(
     OUTPUT
-        "${qml_root_dir}/jsroot.qmltypes"
+        "${qml_build_dir}/jsroot.qmltypes"
     DEPENDS
         ${QT_CMAKE_EXPORT_NAMESPACE}::qmltyperegistrar
     COMMAND
         ${tool_wrapper}
         $<TARGET_FILE:${QT_CMAKE_EXPORT_NAMESPACE}::qmltyperegistrar>
-        --jsroot --generate-qmltypes "${qml_root_dir}/jsroot.qmltypes"
+        --jsroot --generate-qmltypes "${qml_build_dir}/jsroot.qmltypes"
     COMMENT "Generating jsroot.qmltypes"
     VERBATIM
 )
@@ -476,6 +477,19 @@ add_custom_command(
         "${qml_build_dir}/plugins.qmltypes"
         "${qml_root_dir}/builtins.qmltypes"
     COMMENT "Copying builtins.qmltypes"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT
+        "${qml_root_dir}/jsroot.qmltypes"
+    DEPENDS
+        "${qml_build_dir}/jsroot.qmltypes"
+    COMMAND
+        ${CMAKE_COMMAND} -E copy_if_different
+        "${qml_build_dir}/jsroot.qmltypes"
+        "${qml_root_dir}/jsroot.qmltypes"
+    COMMENT "Copying jsroot.qmltypes"
     VERBATIM
 )
 

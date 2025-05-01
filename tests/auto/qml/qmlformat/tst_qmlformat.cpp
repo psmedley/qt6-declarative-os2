@@ -417,6 +417,33 @@ void TestQmlformat::testFormat_data()
     QTest::newRow("esm_tabIndents")
             << "mini_esm.mjs"
             << "mini_esm.formattedTabs.mjs" << QStringList{ "-t" } << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions")
+            << "noSuperfluousSpaceInsertions.qml"
+            << "noSuperfluousSpaceInsertions.formatted.qml" << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_id")
+            << "noSuperfluousSpaceInsertions.fail_id.qml"
+            << "noSuperfluousSpaceInsertions.fail_id.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_QtObject")
+            << "noSuperfluousSpaceInsertions.fail_QtObject.qml"
+            << "noSuperfluousSpaceInsertions.fail_QtObject.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_signal")
+            << "noSuperfluousSpaceInsertions.fail_signal.qml"
+            << "noSuperfluousSpaceInsertions.fail_signal.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_enum")
+            << "noSuperfluousSpaceInsertions.fail_enum.qml"
+            << "noSuperfluousSpaceInsertions.fail_enum.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_parameters")
+            << "noSuperfluousSpaceInsertions.fail_parameters.qml"
+            << "noSuperfluousSpaceInsertions.fail_parameters.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
+    QTest::newRow("fromAsIdentifier")
+            << "fromAsIdentifier.qml"
+            << "fromAsIdentifier.formatted.qml"
+            << QStringList{} << RunOption::OnCopy;
 }
 
 void TestQmlformat::testFormat()
@@ -429,6 +456,16 @@ void TestQmlformat::testFormat()
     auto formatted = runQmlformat(testFile(file), args, true, runOption, fileExt(file));
     QEXPECT_FAIL("normalizedFunctionSpacing",
                  "Normalize && function spacing are not yet supported for JS", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_id",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_QtObject",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_signal",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_enum",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_parameters",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
     auto exp = readTestFile(fileFormatted);
     QCOMPARE(formatted, exp);
 }
@@ -462,6 +499,13 @@ void TestQmlformat::plainJS_data()
                                       << "directives.formatted.js";
     QTest::newRow("legacyDirectivesWithComments") << "directivesWithComments.js"
                                                   << "directivesWithComments.formatted.js";
+    QTest::newRow("preserveOptionalTokens") << "preserveOptionalTokens.js"
+                                            << "preserveOptionalTokens.formatted.js";
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_pragma")
+            << "noSuperfluousSpaceInsertions.fail_pragma.js"
+            << "noSuperfluousSpaceInsertions.fail_pragma.formatted.js";
+    QTest::newRow("fromAsIdentifier") << "fromAsIdentifier.js"
+                                      << "fromAsIdentifier.formatted.js";
 }
 
 void TestQmlformat::plainJS()
@@ -482,6 +526,8 @@ void TestQmlformat::plainJS()
     QEXPECT_FAIL("classConstructor", "see QTBUG-119404", Abort);
     // TODO(QTBUG-119770)
     QEXPECT_FAIL("legacyDirectivesWithComments", "see QTBUG-119770", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_pragma",
+                 "Not all cases have been covered yet (QTBUG-133315)", Abort);
     auto exp = readTestFile(fileFormatted);
     QCOMPARE(output, exp);
 }
@@ -624,8 +670,7 @@ void TestQmlformat::testFilesOption_data()
     QTest::addColumn<QString>("containerFile");
     QTest::addColumn<QStringList>("individualFiles");
 
-    QTest::newRow("initial") << "fileListToFormat"
-            << QStringList{"valid1.qml", "invalidEntry:cannot be parsed", "valid2.qml"};
+    QTest::newRow("initial") << "fileListToFormat" << QStringList{ "valid1.qml", "valid2.qml" };
 }
 
 void TestQmlformat::testFilesOption()

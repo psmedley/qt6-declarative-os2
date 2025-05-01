@@ -7,7 +7,7 @@ plugins {
 //! [build.gradle QtBuild config]
 QtBuild {
     // Relative for Qt (Installer or MaintenanceTool) installations.
-    qtPath = file("../../../../../../../6.8.2")
+    qtPath = file("../../../../../../../6.8.3")
     projectPath = file("../../qtabstractlistmodel")
 }
 //! [build.gradle QtBuild config]
@@ -33,8 +33,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     packaging {
         jniLibs {
@@ -42,7 +42,7 @@ android {
         }
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 }
 

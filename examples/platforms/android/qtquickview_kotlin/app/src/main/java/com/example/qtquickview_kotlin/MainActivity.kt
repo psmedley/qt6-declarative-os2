@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 package com.example.qtquickview_kotlin
 
-import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import com.example.qtquickview_kotlin.databinding.ActivityMainBinding
 import org.qtproject.example.qtquickview.QmlModule.Main
@@ -72,40 +69,8 @@ class MainActivity : AppCompatActivity(), QtQmlStatusChangeListener {
         m_binding.loadMainQml.setOnClickListener { loadMainQml() }
         m_binding.loadSecondQml.setOnClickListener { loadSecondQml() }
         m_binding.rotateQmlGridButton.setOnClickListener { rotateQmlGrid() }
-
-        // Check target device orientation on launch
-        handleOrientationChanges()
     }
     //! [onCreate]
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        handleOrientationChanges()
-    }
-
-    private fun handleOrientationChanges() {
-        // When specific target device display configurations (listed in AndroidManifest.xml
-        // android:configChanges) change, get display metrics and make needed changes to UI
-        val displayMetrics = DisplayMetrics()
-        windowManager.defaultDisplay.getMetrics(displayMetrics)
-        val qmlFrameLayoutParams = m_binding.qmlFrame.layoutParams
-        val linearLayoutParams = m_binding.kotlinLinear.layoutParams
-
-        if (displayMetrics.heightPixels > displayMetrics.widthPixels) {
-            m_binding.mainLinear.orientation = LinearLayout.VERTICAL
-            qmlFrameLayoutParams.width = ViewGroup.LayoutParams.MATCH_PARENT
-            qmlFrameLayoutParams.height = 0
-            linearLayoutParams.width = ViewGroup.LayoutParams.MATCH_PARENT
-            linearLayoutParams.height = 0
-        } else {
-            m_binding.mainLinear.orientation = LinearLayout.HORIZONTAL
-            qmlFrameLayoutParams.width = 0
-            qmlFrameLayoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-            linearLayoutParams.width = 0
-            linearLayoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-        }
-        m_binding.qmlFrame.layoutParams = qmlFrameLayoutParams
-        m_binding.kotlinLinear.layoutParams = linearLayoutParams
-    }
 
     //! [onClickListener]
     private fun onClickListener() {

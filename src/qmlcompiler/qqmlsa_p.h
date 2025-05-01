@@ -37,8 +37,6 @@ class Bindings;
 class GenericPassPrivate;
 class PassManager;
 
-enum class AccessSemantics { Reference, Value, None, Sequence };
-
 enum class Flag {
     Creatable = 0x1,
     Composite = 0x2,

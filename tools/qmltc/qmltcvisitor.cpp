@@ -49,7 +49,7 @@ static bool isImplicitComponent(const QQmlJSScope::ConstPtr &type)
         return false;
     const auto cppBase = QQmlJSScope::nonCompositeBaseType(type);
     const bool isComponentBased = (cppBase && cppBase->internalName() == u"QQmlComponent");
-    return type->isComponentRootElement() && !isComponentBased;
+    return type->componentRootStatus() != QQmlJSScope::IsComponentRoot::No && !isComponentBased;
 }
 
 /*! \internal
@@ -590,7 +590,7 @@ void QmltcVisitor::postVisitResolve(
     const auto setRuntimeId = [&](const QQmlJSScope::ConstPtr &type) {
         // any type wrapped in an implicit component shouldn't be processed
         // here. even if it has id, it doesn't need to be set by qmltc
-        if (type->isComponentRootElement()) {
+        if (type->componentRootStatus() != QQmlJSScope::IsComponentRoot::No) {
             return true;
         }
 

@@ -163,6 +163,9 @@ void QQuickItemView::setModel(const QVariant &m)
         if (QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
             disconnect(delegateModel, SIGNAL(itemPooled(int,QObject*)), this, SLOT(onItemPooled(int,QObject*)));
             disconnect(delegateModel, SIGNAL(itemReused(int,QObject*)), this, SLOT(onItemReused(int,QObject*)));
+            QObjectPrivate::disconnect(
+                    delegateModel, &QQmlDelegateModel::delegateChanged,
+                    d, &QQuickItemViewPrivate::applyDelegateChange);
         }
     }
 

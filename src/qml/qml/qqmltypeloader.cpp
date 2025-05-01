@@ -507,6 +507,11 @@ void QQmlTypeLoader::Blob::importQmldirScripts(
         const QUrl plainUrl = QUrl(script.fileName);
         const QUrl scriptUrl = qmldirUrl.resolved(plainUrl);
         QQmlRefPointer<QQmlScriptBlob> blob = typeLoader()->getScript(scriptUrl, plainUrl);
+
+        // Self-import via qmldir is OK-ish. We ignore it.
+        if (blob.data() == this)
+            continue;
+
         addDependency(blob.data());
         scriptImported(blob, import->location, script.nameSpace, import->qualifier);
     }
@@ -542,7 +547,8 @@ bool QQmlTypeLoader::Blob::updateQmldir(const QQmlRefPointer<QQmlQmldirData> &da
     typeLoader()->setQmldirContent(qmldirIdentifier, data->content());
 
     const QTypeRevision version = m_importCache->updateQmldirContent(
-            typeLoader(), import->uri, import->qualifier, qmldirIdentifier, qmldirUrl, errors);
+            typeLoader(), import->uri, import->version, import->qualifier, qmldirIdentifier,
+            qmldirUrl, errors);
     if (!version.isValid())
         return false;
 

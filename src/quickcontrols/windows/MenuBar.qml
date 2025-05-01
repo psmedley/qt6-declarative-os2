@@ -30,6 +30,6 @@ T.MenuBar {
 
     background: Rectangle {
         implicitHeight: 20
-        color: "white" // window title bar color
+        color: control.palette.button // The MenuBar shares the same color as the MenuBarItems on Windows
     }
 }

@@ -168,6 +168,7 @@ public:
         Structured = 0x1000,
         ExtensionIsJavaScript = 0x2000,
         EnforcesScopedEnums = 0x4000,
+        AssignedToUnknownProperty = 0x10000,
     };
     Q_DECLARE_FLAGS(Flags, Flag)
     Q_FLAGS(Flags);
@@ -261,7 +262,8 @@ public:
     // This returns a more user readable version of internalName / baseTypeName
     static QString prettyName(QAnyStringView name);
 
-    bool isComponentRootElement() const;
+    enum class IsComponentRoot : quint8 { No = 0, Yes, Maybe };
+    IsComponentRoot componentRootStatus() const;
 
     void setAliases(const QStringList &aliases) { m_aliases = aliases; }
     QStringList aliases() const { return m_aliases; }
@@ -398,6 +400,9 @@ public:
 
     bool isWrappedInImplicitComponent() const { return m_flags.testFlag(WrappedInImplicitComponent); }
     void setIsWrappedInImplicitComponent(bool v) { m_flags.setFlag(WrappedInImplicitComponent, v); }
+
+    bool isAssignedToUnknownProperty() const { return m_flags.testFlag(AssignedToUnknownProperty); }
+    void setAssignedToUnknownProperty(bool v) { m_flags.setFlag(AssignedToUnknownProperty, v); }
 
     bool extensionIsJavaScript() const { return m_flags.testFlag(ExtensionIsJavaScript); }
     void setExtensionIsJavaScript(bool v) { m_flags.setFlag(ExtensionIsJavaScript, v); }

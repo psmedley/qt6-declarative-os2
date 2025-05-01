@@ -131,7 +131,7 @@ QQmlJSImportVisitor::QQmlJSImportVisitor(
       m_logger(logger),
       m_rootScopeImports(
               QQmlJS::ContextualTypes(
-                      QQmlJS::ContextualTypes::QML, {},
+                      QQmlJS::ContextualTypes::QML, {}, {},
                       importer->builtinInternalNames().contextualTypes().arrayType()),
               {})
 {
@@ -229,14 +229,19 @@ void QQmlJSImportVisitor::leaveEnvironment()
     m_currentScope = m_currentScope->parentScope();
 }
 
-bool QQmlJSImportVisitor::isTypeResolved(const QQmlJSScope::ConstPtr &type)
+void QQmlJSImportVisitor::warnUnresolvedType(const QQmlJSScope::ConstPtr &type) const
 {
-    const auto handleUnresolvedType = [this](const QQmlJSScope::ConstPtr &type) {
-        m_logger->log(QStringLiteral("Type %1 is used but it is not resolved")
-                              .arg(getScopeName(type, type->scopeType())),
-                      qmlUnresolvedType, type->sourceLocation());
-    };
-    return isTypeResolved(type, handleUnresolvedType);
+    m_logger->log(QStringLiteral("Type %1 is used but it is not resolved")
+                          .arg(getScopeName(type, type->scopeType())),
+                          qmlUnresolvedType, type->sourceLocation());
+}
+
+void QQmlJSImportVisitor::warnMissingPropertyForBinding(
+        const QString &property, const QQmlJS::SourceLocation &location,
+        const std::optional<QQmlJSFixSuggestion> &fixSuggestion)
+{
+    m_logger->log(QStringLiteral("Could not find property \"%1\".").arg(property),
+                  qmlMissingProperty, location, true, true, fixSuggestion);
 }
 
 static bool mayBeUnresolvedGroupedProperty(const QQmlJSScope::ConstPtr &scope)
@@ -420,12 +425,12 @@ void QQmlJSImportVisitor::processImportWarnings(
 void QQmlJSImportVisitor::importBaseModules()
 {
     Q_ASSERT(m_rootScopeImports.isEmpty());
-    m_rootScopeImports = m_importer->importBuiltins();
+    m_rootScopeImports = m_importer->importHardCodedBuiltins();
 
     const QQmlJS::SourceLocation invalidLoc;
     const auto types = m_rootScopeImports.types();
     for (auto it = types.keyBegin(), end = types.keyEnd(); it != end; it++)
-        addImportWithLocation(*it, invalidLoc);
+        addImportWithLocation(*it, invalidLoc, false);
 
     if (!m_qmldirFiles.isEmpty())
         m_rootScopeImports.addWarnings(m_importer->importQmldirs(m_qmldirFiles));
@@ -562,18 +567,12 @@ QVector<QQmlJSAnnotation> QQmlJSImportVisitor::parseAnnotations(QQmlJS::AST::UiA
 
 void QQmlJSImportVisitor::setAllBindings()
 {
-    QDuplicateTracker<QQmlJSScope::ConstPtr> seenBadOwners;
     for (auto it = m_bindings.cbegin(); it != m_bindings.cend(); ++it) {
-        // ensure the scope is resolved, if not - it is an error
-        auto type = it->owner;
-        if (!type->isFullyResolved() && !type->isInCustomParserParent()) { // special otherwise
-            if (!seenBadOwners.hasSeen(type)) {
-                m_logger->log(QStringLiteral("'%1' is used but it is not resolved")
-                                      .arg(getScopeName(type, type->scopeType())),
-                              qmlUnresolvedType, type->sourceLocation());
-            }
+        // ensure the scope is resolved. If not, produce a warning.
+        const QQmlJSScope::Ptr type = it->owner;
+        if (!checkTypeResolved(type))
             continue;
-        }
+
         auto binding = it->create();
         if (binding.isValid())
             type->addOwnPropertyBinding(binding, it->specifier);
@@ -628,12 +627,6 @@ void QQmlJSImportVisitor::processDefaultProperties()
         const QQmlJSMetaProperty defaultProp = parentScope->property(defaultPropertyName);
         auto propType = defaultProp.type();
         const auto handleUnresolvedDefaultProperty = [&](const QQmlJSScope::ConstPtr &) {
-
-            // Since we don't know the property type, we need to assume it's QQmlComponent and that
-            // IDs from the inner scopes are inaccessible.
-            for (const QQmlJSScope::Ptr &scope : std::as_const(*it))
-                scope->setIsWrappedInImplicitComponent(true);
-
             // Property type is not fully resolved we cannot tell any more than this
             m_logger->log(QStringLiteral("Property \"%1\" has incomplete type \"%2\". You may be "
                                          "missing an import.")
@@ -642,8 +635,16 @@ void QQmlJSImportVisitor::processDefaultProperties()
                           qmlUnresolvedType, it.value().constFirst()->sourceLocation());
         };
 
+        const auto assignToUnknownProperty = [&]() {
+            // We don't know the property type. It could be QQmlComponent, which would mean that
+            // IDs from the inner scopes are inaccessible.
+            for (const QQmlJSScope::Ptr &scope : std::as_const(*it))
+                scope->setAssignedToUnknownProperty(true);
+        };
+
         if (propType.isNull()) {
             handleUnresolvedDefaultProperty(propType);
+            assignToUnknownProperty();
             continue;
         }
 
@@ -655,11 +656,13 @@ void QQmlJSImportVisitor::processDefaultProperties()
                     qmlNonListProperty, it.value().constFirst()->sourceLocation());
         }
 
-        if (!isTypeResolved(propType, handleUnresolvedDefaultProperty))
+        if (!checkTypeResolved(propType, handleUnresolvedDefaultProperty)) {
+            assignToUnknownProperty();
             continue;
+        }
 
         for (const QQmlJSScope::Ptr &scope : std::as_const(*it)) {
-            if (!isTypeResolved(scope))
+            if (!checkTypeResolved(scope))
                 continue;
 
             // Assigning any element to a QQmlComponent property implicitly wraps it into a Component
@@ -761,33 +764,25 @@ void QQmlJSImportVisitor::processPropertyBindingObjects()
         const QString propertyName = objectBinding.name;
         QQmlJSScope::Ptr childScope = objectBinding.childScope;
 
-        const auto handleUnresolvedType = [&](const QQmlJSScope::ConstPtr &type) {
-            // Since we don't know the property type we need to assume that it's QQmlComponent and
+        const auto assignToUnknownProperty = [&]() {
+            // We don't know the property type. It could be QQmlComponent which would mean
             // that IDs from the child scope are inaccessible outside of it.
-            childScope->setIsWrappedInImplicitComponent(true);
-
-            m_logger->log(QStringLiteral("Type %1 is used but it is not resolved")
-                                  .arg(getScopeName(type, type->scopeType())),
-                                  qmlUnresolvedType, type->sourceLocation());
+            childScope->setAssignedToUnknownProperty(true);
         };
 
         // guarantees property lookup
-        if (!isTypeResolved(objectBinding.scope, handleUnresolvedType))
+        if (!checkTypeResolved(objectBinding.scope)) {
+            assignToUnknownProperty();
             continue;
+        }
 
         QQmlJSMetaProperty property = objectBinding.scope->property(propertyName);
 
         if (!property.isValid()) {
-            m_logger->log(QStringLiteral("Property \"%1\" does not exist").arg(propertyName),
-                          qmlMissingProperty, objectBinding.location);
+            warnMissingPropertyForBinding(propertyName, objectBinding.location);
             continue;
         }
         const auto handleUnresolvedProperty = [&](const QQmlJSScope::ConstPtr &) {
-
-            // Since we don't know the property type we need to assume that it's QQmlComponent and
-            // that IDs from the child scope are inaccessible outside of it.
-            childScope->setIsWrappedInImplicitComponent(true);
-
             // Property type is not fully resolved we cannot tell any more than this
             m_logger->log(QStringLiteral("Property \"%1\" has incomplete type \"%2\". You may be "
                                          "missing an import.")
@@ -795,14 +790,18 @@ void QQmlJSImportVisitor::processPropertyBindingObjects()
                                   .arg(property.typeName()),
                           qmlUnresolvedType, objectBinding.location);
         };
+
         if (property.type().isNull()) {
+            assignToUnknownProperty();
             handleUnresolvedProperty(property.type());
             continue;
         }
 
         // guarantee that canAssign() can be called
-        if (!isTypeResolved(property.type(), handleUnresolvedProperty)
-            || !isTypeResolved(childScope)) {
+        if (!checkTypeResolved(property.type(), handleUnresolvedProperty)) {
+            assignToUnknownProperty();
+            continue;
+        } else if (!checkTypeResolved(childScope)) {
             continue;
         }
 
@@ -876,8 +875,10 @@ void QQmlJSImportVisitor::checkRequiredProperties()
     }
 
     for (const auto &defScope : m_objectDefinitionScopes) {
-        if (defScope->parentScope() == m_globalScope || defScope->isInlineComponent() || defScope->isComponentRootElement())
+        if (defScope->parentScope() == m_globalScope || defScope->isInlineComponent()
+                || defScope->componentRootStatus() != QQmlJSScope::IsComponentRoot::No) {
             continue;
+        }
 
         QVector<QQmlJSScope::ConstPtr> scopesToSearch;
         for (QQmlJSScope::ConstPtr scope = defScope; scope; scope = scope->baseType()) {
@@ -995,9 +996,7 @@ void QQmlJSImportVisitor::processPropertyBindings()
                     }
                 }
 
-                m_logger->log(QStringLiteral("Property \"%1\" does not exist.")
-                                      .arg(name),
-                              qmlMissingProperty, location, true, true, fixSuggestion);
+                warnMissingPropertyForBinding(name, location, fixSuggestion);
                 continue;
             }
 
@@ -1242,7 +1241,7 @@ void QQmlJSImportVisitor::breakInheritanceCycles(const QQmlJSScope::Ptr &origina
             const QString name = scope->baseTypeName();
             if (!error.isEmpty()) {
                 m_logger->log(error, qmlImport, scope->sourceLocation(), true, true);
-            } else if (!name.isEmpty()) {
+            } else if (!name.isEmpty() && !m_unresolvedTypes.hasSeen(scope)) {
                 m_logger->log(
                         name + ' '_L1 + wasNotFound + ' '_L1 + didYouAddAllImports,
                         qmlImport, scope->sourceLocation(), true, true,
@@ -2305,17 +2304,20 @@ bool QQmlJSImportVisitor::visit(QQmlJS::AST::UiEnumDeclaration *uied)
     return true;
 }
 
-void QQmlJSImportVisitor::addImportWithLocation(const QString &name,
-                                                const QQmlJS::SourceLocation &loc)
+void QQmlJSImportVisitor::addImportWithLocation(
+        const QString &name, const QQmlJS::SourceLocation &loc, bool hadWarnings)
 {
     if (m_importTypeLocationMap.contains(name)
-        && m_importTypeLocationMap.values(name).contains(loc))
+            && m_importTypeLocationMap.values(name).contains(loc)) {
         return;
+    }
 
     m_importTypeLocationMap.insert(name, loc);
 
-    // If it's not valid it's a builtin. We don't need to complain about it being unused.
-    if (loc.isValid())
+    // If the import had warnings it may be "unused" because we haven't found all of its types.
+    // If the type's location is not valid it's a builtin.
+    // We don't need to complain about those being unused.
+    if (!hadWarnings && loc.isValid())
         m_importLocations.insert(loc);
 }
 
@@ -2333,7 +2335,7 @@ QList<QQmlJS::DiagnosticMessage> QQmlJSImportVisitor::importFromHost(
         const auto scope = m_importer->importFile(path);
         const QString actualPrefix = prefix.isEmpty() ? scope->internalName() : prefix;
         m_rootScopeImports.setType(actualPrefix, { scope, QTypeRevision() });
-        addImportWithLocation(actualPrefix, location);
+        addImportWithLocation(actualPrefix, location, false);
         return {};
     }
 
@@ -2343,7 +2345,7 @@ QList<QQmlJS::DiagnosticMessage> QQmlJSImportVisitor::importFromHost(
         const auto warnings = scopes.warnings();
         m_rootScopeImports.add(std::move(scopes));
         for (auto it = types.keyBegin(), end = types.keyEnd(); it != end; it++)
-            addImportWithLocation(*it, location);
+            addImportWithLocation(*it, location, !warnings.isEmpty());
         return warnings;
     }
 
@@ -2370,7 +2372,7 @@ QList<QQmlJS::DiagnosticMessage> QQmlJSImportVisitor::importFromQrc(
         const QString actualPrefix =
                 prefix.isEmpty() ? QFileInfo(entry.resourcePath).baseName() : prefix;
         m_rootScopeImports.setType(actualPrefix, { scope, QTypeRevision() });
-        addImportWithLocation(actualPrefix, location);
+        addImportWithLocation(actualPrefix, location, false);
         return {};
     }
 
@@ -2379,7 +2381,7 @@ QList<QQmlJS::DiagnosticMessage> QQmlJSImportVisitor::importFromQrc(
     const auto warnings = scopes.warnings();
     m_rootScopeImports.add(std::move(scopes));
     for (auto it = types.keyBegin(), end = types.keyEnd(); it != end; it++)
-        addImportWithLocation(*it, location);
+        addImportWithLocation(*it, location, !warnings.isEmpty());
     return warnings;
 }
 
@@ -2437,7 +2439,7 @@ bool QQmlJSImportVisitor::visit(QQmlJS::AST::UiImport *import)
     const auto warnings = imported.warnings();
     m_rootScopeImports.add(std::move(imported));
     for (auto it = types.keyBegin(), end = types.keyEnd(); it != end; it++)
-        addImportWithLocation(*it, import->firstSourceLocation());
+        addImportWithLocation(*it, import->firstSourceLocation(), !warnings.isEmpty());
 
     if (prefix.isEmpty()) {
         for (const QString &staticModule : staticModulesProvided) {

@@ -1086,23 +1086,30 @@ void QQmlJSCodeGenerator::generateVariantEqualityComparison(
               ? storableContent.storedType()
               : m_typeResolver->containedType(storableContent);
 
+    const QQmlJSScope::ConstPtr boolType = m_typeResolver->boolType();
     if (contained->isReferenceType()) {
         const QQmlJSRegisterContent comparable
                 = m_typeResolver->builtinType(m_typeResolver->qObjectType());
-        m_body += m_state.accumulatorVariableOut + u" = "_s + (invert ? u"!"_s : QString()) + u"(("
+        const QString cmpExpr = (invert ? u"!"_s : QString()) + u"(("
                 + varRegisterName + u".metaType().flags() & QMetaType::PointerToQObject) "_s
                 + u" && "_s + conversion(storableContent, comparable, typedRegisterName) + u" == "_s
-                + conversion(m_typeResolver->varType(), comparable, varRegisterName) + u");\n";
+                + conversion(m_typeResolver->varType(), comparable, varRegisterName) + u')';
+
+        m_body += m_state.accumulatorVariableOut + u" = "_s
+                + conversion(boolType, m_state.accumulatorOut(), cmpExpr) + u";\n";
         return;
     }
 
     if (m_typeResolver->isPrimitive(contained)) {
         const QQmlJSRegisterContent comparable
                 = m_typeResolver->builtinType(m_typeResolver->jsPrimitiveType());
-        m_body += m_state.accumulatorVariableOut + u" = "_s + (invert ? u"!"_s : QString())
+        const QString cmpExpr = (invert ? u"!"_s : QString())
                 + conversion(storableContent, comparable, typedRegisterName)
                 + u".strictlyEquals("_s
-                + conversion(m_typeResolver->varType(), comparable, varRegisterName) + u");\n"_s;
+                + conversion(m_typeResolver->varType(), comparable, varRegisterName) + u')';
+
+        m_body += m_state.accumulatorVariableOut + u" = "_s
+                + conversion(boolType, m_state.accumulatorOut(), cmpExpr) + u";\n"_s;
         return;
     }
 

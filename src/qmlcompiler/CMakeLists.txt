@@ -58,14 +58,15 @@ qt_internal_add_module(QmlCompiler
         Qt::QmlToolingSettingsPrivate
 )
 
-qt_path_join(qml_build_dir "${QT_BUILD_DIR}" "${INSTALL_QMLDIR}")
+qt_path_join(qml_build_dir "${QT_BUILD_DIR}" "${INSTALL_QMLDIR}" "QML")
 qt_internal_add_resource(QmlCompiler "builtins"
     PREFIX
-        "/qt-project.org/qml/builtins"
+        "/qt-project.org/imports/QML"
     BASE
         "${qml_build_dir}"
     FILES
-        "${qml_build_dir}/builtins.qmltypes"
+        "${qml_build_dir}/qmldir"
+        "${qml_build_dir}/plugins.qmltypes"
         "${qml_build_dir}/jsroot.qmltypes"
 )
 

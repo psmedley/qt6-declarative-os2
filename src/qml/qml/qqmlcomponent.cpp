@@ -186,6 +186,12 @@ V4_DEFINE_EXTENSION(QQmlComponentExtension, componentExtension);
     \c Component objects can also be created dynamically using
     \l{QtQml::Qt::createComponent()}{Qt.createComponent()}.
 
+    \c {Component}s are useful to declare a type where you only need an
+    instance of the type without having to add an entire new file. However,
+    you cannot name this type and consequently can't use it to declare a
+    property or use it in a type annotation. If you need this, prefer using
+    \l{Defining Object Types through QML Documents#Inline Components}{inline components}.
+
     \section2 Creation Context
 
     The creation context of a Component corresponds to the context where the Component was declared.
@@ -699,6 +705,9 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, QV4::ExecutableCompilationUnit 
     Sets the QQmlComponent to use the given QML \a data. If \a url
     is provided, it is used to set the component name and to provide
     a base path for items resolved by this component.
+
+    \warning The new component will shadow any existing component of
+    the same URL. You should not pass a URL of an existing component.
 */
 void QQmlComponent::setData(const QByteArray &data, const QUrl &url)
 {

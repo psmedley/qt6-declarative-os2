@@ -257,6 +257,7 @@ protected:
             const QQmlJSScope::ConstPtr &scopeType = QQmlJSScope::ConstPtr(),
             bool hasObjectModuelPrefix = false) const;
 
+    bool canFindComponentBoundaries(const QQmlJSScope::ConstPtr &scope) const;
 
     QQmlJSScope::ConstPtr m_voidType;
     QQmlJSScope::ConstPtr m_emptyType;

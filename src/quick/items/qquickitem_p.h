@@ -578,16 +578,16 @@ public:
     static bool canAcceptTabFocus(QQuickItem *item);
 
     void setX(qreal x) {q_func()->setX(x);}
-    void xChanged() {q_func()->xChanged();}
+    void xChanged() { Q_EMIT q_func()->xChanged(); }
     Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, x, &QQuickItemPrivate::setX, &QQuickItemPrivate::xChanged);
     void setY(qreal y) {q_func()->setY(y);}
-    void yChanged() {q_func()->yChanged();}
+    void yChanged() { Q_EMIT q_func()->yChanged(); }
     Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, y, &QQuickItemPrivate::setY, &QQuickItemPrivate::yChanged);
     void setWidth(qreal width) {q_func()->setWidth(width);}
-    void widthChanged() {q_func()->widthChanged();}
+    void widthChanged() { Q_EMIT q_func()->widthChanged(); }
     Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, width, &QQuickItemPrivate::setWidth, &QQuickItemPrivate::widthChanged);
     void setHeight(qreal height) {q_func()->setHeight(height);}
-    void heightChanged() {q_func()->heightChanged();}
+    void heightChanged() { Q_EMIT q_func()->heightChanged(); }
     Q_OBJECT_COMPAT_PROPERTY(QQuickItemPrivate, qreal, height, &QQuickItemPrivate::setHeight, &QQuickItemPrivate::heightChanged);
     qreal implicitWidth;
     qreal implicitHeight;

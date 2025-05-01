@@ -837,6 +837,23 @@ void tst_qmlls_modules::documentFormatting()
             QCOMPARE(textEdit.range.start.character, 0);
             QCOMPARE(textEdit.range.end.line, lineCount(originalFile));
             QCOMPARE(textEdit.range.end.character, 0);
+
+            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_enum.qml",
+                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
+                         Continue);
+            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_id.qml",
+                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
+                         Continue);
+            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_parameters.qml",
+                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
+                         Continue);
+            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_QtObject.qml",
+                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
+                         Continue);
+            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_signal.qml",
+                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
+                         Continue);
+
             QCOMPARE(textEdit.newText, file.readAll());
         }
     };
@@ -1647,15 +1664,13 @@ static QQmlJS::Dom::DomItem fileObject(const QString &filePath)
     if (!f.open(QIODevice::ReadOnly))
         return file;
     QString code = f.readAll();
-    QQmlJS::Dom::DomCreationOptions options;
-    options.setFlag(QQmlJS::Dom::DomCreationOption::WithScriptExpressions);
-    options.setFlag(QQmlJS::Dom::DomCreationOption::WithSemanticAnalysis);
-    options.setFlag(QQmlJS::Dom::DomCreationOption::WithRecovery);
 
     QStringList dirs = {QLibraryInfo::path(QLibraryInfo::Qml2ImportsPath)};
-    auto envPtr = QQmlJS::Dom::DomEnvironment::create(dirs,
+    auto envPtr = QQmlJS::Dom::DomEnvironment::create(
+            dirs,
             QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
-                    | QQmlJS::Dom::DomEnvironment::Option::NoDependencies, options);
+                    | QQmlJS::Dom::DomEnvironment::Option::NoDependencies,
+            QQmlJS::Dom::Extended);
     envPtr->loadBuiltins();
     envPtr->loadFile(QQmlJS::Dom::FileToLoad::fromMemory(envPtr, filePath, code),
                         [&file](QQmlJS::Dom::Path, const QQmlJS::Dom::DomItem &, const QQmlJS::Dom::DomItem &newIt) {

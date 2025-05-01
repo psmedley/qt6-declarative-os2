@@ -86,6 +86,7 @@ public:
         QDateTime sourceTimeStamp() const;
         bool exists() const;
         bool isEmpty() const;
+        bool isCacheable() const { return !hasInlineSourceCode; }
         bool isValid() const
         {
             return hasInlineSourceCode || !fileInfo.filePath().isEmpty();

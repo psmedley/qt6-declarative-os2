@@ -569,6 +569,8 @@ void QQuickAccessibleAttached::setProxying(QQuickAccessibleAttached *proxying)
 }
 
 /*!
+ * \qmlmethod void QtQuick::Accessible::announce(string message, AnnouncementPoliteness politeness)
+ *
  * \since 6.8
  * Issues an announcement event with a \a message with politeness \a politeness.
  *

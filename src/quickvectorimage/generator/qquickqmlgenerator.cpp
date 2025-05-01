@@ -399,6 +399,20 @@ void QQuickQmlGenerator::generateTextNode(const TextNodeInfo &info)
         stream() << "font.weight: " << int(info.font.weight());
     if (info.font.italic())
         stream() << "font.italic: true";
+    switch (info.font.hintingPreference()) {
+    case QFont::PreferFullHinting:
+        stream() << "font.hintingPreference: Font.PreferFullHinting";
+        break;
+    case QFont::PreferVerticalHinting:
+        stream() << "font.hintingPreference: Font.PreferVerticalHinting";
+        break;
+    case QFont::PreferNoHinting:
+        stream() << "font.hintingPreference: Font.PreferNoHinting";
+        break;
+    case QFont::PreferDefaultHinting:
+        stream() << "font.hintingPreference: Font.PreferDefaultHinting";
+        break;
+    };
 
     if (info.strokeColor != QColorConstants::Transparent) {
         stream() << "styleColor: \"" << info.strokeColor.name(QColor::HexArgb) << "\"";

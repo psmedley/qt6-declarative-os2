@@ -327,6 +327,21 @@ void TestQmllint::oldQmltypes()
                                                       "Did you add all imports and dependencies?")
                      }
             } });
+
+    runTest("oldUnusedQmlTypes.qml",
+            Result { {
+                             Message { QStringLiteral("typeinfo not declared in qmldir file") },
+                             Message {
+                                      QStringLiteral("Found deprecated dependency specifications") },
+                             Message { QStringLiteral(
+                                     "Meta object revision and export version differ.") },
+                             Message { QStringLiteral(
+                                     "Revision 0 corresponds to version 0.0; it should be 1.0.") },
+                      },
+                      {
+                             Message { QStringLiteral("Unused import"), 1, 1, QtInfoMsg
+                      }
+            } });
 }
 
 void TestQmllint::qmltypes_data()
@@ -595,7 +610,7 @@ void TestQmllint::dirtyQmlCode_data()
                                             "unknown attached property scope WrongAttached.") } } };
     QTest::newRow("BadBinding") << QStringLiteral("badBinding.qml")
                                 << Result{ { Message{ QStringLiteral(
-                                           "Property \"doesNotExist\" does not exist.") } } };
+                                           "Could not find property \"doesNotExist\".") } } };
     QTest::newRow("bad template literal (simple)")
             << QStringLiteral("badTemplateStringSimple.qml")
             << Result { { Message {
@@ -615,11 +630,11 @@ void TestQmllint::dirtyQmlCode_data()
                        QStringLiteral("Cannot assign literal of type string to int") } } };
     QTest::newRow("BadScriptBindingOnGroup")
             << QStringLiteral("badScriptBinding.group.qml")
-            << Result{ { Message{ QStringLiteral("Property \"bogusProperty\" does not exist."), 3,
+            << Result{ { Message{ QStringLiteral("Could not find property \"bogusProperty\"."), 3,
                                   10 } } };
     QTest::newRow("BadScriptBindingOnAttachedType")
             << QStringLiteral("badScriptBinding.attached.qml")
-            << Result{ { Message{ QStringLiteral("Property \"bogusProperty\" does not exist."), 5,
+            << Result{ { Message{ QStringLiteral("Could not find property \"bogusProperty\"."), 5,
                                   12 } } };
     QTest::newRow("BadScriptBindingOnAttachedSignalHandler")
             << QStringLiteral("badScriptBinding.attachedSignalHandler.qml")
@@ -816,7 +831,7 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                        "Cannot combine value source and binding on property \"objs\"") } } };
     QTest::newRow("NonExistentListProperty")
             << QStringLiteral("nonExistentListProperty.qml")
-            << Result { { Message { QStringLiteral("Property \"objs\" does not exist") } } };
+            << Result { { Message { QStringLiteral("Could not find property \"objs\".") } } };
     QTest::newRow("QtQuick.Window 2.0")
             << QStringLiteral("qtquickWindow20.qml")
             << Result { { Message { QStringLiteral(
@@ -825,7 +840,7 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
             << QStringLiteral("unresolvedAttachedType.qml")
             << Result { { Message { QStringLiteral(
                                 "unknown attached property scope UnresolvedAttachedType.") } },
-                        { Message { QStringLiteral("Property \"property\" does not exist.") } } };
+                        { Message { QStringLiteral("Could not find property \"property\".") } } };
     QTest::newRow("nestedInlineComponents")
             << QStringLiteral("nestedInlineComponents.qml")
             << Result { { Message {
@@ -853,7 +868,12 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
     QTest::newRow("BadModulePrefix2")
             << QStringLiteral("badModulePrefix2.qml")
             << Result { { Message { QStringLiteral(
-                       "Cannot use a non-QObject type QRectF to access prefixed import") } } };
+                       "Cannot use non-QObject type QRectF to access prefixed import") } },
+                        { Message { QStringLiteral(
+                       "Type not found in namespace") },
+                          Message { QStringLiteral(
+                       "Member \"BirthdayParty\" not found on type \"QRectF\"") } },
+               };
     QTest::newRow("AssignToReadOnlyProperty")
             << QStringLiteral("assignToReadOnlyProperty.qml")
             << Result { { Message {
@@ -875,7 +895,7 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                        "MenuItem is part of an inheritance cycle: MenuItem -> MenuItem") } } };
     QTest::newRow("badGeneralizedGroup1")
             << QStringLiteral("badGeneralizedGroup1.qml")
-            << Result{ { Message{ QStringLiteral("Property \"aaaa\" does not exist.") } } };
+            << Result{ { Message{ QStringLiteral("Could not find property \"aaaa\".") } } };
     QTest::newRow("badGeneralizedGroup2")
             << QStringLiteral("badGeneralizedGroup2.qml")
             << Result { { Message { QStringLiteral("unknown grouped property scope aself") } } };
@@ -940,7 +960,7 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                        "no matching signal found for handler \"onWannabeSignal\"") } } };
     QTest::newRow("didYouMean(binding)")
             << QStringLiteral("didYouMeanBinding.qml")
-            << Result{ { Message{ QStringLiteral("Property \"witdh\" does not exist.") } },
+            << Result{ { Message{ QStringLiteral("Could not find property \"witdh\".") } },
                        {},
                        { Message{ QStringLiteral("width") } } };
     QTest::newRow("didYouMean(unqualified)")
@@ -1155,6 +1175,17 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                        { uR"("D" was not found for the type of parameter "d" in method "i".)"_s, 7, 17 },
                        { uR"("G" was not found for the type of parameter "g" in method "i".)"_s, 7, 26 },
                }};
+
+    // We want to see the warning about the missing type only once.
+    QTest::newRow("unresolvedType2")
+            << QStringLiteral("unresolvedType2.qml")
+            << Result { { Message { QStringLiteral(
+                           "QQC2.Label was not found. Did you add all imports and dependencies?") } },
+                       { Message { QStringLiteral(
+                           "'QQC2.Label' is used but it is not resolved") },
+                         Message { QStringLiteral(
+                           "Type QQC2.Label is used but it is not resolved") } },
+                       };
 }
 
 void TestQmllint::dirtyQmlCode()
@@ -1355,6 +1386,8 @@ void TestQmllint::cleanQmlCode_data()
 #endif
     QTest::newRow("thisObject") << QStringLiteral("thisObject.qml");
     QTest::newRow("aliasGroup") << QStringLiteral("aliasGroup.qml");
+
+    QTest::addRow("deceptiveLayout") << u"deceptiveLayout.qml"_s;
 }
 
 void TestQmllint::cleanQmlCode()
@@ -1385,32 +1418,38 @@ void TestQmllint::compilerWarnings_data()
             << true;
     QTest::newRow("tooFewParameters")
             << QStringLiteral("tooFewParams.qml")
-            << Result { { Message { QStringLiteral("No matching override found") } } } << true;
+            << Result { { Message { QStringLiteral("Could not compile binding for a: "
+                                                   "No matching override found") } } } << true;
     QTest::newRow("javascriptVariableArgs")
             << QStringLiteral("javascriptVariableArgs.qml")
             << Result { { Message {
-                       QStringLiteral("Function expects 0 arguments, but 2 were provided") } } }
+                       QStringLiteral("Could not compile binding for onCompleted: "
+                                      "Function expects 0 arguments, but 2 were provided") } } }
             << true;
     QTest::newRow("unknownTypeInRegister")
             << QStringLiteral("unknownTypeInRegister.qml")
             << Result { { Message {
-                       QStringLiteral("Functions without type annotations won't be compiled") } } }
+                       QStringLiteral("Could not determine signature of function foo: "
+                                      "Functions without type annotations won't be compiled") } } }
             << true;
     QTest::newRow("pragmaStrict")
             << QStringLiteral("pragmaStrict.qml")
             << Result { { { QStringLiteral(
+                       "Could not determine signature of function add: "
                        "Functions without type annotations won't be compiled") } } }
             << true;
     QTest::newRow("generalizedGroupHint")
             << QStringLiteral("generalizedGroupHint.qml")
             << Result { { { QStringLiteral(
-                       "Cannot resolve property type  for binding on myColor. "
+                       "Could not determine signature of binding for myColor: "
+                       "Could not find property \"myColor\". "
                        "You may want use ID-based grouped properties here.") } } }
             << true;
     QTest::newRow("invalidIdLookup")
             << QStringLiteral("invalidIdLookup.qml")
             << Result { { {
-                    QStringLiteral("Cannot retrieve a non-object type by ID: stateMachine")
+                    QStringLiteral("Could not compile binding for objectName: "
+                                   "Cannot retrieve a non-object type by ID: stateMachine")
                } } }
             << true;
     QTest::newRow("returnTypeAnnotation-component")
@@ -1451,6 +1490,16 @@ void TestQmllint::compilerWarnings_data()
             << QStringLiteral("functionAssign1.qml") << Result::clean() << true;
     QTest::newRow("functionAssign2")
             << QStringLiteral("functionAssign2.qml") << Result::clean() << true;
+
+    // We want to see the warning about the missing property only once.
+    QTest::newRow("unresolvedType2")
+            << QStringLiteral("unresolvedType2.qml")
+            << Result { { Message { QStringLiteral(
+                           "Could not determine signature of binding for text: "
+                           "Could not find property \"text\".") } },
+                        { Message { QStringLiteral(
+                           "Cannot resolve property type  for binding on text.") }, },
+                        } << true;
 }
 
 void TestQmllint::compilerWarnings()

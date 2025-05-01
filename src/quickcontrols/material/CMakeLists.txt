@@ -133,8 +133,8 @@ target_sources(qtquickcontrols2materialstyleplugin
         qtquickcontrols2materialstyleplugin.cpp
 )
 
-target_link_libraries(qtquickcontrols2materialstyleplugin
-    PRIVATE
+qt_internal_extend_target(qtquickcontrols2materialstyleplugin
+    LIBRARIES
         Qt::QuickControls2Private
 )
 

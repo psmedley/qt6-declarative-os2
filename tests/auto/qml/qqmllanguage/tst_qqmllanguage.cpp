@@ -3,6 +3,7 @@
 
 #include <qtest.h>
 #include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlincubator.h>
 #include <QtCore/qiterable.h>
@@ -43,6 +44,8 @@
 #endif
 
 using namespace Qt::StringLiterals;
+
+Q_IMPORT_QML_PLUGIN(OtherModuleTestPlugin)
 
 DEFINE_BOOL_CONFIG_OPTION(qmlCheckTypes, QML_CHECK_TYPES)
 
@@ -469,6 +472,15 @@ private slots:
     void engineTypeCrossTalk();
 
     void onlyInlineComponent();
+
+    void jsSelfImport();
+
+    void singletonResultionImportOrder();
+    void attachedTypeResultionImportOrder();
+    void asCastTypeResolutionImportOrderAB();
+    void asCastTypeResolutionImportOrderBA();
+
+    void fromAsIdentifier();
 
 private:
     QQmlEngine engine;
@@ -4898,6 +4910,13 @@ void tst_qqmllanguage::compositeSingletonRemote()
 // Reads values from a Singleton accessed through selectors.
 void tst_qqmllanguage::compositeSingletonSelectors()
 {
+    // Poison the cache
+    QQmlEngine e1;
+    QQmlComponent component1(&e1, testFileUrl("singletonTest1.qml"));
+    QVERIFY2(component1.isReady(), qPrintable(component1.errorString()));
+    QScopedPointer<QObject> o1(component1.create());
+    QVERIFY(!o1.isNull());
+
     QQmlEngine e2;
     QQmlFileSelector qmlSelector(&e2);
     qmlSelector.setExtraSelectors(QStringList() << "basicSelector");
@@ -9055,6 +9074,68 @@ void tst_qqmllanguage::onlyInlineComponent()
     QVERIFY(!o.isNull());
 
     QCOMPARE(o->objectName(), QLatin1String("yes"));
+}
+
+void tst_qqmllanguage::jsSelfImport()
+{
+    QQmlEngine engine;
+    engine.addImportPath(dataDirectory());
+    QQmlComponent c(&engine, "JsSelfImport", "Main");
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->objectName(), "customPrint");
+}
+
+void tst_qqmllanguage::singletonResultionImportOrder()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("singletonResolutionImportOrder.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("s").toString(), "OtherModuleTest Singleton");
+}
+
+void tst_qqmllanguage::attachedTypeResultionImportOrder()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("attachedTypeResolutionImportOrder.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("s").toString(), "OtherModuleTest Attached Type");
+}
+
+void tst_qqmllanguage::asCastTypeResolutionImportOrderAB()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("asCastTypeResolutionImportOrderAB.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->property("s").toString(), "StaticTest");
+}
+
+void tst_qqmllanguage::asCastTypeResolutionImportOrderBA()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("asCastTypeResolutionImportOrderBA.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QTest::ignoreMessage(QtWarningMsg,
+                         QRegularExpression(".*TypeError: Cannot call method 's' of null"));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+}
+
+void tst_qqmllanguage::fromAsIdentifier()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("fromAsIdentifier.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(o);
+    QCOMPARE(o->children().first()->property("from").toInt(), 3);
 }
 
 QTEST_MAIN(tst_qqmllanguage)

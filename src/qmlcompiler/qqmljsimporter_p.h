@@ -136,7 +136,7 @@ public:
     QQmlJSResourceFileMapper *metaDataMapper() const { return m_metaDataMapper; }
     void setMetaDataMapper(QQmlJSResourceFileMapper *mapper) { m_metaDataMapper = mapper; }
 
-    ImportedTypes importBuiltins();
+    ImportedTypes importHardCodedBuiltins();
     QList<QQmlJS::DiagnosticMessage> importQmldirs(const QStringList &qmltypesFiles);
 
     QQmlJSScope::Ptr importFile(const QString &file);
@@ -163,7 +163,7 @@ public:
 
     void clearCache();
 
-    QQmlJSScope::ConstPtr jsGlobalObject() const;
+    QQmlJSScope::ConstPtr jsGlobalObject();
 
     struct ImportVisitorPrerequisites
     {
@@ -205,7 +205,7 @@ private:
     {
         AvailableTypes(QQmlJS::ContextualTypes builtins)
             : cppNames(std::move(builtins))
-            , qmlNames(QQmlJS::ContextualTypes::QML, {}, cppNames.arrayType())
+            , qmlNames(QQmlJS::ContextualTypes::QML, {}, {}, cppNames.arrayType())
         {
         }
 

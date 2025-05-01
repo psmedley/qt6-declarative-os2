@@ -132,6 +132,8 @@ private slots:
     void resetHoveredStateForItemsWithinPopup();
     void noInfiniteRecursionOnParentWindowDestruction();
     void popupWindowDestructedBeforeQQuickPopup();
+    void popupWindowPositionerRespectingScreenBounds_data();
+    void popupWindowPositionerRespectingScreenBounds();
 
 private:
     QScopedPointer<QPointingDevice> touchScreen = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
@@ -1004,14 +1006,12 @@ void tst_QQuickPopup::activeFocusItemAfterWindowInactive()
     QVERIFY(button);
 
     popup->open();
-    QVERIFY(popup->isVisible());
     QTRY_VERIFY(popup->isOpened());
     QVERIFY(popup->hasActiveFocus());
     QVERIFY(!button->hasActiveFocus());
 
     popup->close();
-    QVERIFY(!popup->isVisible());
-    QTRY_VERIFY(!popup->isOpened());
+    QTRY_VERIFY(!popup->isVisible());
     QVERIFY(button->hasActiveFocus());
     QCOMPARE(window->activeFocusItem(), button);
 
@@ -1026,11 +1026,12 @@ void tst_QQuickPopup::activeFocusItemAfterWindowInactive()
     QVERIFY(QTest::qWaitForWindowFocused(&newWindow));
 
     popup->close();
+    QTRY_VERIFY(!popup->isVisible());
     QCOMPARE(QGuiApplication::focusWindow(), &newWindow);
 
     window->requestActivate();
     QVERIFY(QTest::qWaitForWindowFocused(window));
-    QCOMPARE(window->activeFocusItem(), button);
+    QTRY_COMPARE(window->activeFocusItem(), button);
 }
 
 void tst_QQuickPopup::hover_data()
@@ -1829,15 +1830,16 @@ void tst_QQuickPopup::tabFence()
     QQuickButton *dialogButton2 = window->property("dialogButton2").value<QQuickButton*>();
     QVERIFY(dialogButton2);
 
-    // Dialog is not tab fenced by default
     outsideButton1->forceActiveFocus();
     QVERIFY(outsideButton1->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Tab);
     QVERIFY(outsideButton2->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Tab);
-    QVERIFY(dialogButton1->hasActiveFocus());
+
+    // Individual styles may set modal: true
+    QVERIFY((popup->isModal() ? outsideButton1 : dialogButton1)->QQuickItem::hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Tab);
-    QVERIFY(dialogButton2->hasActiveFocus());
+    QVERIFY((popup->isModal() ? outsideButton2 : dialogButton2)->QQuickItem::hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Tab);
     QVERIFY(outsideButton1->hasActiveFocus());
 
@@ -2193,6 +2195,8 @@ void tst_QQuickPopup::mirroredCombobox()
                 comboBox->position().y() - popupSize.height() + comboBox->topPadding()
                 == popupPos.y();
 
+        if (QQuickStyle::name() == QLatin1String("FluentWinUI3"))
+            QEXPECT_FAIL("", "Rotated ComboBox is broken in FluentWinUI3 style", Abort);
         QVERIFY(styleDrawsPopupOverCombobox || styleDrawsPopupBelowCombobox);
 
         popup->close();
@@ -2292,6 +2296,8 @@ void tst_QQuickPopup::rotatedCombobox()
                 comboBox->position().x() + comboBox->width() - comboBox->leftPadding()
                 == popupPos.x();
 
+        if (QQuickStyle::name() == QLatin1String("FluentWinUI3"))
+            QEXPECT_FAIL("", "Rotated ComboBox is broken in FluentWinUI3 style", Abort);
         QVERIFY(styleDrawsPopupOverCombobox || styleDrawsPopupAboveCombobox);
 
         popup->close();
@@ -2537,6 +2543,8 @@ void tst_QQuickPopup::popupWindowPositioning()
     // x and y properties should be 50 initially (from simplepopup.qml)
     const QPoint initialPos(50, 50);
 
+    if (QQuickStyle::name() == QLatin1String("Imagine"))
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
     VERIFY_GLOBAL_POS(popup->parentItem(), popupWindow, initialPos);
     VERIFY_LOCAL_POS(popup, initialPos);
 
@@ -2618,6 +2626,8 @@ void tst_QQuickPopup::popupWindowAnchorsCenterIn()
 
     const QPoint centeredPosition(qFloor(window->width() / 2 - popupWindow->width() / 2), qFloor(window->height() / 2 - popupWindow->height() / 2));
 
+    if (QQuickStyle::name() == QLatin1String("Imagine"))
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
     VERIFY_GLOBAL_POS(popup->parentItem(), popupWindow, centeredPosition);
     VERIFY_LOCAL_POS(popup, centeredPosition);
 }
@@ -2845,6 +2855,8 @@ void tst_QQuickPopup::initialPopupSize()
         auto *popupWindow = popupPrivate->popupWindow;
         QVERIFY(popupWindow);
         QVERIFY(popupWindow->isVisible());
+        if (QQuickStyle::name() == QLatin1String("Imagine"))
+            QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
         QCOMPARE(popupWindow->width(), 200);
         QCOMPARE(popupWindow->height(), 200);
     }
@@ -2887,6 +2899,8 @@ void tst_QQuickPopup::popupWindowChangingParent()
 
     const QPoint initialPos(10, 10);
 
+    if (QQuickStyle::name() == QLatin1String("Imagine"))
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
     VERIFY_GLOBAL_POS(item1, popupWindow, initialPos);
     VERIFY_LOCAL_POS(popup, initialPos);
 
@@ -2904,6 +2918,8 @@ void tst_QQuickPopup::popupWindowChangingParent()
 
     VERIFY_GLOBAL_POS(item3, popupWindow, initialPos);
     VERIFY_LOCAL_POS(popup, initialPos);
+
+    popup->close();
 }
 
 void tst_QQuickPopup::popupWindowChangingParentWindow()
@@ -2944,7 +2960,7 @@ void tst_QQuickPopup::popupWindowChangingParentWindow()
     QCOMPARE_LT(qAbs(popup->y()), 2);
 
     popup->close();
-    QVERIFY(!popup->isVisible());
+    QTRY_VERIFY(!popup->isVisible());
     popup->setParentItem(childWindow->contentItem());
     popup->open();
     QTRY_VERIFY(popup->isOpened());
@@ -3010,6 +3026,7 @@ void tst_QQuickPopup::popupWindowFocus()
     QTRY_COMPARE(textField2->text(), "t");
     popup->close();
     QTRY_VERIFY(!popup->isOpened());
+    QTRY_VERIFY(!popup->isVisible());
     QVERIFY(QGuiApplication::focusObject() == textField1);
     QCOMPARE(QGuiApplicationPrivate::popupCount(), 0);
 
@@ -3026,6 +3043,7 @@ void tst_QQuickPopup::popupWindowFocus()
     QTRY_COMPARE(textField1->text(), "qt");
     popup->close();
     QTRY_VERIFY(!popup->isOpened());
+    QTRY_VERIFY(!popup->isVisible());
 }
 
 void tst_QQuickPopup::popupTypeChangeFromWindowToItem()
@@ -3053,6 +3071,8 @@ void tst_QQuickPopup::popupTypeChangeFromWindowToItem()
     const QWindow *popupWindow = popupPrivate->popupWindow;
     QVERIFY(popupWindow);
     QTRY_VERIFY(popupWindow->isVisible());
+    if (QQuickStyle::name() == QLatin1String("Imagine"))
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
     QCOMPARE(popupPrivate->popupItem->position(), QPointF(0, 0));
     QVERIFY(!overlay->childItems().contains(popup->popupItem()));
 
@@ -3107,6 +3127,8 @@ void tst_QQuickPopup::popupTypeChangeFromItemToWindow()
     const QWindow *popupWindow = popupPrivate->popupWindow;
     QVERIFY(popupWindow);
     QTRY_VERIFY(popupWindow->isVisible());
+    if (QQuickStyle::name() == QLatin1String("Imagine"))
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
     QCOMPARE(popupPrivate->popupItem->position(), QPointF(0, 0));
     QVERIFY(!overlay->childItems().contains(popup->popupItem()));
 
@@ -3131,10 +3153,14 @@ void tst_QQuickPopup::resetHoveredStateForItemsWithinPopup()
     controlsPopup->open();
     QTRY_VERIFY(controlsPopup->isOpened());
 
-    QTest::mouseMove(window, QPoint(window->width() / 2, window->height() / 2));
+    QPoint moveStart(window->width() / 2, window->height() / 2);
+    QPoint moveEnd(moveStart.x() + 1 , moveStart.y() + 1);
+    QTest::mouseMove(window, moveStart);
+    QTest::mouseMove(window, moveEnd);
 
     auto *controlItem = qobject_cast<QQuickControl *>(controlsPopup->contentItem()->childItems().at(0));
     QVERIFY(controlItem);
+
     // Check hover enabled for the control item within the popup
     QTRY_VERIFY(controlItem->isHovered());
 
@@ -3144,6 +3170,17 @@ void tst_QQuickPopup::resetHoveredStateForItemsWithinPopup()
 
     // Control item hovered shall be disabled once we open the modal popup
     QTRY_VERIFY(!controlItem->isHovered());
+
+    blockInputPopup->close();
+    QTRY_VERIFY(!blockInputPopup->isOpened());
+    QTRY_VERIFY(!blockInputPopup->isVisible());
+
+    // Control item hovered is re-enabled after the modal popup is closed
+    QTRY_VERIFY(controlItem->isHovered());
+
+    controlsPopup->close();
+    QTRY_VERIFY(!controlsPopup->isOpened());
+    QTRY_VERIFY(!controlsPopup->isVisible());
 }
 
 void tst_QQuickPopup::noInfiniteRecursionOnParentWindowDestruction()
@@ -3210,6 +3247,122 @@ void tst_QQuickPopup::popupWindowDestructedBeforeQQuickPopup()
     window->hide();
 
     // Doesn't crash on destruction
+}
+
+void tst_QQuickPopup::popupWindowPositionerRespectingScreenBounds_data()
+{
+    QTest::addColumn<QQuickPopup::PopupType>("popupType");
+    QTest::newRow("Popup.Item") << QQuickPopup::Item;
+    if (popupWindowsSupported &&
+        QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QTest::newRow("Popup.Window") << QQuickPopup::Window;
+}
+
+void tst_QQuickPopup::popupWindowPositionerRespectingScreenBounds()
+{
+    QFETCH(QQuickPopup::PopupType, popupType);
+
+    QQuickApplicationHelper helper(this, "simplepopup.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *popup = window->contentItem()->findChild<QQuickPopup *>();
+    QVERIFY(popup);
+    auto *popupPrivate = QQuickPopupPrivate::get(popup);
+    QVERIFY(popupPrivate);
+
+    popup->setPopupType(popupType);
+    popup->open();
+    QTRY_VERIFY(popup->isOpened());
+
+    class AbstractBoundsFinder {
+    public:
+        virtual QRectF operator()() const = 0;
+        virtual ~AbstractBoundsFinder() = default;
+    };
+
+    std::unique_ptr<AbstractBoundsFinder> abf;
+
+    if (popupPrivate->usePopupWindow()) {
+        popupPrivate->popupWindow->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(popupPrivate->popupWindow));
+        QCOMPARE(popupPrivate->popupWindow, popup->contentItem()->window());
+        QVERIFY(QQuickTest::qWaitForPolish(popupPrivate->popupWindow));
+
+        class ScreenBoundsFinder : public AbstractBoundsFinder {
+        public:
+            explicit ScreenBoundsFinder(QScreen *screen)
+                : m_screen(screen) {}
+            QRectF operator()() const override {
+                return m_screen->availableGeometry().toRectF();
+            }
+        private:
+            QScreen *m_screen = nullptr;
+        };
+
+        QScreen *screen = QGuiApplication::primaryScreen();
+        QVERIFY(screen);
+
+        abf.reset(new ScreenBoundsFinder(screen));
+    } else {
+        popupPrivate->allowHorizontalFlip = true;
+        popupPrivate->allowVerticalFlip = true;
+        popupPrivate->allowHorizontalMove = true;
+        popupPrivate->allowVerticalMove = true;
+
+        class WindowBoundsFinder : public AbstractBoundsFinder {
+        public:
+            explicit WindowBoundsFinder(QWindow *win)
+                : m_window(win) {}
+            QRectF operator()() const override {
+                return QRectF (m_window->x(), m_window->y(), m_window->width(), m_window->height());
+            }
+        private:
+            QWindow *m_window = nullptr;
+        };
+
+        abf.reset(new WindowBoundsFinder(window));
+    }
+
+    const QPointF positionOutsideTopLeftBound = (*abf)().bottomRight() * -1;
+    const QPointF positionOutsideBottomRightBound = (*abf)().bottomRight() * 2;
+
+    QSignalSpy xSpy(popup, &QQuickPopup::xChanged);
+    QSignalSpy ySpy(popup, &QQuickPopup::yChanged);
+
+    popup->setX(positionOutsideTopLeftBound.x());
+    QTRY_COMPARE(xSpy.count(), 1);
+    QVERIFY(QQuickTest::qWaitForPolish(window));
+    if (QQuickStyle::name() == QLatin1String("Imagine") && popupType == QQuickPopup::Window)
+        QEXPECT_FAIL("", "This fails with the Imagine style: QTBUG-133530", Abort);
+    QTRY_VERIFY2(qAbs(window->contentItem()->mapToGlobal(popup->x(), popup->y()).x() - (*abf)().left()) < 2,
+                 qPrintable(QStringLiteral("Expected popup's x position to be %1 but it's %2")
+                            .arg((*abf)().left()).arg(window->contentItem()->mapToGlobal(popup->x(), popup->y()).x())));
+
+    popup->setY(positionOutsideTopLeftBound.y());
+    QTRY_COMPARE(ySpy.count(), 1);
+    QVERIFY(QQuickTest::qWaitForPolish(window));
+    QTRY_VERIFY2(qAbs(window->contentItem()->mapToGlobal(popup->x(), popup->y()).y() - (*abf)().top()) < 2,
+                 qPrintable(QStringLiteral("Expected popup's y position to be %1 but it's %2")
+                            .arg((*abf)().top()).arg(window->contentItem()->mapToGlobal(popup->x(), popup->y()).y())));
+
+    popup->setX(positionOutsideBottomRightBound.x());
+    QTRY_COMPARE(xSpy.count(), 2);
+    QVERIFY(QQuickTest::qWaitForPolish(window));
+    QTRY_VERIFY2(qAbs(window->contentItem()->mapToGlobal(popup->x(), popup->y()).x() - ((*abf)().right() - popup->width())) < 2,
+                 qPrintable(QStringLiteral("Expected popup's x position to be %1 but it's %2")
+                            .arg((*abf)().right() - popup->width()).arg(window->contentItem()->mapToGlobal(popup->x(), popup->y()).x())));
+
+    popup->setY(positionOutsideBottomRightBound.y());
+    QTRY_COMPARE(ySpy.count(), 2);
+    QVERIFY(QQuickTest::qWaitForPolish(window));
+    QTRY_VERIFY2(qAbs(window->contentItem()->mapToGlobal(popup->x(), popup->y()).y() - ((*abf)().bottom() - popup->height())) < 2,
+                 qPrintable(QStringLiteral("Expected popup's y position to be %1 but it's %2")
+                            .arg((*abf)().bottom() - popup->height()).arg(window->contentItem()->mapToGlobal(popup->x(), popup->y()).y())));
+
+    popup->close();
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickPopup)

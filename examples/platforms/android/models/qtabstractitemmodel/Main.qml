@@ -35,7 +35,11 @@ Rectangle {
 
 //! [2]
         delegate: Rectangle {
-            width: tableView.width
+            implicitWidth: (tableView.height > tableView.width) ? tableView.width / 10 : tableView.height / 5
+            implicitHeight: implicitWidth
+
+            required property var model
+
             color: "#2CDE85"
             border.color: "#00414A"
             border.width: 2
@@ -45,6 +49,9 @@ Rectangle {
                 text: model.row + model.column
                 font.pixelSize: 26
                 font.bold: true
+                anchors.fill: parent
+                horizontalAlignment: TextEdit.AlignHCenter
+                verticalAlignment: TextEdit.AlignVCenter
             }
         }
 //! [2]

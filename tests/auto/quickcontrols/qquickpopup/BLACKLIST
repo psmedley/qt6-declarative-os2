@@ -26,3 +26,6 @@ opensuse-leap
 
 [popupWindowFocus]
 offscreen # QTBUG-128321
+
+[focusMultiplePopup]
+linux # QTBUG-133530

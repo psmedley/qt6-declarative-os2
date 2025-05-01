@@ -34,14 +34,22 @@ QQmlRefPointer<QQmlScriptData> QQmlScriptBlob::scriptData() const
 
 void QQmlScriptBlob::dataReceived(const SourceCodeData &data)
 {
-    if (readCacheFile()) {
-        auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
-        QString error;
-        if (unit->loadFromDisk(url(), data.sourceTimeStamp(), &error)) {
+    if (data.isCacheable()) {
+        if (auto unit = QQmlMetaType::obtainCompilationUnit(url())) {
             initializeFromCompilationUnit(std::move(unit));
             return;
-        } else {
-            qCDebug(DBG_DISK_CACHE()) << "Error loading" << urlString() << "from disk cache:" << error;
+        }
+
+        if (readCacheFile()) {
+            auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
+            QString error;
+            if (unit->loadFromDisk(url(), data.sourceTimeStamp(), &error)) {
+                initializeFromCompilationUnit(std::move(unit));
+                return;
+            } else {
+                qCDebug(DBG_DISK_CACHE()) << "Error loading" << urlString()
+                                          << "from disk cache:" << error;
+            }
         }
     }
 
@@ -72,7 +80,7 @@ void QQmlScriptBlob::dataReceived(const SourceCodeData &data)
             return;
         }
     } else {
-        QmlIR::Document irUnit(isDebugging());
+        QmlIR::Document irUnit(urlString(), finalUrlString(), isDebugging());
 
         irUnit.jsModule.sourceTimeStamp = data.sourceTimeStamp();
 
@@ -81,7 +89,7 @@ void QQmlScriptBlob::dataReceived(const SourceCodeData &data)
 
         QList<QQmlError> errors;
         irUnit.javaScriptCompilationUnit = QV4::Script::precompile(
-                     &irUnit.jsModule, &irUnit.jsParserEngine, &irUnit.jsGenerator, urlString(), finalUrlString(),
+                     &irUnit.jsModule, &irUnit.jsParserEngine, &irUnit.jsGenerator, urlString(),
                      source, &errors, QV4::Compiler::ContextType::ScriptImportedByQML);
 
         source.clear();
@@ -161,6 +169,11 @@ void QQmlScriptBlob::done()
         m_importCache->populateCache(m_scriptData->typeNameCache.data());
     }
     m_scripts.clear();
+
+    if (auto cu = m_scriptData->compilationUnit()) {
+        cu->qmlType = QQmlMetaType::findCompositeType(url(), cu, QQmlMetaType::JavaScript);
+        QQmlMetaType::registerInternalCompositeType(cu);
+    }
 }
 
 QString QQmlScriptBlob::stringAt(int index) const

@@ -1032,10 +1032,29 @@ static bool isRevisionAllowed(int memberRevision, const QQmlJSScope::ConstPtr &s
     return typeRevision.isValid() && typeRevision >= revision;
 }
 
+/*!
+ * \internal
+ * We can generally determine the relevant component boundaries for each scope. However,
+ * if the scope or any of its parents is assigned to a property of which we cannot see the
+ * type, we don't know whether the type of that property happens to be Component. In that
+ * case, we can't say.
+ */
+bool QQmlJSTypeResolver::canFindComponentBoundaries(const QQmlJSScope::ConstPtr &scope) const
+{
+    for (QQmlJSScope::ConstPtr parent = scope; parent; parent = parent->parentScope()) {
+        if (parent->isAssignedToUnknownProperty())
+            return false;
+    }
+    return true;
+}
+
 QQmlJSRegisterContent QQmlJSTypeResolver::scopedType(const QQmlJSScope::ConstPtr &scope,
                                                      const QString &name, int lookupIndex,
                                                      QQmlJSScopesByIdOptions options) const
 {
+    if (!canFindComponentBoundaries(scope))
+        return {};
+
     const auto isAssignedToDefaultProperty = [this](const QQmlJSScope::ConstPtr &parent,
                                                     const QQmlJSScope::ConstPtr &child) {
         const QString defaultPropertyName = parent->defaultPropertyName();
@@ -1580,13 +1599,7 @@ QQmlJSRegisterContent QQmlJSTypeResolver::memberType(
                 QQmlJSRegisterContent::GenericObjectProperty, jsValueType());
     }
     if (type.isImportNamespace()) {
-        if (type.scopeType()->accessSemantics() != QQmlJSScope::AccessSemantics::Reference) {
-            m_logger->log(u"Cannot use a non-QObject type %1 to access prefixed import"_s.arg(
-                                  type.scopeType()->internalName()),
-                          qmlPrefixedImportType, type.scopeType()->sourceLocation());
-            return {};
-        }
-
+        Q_ASSERT(type.scopeType()->isReferenceType());
         return registerContentForName(
                     name, type.scopeType(),
                     type.variant() == QQmlJSRegisterContent::ObjectModulePrefix);

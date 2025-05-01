@@ -6,7 +6,7 @@ plugins {
 
 QtBuild {
     // Relative for Qt (Installer or MaintenanceTool) installations.
-    qtPath = file("../../../../../../6.8.2")
+    qtPath = file("../../../../../../6.8.3")
     projectPath = file("../../qtquickview")
 }
 
@@ -35,11 +35,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     packaging {
         jniLibs {

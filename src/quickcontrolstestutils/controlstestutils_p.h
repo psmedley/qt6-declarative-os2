@@ -24,6 +24,7 @@ class QQmlComponent;
 class QQmlEngine;
 class QQuickApplicationWindow;
 class QQuickAbstractButton;
+class QQuickControl;
 
 namespace QQuickControlsTestUtils
 {
@@ -55,6 +56,7 @@ namespace QQuickControlsTestUtils
     [[nodiscard]] bool verifyButtonClickable(QQuickAbstractButton *button);
     [[nodiscard]] bool clickButton(QQuickAbstractButton *button);
     [[nodiscard]] bool doubleClickButton(QQuickAbstractButton *button);
+    [[nodiscard]] QString visualFocusFailureMessage(QQuickControl *control);
 
     class ComponentCreator : public QObject
     {
@@ -95,6 +97,11 @@ namespace QQuickControlsTestUtils
         Qt::ColorScheme m_colorScheme = Qt::ColorScheme::Unknown;
     };
 }
+
+#define VERIFY_VISUAL_FOCUS(control) \
+do { \
+    QVERIFY2(control->hasVisualFocus(), qUtf8Printable(visualFocusFailureMessage(control))); \
+} while (false)
 
 QT_END_NAMESPACE
 
