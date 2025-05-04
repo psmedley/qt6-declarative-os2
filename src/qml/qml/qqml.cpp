@@ -1069,7 +1069,8 @@ void AOTCompiledContext::storeNameSloppy(uint nameIndex, void *value, QMetaType 
             storeResult = storeObjectProperty(&l, qmlScopeObject, value);
         } else {
             QVariant var(propType);
-            propType.convert(type, value, propType, var.data());
+            QV4::ExecutionEngine *v4 = engine->handle();
+            v4->metaTypeFromJS(v4->metaTypeToJS(type, value), propType, var.data());
             storeResult = storeObjectProperty(&l, qmlScopeObject, var.data());
         }
 
@@ -1085,7 +1086,8 @@ void AOTCompiledContext::storeNameSloppy(uint nameIndex, void *value, QMetaType 
             storeResult = storeFallbackProperty(&l, qmlScopeObject, value);
         } else {
             QVariant var(propType);
-            propType.convert(type, value, propType, var.data());
+            QV4::ExecutionEngine *v4 = engine->handle();
+            v4->metaTypeFromJS(v4->metaTypeToJS(type, value), propType, var.data());
             storeResult = storeFallbackProperty(&l, qmlScopeObject, var.data());
         }
         break;

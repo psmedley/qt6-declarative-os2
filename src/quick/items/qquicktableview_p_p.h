@@ -339,6 +339,7 @@ public:
     QRectF selectionEndCellRect;
 
     QMargins edgesBeforeRebuild;
+    QSize tableSizeBeforeRebuild;
 
     const static QPoint kLeft;
     const static QPoint kRight;

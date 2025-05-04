@@ -207,6 +207,11 @@ public:
         insertRow(row, QModelIndex());
     }
 
+    Q_INVOKABLE void addColumn(int column)
+    {
+        insertColumn(column, QModelIndex());
+    }
+
 signals:
     void rowCountChanged();
     void columnCountChanged();

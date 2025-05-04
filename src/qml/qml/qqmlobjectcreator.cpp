@@ -355,7 +355,10 @@ void QQmlObjectCreator::setPropertyValue(const QQmlPropertyData *property, const
     int propertyType = property->propType().id();
 
     if (property->isEnum()) {
-        if (binding->hasFlag(QV4::CompiledData::Binding::IsResolvedEnum)) {
+        if (binding->hasFlag(QV4::CompiledData::Binding::IsResolvedEnum) ||
+                // TODO: For historical reasons you can assign any number to an enum property alias
+                //       This can be fixed with an opt-out mechanism, for example a pragma.
+                (property->isAlias() && binding->isNumberBinding())) {
             propertyType = QMetaType::Int;
         } else {
             // ### This should be resolved earlier at compile time and the binding value should be changed accordingly.

@@ -625,7 +625,7 @@ void QQuickUniformAnimatorJob::setTarget(QQuickItem *target)
 
 void QQuickUniformAnimatorJob::updateCurrentTime(int time)
 {
-    if (!m_effect)
+    if (!m_effect || m_target != m_effect)
         return;
 
     m_value = m_from + (m_to - m_from) * progress(time);
@@ -650,7 +650,7 @@ void QQuickUniformAnimatorJob::postSync()
 
 void QQuickUniformAnimatorJob::invalidate()
 {
-    m_effect = nullptr;
+
 }
 
 QT_END_NAMESPACE

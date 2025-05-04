@@ -73,6 +73,8 @@ private slots:
     void rightLongPressIgnoreWheel();
     void negativeZStackingOrder();
     void nonTopLevelParentWindow();
+    void nestedAndSiblingPropagation_data();
+    void nestedAndSiblingPropagation();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName,
@@ -825,6 +827,57 @@ void tst_TapHandler::nonTopLevelParentWindow() // QTBUG-91716
     QTest::touchEvent(window, touchDevice).release(0, p1, parentWindow).commit();
 
     QCOMPARE(root->property("tapCount").toInt(), 2);
+}
+
+void tst_TapHandler::nestedAndSiblingPropagation_data()
+{
+    QTest::addColumn<const QPointingDevice *>("device");
+    QTest::addColumn<QQuickTapHandler::GesturePolicy>("gesturePolicy");
+    QTest::addColumn<bool>("expectPropagation");
+
+    const QPointingDevice *constTouchDevice = touchDevice;
+
+    QTest::newRow("primary, DragThreshold") << QPointingDevice::primaryPointingDevice()
+            << QQuickTapHandler::GesturePolicy::DragThreshold << true;
+    QTest::newRow("primary, WithinBounds") << QPointingDevice::primaryPointingDevice()
+            << QQuickTapHandler::GesturePolicy::WithinBounds << false;
+    QTest::newRow("primary, ReleaseWithinBounds") << QPointingDevice::primaryPointingDevice()
+            << QQuickTapHandler::GesturePolicy::ReleaseWithinBounds << false;
+
+    QTest::newRow("touch, DragThreshold") << constTouchDevice
+            << QQuickTapHandler::GesturePolicy::DragThreshold << true;
+    QTest::newRow("touch, WithinBounds") << constTouchDevice
+            << QQuickTapHandler::GesturePolicy::WithinBounds << false;
+    QTest::newRow("touch, ReleaseWithinBounds") << constTouchDevice
+            << QQuickTapHandler::GesturePolicy::ReleaseWithinBounds << false;
+}
+
+void tst_TapHandler::nestedAndSiblingPropagation() // QTBUG-117387
+{
+    QFETCH(const QPointingDevice *, device);
+    QFETCH(QQuickTapHandler::GesturePolicy, gesturePolicy);
+    QFETCH(bool, expectPropagation);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("nestedAndSibling.qml")));
+    QQuickItem *root = window.rootObject();
+    QQuickTapHandler *th1 = root->findChild<QQuickTapHandler*>("th1");
+    QVERIFY(th1);
+    th1->setGesturePolicy(gesturePolicy);
+    QQuickTapHandler *th2 = root->findChild<QQuickTapHandler*>("th2");
+    QVERIFY(th2);
+    th2->setGesturePolicy(gesturePolicy);
+    QQuickTapHandler *th3 = root->findChild<QQuickTapHandler*>("th3");
+    QVERIFY(th3);
+    th3->setGesturePolicy(gesturePolicy);
+
+    QPoint middle(180, 140);
+    QQuickTest::pointerPress(device, &window, 0, middle);
+    QVERIFY(th3->isPressed()); // it's on top
+    QCOMPARE(th2->isPressed(), expectPropagation);
+    QCOMPARE(th1->isPressed(), expectPropagation);
+
+    QQuickTest::pointerRelease(device, &window, 0, middle);
 }
 
 QTEST_MAIN(tst_TapHandler)

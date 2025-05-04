@@ -292,6 +292,8 @@ private slots:
     void garbageCollectedObjectMethodBase();
     void spreadNoOverflow();
 
+    void deleteDefineCycle();
+
 public:
     Q_INVOKABLE QJSValue throwingCppMethod1();
     Q_INVOKABLE void throwingCppMethod2();
@@ -5814,6 +5816,25 @@ void tst_QJSEngine::spreadNoOverflow()
     const QJSValue result = engine.evaluate(program);
     QVERIFY(result.isError());
     QCOMPARE(result.errorType(), QJSValue::RangeError);
+}
+
+void tst_QJSEngine::deleteDefineCycle()
+{
+  QJSEngine engine;
+  QStringList stackTrace;
+
+  QJSValue result = engine.evaluate(QString::fromLatin1(R"(
+  let global = ({})
+
+  for (let j = 0; j < 1000; j++) {
+    for (let i = 0; i < 2; i++) {
+      const name = "test" + i
+      delete global[name]
+      Object.defineProperty(global, name, { get() { return 0 }, configurable: true })
+    }
+  }
+  )"), {}, 1, &stackTrace);
+  QVERIFY(stackTrace.isEmpty());
 }
 
 QTEST_MAIN(tst_QJSEngine)
