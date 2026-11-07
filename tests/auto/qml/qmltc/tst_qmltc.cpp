@@ -9,9 +9,13 @@
 #include "simpleqtquicktypes.h"
 #include "typewithenums.h"
 #include "methods.h"
+#if QT_CONFIG(quick_tableview)
 #include "properties.h"
+#endif
 #include "objectwithid.h"
+#if QT_CONFIG(quick_gridview)
 #include "documentwithids.h"
+#endif
 #include "importnamespace.h"
 #include "deferredproperties.h"
 #include "deferredproperties_group.h"
@@ -87,7 +91,9 @@
 #include "mysignals.h"
 #include "namespacedtypes.h"
 #include "type.h"
+#if QT_CONFIG(qml_labs) && QT_CONFIG(qml_table_model)
 #include "qmltablemodel.h"
+#endif
 #include "stringtourl.h"
 #include "signalconnections.h"
 #include "requiredproperties.h"
@@ -96,6 +102,10 @@
 
 #include "attachedcomponentproperty.h"
 #include "attachednamespacedproperty.h"
+
+#include "newlinetranslation.h"
+#include "mymatryoshkaitems.h"
+#include "typedmethodcallonidlookup.h"
 
 // Qt:
 #include <QtCore/qstring.h>
@@ -109,9 +119,13 @@
 
 #include <QtTest/qsignalspy.h>
 
+#include <QtGui/qquaternion.h>
+
 #include <QtCore/private/qobject_p.h>
 #include <QtTest/private/qemulationdetector_p.h>
 #include <QtCore/qtranslator.h>
+#include <private/qqmljslogger_p.h>
+#include <private/qqmltcvisitor_p.h>
 
 #ifndef QMLTC_TESTS_DISABLE_CACHE
 #    error "QMLTC_TESTS_DISABLE_CACHE is supposed to be defined and be equal to either 0 or 1"
@@ -209,6 +223,7 @@ void tst_qmltc::initTestCase()
         QUrl(u"qrc:/qt/qml/QmltcTests/valueTypeListProperty.qml"_s),
         QUrl(u"qrc:/qt/qml/QmltcTests/appendToQQmlListProperty.qml"_s),
         QUrl(u"qrc:/qt/qml/QmltcTests/requiredProperties.qml"_s),
+        QUrl(u"qrc:/qt/qml/QmltcTests/typedMethodCallOnIdLookup.qml"_s),
     };
 
     QQmlEngine e;
@@ -332,6 +347,7 @@ void tst_qmltc::methods()
     QCOMPARE(metaTypedMethod.parameterNames(), QList<QByteArray>({ "a", "b" }));
 }
 
+#if QT_CONFIG(quick_tableview)
 void tst_qmltc::properties()
 {
     QQmlEngine e;
@@ -476,7 +492,9 @@ void tst_qmltc::properties()
     QVERIFY(sentinelForComponent);
     QCOMPARE(sentinelForComponent->property("text").toString(), u"should be correctly created"_s);
 }
+#endif // QT_CONFIG(quick_tableview)
 
+#if QT_CONFIG(quick_tableview) && QT_CONFIG(quick_gridview)
 void tst_qmltc::ids()
 {
     {
@@ -573,6 +591,7 @@ void tst_qmltc::ids()
         verifyComponent(afterChild, QString(), u"afterDelegateDefaultPropertyText"_s);
     }
 }
+#endif // QT_CONFIG(quick_tableview) && QT_CONFIG(quick_gridview)
 
 void tst_qmltc::importNamespace()
 {
@@ -1310,7 +1329,7 @@ void tst_qmltc::propertyAliasAttribute()
     QCOMPARE(fromEngine.property("latestReadAndWrite"), stringB);
 
     // check if metaobject of alias is correct
-    const QVector<const QMetaObject *> metaObjects = {
+    const QList<const QMetaObject *> metaObjects = {
         fromQmltc.metaObject(),
         fromEngine.metaObject(),
     };
@@ -1318,7 +1337,7 @@ void tst_qmltc::propertyAliasAttribute()
     QVERIFY(metaObjects[0]);
     QVERIFY(metaObjects[1]);
 
-    QVector<QHash<QString, QMetaProperty>> metaProperties(2);
+    QList<QHash<QString, QMetaProperty>> metaProperties(2);
     for (int j = 0; j < metaObjects.size(); j++) {
         const QMetaObject *metaObject = metaObjects[j];
         for (int i = metaObject->propertyOffset(); i < metaObject->propertyCount(); ++i) {
@@ -2201,18 +2220,10 @@ void tst_qmltc::contextHierarchy_childBaseIsQml()
 
     QCOMPARE(rootCtx->parent(), QQmlContextData::get(e.rootContext()));
     QCOMPARE(child1Ctx, rootCtx);
-    QEXPECT_FAIL("",
-                 "Inconsistent with QQmlComponent: non-root object with generated C++ base has "
-                 "the context of that base",
-                 Continue);
     QCOMPARE(child2Ctx, rootCtx);
-    QEXPECT_FAIL("",
-                 "Inconsistent with QQmlComponent: non-root object with generated C++ base has "
-                 "the context of that base",
-                 Continue);
     QCOMPARE(child2Ctx->parent(), QQmlContextData::get(e.rootContext()));
-    // the rootCtx is actually a parent in this case
-    QCOMPARE(child2Ctx->parent(), rootCtx);
+    // the context of child2 is certainly the root context of the document.
+    QCOMPARE(child2Ctx, rootCtx);
 
     QQmlContext *rootQmlCtx = rootCtx->asQQmlContext();
     QCOMPARE(rootQmlCtx->objectForName(u"root"_s), &created);
@@ -3350,7 +3361,7 @@ void tst_qmltc::checkExportsNoFileName()
     QCOMPARE(w.myString(), u"Hello! I should be exported by qmltc"_s);
 }
 
-#if QT_CONFIG(qml_table_model)
+#if QT_CONFIG(qml_labs) && QT_CONFIG(qml_table_model)
 void tst_qmltc::qmlTableModel()
 {
     QQmlEngine e;
@@ -3450,6 +3461,39 @@ void tst_qmltc::attachedNamespacedProperty()
     QQmlEngine e;
     PREPEND_NAMESPACE(attachedNamespacedProperty) createdByQmltc(&e);
     checkOverlayAttached(&createdByQmltc);
+}
+
+void tst_qmltc::newLineTranslation()
+{
+    QQmlEngine e;
+    PREPEND_NAMESPACE(newLineTranslation) createdByQmltc(&e);
+    QCOMPARE(createdByQmltc.objectName(), "Hello World \n"_L1);
+}
+
+void tst_qmltc::nestedWithId()
+{
+    QQmlEngine e;
+    PREPEND_NAMESPACE(myMatryoshkaItems) createdByQmltc(&e);
+    QQmlContext *context = qmlContext(&createdByQmltc);
+    QObject *inner = context->objectForName("inner"_L1);
+    QVERIFY(inner);
+    QVERIFY(inner != &createdByQmltc);
+    QVERIFY(qobject_cast<QmltcTests::MyBaseItem *>(inner));
+    QVERIFY(!qobject_cast<QmltcTests::MyDerivedItem *>(inner));
+}
+
+void tst_qmltc::typedMethodCallOnIdLookup()
+{
+    QQmlEngine e;
+    PREPEND_NAMESPACE(typedMethodCallOnIdLookup) created(&e);
+    QCOMPARE(created.property("result").toString(), u"[Hello]"_s);
+}
+
+void tst_qmltc::ensureWarningCategoryOverridesSync()
+{
+    const auto overrides = QQmltc::categoryOverrides();
+    const auto builtins = QQmlJSLogger::builtinCategories();
+    QCOMPARE(overrides.size(), builtins.size());
 }
 
 QTEST_MAIN(tst_qmltc)

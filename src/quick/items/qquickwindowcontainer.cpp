@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickwindowcontainer_p.h"
 
@@ -12,7 +13,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcWindowContainer, "qt.quick.window.container")
+Q_STATIC_LOGGING_CATEGORY(lcWindowContainer, "qt.quick.window.container")
 
 using namespace Qt::StringLiterals;
 
@@ -117,6 +118,7 @@ QQuickWindowContainer::QQuickWindowContainer(QQuickItem *parent, ContainerMode c
     d->containerMode = containerMode;
 
     setFlag(QQuickItem::ItemObservesViewport); // For clipping
+    setFocusPolicy(Qt::TabFocus);
 
     connect(this, &QQuickItem::windowChanged,
             this, &QQuickWindowContainer::parentWindowChanged);
@@ -134,11 +136,16 @@ QQuickWindowContainer::QQuickWindowContainer(QQuickItem *parent, ContainerMode c
 
 QQuickWindowContainer::~QQuickWindowContainer()
 {
-    Q_D(const QQuickWindowContainer);
+    Q_D(QQuickWindowContainer);
     qCDebug(lcWindowContainer) << "Destructing window container" << this;
 
-    disconnect(this);
+    disconnect(this, &QQuickItem::windowChanged,
+               this, &QQuickWindowContainer::parentWindowChanged);
+
     if (d->window) {
+        d->window->disconnect(this);
+        d->window->removeEventFilter(this);
+
         auto ownership = QJSEngine::objectOwnership(d->window);
         qCDebug(lcWindowContainer) << "Contained window" << d->window
             << "has" << (ownership == QQmlEngine::JavaScriptOwnership ?
@@ -149,6 +156,8 @@ QQuickWindowContainer::~QQuickWindowContainer()
             d->window->destroy();
             d->window->setParent(nullptr);
         }
+
+        d->window = nullptr;
     }
 }
 
@@ -482,6 +491,21 @@ bool QQuickWindowContainer::eventFilter(QObject *object, QEvent *event)
     return QQuickImplicitSizeItem::eventFilter(object, event);
 }
 
+void QQuickWindowContainer::focusInEvent(QFocusEvent *event)
+{
+    Q_D(QQuickWindowContainer);
+    if (d->window) {
+        const auto reason = event->reason();
+        QWindowPrivate::FocusTarget target = QWindowPrivate::FocusTarget::Current;
+        if (reason == Qt::TabFocusReason)
+            target = QWindowPrivate::FocusTarget::First;
+        else if (reason == Qt::BacktabFocusReason)
+            target = QWindowPrivate::FocusTarget::Last;
+        QWindowPrivate::get(d->window)->setFocusToTarget(target, reason);
+        d->window->requestActivate();
+    }
+}
+
 void QQuickWindowContainer::windowDestroyed()
 {
     Q_D(QQuickWindowContainer);
@@ -588,3 +612,5 @@ bool QQuickWindowContainerPrivate::transformChanged(QQuickItem *transformedItem)
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickwindowcontainer_p.cpp"

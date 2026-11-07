@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicklabsplatformmenubar_p.h"
 #include "qquicklabsplatformmenu_p.h"
@@ -23,7 +24,7 @@ QT_BEGIN_NAMESPACE
 
     The MenuBar type provides a QML API for native platform menubars.
 
-    \image qtlabsplatform-menubar.png
+    \image {qtlabsplatform-menubar.png} {A native menubar}
 
     A menubar consists of a list of drop-down menus.
 
@@ -70,8 +71,6 @@ QT_BEGIN_NAMESPACE
 
     \sa Menu
 */
-
-Q_DECLARE_LOGGING_CATEGORY(qtLabsPlatformMenus)
 
 QQuickLabsPlatformMenuBar::QQuickLabsPlatformMenuBar(QObject *parent)
     : QObject(parent),

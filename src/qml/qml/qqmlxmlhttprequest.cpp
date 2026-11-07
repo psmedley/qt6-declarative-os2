@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlxmlhttprequest_p.h"
 
@@ -1030,7 +1031,7 @@ private:
     QByteArray m_data;
     int m_redirectCount;
 
-    typedef QPair<QByteArray, QByteArray> HeaderPair;
+    typedef std::pair<QByteArray, QByteArray> HeaderPair;
     typedef QList<HeaderPair> HeadersList;
     HeadersList m_headersList;
     void fillHeadersList();
@@ -1366,6 +1367,8 @@ void QQmlXMLHttpRequest::error(QNetworkReply::NetworkError error)
         error == QNetworkReply::ContentNotFoundError ||
         error == QNetworkReply::AuthenticationRequiredError ||
         error == QNetworkReply::ContentReSendError ||
+        error == QNetworkReply::ContentConflictError ||
+        error == QNetworkReply::ContentGoneError ||
         error == QNetworkReply::UnknownContentError ||
         error == QNetworkReply::ProtocolInvalidOperationError ||
         error == QNetworkReply::InternalServerError ||
@@ -1670,7 +1673,8 @@ struct QQmlXMLHttpRequestCtor : public FunctionObject
         Scope scope(f->engine());
         const QQmlXMLHttpRequestCtor *ctor = static_cast<const QQmlXMLHttpRequestCtor *>(f);
 
-        QQmlXMLHttpRequest *r = new QQmlXMLHttpRequest(scope.engine->networkAccessManager(scope.engine), scope.engine);
+        QQmlXMLHttpRequest *r = new QQmlXMLHttpRequest(
+                scope.engine->getNetworkAccessManager(), scope.engine);
         Scoped<QQmlXMLHttpRequestWrapper> w(scope, scope.engine->memoryManager->allocate<QQmlXMLHttpRequestWrapper>(r));
         ScopedObject proto(scope, ctor->d()->proto);
         w->setPrototypeUnchecked(proto);

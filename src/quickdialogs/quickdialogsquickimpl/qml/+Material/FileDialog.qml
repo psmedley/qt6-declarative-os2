@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import Qt.labs.folderlistmodel
 import QtQuick
@@ -17,10 +18,10 @@ FileDialogImpl {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding,
+                            implicitContentWidth + leftPadding + rightPadding,
                             implicitFooterWidth)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding
+                             implicitContentHeight + topPadding + bottomPadding
                              + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
                              + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
@@ -39,8 +40,8 @@ FileDialogImpl {
         dim: true
         modal: true
         title: qsTr("Overwrite file?")
-        width: control.width - control.leftPadding - control.rightPadding
         clip: true
+        width: contentItem.implicitWidth + leftPadding + rightPadding
 
         contentItem: Label {
             text: qsTr("“%1” already exists.\nDo you want to replace it?").arg(control.fileName)
@@ -50,16 +51,19 @@ FileDialogImpl {
         footer: DialogButtonBox {
             alignment: Qt.AlignHCenter
             standardButtons: DialogButtonBox.Yes | DialogButtonBox.No
+            defaultStandardButton: DialogButtonBox.Yes
         }
     }
 
     FileDialogImpl.buttonBox: buttonBox
+    FileDialogImpl.filterLabel: filterLabel
     FileDialogImpl.nameFiltersComboBox: nameFiltersComboBox
     FileDialogImpl.fileDialogListView: fileDialogListView
     FileDialogImpl.breadcrumbBar: breadcrumbBar
     FileDialogImpl.fileNameLabel: fileNameLabel
     FileDialogImpl.fileNameTextField: fileNameTextField
     FileDialogImpl.overwriteConfirmationDialog: overwriteConfirmationDialog
+    FileDialogImpl.sideBar: sideBar
 
     background: Rectangle {
         implicitWidth: 600
@@ -77,6 +81,7 @@ FileDialogImpl {
         spacing: 12
 
         Label {
+            objectName: "dialogTitleBarLabel"
             text: control.title
             visible: parent.parent?.parent === Overlay.overlay && control.title.length > 0
             elide: Label.ElideRight
@@ -101,28 +106,41 @@ FileDialogImpl {
         }
     }
 
-    contentItem: ListView {
-        id: fileDialogListView
-        objectName: "fileDialogListView"
-        clip: true
+    contentItem: SplitView {
+        id: contentLayout
 
-        ScrollBar.vertical: ScrollBar {}
-
-        model: FolderListModel {
-            folder: control.currentFolder
-            nameFilters: control.selectedNameFilter.globs
-            showDirsFirst: PlatformTheme.themeHint(PlatformTheme.ShowDirectoriesFirst)
-            sortCaseSensitive: false
-        }
-        delegate: DialogsImpl.FileDialogDelegate {
-            objectName: "fileDialogDelegate" + index
-            width: ListView.view.width
-            highlighted: ListView.isCurrentItem
+        contentHeight: sideBar.implicitHeight
+        DialogsImpl.SideBar {
+            id: sideBar
             dialog: control
-            fileDetailRowWidth: nameFiltersComboBox.width
+            SplitView.minimumWidth: 50
+            SplitView.maximumWidth: contentLayout.width / 2
+        }
 
-            KeyNavigation.backtab: breadcrumbBar
-            KeyNavigation.tab: fileNameTextField.visible ? fileNameTextField : nameFiltersComboBox
+        ListView {
+            id: fileDialogListView
+            objectName: "fileDialogListView"
+            SplitView.fillWidth: true
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+
+            model: FolderListModel {
+                folder: control.currentFolder
+                nameFilters: control.selectedNameFilter.globs
+                showDirsFirst: PlatformTheme.themeHint(PlatformTheme.ShowDirectoriesFirst)
+                sortCaseSensitive: false
+            }
+            delegate: DialogsImpl.FileDialogDelegate {
+                objectName: "fileDialogDelegate" + index
+                width: ListView.view.width
+                highlighted: ListView.isCurrentItem
+                dialog: control
+                fileDetailRowWidth: nameFiltersComboBox.width
+
+                KeyNavigation.backtab: breadcrumbBar
+                KeyNavigation.tab: fileNameTextField.visible ? fileNameTextField : nameFiltersComboBox
+            }
         }
     }
 
@@ -149,6 +167,7 @@ FileDialogImpl {
         }
 
         Label {
+            id: filterLabel
             text: qsTr("Filter")
 
             Layout.row: 1

@@ -8,6 +8,7 @@
 #include <QtQml/qqmlcomponent.h>
 #include <private/qmetaobjectbuilder_p.h>
 #include <private/qqmlcontextdata_p.h>
+#include <private/qqmldata_p.h>
 #include <private/qqmlpropertycachecreator_p.h>
 #include <QCryptographicHash>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
@@ -37,6 +38,27 @@ private slots:
     void rejectOverriddenFinal();
     void overriddenSignals();
     void duplicateIdsAndGeneralizedGroupProperties();
+
+    void appendPropertyAttr_logging_data();
+    void appendPropertyAttr_logging();
+
+    void appendPropertyAttr_InvalidOverride_data();
+    void appendPropertyAttr_InvalidOverride();
+
+    void appendPropertyAttr_ValidOverride_data();
+    void appendPropertyAttr_ValidOverride();
+
+    void handleOverride_data();
+    void handleOverride();
+
+    void nonExistentGeneralizedGroup();
+
+    void append_propertyAttr_data();
+    void append_propertyAttr();
+    void isComposite();
+    void rebase();
+    void rebaseOntoLargerParent();
+    void rebaseOntoReorderedParent();
 
 private:
     QQmlEngine engine;
@@ -558,11 +580,6 @@ class TestClassWithClassInfo : public QObject
     Q_CLASSINFO("Key", "Value")
 };
 
-#include "tst_qqmlpropertycache.moc"
-
-#define ARRAY_SIZE(arr) \
-    int(sizeof(arr) / sizeof(arr[0]))
-
 template <typename T, typename = void>
 struct SizeofOffsetsAndSizes_helper
 {
@@ -583,10 +600,11 @@ constexpr size_t sizeofOffsetsAndSizes(const T &)
 
 // NOTE: ScopeCounter might change new metaobjects are added
 // check the moc file and adjust as necessary if tests fails to compile
-#define TEST_CLASS(Class, ScopeCounter) \
+#define TEST_CLASS(Class, Fields, Strings) \
     QTest::newRow(#Class) \
-            << &Class::staticMetaObject << ARRAY_SIZE(qt_meta_data_ZN##ScopeCounter##Class##E) \
-            << int(sizeofOffsetsAndSizes(qt_meta_stringdata_ZN##ScopeCounter##Class##E) / (sizeof(uint) * 2))
+            << &Class::staticMetaObject \
+            << Fields \
+            << Strings
 
 Q_DECLARE_METATYPE(const QMetaObject*);
 
@@ -596,9 +614,9 @@ void tst_qqmlpropertycache::metaObjectSize_data()
     QTest::addColumn<int>("expectedFieldCount");
     QTest::addColumn<int>("expectedStringCount");
 
-    TEST_CLASS(TestClass, 9);
-    TEST_CLASS(TestClassWithParameters, 23);
-    TEST_CLASS(TestClassWithClassInfo, 22);
+    TEST_CLASS(TestClass, 49, 10);
+    TEST_CLASS(TestClassWithParameters, 24, 4);
+    TEST_CLASS(TestClassWithClassInfo, 17, 3);
 }
 
 void tst_qqmlpropertycache::metaObjectSize()
@@ -791,4 +809,544 @@ void tst_qqmlpropertycache::duplicateIdsAndGeneralizedGroupProperties()
     QScopedPointer<QObject> o(c.create());
 }
 
+// TODO consider moving to test utils
+static inline auto propertyWithFlags(QQmlPropertyData::Flags &&flags = QQmlPropertyData::Flags())
+        -> QQmlPropertyData
+{
+    QQmlPropertyData property{};
+    property.setFlags(std::move(flags));
+    return property;
+};
+
+using namespace OverrideSemantics;
+
+static inline auto newPropertyCache(HandlerRef fakeOverrideHandler) -> QQmlPropertyCache::Ptr
+{
+    return QQmlPropertyCache::Ptr(new QQmlPropertyCache(fakeOverrideHandler),
+                                  QQmlPropertyCache::Ptr::Adopt);
+}
+
+void tst_qqmlpropertycache::appendPropertyAttr_logging_data()
+{
+    QTest::addColumn<OverrideSemantics::Status>("overrideStatus");
+    QTest::addColumn<QString>("warningPattern");
+    QTest::addColumn<QtMsgType>("level");
+
+    QTest::newRow("NoOverride") << Status::NoOverride << "" << QtInfoMsg;
+    QTest::newRow("Valid") << Status::Valid << "" << QtInfoMsg;
+
+    QTest::newRow("MissingBase")
+            << Status::MissingBase
+            << "Member (.*) of the object (.*) does not override anything. Consider "
+               "removing \"override\"."
+            << QtWarningMsg;
+    QTest::newRow("OverridingFinal")
+            << Status::OverridingFinal
+            << "Final member (.*) is overridden in class (.*). The override won't be used."
+            << QtWarningMsg;
+    QTest::newRow("OverridingNonVirtual")
+            << Status::OverridingNonVirtual
+            << "Member (.*) of the object (.*) overrides a non-virtual "
+               "member. Consider renaming it or mark it virtual in the base object"
+            << QtDebugMsg;
+    QTest::newRow("OverridingNonVirtualError")
+            << Status::OverridingNonVirtualError
+            << "Member (.*) of the object (.*) overrides a non-virtual "
+               "member. Consider renaming it or mark it virtual in the base object"
+            << QtWarningMsg;
+    QTest::newRow("MissingOverrideSpecifier")
+            << Status::MissingOverrideOrFinalSpecifier
+            << "Member (.*) of the object (.*) overrides a member of the base object. "
+               "Consider renaming it or adding final or override specifier"
+            << QtWarningMsg;
+}
+
+static QLoggingCategory::CategoryFilter parentFilter;
+void logFilter(QLoggingCategory *category)
+{
+    if (qstrcmp(category->categoryName(), "qt.qml.propertyCache.append") == 0)
+        category->setEnabled(QtDebugMsg, true);
+    else if (parentFilter)
+        parentFilter(category);
+}
+
+
+void tst_qqmlpropertycache::appendPropertyAttr_logging()
+{
+    QFETCH(OverrideSemantics::Status, overrideStatus);
+    QFETCH(QString, warningPattern);
+    QFETCH(QtMsgType, level);
+
+    parentFilter = QLoggingCategory::installFilter(logFilter);
+    const auto restoreFilter = qScopeGuard([]() { QLoggingCategory::installFilter(parentFilter); });
+
+    const auto fakeOverrideHandler = [&overrideStatus](QQmlPropertyData &, QQmlPropertyData *,
+                                                       CheckMode) -> Status {
+        return overrideStatus;
+    };
+
+    if (!warningPattern.isEmpty())
+        QTest::ignoreMessage(level, QRegularExpression(warningPattern.toLatin1()));
+
+    newPropertyCache(fakeOverrideHandler)->appendPropertyAttr("p", QQmlPropertyData());
+}
+
+void tst_qqmlpropertycache::appendPropertyAttr_InvalidOverride_data()
+{
+    QTest::addColumn<OverrideSemantics::Status>("overrideStatus");
+
+    QTest::newRow("MissingBase") << Status::MissingBase;
+    QTest::newRow("OverridingFinal") << Status::OverridingFinal;
+    QTest::newRow("OverridingNonVirtualError") << Status::OverridingNonVirtualError;
+}
+
+void tst_qqmlpropertycache::appendPropertyAttr_InvalidOverride()
+{
+    QFETCH(OverrideSemantics::Status, overrideStatus);
+
+    QVERIFY(!isValidOverride(overrideStatus));
+
+    const auto fakeOverrideHandler = [&overrideStatus](QQmlPropertyData &, QQmlPropertyData *,
+                                                       CheckMode) -> Status {
+        return overrideStatus;
+    };
+
+    QQmlPropertyCache::Ptr cache = newPropertyCache(fakeOverrideHandler);
+    QCOMPARE(cache->propertyCount(), 0);
+
+    const auto res = cache->appendPropertyAttr("p", QQmlPropertyData());
+
+    QVERIFY(!res);
+    QCOMPARE(res.error(), overrideStatus);
+    QCOMPARE(cache->propertyCount(), 1);
+
+    // since append is invalid the property is not accessible by name
+    QVERIFY(!cacheProperty(cache, "p"));
+}
+
+void tst_qqmlpropertycache::appendPropertyAttr_ValidOverride_data()
+{
+    QTest::addColumn<OverrideSemantics::Status>("overrideStatus");
+
+    QTest::newRow("NoOverride") << Status::NoOverride;
+    QTest::newRow("Valid") << Status::Valid;
+    QTest::newRow("MissingOverrideSpecifier") << Status::MissingOverrideOrFinalSpecifier;
+    QTest::newRow("OverridingNonVirtual") << Status::OverridingNonVirtual;
+}
+
+void tst_qqmlpropertycache::appendPropertyAttr_ValidOverride()
+{
+    QFETCH(OverrideSemantics::Status, overrideStatus);
+
+    QVERIFY(isValidOverride(overrideStatus));
+
+    const auto fakeOverrideHandler = [&overrideStatus](QQmlPropertyData &, QQmlPropertyData *,
+                                                       CheckMode) -> Status {
+        return overrideStatus;
+    };
+
+    QQmlPropertyCache::Ptr cache = newPropertyCache(fakeOverrideHandler);
+    auto propCount = 0;
+    QCOMPARE(cache->propertyCount(), propCount);
+
+    const QString propName = "p";
+    {
+        QQmlPropertyData data{};
+        // set just to verify upon query that it's the same data
+        data.setCoreIndex(6);
+
+        const auto res = cache->appendPropertyAttr(propName, QQmlPropertyData(data));
+
+        QVERIFY(res);
+        QCOMPARE(cache->propertyCount(), ++propCount);
+        const auto *addedProperty = cache->property(propName, nullptr, nullptr);
+        QVERIFY(addedProperty);
+        QCOMPARE(*addedProperty, data);
+    }
+    // Now override the property
+    {
+        QQmlPropertyData data{};
+        // set just to verify upon query that it's the same data
+        data.setCoreIndex(3);
+        data.setWritable(false);
+
+        const auto res = cache->appendPropertyAttr(propName, QQmlPropertyData(data));
+
+        QVERIFY(res);
+        QCOMPARE(cache->propertyCount(), ++propCount);
+        const auto *addedProperty = cache->property(propName, nullptr, nullptr);
+        QVERIFY(addedProperty);
+        QCOMPARE(*addedProperty, data);
+    }
+}
+
+void tst_qqmlpropertycache::handleOverride_data()
+{
+    QTest::addColumn<QQmlPropertyData>("overridingProperty");
+    QTest::addColumn<std::optional<QQmlPropertyData>>("existingProperty");
+    QTest::addColumn<CheckMode>("checkMode");
+    QTest::addColumn<Status>("expectedResult");
+
+    const auto makeNullopt = []() -> std::optional<QQmlPropertyData> { return std::nullopt; };
+
+    // Minimal checks
+    QTest::newRow("Derived{property var p} Base{}")
+            << propertyWithFlags() << makeNullopt() << CheckMode::Minimal << Status::NoOverride;
+
+    QQmlPropertyData::Flags final{};
+    final.setIsFinal(true);
+    const auto finalProperty = propertyWithFlags(std::move(final));
+    QTest::newRow("Derived{property var p} Base{final property var p}")
+            << propertyWithFlags() << std::make_optional(finalProperty) << CheckMode::Minimal
+            << Status::OverridingFinal;
+
+    QTest::newRow("Derived{property var p} Base{ property var p}")
+            << propertyWithFlags() << std::make_optional(propertyWithFlags()) << CheckMode::Minimal
+            << Status::Valid;
+
+    // Full
+    QTest::newRow("Derived{property var p} Base{} full")
+            << propertyWithFlags() << makeNullopt() << CheckMode::Full << Status::NoOverride;
+
+    QQmlPropertyData::Flags override{};
+    override.setDoesOverride(true);
+    const auto propertyWithOverride = propertyWithFlags(std::move(override));
+
+    QQmlPropertyData::Flags virtual_{};
+    virtual_.setIsVirtual(true);
+    const auto propertyWithVirtual = propertyWithFlags(std::move(virtual_));
+
+    QTest::newRow("Derived{override property var p} Base{}")
+            << propertyWithOverride << makeNullopt() << CheckMode::Full << Status::MissingBase;
+
+    QTest::newRow("Derived{property var p} Base{final property var p} full")
+            << propertyWithFlags() << std::make_optional(finalProperty) << CheckMode::Full
+            << Status::OverridingFinal;
+    QTest::newRow("Derived{override property var p} Base{final property var p}")
+            << propertyWithOverride << std::make_optional(finalProperty) << CheckMode::Full
+            << Status::OverridingFinal;
+
+    QTest::newRow("Derived{property var p} Base{property var p}")
+            << propertyWithFlags() << std::make_optional(propertyWithFlags()) << CheckMode::Full
+            << Status::OverridingNonVirtual;
+
+    QTest::newRow("Derived{final property var p} Base{property var p}")
+            << finalProperty << std::make_optional(propertyWithFlags()) << CheckMode::Full
+            << Status::OverridingNonVirtual;
+
+    QTest::newRow("Derived{virtual property var p} Base{property var p}")
+            << propertyWithVirtual << std::make_optional(propertyWithFlags()) << CheckMode::Full
+            << Status::OverridingNonVirtual;
+
+    QTest::newRow("Derived{override property var p} Base{property var p}")
+            << propertyWithOverride << std::make_optional(propertyWithFlags()) << CheckMode::Full
+            << Status::OverridingNonVirtualError;
+
+    QTest::newRow("Derived{property var p} Base{virtual property var p}")
+            << propertyWithFlags() << std::make_optional(propertyWithVirtual) << CheckMode::Full
+            << Status::MissingOverrideOrFinalSpecifier;
+
+    QTest::newRow("Derived{virtual property var p} Base{virtual property var p}")
+            << propertyWithVirtual << std::make_optional(propertyWithVirtual) << CheckMode::Full
+            << Status::MissingOverrideOrFinalSpecifier;
+
+    QTest::newRow("Derived{override property var p} Base{virtual property var p}")
+            << propertyWithOverride << std::make_optional(propertyWithVirtual) << CheckMode::Full
+            << Status::Valid;
+
+    QTest::newRow("Derived{final property var p} Base{virtual property var p}")
+            << finalProperty << std::make_optional(propertyWithVirtual) << CheckMode::Full
+            << Status::Valid;
+
+    QQmlPropertyData::Flags invokable{};
+    invokable.setType(QQmlPropertyData::Flags::Type::FunctionType);
+    auto funcProperty = propertyWithFlags(std::move(invokable));
+
+    QTest::newRow("Derived{override p()} Base{virtual property var p}")
+            << funcProperty << std::make_optional(propertyWithFlags(std::move(virtual_)))
+            << CheckMode::Full << Status::InvokabilityMismatch;
+
+    QTest::newRow("Derived{override p} Base{p()}")
+            << propertyWithOverride << std::make_optional(funcProperty) << CheckMode::Full
+            << Status::InvokabilityMismatch;
+}
+
+void tst_qqmlpropertycache::handleOverride()
+{
+    QFETCH(QQmlPropertyData, overridingProperty);
+    QFETCH(std::optional<QQmlPropertyData>, existingProperty);
+    QFETCH(CheckMode, checkMode);
+    QFETCH(Status, expectedResult);
+
+    auto *existing = existingProperty.has_value() ? &existingProperty.value() : nullptr;
+    const auto res = ::handleOverride(overridingProperty, existing, checkMode);
+    QCOMPARE(res, expectedResult);
+    if (isValidOverride(res) && existing) {
+        // test markOverrideOf
+        QCOMPARE(overridingProperty.isVirtual(), existing->isVirtual());
+        QCOMPARE(overridingProperty.overrideIndexIsProperty(), !existing->isFunction());
+        QCOMPARE(overridingProperty.overrideIndex(), existing->coreIndex());
+        QVERIFY(existing->isOverridden());
+    }
+}
+
+void tst_qqmlpropertycache::nonExistentGeneralizedGroup()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(R"(
+        import QtQml
+        QtObject{grid{id:grid}}
+    )", QUrl());
+    QVERIFY(component.isError());
+    QVERIFY(component.errorString().contains("Cannot assign to non-existent property \"grid\""));
+}
+
+void tst_qqmlpropertycache::append_propertyAttr_data()
+{
+    appendPropertyAttr_logging_data();
+}
+
+/*
+ * Because of the tightly coupling of the QQmlPropertyCache, this case covers very
+ * narrowed (far from exhaustive) pieces of "append" method through publicly exposed "update"
+ * method.
+ * It verifies that depending on the Override Semantics the corresponding logging takes
+ * place. It also verifies that the property is being added and accessible depending on the status of
+ * override semantics.
+ */
+void tst_qqmlpropertycache::append_propertyAttr()
+{
+    QFETCH(OverrideSemantics::Status, overrideStatus);
+    QFETCH(QString, warningPattern);
+    QFETCH(QtMsgType, level);
+
+    parentFilter = QLoggingCategory::installFilter(logFilter);
+    const auto restoreFilter = qScopeGuard([]() { QLoggingCategory::installFilter(parentFilter); });
+
+
+    const auto fakeOverrideHandler = [&overrideStatus](QQmlPropertyData &, QQmlPropertyData *,
+                                                       CheckMode) -> Status {
+        return overrideStatus;
+    };
+
+    QQmlPropertyCache::Ptr cache = newPropertyCache(fakeOverrideHandler);
+    QCOMPARE(cache->propertyCount(), 0);
+
+    QMetaObjectBuilder moBuilder;
+    const QString propName = "p";
+    moBuilder.addProperty(propName.toUtf8(), "int", -1);
+    std::unique_ptr<QMetaObject, decltype(&free)> mo(moBuilder.toMetaObject(), &free);
+
+    if (!warningPattern.isEmpty())
+        QTest::ignoreMessage(level, QRegularExpression(warningPattern.toLatin1()));
+    cache->update(mo.get());
+
+    // no matter what the property is added
+    QCOMPARE(cache->propertyCount(), mo->propertyCount());
+    const auto *addedProperty = cache->property(propName, nullptr, nullptr);
+
+    // however it is accessible by name only in cases of valid override
+    if (isValidOverride(overrideStatus)) {
+        QVERIFY(addedProperty);
+    } else {
+        QVERIFY(!addedProperty);
+    }
+}
+
+void tst_qqmlpropertycache::isComposite()
+{
+    // A property cache from a C++ QMetaObject should not be composite.
+    QQmlPropertyCache::Ptr cppCache(
+            QQmlPropertyCache::createStandalone(&QObject::staticMetaObject));
+    QVERIFY(!cppCache->isComposite());
+
+    // A property cache from a QML component should be composite.
+    QQmlComponent component(&engine, testFileUrl("Simple.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(obj);
+    QQmlData *ddata = QQmlData::get(obj.data());
+    QVERIFY(ddata);
+    QVERIFY(ddata->propertyCache);
+    QVERIFY(ddata->propertyCache->isComposite());
+}
+
+void tst_qqmlpropertycache::rebase()
+{
+    QQmlComponent component(&engine, testFileUrl("Simple.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(obj);
+
+    QQmlData *ddata = QQmlData::get(obj.data());
+    QVERIFY(ddata);
+    QVERIFY(ddata->propertyCache);
+
+    const QQmlPropertyCache::ConstPtr original = ddata->propertyCache;
+    QVERIFY(original->parent());
+
+    // Rebase onto the same parent – property counts should match.
+    const QQmlPropertyCache::Ptr rebased = original->rebased(original->parent());
+
+    QCOMPARE(rebased->propertyCount(), original->propertyCount());
+    QCOMPARE(rebased->methodCount(), original->methodCount());
+    QCOMPARE(rebased->signalCount(), original->signalCount());
+    QVERIFY(rebased->parent().data() == original->parent().data());
+
+    // Verify that the custom property "testProp" is still reachable.
+    const QQmlPropertyData *prop = rebased->property(
+            QLatin1String("testProp"), /*object=*/nullptr, /*context=*/nullptr);
+    QVERIFY(prop);
+    QVERIFY(prop->propType() == QMetaType::fromType<int>());
+}
+
+// Rebasing onto a parent with a *different* (larger) layout must shift the derived type's own
+// member indices and offsets, and rebuild the meta-object to include those members. This is what
+// the QML hot-reload path relies on when a composite base type gains members.
+void tst_qqmlpropertycache::rebaseOntoLargerParent()
+{
+    QQmlComponent derivedComp(&engine, testFileUrl("RebaseDerived.qml"));
+    QVERIFY2(derivedComp.isReady(), qPrintable(derivedComp.errorString()));
+    QScopedPointer<QObject> derived(derivedComp.create());
+    QVERIFY(derived);
+
+    QQmlComponent grownComp(&engine, testFileUrl("RebaseBaseGrown.qml"));
+    QVERIFY2(grownComp.isReady(), qPrintable(grownComp.errorString()));
+    QScopedPointer<QObject> grown(grownComp.create());
+    QVERIFY(grown);
+
+    const QQmlPropertyCache::ConstPtr derivedCache = QQmlData::get(derived.data())->propertyCache;
+    const QQmlPropertyCache::ConstPtr grownCache = QQmlData::get(grown.data())->propertyCache;
+    QVERIFY(derivedCache && grownCache);
+
+    const QQmlPropertyCache::ConstPtr baseCache = derivedCache->parent();
+    QVERIFY(baseCache);
+
+    // The "grown" base really has one more property than the base the derived type was compiled
+    // against — and thus one more change signal (hence one more method).
+    const int deltaProperty = grownCache->propertyCount() - baseCache->propertyCount();
+    const int deltaMethod = grownCache->methodCount() - baseCache->methodCount();
+    const int deltaSignal = grownCache->signalCount() - baseCache->signalCount();
+    QCOMPARE(deltaProperty, 1);
+    QCOMPARE(deltaMethod, 1);
+    QCOMPARE(deltaSignal, 1);
+
+    const auto lookup = [](const QQmlPropertyCache::ConstPtr &cache, const char *name) {
+        return cache->property(QLatin1String(name), nullptr, nullptr);
+    };
+
+    const QQmlPropertyData *ownBefore = lookup(derivedCache, "own");
+    const QQmlPropertyData *ownSignalBefore = lookup(derivedCache, "ownSignal");
+    const QQmlPropertyData *ownMethodBefore = lookup(derivedCache, "ownMethod");
+    QVERIFY(ownBefore && ownSignalBefore && ownMethodBefore);
+
+    // Rebase the derived cache onto the larger parent.
+    const QQmlPropertyCache::Ptr rebased = derivedCache->rebased(grownCache);
+    QVERIFY(rebased->parent().data() == grownCache.data());
+
+    // The inherited-member counts (which place the derived type's own members) follow the new,
+    // larger parent — not the old one.
+    QCOMPARE(rebased->propertyOffset(), grownCache->propertyCount());
+    QCOMPARE(rebased->methodOffset(), grownCache->methodCount());
+    QCOMPARE(rebased->signalOffset(), grownCache->signalCount());
+
+    // The derived type's own members are still reachable, and their indices shifted by the delta
+    // in each respective index space.
+    const QQmlPropertyData *own = lookup(rebased, "own");
+    const QQmlPropertyData *ownSignal = lookup(rebased, "ownSignal");
+    const QQmlPropertyData *ownMethod = lookup(rebased, "ownMethod");
+    QVERIFY(own && ownSignal && ownMethod);
+
+    QCOMPARE(own->propType(), QMetaType::fromType<int>());
+    QCOMPARE(own->coreIndex(), ownBefore->coreIndex() + deltaProperty);
+    QCOMPARE(own->notifyIndex(), ownBefore->notifyIndex() + deltaSignal);
+    QCOMPARE(ownSignal->coreIndex(), ownSignalBefore->coreIndex() + deltaMethod);
+    QCOMPARE(ownMethod->coreIndex(), ownMethodBefore->coreIndex() + deltaMethod);
+
+    // The (shifted) notify index still resolves to a signal — the property's own change signal.
+    const QQmlPropertyData *notify = rebased->signal(own->notifyIndex());
+    QVERIFY(notify && notify->isSignal());
+
+    // The rebuilt meta-object must include the derived type's own members (seeding it from the
+    // parent would drop them) and agree with the cache on every index.
+    const QMetaObject *mo = rebased->createMetaObject();
+    QVERIFY(mo);
+
+    const int ownPropIdx = mo->indexOfProperty("own");
+    QVERIFY(ownPropIdx >= 0);
+    QCOMPARE(ownPropIdx, own->coreIndex());
+
+    const int ownSignalIdx = mo->indexOfSignal("ownSignal()");
+    QVERIFY(ownSignalIdx >= 0);
+    QCOMPARE(ownSignalIdx, ownSignal->coreIndex());
+
+    const int ownMethodIdx = mo->indexOfMethod("ownMethod()");
+    QVERIFY(ownMethodIdx >= 0);
+    QCOMPARE(ownMethodIdx, ownMethod->coreIndex());
+
+    const QMetaProperty ownProp = mo->property(ownPropIdx);
+    QVERIFY(ownProp.hasNotifySignal());
+    QCOMPARE(ownProp.notifySignal().name(), QByteArray("ownChanged"));
+}
+
+// rebased() shifts the derived type's stored indices by a single per-space delta
+// (newParentCount - oldParentCount), assuming the parent only *grew at the end*.
+// But a reloaded base type can change the index of its *existing* members (e.g. a
+// property declared earlier in the file, or reordered members). References that a
+// derived type stores *into* the parent's index space -- here the overrideIndex of an
+// overriding property -- are then left pointing at the wrong parent member.
+void tst_qqmlpropertycache::rebaseOntoReorderedParent()
+{
+    QQmlComponent baseComp(&engine, testFileUrl("OverrideBase.qml"));
+    QVERIFY2(baseComp.isReady(), qPrintable(baseComp.errorString()));
+    QScopedPointer<QObject> base(baseComp.create());
+    QVERIFY(base);
+
+    QQmlComponent derivedComp(&engine, testFileUrl("OverrideDerived.qml"));
+    QVERIFY2(derivedComp.isReady(), qPrintable(derivedComp.errorString()));
+    QScopedPointer<QObject> derived(derivedComp.create());
+    QVERIFY(derived);
+
+    QQmlComponent reorderedComp(&engine, testFileUrl("OverrideBaseReordered.qml"));
+    QVERIFY2(reorderedComp.isReady(), qPrintable(reorderedComp.errorString()));
+    QScopedPointer<QObject> reordered(reorderedComp.create());
+    QVERIFY(reordered);
+
+    const QQmlPropertyCache::ConstPtr baseCache = QQmlData::get(base.data())->propertyCache;
+    const QQmlPropertyCache::ConstPtr derivedCache = QQmlData::get(derived.data())->propertyCache;
+    const QQmlPropertyCache::ConstPtr reorderedCache =
+            QQmlData::get(reordered.data())->propertyCache;
+    QVERIFY(baseCache && derivedCache && reorderedCache);
+
+    const auto lookup = [](const QQmlPropertyCache::ConstPtr &cache, const char *name) {
+        return cache->property(QLatin1String(name), nullptr, nullptr);
+    };
+
+    // The derived type overrides "a"; the override records the base's "a" index.
+    const QQmlPropertyData *ownA = lookup(derivedCache, "a");
+    QVERIFY(ownA);
+    QVERIFY2(ownA->hasOverride(), "precondition: the derived \"a\" overrides the base's \"a\"");
+    QCOMPARE(ownA->overrideIndex(), lookup(baseCache, "a")->coreIndex());
+
+    // Reordering really moved "a" to a different property index than the base it was
+    // compiled against, and put "b" where "a" used to be.
+    QVERIFY(lookup(reorderedCache, "a")->coreIndex() != lookup(baseCache, "a")->coreIndex());
+    QCOMPARE(lookup(reorderedCache, "b")->coreIndex(), lookup(baseCache, "a")->coreIndex());
+
+    // Re-link the derived cache onto the reordered base, as the hot-reload path does.
+    const QQmlPropertyCache::Ptr rebased = derivedCache->rebased(reorderedCache);
+    QVERIFY(rebased->parent().data() == reorderedCache.data());
+
+    const QQmlPropertyData *reboundA = lookup(rebased, "a");
+    QVERIFY(reboundA && reboundA->hasOverride());
+
+    // The override must now point at "a" in the *new* parent. rebased() leaves the
+    // parent-range override index unshifted, so it still points at the base's old slot
+    // -- which in the reordered parent is "b".
+    QCOMPARE(reboundA->overrideIndex(), lookup(reorderedCache, "a")->coreIndex());
+}
+
 QTEST_MAIN(tst_qqmlpropertycache)
+
+#include "tst_qqmlpropertycache.moc"

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QDEBUGMESSAGESERVICE_H
 #define QDEBUGMESSAGESERVICE_H
@@ -28,6 +29,7 @@ class QDebugMessageServiceImpl : public QDebugMessageService
     Q_OBJECT
 public:
     QDebugMessageServiceImpl(QObject *parent = nullptr);
+    ~QDebugMessageServiceImpl();
 
     void sendDebugMessage(QtMsgType type, const QMessageLogContext &ctxt, const QString &buf);
     void synchronizeTime(const QElapsedTimer &otherTimer) override;
@@ -36,6 +38,8 @@ protected:
     void stateChanged(State) override;
 
 private:
+    void restoreOldMessageHandler();
+
     friend class QQmlDebuggerServiceFactory;
 
     QtMessageHandler oldMsgHandler;

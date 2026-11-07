@@ -120,7 +120,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlParticlesDebug, QML_PARTICLES_DEBUG)
 */
 
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::pause()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::pause()
 
     Pauses the simulation if it is running.
 
@@ -128,7 +128,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlParticlesDebug, QML_PARTICLES_DEBUG)
 */
 
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::resume()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::resume()
 
     Resumes the simulation if it is paused.
 
@@ -136,7 +136,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlParticlesDebug, QML_PARTICLES_DEBUG)
 */
 
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::start()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::start()
 
     Starts the simulation if it has not already running.
 
@@ -144,7 +144,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlParticlesDebug, QML_PARTICLES_DEBUG)
 */
 
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::stop()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::stop()
 
     Stops the simulation if it is running.
 
@@ -152,14 +152,14 @@ DEFINE_BOOL_CONFIG_OPTION(qmlParticlesDebug, QML_PARTICLES_DEBUG)
 */
 
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::restart()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::restart()
 
     Stops the simulation if it is running, and then starts it.
 
     \sa start, stop, running
 */
 /*!
-    \qmlmethod QtQuick.Particles::ParticleSystem::reset()
+    \qmlmethod void QtQuick.Particles::ParticleSystem::reset()
 
     Discards all currently existing particles.
 
@@ -437,10 +437,21 @@ QQuickParticleSystem::QQuickParticleSystem(QQuickItem *parent) :
     m_debugMode = qmlParticlesDebug();
 }
 
+template<typename T>
+void unsetSystem(const QList<QPointer<T>> &elements)
+{
+    for (T *element : elements) {
+        if (element)
+            element->setSystem(nullptr);
+    }
+}
+
 QQuickParticleSystem::~QQuickParticleSystem()
 {
-    for (QQuickParticleGroupData *gd : std::as_const(groupData))
-        delete gd;
+    unsetSystem(std::exchange(m_emitters, {}));
+    unsetSystem(std::exchange(m_affectors, {}));
+    unsetSystem(std::exchange(m_painters, {}));
+    qDeleteAll(groupData);
 }
 
 void QQuickParticleSystem::initGroups()
@@ -471,8 +482,6 @@ void QQuickParticleSystem::registerParticlePainter(QQuickParticlePainter* p)
         qDebug() << "Registering Painter" << p << "to" << this;
     //TODO: a way to Unregister emitters, painters and affectors
     m_painters << QPointer<QQuickParticlePainter>(p);//###Set or uniqueness checking?
-
-    connect(p, &QQuickParticlePainter::groupsChanged, this, [this, p] { this->loadPainter(p); }, Qt::QueuedConnection);
     loadPainter(p);
 }
 
@@ -480,15 +489,11 @@ void QQuickParticleSystem::registerParticleEmitter(QQuickParticleEmitter* e)
 {
     if (m_debugMode)
         qDebug() << "Registering Emitter" << e << "to" << this;
-    m_emitters << QPointer<QQuickParticleEmitter>(e);//###How to get them out?
+    m_emitters << QPointer<QQuickParticleEmitter>(e);
 }
 
 void QQuickParticleSystem::finishRegisteringParticleEmitter(QQuickParticleEmitter* e)
 {
-    connect(e, &QQuickParticleEmitter::particleCountChanged,
-            this, &QQuickParticleSystem::emittersChanged);
-    connect(e, &QQuickParticleEmitter::groupChanged,
-            this, &QQuickParticleSystem::emittersChanged);
     if (m_componentComplete)
         emitterAdded(e);
     e->reset();//Start, so that starttime factors appropriately
@@ -500,6 +505,30 @@ void QQuickParticleSystem::registerParticleAffector(QQuickParticleAffector* a)
         qDebug() << "Registering Affector" << a << "to" << this;
     if (!m_affectors.contains(a))
         m_affectors << QPointer<QQuickParticleAffector>(a);
+}
+
+void QQuickParticleSystem::unregisterParticlePainter(QQuickParticlePainter *p)
+{
+    if (m_debugMode)
+        qDebug() << "Unregistering Painter" << p << "from" << this;
+    m_painters.removeAll(p);
+    m_syncList.removeAll(p);
+    for (QQuickParticleGroupData *gd : std::as_const(groupData))
+        gd->painters.removeOne(p);
+}
+
+void QQuickParticleSystem::unregisterParticleEmitter(QQuickParticleEmitter *e)
+{
+    if (m_debugMode)
+        qDebug() << "Unregistering Emitter" << e << "from" << this;
+    m_emitters.removeAll(e);
+}
+
+void QQuickParticleSystem::unregisterParticleAffector(QQuickParticleAffector *a)
+{
+    if (m_debugMode)
+        qDebug() << "Unregistering Affector" << a << "from" << this;
+    m_affectors.removeAll(a);
 }
 
 void QQuickParticleSystem::registerParticleGroup(QQuickParticleGroup* g)
@@ -693,8 +722,8 @@ void QQuickParticleSystem::emittersChanged()
     if (!m_componentComplete)
         return;
 
-    QVector<int> previousSizes;
-    QVector<int> newSizes;
+    QList<int> previousSizes;
+    QList<int> newSizes;
     previousSizes.reserve(groupData.size());
     newSizes.reserve(groupData.size());
     for (int i = 0, ei = groupData.size(); i != ei; ++i) {

@@ -1,0 +1,54 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtdeclarative.qdocconf)
+
+project                 = QtLabsStyleKit
+description             = Qt Labs StyleKit Reference Documentation
+version                 = $QT_VERSION
+
+qhp.projects            = QtLabsStyleKit
+
+qhp.QtLabsStyleKit.file          = qtlabsstylekit.qhp
+qhp.QtLabsStyleKit.namespace     = org.qt-project.qtlabsstylekit.$QT_VERSION_TAG
+qhp.QtLabsStyleKit.virtualFolder = qtlabsstylekit
+qhp.QtLabsStyleKit.indexTitle    = Qt Labs StyleKit
+qhp.QtLabsStyleKit.indexRoot     =
+
+qhp.QtLabsStyleKit.subprojects = manual examples qmltypes classes
+
+qhp.QtLabsStyleKit.subprojects.manual.title = Qt Labs StyleKit
+qhp.QtLabsStyleKit.subprojects.manual.indexTitle = Qt Labs StyleKit module topics
+qhp.QtLabsStyleKit.subprojects.manual.type = manual
+
+qhp.QtLabsStyleKit.subprojects.examples.title = Examples
+qhp.QtLabsStyleKit.subprojects.examples.indexTitle = Qt Labs StyleKit Examples
+qhp.QtLabsStyleKit.subprojects.examples.selectors = example
+
+qhp.QtLabsStyleKit.subprojects.qmltypes.title = QML Types
+qhp.QtLabsStyleKit.subprojects.qmltypes.indexTitle = Qt Labs StyleKit QML Types
+qhp.QtLabsStyleKit.subprojects.qmltypes.selectors = qmlclass
+qhp.QtLabsStyleKit.subprojects.qmltypes.sortPages = true
+
+qhp.QtLabsStyleKit.subprojects.classes.title = C++ Classes
+qhp.QtLabsStyleKit.subprojects.classes.indexTitle = Qt Labs StyleKit C++ Classes
+qhp.QtLabsStyleKit.subprojects.classes.selectors = class
+qhp.QtLabsStyleKit.subprojects.classes.sortPages = true
+
+depends = qtcore qtgui qtwidgets qtdoc qtqml qtqmlcore qtquick qtquickcontrols
+
+examplesinstallpath = stylekit
+exampledirs += snippets \
+               ../../../../examples/stylekit
+
+{headerdirs,sourcedirs} += ..
+
+navigation.landingpage  = "Qt Labs StyleKit"
+navigation.qmltypespage = "Qt Labs StyleKit QML Types"
+
+tagfile                 = qtlabsstylekit.tags
+
+macro.labs = "\\note \\e{Types in Qt.labs modules are not guaranteed to remain compatible in future versions.}"
+
+# When building in isolation, qdoc warns about missing dependency index
+# files (qtcore, qtgui, etc.) and unresolvable navigation links to
+# index.html. These resolve in a full Qt documentation build.
+warninglimit = 0

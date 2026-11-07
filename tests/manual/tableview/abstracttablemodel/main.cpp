@@ -7,7 +7,7 @@
 #include <QSet>
 #include <QDebug>
 
-typedef QPair<QString, bool> CellData;
+typedef std::pair<QString, bool> CellData;
 
 class TestTableModel : public QAbstractTableModel
 {
@@ -43,11 +43,11 @@ public:
 
     void rebuildModel()
     {
-        m_modelData = QVector<QVector<CellData>>(m_cols);
+        m_modelData = QList<QList<CellData>>(m_cols);
         for (int x = 0; x < m_cols; ++x) {
-            m_modelData[x] = QVector<CellData>(m_rows);
+            m_modelData[x] = QList<CellData>(m_rows);
             for (int y = 0; y < m_rows; ++y)
-                m_modelData[x][y] = qMakePair(QString("%1, %2").arg(x).arg(y), false);
+                m_modelData[x][y] = std::make_pair(QString("%1, %2").arg(x).arg(y), false);
         }
     }
 
@@ -134,7 +134,7 @@ public:
 
         for (int y = 0; y < count; ++y) {
             for (int x = 0; x < m_cols; ++x)
-                m_modelData[x].insert(row, qMakePair(QStringLiteral("added"), false));
+                m_modelData[x].insert(row, std::make_pair(QStringLiteral("added"), false));
         }
 
         endInsertRows();
@@ -174,9 +174,9 @@ public:
 
         for (int x = 0; x < count; ++x) {
             const int c = column + x;
-            m_modelData.insert(c, QVector<CellData>(m_rows));
+            m_modelData.insert(c, QList<CellData>(m_rows));
             for (int y = 0; y < m_rows; ++y)
-                m_modelData[c][y] = qMakePair(QStringLiteral("added"), false);
+                m_modelData[c][y] = std::make_pair(QStringLiteral("added"), false);
         }
 
         endInsertColumns();
@@ -217,7 +217,7 @@ private:
     int m_rows = 0;
     int m_cols = 0;
 
-    QVector<QVector<CellData>> m_modelData;
+    QList<QList<CellData>> m_modelData;
 };
 
 int main(int argc, char *argv[])

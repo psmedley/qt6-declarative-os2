@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:dataparser
 #include <qv4jsonobject_p.h>
 #include <qv4objectproto_p.h>
 #include <qv4numberobject_p.h>
@@ -583,7 +584,7 @@ bool JsonParser::parseString(QString *string)
     return true;
 }
 
-
+namespace {
 struct Stringify
 {
     ExecutionEngine *v4;
@@ -623,7 +624,8 @@ public:
                         QStringLiteral("Cannot convert circular structure to JSON"));
         }
 
-        stringify->v4->checkStackLimits();
+        const bool hasOverflow = stringify->v4->checkStackLimits();
+        Q_UNUSED(hasOverflow); // No handling needed. Exception has been thrown already.
     }
 
     bool foundProblem() const { return m_callDepthRecorder.ee->hasException; }
@@ -632,7 +634,7 @@ private:
     ExecutionEngineCallDepthRecorder<1> m_callDepthRecorder;
 };
 
-static QString quote(const QString &str)
+QString quote(const QString &str)
 {
     QString product;
     const int length = str.size();
@@ -727,8 +729,8 @@ QString Stringify::Str(const QString &key, const Value &v)
         return QStringLiteral("null");
     if (value->isBoolean())
         return value->booleanValue() ? QStringLiteral("true") : QStringLiteral("false");
-    if (value->isString())
-        return quote(value->stringValue()->toQString());
+    if (QV4::String *stringValue = value->stringValue())
+        return quote(stringValue->toQString());
 
     if (value->isNumber()) {
         double d = value->toNumber();
@@ -799,8 +801,6 @@ QString Stringify::JO(Object *o)
         for (int i = 0; i < propertyListSize; ++i) {
             bool exists;
             String *s = propertyList + i;
-            if (!s)
-                continue;
             v = o->get(s, &exists);
             if (!exists)
                 continue;
@@ -820,7 +820,7 @@ QString Stringify::JO(Object *o)
                  + stepback + u'}';
     }
 
-    indent = stepback;
+    indent = std::move(stepback);
     stack.pop();
     return result;
 }
@@ -864,11 +864,12 @@ QString Stringify::JA(Object *a)
         result = QLatin1String("[\n") + indent + partial.join(separator) + u'\n' + stepback + u']';
     }
 
-    indent = stepback;
+    indent = std::move(stepback);
     stack.pop();
     return result;
 }
 
+} // namespace
 
 void Heap::JsonObject::init()
 {
@@ -913,7 +914,7 @@ ReturnedValue JsonObject::method_stringify(const FunctionObject *b, const Value 
         if (o->isArrayObject()) {
             int arrayLen = scope.engine->safeForAllocLength(o->getLength());
             CHECK_EXCEPTION();
-            stringify.propertyList = static_cast<QV4::String *>(scope.alloc(arrayLen));
+            stringify.propertyList = static_cast<QV4::String *>(scope.constructUndefined(arrayLen));
             for (int i = 0; i < arrayLen; ++i) {
                 Value *v = stringify.propertyList + i;
                 *v = o->get(i);

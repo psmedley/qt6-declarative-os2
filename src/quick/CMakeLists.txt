@@ -14,7 +14,7 @@ qt_internal_add_qml_module(Quick
     CLASS_NAME QtQuick2Plugin
     IMPORTS
         QtQml/auto
-    PLUGIN_TYPES scenegraph
+    PLUGIN_TYPES scenegraph vectorimageformats
     SOURCES
         handlers/qquickdragaxis.cpp handlers/qquickdragaxis_p.h
         handlers/qquickdraghandler.cpp handlers/qquickdraghandler_p.h
@@ -76,6 +76,7 @@ qt_internal_add_qml_module(Quick
         items/qquickrendercontrol.cpp items/qquickrendercontrol.h items/qquickrendercontrol_p.h
         items/qquickrendertarget.cpp items/qquickrendertarget.h items/qquickrendertarget_p.h
         items/qquickrhiitem.cpp items/qquickrhiitem.h items/qquickrhiitem_p.h
+        items/qquicksafearea.cpp items/qquicksafearea_p.h
         items/qquickscalegrid.cpp
         items/qquickscalegrid_p_p.h
         items/qquickscreen.cpp items/qquickscreen_p.h
@@ -136,7 +137,6 @@ qt_internal_add_qml_module(Quick
         scenegraph/coreapi/qsgtexture_platform.h
         scenegraph/qsgadaptationlayer.cpp scenegraph/qsgadaptationlayer_p.h
         scenegraph/qsgcurveabstractnode_p.h
-        scenegraph/qsgbasicglyphnode.cpp scenegraph/qsgbasicglyphnode_p.h
         scenegraph/qsgbasicinternalimagenode.cpp scenegraph/qsgbasicinternalimagenode_p.h
         scenegraph/qsgbasicinternalrectanglenode.cpp scenegraph/qsgbasicinternalrectanglenode_p.h
         scenegraph/qsgcontext.cpp scenegraph/qsgcontext_p.h
@@ -190,8 +190,14 @@ qt_internal_add_qml_module(Quick
         util/qquickanimatorcontroller.cpp util/qquickanimatorcontroller_p.h
         util/qquickanimatorjob.cpp util/qquickanimatorjob_p.h
         util/qquickapplication.cpp util/qquickapplication_p.h
+        util/qquickattachedpropertypropagator.cpp
+        util/qquickattachedpropertypropagator_p.h
+        util/qquickattachedpropertypropagator_p_p.h
+        util/qquickattachedpropertypropagatortarget_p.h
+        util/qquickcolor.cpp util/qquickcolor_p.h
         util/qquickbehavior.cpp util/qquickbehavior_p.h
         util/qquickdeliveryagent.cpp util/qquickdeliveryagent_p.h util/qquickdeliveryagent_p_p.h
+        util/qquickfontinfo.cpp util/qquickfontinfo_p.h
         util/qquickfontloader.cpp util/qquickfontloader_p.h
         util/qquickfontmetrics.cpp util/qquickfontmetrics_p.h
         util/qquickforeignutils.cpp util/qquickforeignutils_p.h
@@ -209,7 +215,6 @@ qt_internal_add_qml_module(Quick
         util/qquickstatechangescript.cpp util/qquickstatechangescript_p.h
         util/qquickstategroup.cpp util/qquickstategroup_p.h
         util/qquickstyledtext.cpp util/qquickstyledtext_p.h
-        util/qquicksvgparser.cpp util/qquicksvgparser_p.h
         util/qquicksystempalette.cpp util/qquicksystempalette_p.h
         util/qquicktextmetrics.cpp util/qquicktextmetrics_p.h
         util/qquicktextselection.cpp util/qquicktextselection_p.h
@@ -227,7 +232,6 @@ qt_internal_add_qml_module(Quick
         util/qquickvalidator.cpp # expl. spec. of 'QMetaTypeId<QValidator *>' after inst.
         quick_qmltyperegistrations.cpp # qquickvalidator_p.h: error: explicit specialization of 'QMetaTypeId<QValidator *>' after instantiation
     DEFINES
-        QT_NO_FOREACH
         QT_NO_INTEGER_EVENT_COORDINATES
         QT_NO_URL_CAST_FROM_STRING
     INCLUDE_DIRECTORIES
@@ -242,15 +246,12 @@ qt_internal_add_qml_module(Quick
         Qt::Core
         Qt::Gui
         Qt::Qml
-        Qt::QmlMeta
-        Qt::QmlModels
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::GuiPrivate
         Qt::QmlModelsPrivate
         Qt::QmlPrivate
         Qt::QmlMetaPrivate
-    OS2_SHORT_NAME qtquick2
     )
 
 # We need to do additional initialization, so we have to provide our own
@@ -337,6 +338,8 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders"
         "scenegraph/shaders_ng/shapecurve.vert"
         "scenegraph/shaders_ng/shapestroke.frag"
         "scenegraph/shaders_ng/shapestroke.vert"
+        "scenegraph/shaders_ng/shapestroke_wireframe.frag"
+        "scenegraph/shaders_ng/shapestroke_wireframe.vert"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_derivatives"
@@ -351,9 +354,73 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_derivatives"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
+        "scenegraph/shaders_ng/shapestroke.vert"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_derivatives.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_derivatives.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_derivatives.frag.qsb"
+        "scenegraph/shaders_ng/shapestroke_derivatives.vert.qsb"
+)
+
+qt_internal_add_shaders(Quick "scenegraph_curve_shaders_expanding"
+    SILENT
+    BATCHABLE
+    PRECOMPILE
+    OPTIMIZED
+    MULTIVIEW
+    DEFINES "STROKE_EXPANDING"
+    PREFIX
+        "/qt-project.org"
+    FILES
+        "scenegraph/shaders_ng/shapestroke.vert"
+    OUTPUTS
+        "scenegraph/shaders_ng/shapestroke_expanding.vert.qsb"
+)
+
+qt_internal_add_shaders(Quick "scenegraph_curve_shaders_lg_expanding"
+    SILENT
+    BATCHABLE
+    PRECOMPILE
+    OPTIMIZED
+    MULTIVIEW
+    DEFINES "STROKE_EXPANDING" "LINEARGRADIENT"
+    PREFIX
+        "/qt-project.org"
+    FILES
+        "scenegraph/shaders_ng/shapestroke.vert"
+    OUTPUTS
+        "scenegraph/shaders_ng/shapestroke_lg_expanding.vert.qsb"
+)
+
+qt_internal_add_shaders(Quick "scenegraph_curve_shaders_rg_expanding"
+    SILENT
+    BATCHABLE
+    PRECOMPILE
+    OPTIMIZED
+    MULTIVIEW
+    DEFINES "STROKE_EXPANDING" "RADIALGRADIENT"
+    PREFIX
+        "/qt-project.org"
+    FILES
+        "scenegraph/shaders_ng/shapestroke.vert"
+    OUTPUTS
+        "scenegraph/shaders_ng/shapestroke_rg_expanding.vert.qsb"
+)
+
+qt_internal_add_shaders(Quick "scenegraph_curve_shaders_cg_expanding"
+    SILENT
+    BATCHABLE
+    PRECOMPILE
+    OPTIMIZED
+    MULTIVIEW
+    DEFINES "STROKE_EXPANDING" "CONICALGRADIENT"
+    PREFIX
+        "/qt-project.org"
+    FILES
+        "scenegraph/shaders_ng/shapestroke.vert"
+    OUTPUTS
+        "scenegraph/shaders_ng/shapestroke_cg_expanding.vert.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_lg"
@@ -369,9 +436,13 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_lg"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
+        "scenegraph/shaders_ng/shapestroke.vert"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_lg.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_lg.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_lg.frag.qsb"
+        "scenegraph/shaders_ng/shapestroke_lg.vert.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_lg_derivatives"
@@ -388,9 +459,11 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_lg_derivatives"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_lg_derivatives.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_lg_derivatives.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_lg_derivatives.frag.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_rg"
@@ -406,9 +479,13 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_rg"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
+        "scenegraph/shaders_ng/shapestroke.vert"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_rg.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_rg.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_rg.frag.qsb"
+        "scenegraph/shaders_ng/shapestroke_rg.vert.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_rg_derivatives"
@@ -425,9 +502,11 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_rg_derivatives"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_rg_derivatives.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_rg_derivatives.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_rg_derivatives.frag.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_cg"
@@ -443,9 +522,13 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_cg"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
+        "scenegraph/shaders_ng/shapestroke.vert"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_cg.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_cg.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_cg.frag.qsb"
+        "scenegraph/shaders_ng/shapestroke_cg.vert.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_cg_derivatives"
@@ -462,9 +545,11 @@ qt_internal_add_shaders(Quick "scenegraph_curve_shaders_cg_derivatives"
     FILES
         "scenegraph/shaders_ng/shapecurve.frag"
         "scenegraph/shaders_ng/shapecurve.vert"
+        "scenegraph/shaders_ng/shapestroke.frag"
     OUTPUTS
         "scenegraph/shaders_ng/shapecurve_cg_derivatives.frag.qsb"
         "scenegraph/shaders_ng/shapecurve_cg_derivatives.vert.qsb"
+        "scenegraph/shaders_ng/shapestroke_cg_derivatives.frag.qsb"
 )
 
 qt_internal_add_shaders(Quick "scenegraph_curve_shaders_tf"
@@ -521,6 +606,16 @@ qt_internal_extend_target(Quick CONDITION MSVC
         _CRT_SECURE_NO_WARNINGS
 )
 
+# work around a likely compiler error: QTBUG-133494
+if(MSVC)
+    set_target_properties(Quick PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION OFF
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF
+        INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF
+        INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL OFF
+    )
+endif()
+
 #### Keys ignored in scope 5:.:.:quick.pro:solaris-cc_x_:
 # QMAKE_CXXFLAGS_RELEASE = "--O2"
 
@@ -554,7 +649,11 @@ qt_internal_extend_target(Quick CONDITION QT_FEATURE_quick_designer
 qt_internal_extend_target(Quick CONDITION QT_FEATURE_accessibility
     SOURCES
         accessible/qaccessiblequickitem.cpp accessible/qaccessiblequickitem_p.h
+        accessible/qaccessiblequicktextedit.cpp accessible/qaccessiblequicktextedit_p.h
+        accessible/qaccessiblequicktextinput.cpp accessible/qaccessiblequicktextinput_p.h
         accessible/qaccessiblequickview.cpp accessible/qaccessiblequickview_p.h
+        accessible/qaccessiblequickflickable.cpp accessible/qaccessiblequickflickable_p.h
+        accessible/qaccessiblequicklistview.cpp accessible/qaccessiblequicklistview_p.h
         accessible/qquickaccessiblefactory.cpp accessible/qquickaccessiblefactory_p.h
     LIBRARIES
         Qt::CorePrivate
@@ -603,6 +702,8 @@ qt_internal_extend_target(Quick CONDITION ANDROID
     SOURCES
         platform/android/qandroidquickviewembedding.cpp platform/android/qandroidquickviewembedding_p.h
         platform/android/qandroidviewsignalmanager.cpp platform/android/qandroidviewsignalmanager_p.h
+    LIBRARIES
+        Qt::CorePrivate
 )
 if (ANDROID)
     add_subdirectory(platform/android/jar)
@@ -738,6 +839,73 @@ qt_internal_generate_tracepoints(Quick quick
 )
 qt_internal_add_docs(Quick
     doc/qtquick.qdocconf
+)
+
+target_sources(Quick
+    PRIVATE
+        doc/src/advtutorial.qdoc
+        doc/src/android/qtquick-for-android-fragments.qdoc
+        doc/src/android/qtquick-for-android.qdoc
+        doc/src/cmake/qt_target_qml_from_svg.qdoc
+        doc/src/concepts/convenience/topic.qdoc
+        doc/src/concepts/effects/particles.qdoc
+        doc/src/concepts/effects/sprites.qdoc
+        doc/src/concepts/effects/topic.qdoc
+        doc/src/concepts/effects/transformations.qdoc
+        doc/src/concepts/input/focus.qdoc
+        doc/src/concepts/input/mouse.qdoc
+        doc/src/concepts/input/textinput.qdoc
+        doc/src/concepts/input/topic.qdoc
+        doc/src/concepts/inputhandlers/qtquickhandlers-index.qdoc
+        doc/src/concepts/layouts/qtquicklayouts-index.qdoc
+        doc/src/concepts/layouts/qtquicklayouts-overview.qdoc
+        doc/src/concepts/layouts/qtquicklayouts-qmltypes.qdoc
+        doc/src/concepts/layouts/qtquicklayouts-responsive.qdoc
+        doc/src/concepts/modelviewsdata/cppmodels.qdoc
+        doc/src/concepts/modelviewsdata/modelview.qdoc
+        doc/src/concepts/modelviewsdata/sqlmodels.qdoc
+        doc/src/concepts/modelviewsdata/topic.qdoc
+        doc/src/concepts/performance/performance.qdoc
+        doc/src/concepts/positioning/anchors.qdoc
+        doc/src/concepts/positioning/layouts.qdoc
+        doc/src/concepts/positioning/righttoleft.qdoc
+        doc/src/concepts/positioning/topic.qdoc
+        doc/src/concepts/statesanimations/animations.qdoc
+        doc/src/concepts/statesanimations/behaviors.qdoc
+        doc/src/concepts/statesanimations/states.qdoc
+        doc/src/concepts/statesanimations/topic.qdoc
+        doc/src/concepts/tools/qtqml-tooling-svgtoqml.qdoc
+        doc/src/concepts/visualcanvas/adaptations.qdoc
+        doc/src/concepts/visualcanvas/coordinates.qdoc
+        doc/src/concepts/visualcanvas/scenegraph.qdoc
+        doc/src/concepts/visualcanvas/topic.qdoc
+        doc/src/concepts/visualcanvas/visualparent.qdoc
+        doc/src/concepts/visualtypes/topic.qdoc
+        doc/src/cppextensionpoints.qdoc
+        doc/src/dynamicview-tutorial.qdoc
+        doc/src/examples.qdoc
+        doc/src/getting-started/animations.qdoc
+        doc/src/getting-started/firststepsqml.qdoc
+        doc/src/getting-started/getting-started.qdoc
+        doc/src/getting-started/glossary.qdoc
+        doc/src/getting-started/integratingjs.qdoc
+        doc/src/getting-started/layouts.qdoc
+        doc/src/getting-started/text.qdoc
+        doc/src/getting-started/userinput.qdoc
+        doc/src/getting-started/visual.qdoc
+        doc/src/guidelines/codingconventions.qdoc
+        doc/src/guidelines/qtquick-bestpractices.qdoc
+        doc/src/guidelines/qtquick-toolsnutilities.qdoc
+        doc/src/guidelines/scalabilityintro.qdoc
+        doc/src/qmltypereference.qdoc
+        doc/src/qt6-changes.qdoc
+        doc/src/qtquick-android.qdoc
+        doc/src/qtquick-cpp.qdoc
+        doc/src/qtquick-external-resources.qdoc
+        doc/src/qtquick-how-tos.qdoc
+        doc/src/qtquick-toc.qdoc
+        doc/src/qtquick.qdoc
+        doc/src/tutorial.qdoc
 )
 
 add_subdirectory(window)

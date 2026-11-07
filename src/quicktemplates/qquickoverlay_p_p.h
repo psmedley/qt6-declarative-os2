@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKOVERLAY_P_P_H
 #define QQUICKOVERLAY_P_P_H
@@ -27,7 +28,7 @@ QT_BEGIN_NAMESPACE
 class QQuickPopup;
 
 class Q_AUTOTEST_EXPORT QQuickOverlayPrivate : public QQuickItemPrivate,
-                                               public QQuickItemChangeListener
+                                               public QSafeQuickItemChangeListener<QQuickOverlayPrivate>
 {
 public:
     Q_DECLARE_PUBLIC(QQuickOverlay)
@@ -36,7 +37,9 @@ public:
     {
         return overlay->d_func();
     }
-
+#if QT_CONFIG(tabletevent) || QT_CONFIG(wheelevent)
+    bool eatEventIfBlockedByModal(QPointerEvent *event);
+#endif
     bool startDrag(QEvent *event, const QPointF &pos);
     bool handlePress(QQuickItem *source, QEvent *event, QQuickPopup *target);
     bool handleMove(QQuickItem *source, QEvent *event, QQuickPopup *target);
@@ -68,6 +71,14 @@ public:
     QList<QQuickPopup *> allDrawers;
     QPointer<QQuickPopup> mouseGrabberPopup;
     QPointer<QQuickItem> lastActiveFocusItem;
+    QPointer<QQuickPopup> lastActiveFocusItemPopup;
+    // Set once a popup without ClosePolicy::CloseMultiple has been given its one
+    // chance to close itself for the current press/release/touch event, so that
+    // further retried deliveries of that same event (e.g. childMouseEventFilter
+    // being called again for a sibling popupItem underneath) don't let more
+    // popups close for what is really a single click. Reset in QQuickOverlay::eventFilter
+    // at the start of each new press/release/touch event.
+    bool closeCascadeStopped = false;
 };
 
 QT_END_NAMESPACE

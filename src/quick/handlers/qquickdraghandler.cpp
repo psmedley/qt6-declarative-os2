@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickdraghandler_p.h"
 #include <private/qquickwindow_p.h>
@@ -10,7 +11,7 @@ QT_BEGIN_NAMESPACE
 
 static const qreal DragAngleToleranceDegrees = 10;
 
-Q_LOGGING_CATEGORY(lcDragHandler, "qt.quick.handler.drag")
+Q_STATIC_LOGGING_CATEGORY(lcDragHandler, "qt.quick.handler.drag")
 
 /*!
     \qmltype DragHandler
@@ -136,6 +137,7 @@ void QQuickDragHandler::onActiveChanged()
     } else {
         m_pressTargetPos = QPointF();
         m_pressedInsideTarget = false;
+        m_pressedInsideParent = false;
         if (auto parent = parentItem()) {
             parent->setKeepTouchGrab(false);
             parent->setKeepMouseGrab(false);
@@ -158,6 +160,22 @@ bool QQuickDragHandler::wantsPointerEvent(QPointerEvent *event)
     if (event->type() == QEvent::NativeGesture)
        return false;
 #endif
+
+    if (event->isBeginEvent()) {
+        // At least one point must be pressed in the parent item
+        if (event->isSinglePointEvent()) {
+            m_pressedInsideParent = parentContains(event->points().first());
+        } else {
+            for (int i = 0; !m_pressedInsideParent && i < event->pointCount(); ++i) {
+                auto &p = event->point(i);
+                if (p.state() == QEventPoint::Pressed && parentContains(p))
+                    m_pressedInsideParent = true;
+            }
+        }
+    }
+
+    if (!m_pressedInsideParent)
+        return false;
 
     return true;
 }
@@ -188,7 +206,7 @@ void QQuickDragHandler::handlePointerEventImpl(QPointerEvent *event)
         bool allOverThreshold = QQuickDeliveryAgentPrivate::isTouchEvent(event) ?
                 static_cast<QTouchEvent *>(event)->touchPointStates() != QEventPoint::Released :
                 !event->isEndEvent();
-        QVector<QEventPoint> chosenPoints;
+        QList<QEventPoint> chosenPoints;
 
         if (event->isBeginEvent())
             m_pressedInsideTarget = target() && currentPoints().size() > 0;
@@ -202,7 +220,11 @@ void QQuickDragHandler::handlePointerEventImpl(QPointerEvent *event)
             setPassiveGrab(event, *point);
             // Calculate drag delta, taking into account the axis enabled constraint
             // i.e. if xAxis is not enabled, then ignore the horizontal component of the actual movement
-            QVector2D accumulatedDragDelta = QVector2D(point->scenePosition() - point->scenePressPosition());
+            auto const mapFromScene = [this](auto const &scenePos) {
+                return target() ? target()->mapFromScene(scenePos) : scenePos;
+            };
+            QVector2D accumulatedDragDelta = QVector2D(mapFromScene(point->scenePosition())
+                                                       - mapFromScene(point->scenePressPosition()));
             if (!m_xAxis.enabled()) {
                 // If horizontal dragging is disallowed, but the user is dragging
                 // mostly horizontally, then don't activate.
@@ -347,7 +369,7 @@ void QQuickDragHandler::setActiveTranslation(const QVector2D &trans)
 /*!
     \readonly
     \qmlproperty vector2d QtQuick::DragHandler::translation
-    \deprecated [6.2] Use activeTranslation
+    \deprecated [6.2] Use activeTranslation.
 */
 
 /*!

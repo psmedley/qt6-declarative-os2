@@ -22,26 +22,33 @@
 
 QT_BEGIN_NAMESPACE
 
+class QQuickVectorImageIncubator;
+
 class QQuickVectorImagePrivate : public QQuickItemPrivate
 {
     Q_DECLARE_PUBLIC(QQuickVectorImage)
 public:
     QQuickVectorImagePrivate() = default;
-    virtual ~QQuickVectorImagePrivate() = default;
 
     void setSource(const QUrl &source);
-    void loadSvg();
+    void loadFile();
 
-    enum Format {
-        Unknown,
-        Svg
-    };
-    QQuickVectorImagePrivate::Format formatFromFilePath(const QString &filePath);
+    static QQuickVectorImagePrivate *get(QQuickVectorImage *q)
+    {
+        return q->d_func();
+    }
 
     QUrl sourceFile;
-    QQuickItem *svgItem = nullptr;
+    QQuickItem *rootItem = nullptr;
     QQuickVectorImage::FillMode fillMode = QQuickVectorImage::Stretch;
     QQuickVectorImage::RendererType preferredRendererType = QQuickVectorImage::GeometryRenderer;
+    bool assumeTrustedSource = false;
+    bool m_asyncShapes = false;
+    bool asynchronous = false;
+    bool retainWhileLoading = false;
+    std::unique_ptr<QQmlContext> context;
+    QQuickVectorImageAnimations *animations = nullptr;
+    QQuickVectorImageIncubator *incubator = nullptr;
 };
 
 QT_END_NAMESPACE

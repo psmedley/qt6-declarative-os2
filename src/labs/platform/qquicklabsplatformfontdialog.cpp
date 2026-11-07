@@ -1,7 +1,10 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicklabsplatformfontdialog_p.h"
+
+#if QT_DEPRECATED_SINCE(6, 9)
 
 QT_BEGIN_NAMESPACE
 
@@ -11,11 +14,12 @@ QT_BEGIN_NAMESPACE
 //!     \nativetype QQuickLabsPlatformFontDialog
     \inqmlmodule Qt.labs.platform
     \since 5.8
+    \deprecated [6.9] Use \l [QtQuickDialogs] {FontDialog}{QtQuick.Dialogs FontDialog} instead.
     \brief A native font dialog.
 
     The FontDialog type provides a QML API for native platform font dialogs.
 
-    \image qtlabsplatform-fontdialog-gtk.png
+    \image {qtlabsplatform-fontdialog-gtk.png} {A native font dialog}
 
     To show a font dialog, construct an instance of FontDialog, set the
     desired properties, and call \l {Dialog::}{open()}. The \l currentFont
@@ -53,6 +57,8 @@ QT_BEGIN_NAMESPACE
     \input includes/widgets.qdocinc 1
 
     \labs
+
+    \sa QtQuick.Dialogs::FontDialog
 */
 
 QQuickLabsPlatformFontDialog::QQuickLabsPlatformFontDialog(QObject *parent)
@@ -176,3 +182,5 @@ void QQuickLabsPlatformFontDialog::accept()
 QT_END_NAMESPACE
 
 #include "moc_qquicklabsplatformfontdialog_p.cpp"
+
+#endif // QT_DEPRECATED_SINCE(6, 9)

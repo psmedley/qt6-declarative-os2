@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #####################################################################
-## QuickShapesPrivate Module:
+## QuickShapes Module:
 #####################################################################
 
-qt_internal_add_qml_module(QuickShapesPrivate
+qt_internal_add_qml_module(QuickShapes
     URI "QtQuick.Shapes"
     VERSION "${PROJECT_VERSION}"
     PLUGIN_TARGET qmlshapesplugin
@@ -14,7 +14,6 @@ qt_internal_add_qml_module(QuickShapesPrivate
     CLASS_NAME QmlShapesPlugin
     DEPENDENCIES
         QtQuick/auto
-    INTERNAL_MODULE
     SOURCES
         qquickshape.cpp qquickshape_p.h
         qquickshape_p_p.h
@@ -22,12 +21,14 @@ qt_internal_add_qml_module(QuickShapesPrivate
         qquickshapesglobal.h qquickshapesglobal_p.h
         qquickshapecurverenderer.cpp qquickshapecurverenderer_p.h qquickshapecurverenderer_p_p.h
         qquickshapesoftwarerenderer.cpp qquickshapesoftwarerenderer_p.h
+    LIBRARIES
+        Qt::GuiPrivate
+        Qt::QuickPrivate
     PUBLIC_LIBRARIES
         Qt::Core
-        Qt::GuiPrivate
         Qt::Qml
+    PRIVATE_MODULE_INTERFACE
         Qt::QuickPrivate
-    OS2_SHORT_NAME Qt6QuiSh.dll
     )
 
 # We need to do additional initialization, so we have to provide our own
@@ -37,7 +38,7 @@ qt_internal_extend_target(qmlshapesplugin
     LIBRARIES Qt::QuickShapesPrivate
 )
 
-qt_internal_add_shaders(QuickShapesPrivate "qtquickshapes_shaders"
+qt_internal_add_shaders(QuickShapes "qtquickshapes_shaders"
     SILENT
     BATCHABLE
     PRECOMPILE
@@ -57,4 +58,8 @@ qt_internal_add_shaders(QuickShapesPrivate "qtquickshapes_shaders"
         "shaders_ng/wireframe.frag"
         "shaders_ng/wireframe.vert"
 )
+
+if(QT_FEATURE_quickshapes_designhelpers)
+    add_subdirectory(designhelpers)
+endif()
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 pragma ComponentBehavior: Bound
 
@@ -57,10 +58,16 @@ T.ComboBox {
     }
 
     contentItem: T.TextField {
+        implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                                 contentHeight + topPadding + bottomPadding)
+
         topPadding: control.background ? control.background.topPadding : 0
         leftPadding: control.background ? control.background.leftPadding : 0
         rightPadding: control.background ? control.background.rightPadding : 0
         bottomPadding: control.background ? control.background.bottomPadding : 0
+
+        topInset: background ? -background.topInset || 0 : 0
+        bottomInset: background ? -background.bottomInset || 0 : 0
 
         text: control.editable ? control.editText : control.displayText
 
@@ -75,6 +82,10 @@ T.ComboBox {
         selectionColor: control.palette.highlight
         selectedTextColor: control.palette.highlightedText
         verticalAlignment: Text.AlignVCenter
+
+        ContextMenu.menu: TextEditingContextMenu {
+            editor: parent
+        }
     }
 
     background: NinePatchImage {
@@ -110,6 +121,7 @@ T.ComboBox {
         rightInset: background ? -background.rightInset || 0 : 0
         bottomInset: background ? -background.bottomInset || 0 : 0
 
+        font: control.font
         palette.text: control.palette.text
         palette.highlight: control.palette.highlight
         palette.highlightedText: control.palette.highlightedText

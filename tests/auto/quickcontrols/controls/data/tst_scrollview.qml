@@ -4,6 +4,9 @@
 import QtQuick
 import QtTest
 import QtQuick.Controls
+import QtQuick.Templates as T
+import Qt.test.controls
+import QtQuick.Layouts
 
 TestCase {
     id: testCase
@@ -63,12 +66,17 @@ TestCase {
     Component {
         id: flickableLabel
         ScrollView {
+            width: 200
+            height: 200
+            visible: true
             Flickable {
+                clip: true
                 contentWidth: label.implicitWidth
                 contentHeight: label.implicitHeight
                 Label {
                     id: label
                     text: "ABC"
+                    color: "red"
                     font.pixelSize: 512
                 }
             }
@@ -223,8 +231,8 @@ TestCase {
         let label = flickable.contentItem.children[0]
         compare(label.text, "ABC")
 
-        compare(control.implicitWidth, label.implicitWidth)
-        compare(control.implicitHeight, label.implicitHeight)
+        compare(control.implicitWidth, label.implicitWidth + control.leftPadding + control.rightPadding)
+        compare(control.implicitHeight, label.implicitHeight + control.topPadding + control.bottomPadding)
 
         compare(control.contentWidth, label.implicitWidth)
         compare(control.contentHeight, label.implicitHeight)
@@ -233,12 +241,12 @@ TestCase {
         compare(flickable.contentHeight, label.implicitHeight)
 
         control.contentWidth = 200
-        compare(control.implicitWidth, 200)
+        compare(control.implicitWidth, 200 + control.leftPadding + control.rightPadding)
         compare(control.contentWidth, 200)
         compare(flickable.contentWidth, 200)
 
         control.contentHeight = 100
-        compare(control.implicitHeight, 100)
+        compare(control.implicitHeight, 100 + control.topPadding + control.bottomPadding)
         compare(control.contentHeight, 100)
         compare(flickable.contentHeight, 100)
     }
@@ -584,6 +592,54 @@ TestCase {
         verify(!oldHorizontalScrollBar.visible)
     }
 
+    component CustomScrollView: ScrollView {
+        ScrollBar.vertical: ScrollBar {
+            objectName: "customVertical"
+            contentItem: Rectangle {
+                implicitWidth: 8
+                implicitHeight: 100
+            }
+        }
+        ScrollBar.horizontal: ScrollBar {
+            objectName: "customHorizontal"
+            contentItem: Rectangle {
+                implicitWidth: 100
+                implicitHeight: 8
+            }
+        }
+    }
+
+    Component {
+        id: customScrollViewComponent
+
+        CustomScrollView {
+            anchors.fill: parent
+            anchors.margins: 20
+
+            contentWidth: rect.width
+            contentHeight: rect.height
+
+            Rectangle {
+                id: rect
+                width: 1000
+                height: 1000
+                opacity: 0.2
+                color: "orange"
+                border.width: 3
+                border.color: "magenta"
+            }
+        }
+    }
+
+    function test_customScrollBarsDeclarative() {
+        let control = createTemporaryObject(customScrollViewComponent, testCase)
+        verify(control)
+
+        let scrollBars = control.children.filter((child) => child instanceof T.ScrollBar)
+        compare(scrollBars.length, 2, "Expected 2 ScrollBar as children of ScrollView, "
+            + `got ${scrollBars.length}: ${scrollBars.toString()}`)
+    }
+
     Component {
         id: mouseAreaWheelComponent
 
@@ -761,5 +817,62 @@ TestCase {
         compare(contentItem.contentHeight, 1200)
         compare(scrollview.contentWidth, 400)
         compare(scrollview.contentHeight, 1200)
+    }
+
+
+    Component {
+        id: scrollViewPaddingComp
+
+        ScrollView {
+            id: scrollView
+            anchors.fill: parent
+            padding: 100
+        }
+    }
+
+    function test_scrollViewPadding() {
+        if (StyleInfo.styleName !== "macOS" && StyleInfo.styleName !== "Windows")
+            skip("rightPadding and bottomPadding properties are only explicitly " +
+                  "set in macos and windows style implementation of ScrollView. " +
+                  "more details in QTBUG-123631")
+        let scrollview = createTemporaryObject(scrollViewPaddingComp, testCase)
+        verify(scrollview)
+        verify(scrollview.rightPadding >= scrollview.padding)
+        verify(scrollview.bottomPadding >= scrollview.padding)
+    }
+
+    // Verify that binding contentWidth to availableWidth doesn't cause a binding loop
+    // (QTBUG-145226). The RowLayout resizes the ScrollView via Layout.fillWidth, which
+    // was the scenario that triggered the bug in styles where visible scroll bars
+    // reduce availableWidth (e.g. macOS, Windows, StyleKit).
+    Component {
+        id: scrollViewContentWidthBindingComp
+        RowLayout {
+            spacing: 20
+            anchors.fill: parent
+            anchors.margins: 20
+            ScrollView {
+                id: scrollViewInLayout
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOn
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                Rectangle {
+                    width: 50
+                    height: 1000
+                }
+            }
+        }
+    }
+
+    function test_contentWidthBindingNoLoop() {
+        let root = createTemporaryObject(scrollViewContentWidthBindingComp, testCase)
+        verify(root)
+        let scrollview = root.children[0]
+        verify(scrollview)
+        waitForRendering(scrollview)
+        // If there is a binding loop, it's caught by failOnWarning()
+        compare(scrollview.contentWidth, scrollview.availableWidth)
     }
 }

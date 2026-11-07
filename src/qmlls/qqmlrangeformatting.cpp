@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <qqmlrangeformatting_p.h>
 #include <qqmlcodemodel_p.h>
@@ -14,16 +15,9 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(formatLog)
-
-QQmlRangeFormatting::QQmlRangeFormatting(QmlLsp::QQmlCodeModel *codeModel)
-    : QQmlBaseModule(codeModel)
+QQmlRangeFormatting::QQmlRangeFormatting(QmlLsp::QQmlCodeModelManager *codeModelManager)
+    : QQmlBaseModule(codeModelManager)
 {
-}
-
-QString QQmlRangeFormatting::name() const
-{
-    return u"QQmlRangeFormatting"_s;
 }
 
 void QQmlRangeFormatting::registerHandlers(QLanguageServer *, QLanguageServerProtocol *protocol)
@@ -31,10 +25,9 @@ void QQmlRangeFormatting::registerHandlers(QLanguageServer *, QLanguageServerPro
     protocol->registerDocumentRangeFormattingRequestHandler(getRequestHandler());
 }
 
-void QQmlRangeFormatting::setupCapabilities(const QLspSpecification::InitializeParams &,
-                                            QLspSpecification::InitializeResult &serverCapabilities)
+void QQmlRangeFormatting::setupCapabilities(QLspSpecification::ServerCapabilities &caps)
 {
-    serverCapabilities.capabilities.documentRangeFormattingProvider = true;
+    caps.documentRangeFormattingProvider = true;
 }
 
 void QQmlRangeFormatting::process(RequestPointerArgument request)
@@ -42,7 +35,7 @@ void QQmlRangeFormatting::process(RequestPointerArgument request)
     using namespace QQmlJS::Dom;
     QList<QLspSpecification::TextEdit> result{};
 
-    QmlLsp::OpenDocument doc = m_codeModel->openDocumentByUrl(
+    QmlLsp::OpenDocument doc = m_codeModelManager->openDocumentByUrl(
             QQmlLSUtils::lspUriToQmlUrl(request->m_parameters.textDocument.uri));
 
     DomItem file = doc.snapshot.doc.fileObject(GoTo::MostLikely);
@@ -61,11 +54,8 @@ void QQmlRangeFormatting::process(RequestPointerArgument request)
     const auto selectedRange = request->m_parameters.range;
     const auto selectedRangeStartLine = selectedRange.start.line;
     const auto selectedRangeEndLine = selectedRange.end.line;
-    Q_ASSERT(selectedRangeStartLine >= 0);
-    Q_ASSERT(selectedRangeEndLine >= 0);
 
     LineWriterOptions options;
-    options.updateOptions = LineWriterOptions::Update::None;
     options.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
 
     QTextStream in(&code);
@@ -73,7 +63,7 @@ void QQmlRangeFormatting::process(RequestPointerArgument request)
     FormatPartialStatus partialStatus({}, options.formatOptions, status);
 
     // Get the token status of the previous line without performing write operation
-    int lineNumber = 0;
+    unsigned lineNumber = 0;
     while (!in.atEnd()) {
         const auto line = in.readLine();
         partialStatus = formatCodeLine(line, options.formatOptions, partialStatus.currentStatus);
@@ -85,7 +75,7 @@ void QQmlRangeFormatting::process(RequestPointerArgument request)
     QTextStream out(&resultText);
     IndentingLineWriter lw([&out](QStringView writtenText) { out << writtenText.toUtf8(); },
                            QString(), options, partialStatus.currentStatus);
-    OutWriter ow(lw);
+    OutWriter ow(qmlFile, lw);
     ow.indentNextlines = true;
 
     // TODO: This is a workaround and will/should be handled by the actual formatter
@@ -141,7 +131,7 @@ void QQmlRangeFormatting::process(RequestPointerArgument request)
 
     QLspSpecification::TextEdit add;
     add.newText = code.toUtf8();
-    add.range = { { 0, 0 }, { documentLineCount + 1 } };
+    add.range = { { 0, 0 }, { documentLineCount + 1u } };
     result.append(add);
 
     request->m_response.sendResponse(result);

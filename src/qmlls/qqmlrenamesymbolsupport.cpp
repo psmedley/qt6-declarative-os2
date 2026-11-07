@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmllsutils_p.h"
 #include "qqmlrenamesymbolsupport_p.h"
@@ -8,21 +9,16 @@
 QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
-QQmlRenameSymbolSupport::QQmlRenameSymbolSupport(QmlLsp::QQmlCodeModel *model) : BaseT(model) { }
-
-QString QQmlRenameSymbolSupport::name() const
+QQmlRenameSymbolSupport::QQmlRenameSymbolSupport(QmlLsp::QQmlCodeModelManager *model) : BaseT(model)
 {
-    return u"QmlRenameSymbolSupport"_s;
 }
 
-void QQmlRenameSymbolSupport::setupCapabilities(
-        const QLspSpecification::InitializeParams &,
-        QLspSpecification::InitializeResult &serverCapabilities)
+void QQmlRenameSymbolSupport::setupCapabilities(QLspSpecification::ServerCapabilities &caps)
 {
     // use a bool for now. Alternatively, if the client supports "prepareSupport", one could
     // use a RenameOptions here. See following page for more information about prepareSupport:
     // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename
-    serverCapabilities.capabilities.renameProvider = true;
+    caps.renameProvider = true;
 }
 
 void QQmlRenameSymbolSupport::registerHandlers(QLanguageServer *, QLanguageServerProtocol *protocol)
@@ -36,11 +32,12 @@ void QQmlRenameSymbolSupport::process(QQmlRenameSymbolSupport::RequestPointerArg
     ResponseScopeGuard guard(result, request->m_response);
 
     auto itemsFound = itemsForRequest(request);
-    if (guard.setErrorFrom(itemsFound))
+    if (!itemsFound.has_value()) {
+        guard.setError(itemsFound.error());
         return;
+    }
 
-    QQmlLSUtils::ItemLocation &front =
-            std::get<QList<QQmlLSUtils::ItemLocation>>(itemsFound).front();
+    QQmlLSUtils::ItemLocation &front = itemsFound.value().front();
 
     const QString newName = QString::fromUtf8(request->m_parameters.newName);
     auto expressionType =
@@ -51,8 +48,11 @@ void QQmlRenameSymbolSupport::process(QQmlRenameSymbolSupport::RequestPointerArg
         return;
     }
 
-    if (guard.setErrorFrom(QQmlLSUtils::checkNameForRename(front.domItem, newName, expressionType)))
+    if (const auto renameCheckError =
+                QQmlLSUtils::checkNameForRename(front.domItem, newName, expressionType)) {
+        guard.setError(renameCheckError.value());
         return;
+    }
 
     auto &editsByFileForResult = result.documentChanges.emplace();
 
@@ -89,7 +89,6 @@ void QQmlRenameSymbolSupport::process(QQmlRenameSymbolSupport::RequestPointerArg
     // if files need to be renamed, then do it after the text edits
     for (const auto &rename : renames.renameInFilename()) {
         QLspSpecification::RenameFile currentRenameFile;
-        currentRenameFile.kind = "rename";
         currentRenameFile.oldUri = QUrl::fromLocalFile(rename.oldFilename).toEncoded();
         currentRenameFile.newUri = QUrl::fromLocalFile(rename.newFilename).toEncoded();
         editsByFileForResult.append(currentRenameFile);

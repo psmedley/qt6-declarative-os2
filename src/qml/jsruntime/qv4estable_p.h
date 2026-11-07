@@ -1,5 +1,6 @@
 // Copyright (C) 2018 Crimson AS <info@crimson.no>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 //
 //  W A R N I N G
@@ -17,6 +18,8 @@
 
 #include <vector>
 #include <limits>
+
+#include <QtCore/q20vector.h>
 
 #include "qv4value_p.h"
 
@@ -65,7 +68,7 @@ public:
             m_observers.push_back(&observer);
     }
     inline void stopObservingShifts(ShiftObserver& observer) {
-        m_observers.erase(std::remove(m_observers.begin(), m_observers.end(), &observer));
+        q20::erase(m_observers, &observer);
     }
 
 private:

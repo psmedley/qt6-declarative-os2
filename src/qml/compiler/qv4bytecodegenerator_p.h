@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QV4BYTECODEGENERATOR_P_H
 #define QV4BYTECODEGENERATOR_P_H
@@ -77,7 +78,7 @@ public:
         { Q_ASSERT(generator && index != -1); }
 
         ~Jump() {
-            Q_ASSERT(index == -1 || generator->instructions[index].linkedLabel != -1); // make sure link() got called
+            Q_ASSERT(index == -1 || generator->hasError || generator->instructions[index].linkedLabel != -1); // make sure link() got called
         }
 
         Jump(Jump &&j) {
@@ -114,6 +115,10 @@ public:
         {
             Q_ASSERT(!generator || generator->currentExceptionHandler != this);
         }
+        ExceptionHandler(const ExceptionHandler &) = default;
+        ExceptionHandler(ExceptionHandler &&) = default;
+        ExceptionHandler &operator=(const ExceptionHandler &) = default;
+        ExceptionHandler &operator=(ExceptionHandler &&) = default;
         bool isValid() const { return generator != nullptr; }
     };
 
@@ -268,6 +273,8 @@ QT_WARNING_POP
         _labelInfos.push_back({ start.index });
     }
 
+    void setError(bool b) { hasError = b; }
+
 private:
     friend struct Jump;
     friend struct Label;
@@ -290,8 +297,8 @@ private:
     void packInstruction(I &i);
     void adjustJumpOffsets();
 
-    QVector<I> instructions;
-    QVector<int> labels;
+    QList<I> instructions;
+    QList<int> labels;
     ExceptionHandler *currentExceptionHandler = nullptr;
     int regCount = 0;
 public:
@@ -303,6 +310,7 @@ private:
     QQmlJS::SourceLocation currentSourceLocation;
     std::unique_ptr<QV4::Compiler::Context::SourceLocationTable> m_sourceLocationTable;
     bool debugMode = false;
+    bool hasError = false;
 
     int lastInstrType = -1;
     Moth::Instr lastInstr;

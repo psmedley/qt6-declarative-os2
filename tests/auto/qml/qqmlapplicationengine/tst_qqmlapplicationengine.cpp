@@ -11,6 +11,8 @@
 #include <QDebug>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 
+using namespace Qt::Literals::StringLiterals;
+
 class tst_qqmlapplicationengine : public QQmlDataTest
 {
     Q_OBJECT
@@ -33,6 +35,7 @@ private slots:
     void translationChange();
     void setInitialProperties();
     void failureToLoadTriggersWarningSignal();
+    void relativeQrcPathTriggersWarningSignal();
     void errorWhileCreating();
     void createWithQrcPath();
 
@@ -87,8 +90,8 @@ void tst_qqmlapplicationengine::testNonResolvedPath()
     QSKIP("INTEGRITY stores QML files in resources, and the path to a resource cannot be relative in this case");
 #endif
 
-#ifdef Q_OS_ANDROID
-    QSKIP("Android stores QML files in resources, and the path to a resource cannot be relative in this case");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS)
+    QSKIP("This platform stores QML files in resources, and the path to a resource cannot be relative in this case");
 #endif
     {
         // NOTE NOTE NOTE! Missing testFileUrl is *WANTED* here! We want a
@@ -111,8 +114,8 @@ void tst_qqmlapplicationengine::testNonResolvedPath()
 
 void tst_qqmlapplicationengine::application_data()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("Cannot launch external process on Android");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform");
 #endif
     QTest::addColumn<QByteArray>("qmlFile");
     QTest::addColumn<QByteArray>("expectedStdErr");
@@ -160,7 +163,7 @@ void tst_qqmlapplicationengine::application()
     QCOMPARE(testProcess->exitCode(), 0);
     QByteArray testStdOut = testProcess->readAllStandardOutput();
     QByteArray testStdErr = testProcess->readAllStandardError();
-#ifdef Q_OS_DOSLIKE
+#ifdef Q_OS_WIN
     expectedStdErr.replace('\n', QByteArray("\r\n"));
 #endif
     QCOMPARE(testStdOut, QByteArray(""));
@@ -286,9 +289,8 @@ void tst_qqmlapplicationengine::loadFromModuleTranslation_data()
 
 void tst_qqmlapplicationengine::loadFromModuleTranslation()
 {
-#if defined(Q_OS_ANDROID)
-    QSKIP("Test doesn't currently run on Android");
-    return;
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform");
 #endif
 
 #if QT_CONFIG(process)
@@ -366,6 +368,24 @@ void tst_qqmlapplicationengine::failureToLoadTriggersWarningSignal()
                          QRegularExpression(QRegularExpression::escape(url.toString()) + QLatin1Char('*')));
     QQmlApplicationEngine test;
     QSignalSpy warningObserver(&test, &QQmlApplicationEngine::warnings);
+    test.load(url);
+    QTRY_COMPARE(warningObserver.size(), 1);
+}
+
+void tst_qqmlapplicationengine::relativeQrcPathTriggersWarningSignal()
+{
+    const auto url = QUrl("qrc:main.qml");
+    qRegisterMetaType<QList<QQmlError>>();
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "QQmlApplicationEngine failed to load component");
+    QTest::ignoreMessage(
+            QtMsgType::QtWarningMsg,
+            "QQmlComponent: attempted to load via a relative URL '%1' in resource file system. "
+            "This is not fully supported and may not work"_L1.arg(url.toString())
+                    .toLocal8Bit()
+                    .data());
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "qrc:main.qml: No such file or directory");
+    QQmlApplicationEngine test;
+    const QSignalSpy warningObserver(&test, &QQmlApplicationEngine::warnings);
     test.load(url);
     QTRY_COMPARE(warningObserver.size(), 1);
 }

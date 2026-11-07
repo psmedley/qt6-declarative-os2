@@ -14,7 +14,9 @@
 #include <QtQuick/qquickimageprovider.h>
 #include <QtQuick/qquickitemgrabresult.h>
 #include <QtQuick/private/qquickimage_p.h>
+#include <QtQuick/private/qquickimagebase_p_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickControls2/qquickstyle.h>
 #include <QtQuickControls2Impl/private/qquickiconimage_p.h>
@@ -46,6 +48,8 @@ private slots:
     void fileSelectors();
     void imageProvider();
     void translucentColors();
+    void loadEmptyUrl();
+    void platformIconDpr();
 
 private:
     void setTheme();
@@ -92,7 +96,6 @@ void tst_qquickiconimage::nameBindingSourceSize()
     QQuickView view(testFileUrl("nameBindingSourceSize.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -168,7 +171,6 @@ void tst_qquickiconimage::sourceBindingNoSizes()
     view.show();
     INIT_DPR(view);
 
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickIconImage *iconImage = qobject_cast<QQuickIconImage*>(view.rootObject()->childItems().at(0));
@@ -191,7 +193,6 @@ void tst_qquickiconimage::sourceBindingSourceSize()
     QQuickView view(testFileUrl("sourceBindingSourceSize.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -223,7 +224,6 @@ void tst_qquickiconimage::sourceBindingSourceSizeWidthHeight()
     QQuickView view(testFileUrl("sourceBindingSourceSizeWidthHeight.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -242,7 +242,6 @@ void tst_qquickiconimage::sourceBindingSourceTooLarge()
     QQuickView view(testFileUrl("sourceBindingSourceTooLarge.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -280,7 +279,6 @@ void tst_qquickiconimage::alignment()
     QQuickView view(testFileUrl("alignment.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -352,10 +350,9 @@ void tst_qquickiconimage::svgSourceBindingSourceSize()
 #ifndef QT_SVG_LIB
     QSKIP("This test requires qtsvg");
 #else
-    QQuickView view(testFileUrl("alignment.qml"));
+    QQuickView view(testFileUrl("svgSourceBindingSourceSize.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickIconImage *iconImage = qobject_cast<QQuickIconImage*>(view.rootObject()->childItems().at(0));
@@ -379,7 +376,6 @@ void tst_qquickiconimage::color()
     QQuickView view(testFileUrl("color.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -415,7 +411,6 @@ void tst_qquickiconimage::changeSourceSize()
     QQuickView view(testFileUrl("sourceBindingSourceSize.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickIconImage *iconImage = qobject_cast<QQuickIconImage*>(view.rootObject()->childItems().at(0));
@@ -436,7 +431,6 @@ void tst_qquickiconimage::fileSelectors()
     view.setSource(testFileUrl("fileSelectors.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     INIT_DPR(view);
 
@@ -478,7 +472,6 @@ void tst_qquickiconimage::imageProvider()
     view.setSource(testFileUrl("imageProvider.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickIconImage *iconImage = qobject_cast<QQuickIconImage*>(view.rootObject()->findChild<QQuickIconImage *>());
@@ -513,6 +506,59 @@ void tst_qquickiconimage::translucentColors()
     const QImage image = grabItemToImage(iconImage);
     QVERIFY(!image.isNull());
     QCOMPARE(image.pixelColor(image.width() / 2, image.height() / 2), QColor::fromRgba(0x80000000));
+}
+
+void tst_qquickiconimage::loadEmptyUrl()
+{
+    const QIcon icon = QIcon::fromTheme(QIcon::ThemeIcon::EditCopy);
+    if (icon.isNull())
+        QSKIP("Platform does not provide icon for QIcon::ThemeIcon::EditCopy");
+
+    QQuickView view(testFileUrl("loadEmptyUrl.qml"));
+    QCOMPARE(view.status(), QQuickView::Ready);
+    view.show();
+    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    const QQuickIconImage *iconImage = qobject_cast<QQuickIconImage*>(view.rootObject());
+    QVERIFY(iconImage);
+    QVERIFY(!iconImage->sourceSize().isNull());
+    QVERIFY(iconImage->paintedWidth());
+    QVERIFY(iconImage->paintedHeight());
+    QVERIFY(iconImage->implicitWidth());
+    QVERIFY(iconImage->implicitHeight());
+}
+
+void tst_qquickiconimage::platformIconDpr()
+{
+    // Use an icon that we don't have in the index.theme.
+    const QIcon icon = QIcon::fromTheme(QIcon::ThemeIcon::EditCopy);
+    if (icon.isNull())
+        QSKIP("Platform does not provide icon for QIcon::ThemeIcon::EditCopy");
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("platformIconDpr.qml")));
+    INIT_DPR(window);
+
+    auto *iconImage = window.findChild<QQuickIconImage*>();
+    QVERIFY(iconImage);
+    auto *iconImagePrivate = QQuickImageBasePrivate::get(iconImage);
+    QVERIFY(iconImagePrivate);
+    QCOMPARE(iconImagePrivate->devicePixelRatio, dpr);
+    QCOMPARE(iconImage->sourceSize().width(), 16);
+    QCOMPARE(iconImage->sourceSize().height(), 16);
+    // Windows, for example, uses QFontIconEngine to create named platform
+    // theme icons. The icon's pixmap is loaded via
+    // QFontIconEngine::scaledPixmap, which calls QFontIconEngine::actualSize.
+    // For this reason, we can't check that the implicit size is exactly 16 x 16.
+    QCOMPARE_LE(iconImage->implicitWidth(), 16.0);
+    QCOMPARE_LE(iconImage->implicitHeight(), 16.0);
+    QCOMPARE_GT(iconImage->implicitWidth(), 0);
+    QCOMPARE_GT(iconImage->implicitHeight(), 0);
+    QCOMPARE_LE(iconImage->width(), 16.0);
+    QCOMPARE_LE(iconImage->height(), 16.0);
+    QCOMPARE_GT(iconImage->width(), 0);
+    QCOMPARE_GT(iconImage->height(), 0);
 }
 
 int main(int argc, char *argv[])

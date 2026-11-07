@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPROPERTYRESOLVER_P_H
 #define QQMLPROPERTYRESOLVER_P_H
@@ -37,11 +38,14 @@ struct Q_QML_EXPORT QQmlPropertyResolver
         IgnoreRevision
     };
 
-    const QQmlPropertyData *property(const QString &name, bool *notInRevision = nullptr,
-                               RevisionCheck check = CheckRevision) const;
+    const QQmlPropertyData *property(
+            const QString &name, bool *notInRevision = nullptr,
+            RevisionCheck check = CheckRevision) const;
 
     // This code must match the semantics of QQmlPropertyPrivate::findSignalByName
-    const QQmlPropertyData *signal(const QString &name, bool *notInRevision) const;
+    const QQmlPropertyData *signal(
+            const QString &name, bool *notInRevision = nullptr,
+            RevisionCheck check = CheckRevision) const;
 
     QQmlPropertyCache::ConstPtr cache;
 };

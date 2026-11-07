@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:interprocess-communication
 
 #include "qquickdrag_p.h"
 #include "qquickdrag_p_p.h"
@@ -19,6 +20,10 @@
 #include <QtGui/qstylehints.h>
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qimagewriter.h>
+
+#ifdef Q_OS_ANDROID
+#include <QtQuick/QQuickItemGrabResult>
+#endif
 
 #include <qpa/qplatformdrag.h>
 #include <QtGui/qdrag.h>
@@ -112,8 +117,8 @@ void QQuickDragAttachedPrivate::deliverEnterEvent()
     mimeData->m_keys = keys;
 
     if (window) {
-        QPoint scenePos = attachedItem->mapToScene(hotSpot).toPoint();
-        QDragEnterEvent event(scenePos, mimeData->m_supportedActions, mimeData, Qt::NoButton, Qt::NoModifier);
+        QDragEnterEvent event(attachedItem->mapToScene(hotSpot), mimeData->m_supportedActions,
+                              mimeData, Qt::NoButton, Qt::NoModifier);
         QQuickDropEventEx::setProposedAction(&event, proposedAction);
         deliverEvent(window, &event);
     }
@@ -125,8 +130,8 @@ void QQuickDragAttachedPrivate::deliverMoveEvent()
 
     itemMoved = false;
     if (window) {
-        QPoint scenePos = attachedItem->mapToScene(hotSpot).toPoint();
-        QDragMoveEvent event(scenePos, mimeData->m_supportedActions, mimeData, Qt::NoButton, Qt::NoModifier);
+        QDragMoveEvent event(attachedItem->mapToScene(hotSpot), mimeData->m_supportedActions,
+                             mimeData, Qt::NoButton, Qt::NoModifier);
         QQuickDropEventEx::setProposedAction(&event, proposedAction);
         deliverEvent(window, &event);
         if (target != dragGrabber.target()) {
@@ -220,16 +225,43 @@ void QQuickDragAttached::setActive(bool active)
     if (d->active != active) {
         if (d->inEvent)
             qmlWarning(this) << "active cannot be changed from within a drag event handler";
-        else if (active) {
+        else if (d->executingNativeDrag) {
+            // QDrag::exec() is blocking in a nested event loop. Pointer release events
+            // processed there may deactivate the DragHandler and re-trigger this setter.
+            // Suppress: startDrag() already handles cleanup when exec() returns.
+        } else if (active) {
             if (d->dragType == QQuickDrag::Internal) {
                 d->start(d->supportedActions);
             } else {
                 d->active = true;
                 emit activeChanged();
                 if (d->dragType == QQuickDrag::Automatic) {
-                    // There are different semantics than start() since startDrag()
-                    // may be called after an internal drag is already started.
-                    d->startDrag(d->supportedActions);
+                    bool grabbingItemPixmap = false;
+#ifdef Q_OS_ANDROID
+                    // Android can't capture a SurfaceView for the drag shadow, so grab
+                    // the item into a pixmap and start once the async grab is ready.
+                    if (auto grab = d->attachedItem->grabToImage()) {
+                        grabbingItemPixmap = true;
+                        QObject::connect(grab.data(), &QQuickItemGrabResult::ready, this,
+                                         [d, grab] {
+                            if (d->active) {
+                                const QPixmap pixmap = QPixmap::fromImage(grab->image());
+                                d->startDrag(d->supportedActions, pixmap);
+                            }
+                        });
+                    }
+#endif
+                    if (!grabbingItemPixmap) {
+                        // QDrag::exec() enters a nested event loop; calling it directly
+                        // from a QML binding or JS expression would block the engine mid-
+                        // evaluation. Defer to a queued call so the current JS frame
+                        // unwinds completely before exec() runs from the event loop.
+                        QMetaObject::invokeMethod(this, [this] {
+                            Q_D(QQuickDragAttached);
+                            if (d->active)
+                                d->startDrag(d->supportedActions);
+                        }, Qt::QueuedConnection);
+                    }
                 }
             }
         }
@@ -789,6 +821,10 @@ QMimeData *QQuickDragAttachedPrivate::createMimeData() const
                     mimeData->setUrls(urls);
             }
             break;
+        case QMetaType::QColor:
+            if (mimeType == u"application/x-color"_s)
+                mimeData->setColorData(value);
+            break;
         case QMetaType::QImage:
             if (const QByteArray mimeTypeUtf8 = mimeType.toUtf8();
                 QImageWriter::supportedMimeTypes().contains(mimeTypeUtf8)) {
@@ -831,20 +867,25 @@ void QQuickDragAttachedPrivate::loadPixmap()
     pixmapLoader.load(context ? context->engine() : nullptr, loadUrl, QRect(), q->imageSourceSize());
 }
 
-Qt::DropAction QQuickDragAttachedPrivate::startDrag(Qt::DropActions supportedActions)
+Qt::DropAction QQuickDragAttachedPrivate::startDrag(Qt::DropActions supportedActions,
+                                                    QPixmap pixmap)
 {
     Q_Q(QQuickDragAttached);
 
     QDrag *drag = new QDrag(source ? source : q);
 
     drag->setMimeData(createMimeData());
-    if (pixmapLoader.isReady())
+    if (!pixmap.isNull())
+        drag->setPixmap(pixmap);
+    else if (pixmapLoader.isReady())
         drag->setPixmap(QPixmap::fromImage(pixmapLoader.image()));
 
     drag->setHotSpot(hotSpot.toPoint());
     emit q->dragStarted();
 
+    executingNativeDrag = true;
     Qt::DropAction dropAction = drag->exec(supportedActions);
+    executingNativeDrag = false;
 
     if (!QGuiApplicationPrivate::platformIntegration()->drag()->ownsDragObject())
         drag->deleteLater();

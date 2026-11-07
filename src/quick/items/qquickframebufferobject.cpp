@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickframebufferobject.h"
 
@@ -283,12 +284,12 @@ QSGNode *QQuickFramebufferObject::updatePaintNode(QSGNode *node, UpdatePaintNode
 
     n->renderer->synchronize(this);
 
-    QSize minFboSize = d->sceneGraphContext()->minimumFBOSize();
-    QSize desiredFboSize(qMax<int>(minFboSize.width(), width()),
-                         qMax<int>(minFboSize.height(), height()));
+    n->devicePixelRatio = d->effectiveDevicePixelRatio();
 
-    n->devicePixelRatio = window()->effectiveDevicePixelRatio();
-    desiredFboSize *= n->devicePixelRatio;
+    const QSize minFboSize = d->sceneGraphContext()->minimumFBOSize();
+    const QSize itemPixelSize = (QSizeF(width(), height()) * n->devicePixelRatio).toSize();
+    const QSize desiredFboSize(qMax(minFboSize.width(), itemPixelSize.width()),
+                               qMax(minFboSize.height(), itemPixelSize.height()));
 
     if (n->fbo && ((d->followsItemSize && n->fbo->size() != desiredFboSize) || n->invalidatePending)) {
         delete n->texture();

@@ -32,6 +32,7 @@ qt_internal_add_test(tst_qqmlcomponent
         Qt::Gui
         Qt::GuiPrivate
         Qt::Network
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QuickPrivate
         Qt::QuickTestUtilsPrivate
@@ -48,7 +49,7 @@ qt_add_qml_module(
     tst_qqmlcomponent
     SOURCES
         lifecyclewatcher.h
-    URI test
+    URI QQmlComponentTestHelpers
     NO_GENERATE_EXTRA_QMLDIRS
     QML_FILES
         "data/TestComponentWithIC.qml"

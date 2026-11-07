@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmljavascriptexpression_p.h"
 #include "qqmljavascriptexpression_p.h"
@@ -291,7 +292,7 @@ void QQmlPropertyCapture::captureProperty(QQmlNotifier *n)
         Q_ASSERT(g->isConnected(n));
     } else {
         g = QQmlJavaScriptExpressionGuard::New(expression, engine);
-        g->connect(n);
+        n->connect(g);
     }
 
     expression->activeGuards.prepend(g);
@@ -315,7 +316,7 @@ void QQmlPropertyCapture::captureProperty(QObject *o, int c, int n, bool doNotif
         const QMetaObject *metaObjectForBindable = nullptr;
         if (auto const propCache = (ddata ? ddata->propertyCache.data() : nullptr)) {
             Q_ASSERT(propCache->property(c));
-            if (propCache->property(c)->isBindable())
+            if (propCache->property(c)->notifiesViaBindable())
                 metaObjectForBindable = propCache->metaObject();
         } else {
             const QMetaObject *m = o->metaObject();
@@ -340,7 +341,7 @@ void QQmlPropertyCapture::captureProperty(
 
     Q_ASSERT(expression);
 
-    if (propertyData->isBindable()) {
+    if (propertyData->notifiesViaBindable()) {
         if (const QMetaObject *metaObjectForBindable = propertyCache->metaObject()) {
             captureBindableProperty(o, metaObjectForBindable, propertyData->coreIndex());
             return;
@@ -405,7 +406,7 @@ void QQmlPropertyCapture::captureNonBindableProperty(QObject *o, int n, int c, b
             errorString = new QStringList;
             QString preamble = QLatin1String("QQmlExpression: Expression ") +
                     expression->expressionIdentifier() +
-                    QLatin1String(" depends on non-NOTIFYable properties:");
+                    QLatin1String(" depends on non-bindable properties:");
             errorString->append(preamble);
         }
 
@@ -428,7 +429,7 @@ void QQmlPropertyCapture::captureNonBindableProperty(QObject *o, int n, int c, b
             Q_ASSERT(g->isConnected(o, n));
         } else {
             g = QQmlJavaScriptExpressionGuard::New(expression, engine);
-            g->connect(o, n, engine, doNotify);
+            QQmlData::connectEndpoint(g, o, n, engine, doNotify);
         }
 
         expression->activeGuards.prepend(g);
@@ -505,7 +506,7 @@ void QQmlJavaScriptExpression::createQmlBinding(
             ep->warning(error->error());
         return;
     }
-    setupFunction(qmlContext, script.vmFunction);
+    setupFunction(qmlContext, script.function());
 }
 
 void QQmlJavaScriptExpression::setupFunction(QV4::ExecutionContext *qmlContext, QV4::Function *f)
@@ -515,6 +516,12 @@ void QQmlJavaScriptExpression::setupFunction(QV4::ExecutionContext *qmlContext, 
     m_qmlScope.set(qmlContext->engine(), *qmlContext);
     m_v4Function = f;
     m_compilationUnit.reset(m_v4Function->executableCompilationUnit());
+}
+
+void QQmlJavaScriptExpression::setFunction(QV4::Function *f)
+{
+    m_v4Function = f;
+    m_compilationUnit.reset(f ? f->executableCompilationUnit() : nullptr);
 }
 
 void QQmlJavaScriptExpression::setCompilationUnit(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit)

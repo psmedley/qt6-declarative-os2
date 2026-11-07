@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qtypes.h"
+#include <QtQml/qqmlcomponent.h>
 #include <private/qquickmultieffect_p_p.h>
 #include <private/qquickshadereffect_p.h>
 #include <private/qquickshadereffectsource_p.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
+Q_STATIC_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
 
 /*!
     \keyword Qt Quick Effects
@@ -26,19 +27,18 @@ Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
 
 /*!
     \qmltype MultiEffect
-    \nativetype QQuickMultiEffect
     \inqmlmodule QtQuick.Effects
     \inherits Item
     \ingroup qtquick-effects
     \brief Applies post-processing effect to an item.
 
-    The MultiEffect type, the successor to the deprecated Qt Graphical Effects
-    from Qt 5, applies a post-processing effect to the \l source item. Compared
-    to the Qt Graphical Effects module, MultiEffect combines multiple
-    effects (blur, shadow, colorization etc.) into a single item and shader
-    which makes it better for multiple effects. There are several shader
-    variations and the most optimal one gets selected based on the features
-    used.
+    The MultiEffect type, the successor to the \l{Qt 5 Compatibility APIs: Graphical Effects}{Qt Graphical Effects}
+    from Qt 5, applies a post-processing effect to the \l source item. In contrast to the
+    \l{Qt 5 Compatibility APIs: Graphical Effects}{Qt Graphical Effects} module, MultiEffect makes
+    it possible to combine multiple effects (blur, shadow, colorization etc.) into a single item and
+    shader. You can use \l{MultiEffect} if you only need a single effect at no additional overhead,
+    but you can also use it to apply multiple effects to an item without the cost of multiple render
+    passes.
 
     MultiEffect is designed specifically for most common effects and can be easily animated.
     If the MultiEffect doesn't contain the effect you need, consider implementing a custom
@@ -67,6 +67,7 @@ Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
     \table 70%
     \row
     \li \image multieffect-example1.png
+               {Qt logo in grayscale showing full desaturation effect}
     \li \qml
         import QtQuick
         import QtQuick.Effects
@@ -97,6 +98,7 @@ Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
     \table 70%
     \row
     \li \image multieffect-example1.png
+               {Qt logo in grayscale showing full desaturation effect}
     \li \qml
         import QtQuick
         import QtQuick.Effects
@@ -120,6 +122,8 @@ Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
     \table 70%
     \row
     \li \image multieffect-example2.png
+               {Qt logo with green glow showing brightness, saturation, and
+               blur effects combined}
     \li \qml
         import QtQuick
         import QtQuick.Effects
@@ -145,6 +149,8 @@ Q_LOGGING_CATEGORY(lcQuickEffect, "qt.quick.effects")
     \table 70%
     \row
     \li \image multieffect-example3.png
+               {Four stages of Qt logo fading with mask and colorization,
+               from visible green to dissolved pink particles}
     \li \qml
         import QtQuick
         import QtQuick.Effects
@@ -211,6 +217,20 @@ QQuickMultiEffect::QQuickMultiEffect(QQuickItem *parent)
 
 QQuickMultiEffect::~QQuickMultiEffect()
 {
+    Q_D(QQuickMultiEffect);
+
+    // Disconnect the change listeners before we destroy the base types. Destroying the base types
+    // may still trigger changes we're listening to. The private object is only destroyed by the
+    // QObject dtor.
+
+    if (d->m_sourceItem) {
+        QQuickItemPrivate::get(d->m_sourceItem)
+                ->removeItemChangeListener(d, QQuickItemPrivate::ChangeType::Destroyed);
+    }
+    if (d->m_maskSourceItem) {
+        QQuickItemPrivate::get(d->m_maskSourceItem)
+                ->removeItemChangeListener(d, QQuickItemPrivate::ChangeType::Destroyed);
+    }
 }
 
 /*!
@@ -250,6 +270,8 @@ void QQuickMultiEffect::setSource(QQuickItem *item)
     Note that \l paddingRect is always added to the size.
 
     \image multieffect-example4.png
+           {Blurred images comparing autoPaddingEnabled true with extra
+           space versus false with clipped edges}
 
     \sa paddingRect
 
@@ -282,6 +304,8 @@ void QQuickMultiEffect::setAutoPaddingEnabled(bool enabled)
     false so that the shadow fits inside the MultiEffect item.
 
     \image multieffect-example5.png
+           {Two Qt logos with shadows comparing paddingRect values, showing
+           clipped shadow at zero versus full shadow with padding}
 
     \sa autoPaddingEnabled
 
@@ -944,6 +968,11 @@ void QQuickMultiEffectPrivate::setSource(QQuickItem *item)
     if (item == m_sourceItem)
         return;
 
+    if (m_sourceItem)
+        QQuickItemPrivate::get(m_sourceItem)->removeItemChangeListener(this, ChangeType::Destroyed);
+    if (item)
+        QQuickItemPrivate::get(item)->addItemChangeListener(this, ChangeType::Destroyed);
+
     m_sourceItem = item;
     if (m_shaderSource)
         m_shaderSource->setInput(m_sourceItem);
@@ -1320,6 +1349,13 @@ void QQuickMultiEffectPrivate::setMaskSource(QQuickItem *item)
     Q_Q(QQuickMultiEffect);
     if (item == m_maskSourceItem)
         return;
+
+    if (m_maskSourceItem) {
+        QQuickItemPrivate::get(m_maskSourceItem)
+                ->removeItemChangeListener(this, ChangeType::Destroyed);
+    }
+    if (item)
+        QQuickItemPrivate::get(item)->addItemChangeListener(this, ChangeType::Destroyed);
 
     m_maskSourceItem = item;
     if (m_shaderEffect) {
@@ -1726,7 +1762,9 @@ void QQuickMultiEffectPrivate::updateBlurItemsAmount(int blurLevel)
         // during the lifetime of the effect component.
         QUrl blurVs = QUrl(QStringLiteral("qrc:/data/shaders/bluritems.vert.qsb"));
         QUrl blurFs = QUrl(QStringLiteral("qrc:/data/shaders/bluritems.frag.qsb"));
-        QQmlComponent blurComponent(engine, QUrl(QStringLiteral("qrc:/data/BlurItem.qml")));
+        QQmlComponent blurComponent(
+                engine,
+                QUrl(QStringLiteral("qrc:/qt-project.org/imports/QtQuick/Effects/BlurItem.qml")));
         for (int i = m_blurEffects.size(); i < itemsAmount; i++) {
             auto blurEffect = qobject_cast<QQuickShaderEffect*>(blurComponent.create());
             blurEffect->setParent(q);
@@ -1831,6 +1869,14 @@ void QQuickMultiEffectPrivate::proxyOutputChanged()
     updateBlurLevel(true);
     updateBlurItemSizes();
     updateSourcePadding();
+}
+
+void QQuickMultiEffectPrivate::itemDestroyed(QQuickItem *item)
+{
+    if (item == m_sourceItem)
+        setSource(nullptr);
+    else if (item == m_maskSourceItem)
+        setMaskSource(nullptr);
 }
 
 void QQuickMultiEffectPrivate::updateProxyActiveCheck()

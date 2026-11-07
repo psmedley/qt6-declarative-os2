@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4codegen_p.h"
 
@@ -33,8 +34,8 @@ QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
 
-Q_LOGGING_CATEGORY(lcQmlUsedBeforeDeclared, "qt.qml.usedbeforedeclared");
-Q_LOGGING_CATEGORY(lcQmlInjectedParameter, "qt.qml.injectedparameter");
+Q_STATIC_LOGGING_CATEGORY(lcQmlUsedBeforeDeclared, "qt.qml.usedbeforedeclared");
+Q_STATIC_LOGGING_CATEGORY(lcQmlInjectedParameter, "qt.qml.injectedparameter");
 
 using namespace QV4;
 using namespace QV4::Compiler;
@@ -49,6 +50,13 @@ void CodegenWarningInterface::reportVarUsedBeforeDeclaration(
             << fileName << ":" << accessLocation.startLine << ":" << accessLocation.startColumn
             << " Variable \"" << name << "\" is used before its declaration at "
             << declarationLocation.startLine << ":" << declarationLocation.startColumn << ".";
+}
+
+void CodegenWarningInterface::reportFunctionUsedBeforeDeclaration(const QString &, const QString &,
+                                                                  QQmlJS::SourceLocation,
+                                                                  QQmlJS::SourceLocation)
+{
+    // we don't report this by default, only when using qmllint.
 }
 
 static inline void setJumpOutLocation(QV4::Moth::BytecodeGenerator *bytecodeGenerator,
@@ -108,61 +116,86 @@ Codegen::Codegen(QV4::Compiler::JSUnitGenerator *jsUnitGenerator, bool strict,
     pushExpr();
 }
 
-const char *Codegen::s_globalNames[] = {
-    "isNaN",
-    "parseFloat",
-    "String",
-    "EvalError",
-    "URIError",
-    "Math",
-    "encodeURIComponent",
-    "RangeError",
-    "eval",
-    "isFinite",
-    "ReferenceError",
-    "Infinity",
-    "Function",
-    "RegExp",
-    "Number",
-    "parseInt",
-    "Object",
-    "decodeURI",
-    "TypeError",
-    "Boolean",
-    "encodeURI",
-    "NaN",
-    "Error",
-    "decodeURIComponent",
-    "Date",
-    "Array",
-    "Symbol",
-    "escape",
-    "unescape",
-    "SyntaxError",
-    "undefined",
-    "JSON",
-    "ArrayBuffer",
-    "SharedArrayBuffer",
-    "DataView",
-    "Int8Array",
-    "Uint8Array",
-    "Uint8ClampedArray",
-    "Int16Array",
-    "Uint16Array",
-    "Int32Array",
-    "Uint32Array",
-    "Float32Array",
-    "Float64Array",
-    "WeakSet",
-    "Set",
-    "WeakMap",
-    "Map",
-    "Reflect",
-    "Proxy",
-    "Atomics",
-    "Promise",
-    nullptr
+static constexpr const QLatin1StringView s_globalNames[] = {
+    QLatin1StringView("Array"),
+    QLatin1StringView("ArrayBuffer"),
+    QLatin1StringView("Atomics"),
+    QLatin1StringView("Boolean"),
+    QLatin1StringView("DOMException"),
+    QLatin1StringView("DataView"),
+    QLatin1StringView("Date"),
+    QLatin1StringView("Error"),
+    QLatin1StringView("EvalError"),
+    QLatin1StringView("Float32Array"),
+    QLatin1StringView("Float64Array"),
+    QLatin1StringView("Function"),
+    QLatin1StringView("Infinity"),
+    QLatin1StringView("Int16Array"),
+    QLatin1StringView("Int32Array"),
+    QLatin1StringView("Int8Array"),
+    QLatin1StringView("JSON"),
+    QLatin1StringView("Map"),
+    QLatin1StringView("Math"),
+    QLatin1StringView("NaN"),
+    QLatin1StringView("Number"),
+    QLatin1StringView("Object"),
+    QLatin1StringView("Promise"),
+    QLatin1StringView("Proxy"),
+    QLatin1StringView("QT_TRANSLATE_NOOP"),
+    QLatin1StringView("QT_TRID_NOOP"),
+    QLatin1StringView("QT_TR_NOOP"),
+    QLatin1StringView("Qt"),
+    QLatin1StringView("RangeError"),
+    QLatin1StringView("ReferenceError"),
+    QLatin1StringView("Reflect"),
+    QLatin1StringView("RegExp"),
+    QLatin1StringView("SQLException"),
+    QLatin1StringView("Set"),
+    QLatin1StringView("SharedArrayBuffer"),
+    QLatin1StringView("String"),
+    QLatin1StringView("Symbol"),
+    QLatin1StringView("SyntaxError"),
+    QLatin1StringView("TypeError"),
+    QLatin1StringView("URIError"),
+    QLatin1StringView("URL"),
+    QLatin1StringView("URLSearchParams"),
+    QLatin1StringView("Uint16Array"),
+    QLatin1StringView("Uint32Array"),
+    QLatin1StringView("Uint8Array"),
+    QLatin1StringView("Uint8ClampedArray"),
+    QLatin1StringView("WeakMap"),
+    QLatin1StringView("WeakSet"),
+    QLatin1StringView("XMLHttpRequest"),
+    QLatin1StringView("console"),
+    QLatin1StringView("decodeURI"),
+    QLatin1StringView("decodeURIComponent"),
+    QLatin1StringView("encodeURI"),
+    QLatin1StringView("encodeURIComponent"),
+    QLatin1StringView("escape"),
+    QLatin1StringView("eval"),
+    QLatin1StringView("gc"),
+    QLatin1StringView("isFinite"),
+    QLatin1StringView("isNaN"),
+    QLatin1StringView("parseFloat"),
+    QLatin1StringView("parseInt"),
+    QLatin1StringView("print"),
+    QLatin1StringView("qsTr"),
+    QLatin1StringView("qsTrId"),
+    QLatin1StringView("qsTranslate"),
+    QLatin1StringView("undefined"),
+    QLatin1StringView("unescape"),
 };
+
+bool Codegen::isNameGlobal(QAnyStringView name)
+{
+    return std::binary_search(std::begin(s_globalNames), std::end(s_globalNames), name);
+}
+
+void Codegen::forEachGlobalName(qxp::function_ref<void (QLatin1StringView)> &&handler)
+{
+    for (QLatin1StringView name : s_globalNames)
+        handler(name);
+}
 
 void Codegen::generateFromProgram(
         const QString &sourceCode, Program *node, Module *module, ContextType contextType)
@@ -171,18 +204,6 @@ void Codegen::generateFromProgram(
 
     _module = module;
     _context = nullptr;
-
-    if (contextType == ContextType::ScriptImportedByQML) {
-        // the global object is frozen, so we know that members of it are
-        // pointing to the global object. This is important so that references
-        // to Math etc. do not go through the expensive path in the context wrapper
-        // that tries to see whether we have a matching type
-        //
-        // Since this can be called from the loader thread we can't get the list
-        // directly from the engine, so let's hardcode the most important ones here
-        for (const char **g = s_globalNames; *g != nullptr; ++g)
-            m_globalNames << QString::fromLatin1(*g);
-    }
 
     ScanFunctions scan(this, sourceCode, contextType);
     scan(node);
@@ -208,7 +229,7 @@ void Codegen::generateFromModule(const QString &sourceCode, ESModule *node, Modu
 
     {
         Compiler::Context *moduleContext = _module->contextMap.value(node);
-        for (const auto &entry: moduleContext->exportEntries) {
+        for (const auto &entry: std::as_const(moduleContext->exportEntries)) {
             if (entry.moduleRequest.isEmpty()) {
                 // ### check against imported bound names
                 _module->localExportEntries << entry;
@@ -377,6 +398,7 @@ Codegen::Reference Codegen::unop(UnaryOperation op, const Reference &expr)
     case PreIncrement: {
         Reference e = expr.asLValue();
         e.loadInAccumulator();
+        e.isReadonly = true;
         Instruction::Increment inc = {};
         bytecodeGenerator->addInstruction(inc);
         if (exprAccept(nx))
@@ -403,6 +425,7 @@ Codegen::Reference Codegen::unop(UnaryOperation op, const Reference &expr)
     case PreDecrement: {
         Reference e = expr.asLValue();
         e.loadInAccumulator();
+        e.isReadonly = true;
         Instruction::Decrement dec = {};
         bytecodeGenerator->addInstruction(dec);
         if (exprAccept(nx))
@@ -585,12 +608,15 @@ void Codegen::statementList(StatementList *ast)
             statement(static_cast<ExpressionNode *>(it->statement));
         if (it->statement == needsCompletion)
             requiresReturnValue = false;
-        if (it->statement->kind == Statement::Kind_ThrowStatement ||
-            it->statement->kind == Statement::Kind_BreakStatement ||
-            it->statement->kind == Statement::Kind_ContinueStatement ||
-            it->statement->kind == Statement::Kind_ReturnStatement)
-            // any code after those statements is unreachable
+        if (it->statement->kind == Statement::Kind_ThrowStatement
+            || it->statement->kind == Statement::Kind_BreakStatement
+            || it->statement->kind == Statement::Kind_ContinueStatement
+            || it->statement->kind == Statement::Kind_ReturnStatement) {
+
+            if (Visitor *visitor = _interface->unreachableVisitor())
+                Node::accept(it->next, visitor);
             break;
+        }
     }
     requiresReturnValue = _requiresReturnValue;
     insideSwitch = _insideSwitch;
@@ -647,7 +673,10 @@ void Codegen::initializeAndDestructureBindingElement(AST::PatternElement *e, con
     if (hasError())
         return;
 
-    accept(e->typeAnnotation);
+    if (e->typeAnnotation) {
+        throwSyntaxError(e->firstSourceLocation(),
+                         QLatin1String("Type annotations on default parameters are not supported."));
+    }
 
     if (e->initializer) {
         if (!baseRef.isValid()) {
@@ -745,7 +774,7 @@ void Codegen::destructureElementList(const Codegen::Reference &array, PatternEle
     RegisterScope scope(this);
 
     Reference iterator = Reference::fromStackSlot(this);
-    QVarLengthArray<Reference> iteratorValues;
+    QVarLengthArray<Reference, 32> iteratorValues;
     Reference ignored;
 
     array.loadInAccumulator();
@@ -928,6 +957,8 @@ bool Codegen::visit(ExportDeclaration *ast)
         exportedValue = popResult();
     } else if (ExpressionNode *expr = ast->variableStatementOrDeclaration->expressionCast()) {
         exportedValue = expression(expr);
+        if (hasError())
+            return false;
     }
 
     exportedValue.loadInAccumulator();
@@ -1121,7 +1152,7 @@ bool Codegen::visit(ClassDeclaration *ast)
     return false;
 }
 
-bool Codegen::visit(Expression *ast)
+bool Codegen::visit(CommaExpression *ast)
 {
     if (hasError())
         return false;
@@ -1301,18 +1332,21 @@ bool Codegen::visit(ArrayMemberExpression *ast)
 
     TailCallBlocker blockTailCalls(this);
     Reference base = expression(ast->base);
+    if (hasError())
+        return false;
 
     auto writeSkip = [&]() {
         base.loadInAccumulator();
         bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
         auto jumpToUndefined = bytecodeGenerator->jumpTrue();
-        m_optionalChainsStates.top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
+        m_optionalChainsStates->top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
     };
 
-    if (hasError())
-        return false;
     if (base.isSuper()) {
-        Reference index = expression(ast->expression).storeOnStack();
+        auto e = expression(ast->expression);
+        if (hasError())
+            return false;
+        Reference index = e.storeOnStack();
         optionalChainFinalizer(Reference::fromSuperProperty(index), isTailOfChain);
         return false;
     }
@@ -1325,7 +1359,7 @@ bool Codegen::visit(ArrayMemberExpression *ast)
         if (arrayIndex == UINT_MAX) {
             auto ref = Reference::fromMember(base, s, ast->expression->firstSourceLocation(),
                                              ast->isOptional,
-                                             &m_optionalChainsStates.top().jumpsToPatch);
+                                             &m_optionalChainsStates->top().jumpsToPatch);
             setExprResult(ref);
             optionalChainFinalizer(ref, isTailOfChain);
             return false;
@@ -1464,12 +1498,18 @@ bool Codegen::visit(BinaryExpression *ast)
         iftrue.link();
 
         Reference right = expression(ast->right);
+        if (hasError()) {
+            jump_endif.link();
+            return false;
+        }
+
         right.loadInAccumulator();
         jump_endif.link();
         setExprResult(Reference::fromAccumulator(this));
 
         return false;
     } else if (ast->op == QSOperator::Assign) {
+        bytecodeGenerator->setLocation(ast->left->firstSourceLocation());
         if (AST::Pattern *p = ast->left->patternCast()) {
             RegisterScope scope(this);
             Reference right = expression(ast->right);
@@ -1499,6 +1539,8 @@ bool Codegen::visit(BinaryExpression *ast)
         if (hasError())
             return false;
         r.loadInAccumulator();
+        // The location saved above may have been overwritten when evaluating the rhs expression
+        bytecodeGenerator->setLocation(ast->left->firstSourceLocation());
         if (exprAccept(nx))
             setExprResult(left.storeConsumeAccumulator());
         else
@@ -2037,11 +2079,11 @@ bool Codegen::visit(CallExpression *ast)
     int thisObject = bytecodeGenerator->newRegister();
     int functionObject = bytecodeGenerator->newRegister();
 
-    if (ast->isOptional || m_optionalChainsStates.top().actuallyHasOptionals) {
+    if (ast->isOptional || m_optionalChainsStates->top().actuallyHasOptionals) {
         base.loadInAccumulator();
         bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
         auto jumpToUndefined = bytecodeGenerator->jumpTrue();
-        m_optionalChainsStates.top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
+        m_optionalChainsStates->top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
     }
 
     auto calldata = pushArgs(ast->arguments);
@@ -2199,7 +2241,7 @@ Codegen::Arguments Codegen::pushArgs(ArgumentList *args)
     bool hasSpread = false;
     int argc = 0;
     for (ArgumentList *it = args; it; it = it->next) {
-        if (it->isSpreadElement) {
+        if (it->spreadToken.isValid()) {
             hasSpread = true;
             ++argc;
         }
@@ -2213,7 +2255,7 @@ Codegen::Arguments Codegen::pushArgs(ArgumentList *args)
 
     argc = 0;
     for (ArgumentList *it = args; it; it = it->next) {
-        if (it->isSpreadElement) {
+        if (it->spreadToken.isValid()) {
             Reference::fromConst(
                     this,
                     StaticValue::emptyValue().asReturnedValue()).storeOnStack(calldata + argc);
@@ -2309,7 +2351,7 @@ bool Codegen::visit(DeleteExpression *ast)
     if (hasError())
         return false;
 
-    const bool chainActuallyHasOptionals = m_optionalChainsStates.top().actuallyHasOptionals;
+    const bool chainActuallyHasOptionals = m_optionalChainsStates->top().actuallyHasOptionals;
     if (chainActuallyHasOptionals)
         Q_ASSERT(expr.type == Reference::Member || expr.type == Reference::Subscript);
 
@@ -2348,7 +2390,7 @@ bool Codegen::visit(DeleteExpression *ast)
             expr.loadInAccumulator();
             bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
             auto jumpToUndefined = bytecodeGenerator->jumpTrue();
-            m_optionalChainsStates.top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
+            m_optionalChainsStates->top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
         }
 
         Instruction::LoadRuntimeString instr;
@@ -2373,7 +2415,7 @@ bool Codegen::visit(DeleteExpression *ast)
             expr.loadInAccumulator();
             bytecodeGenerator->addInstruction(Instruction::CmpEqNull());
             auto jumpToUndefined = bytecodeGenerator->jumpTrue();
-            m_optionalChainsStates.top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
+            m_optionalChainsStates->top().jumpsToPatch.emplace_back(std::move(jumpToUndefined));
         }
 
         Instruction::DeleteProperty del;
@@ -2426,26 +2468,26 @@ bool Codegen::traverseOptionalChain(Node *node)
                node->kind == Node::Kind_ArrayMemberExpression ||
                node->kind == Node::Kind_DeleteExpression;
     };
-    m_optionalChainsStates.emplace();
+    m_optionalChainsStates->emplace();
     while (isOptionalChainableNode(node)) {
         m_seenOptionalChainNodes.insert(node);
 
         switch (node->kind) {
         case Node::Kind_FieldMemberExpression: {
             auto *fme = AST::cast<FieldMemberExpression *>(node);
-            m_optionalChainsStates.top().actuallyHasOptionals |= fme->isOptional;
+            m_optionalChainsStates->top().actuallyHasOptionals |= fme->isOptional;
             node = fme->base;
             break;
         }
         case Node::Kind_CallExpression: {
             auto *ce = AST::cast<CallExpression *>(node);
-            m_optionalChainsStates.top().actuallyHasOptionals |= ce->isOptional;
+            m_optionalChainsStates->top().actuallyHasOptionals |= ce->isOptional;
             node = ce->base;
             break;
         }
         case Node::Kind_ArrayMemberExpression: {
             auto *ame = AST::cast<ArrayMemberExpression *>(node);
-            m_optionalChainsStates.top().actuallyHasOptionals |= ame->isOptional;
+            m_optionalChainsStates->top().actuallyHasOptionals |= ame->isOptional;
             node = ame->base;
             break;
         }
@@ -2463,13 +2505,13 @@ bool Codegen::traverseOptionalChain(Node *node)
 void Codegen::optionalChainFinalizer(const Reference &expressionResult, bool tailOfChain,
                                      bool isDeleteExpression)
 {
-    auto &chainState = m_optionalChainsStates.top();
+    auto &chainState = m_optionalChainsStates->top();
     if (!tailOfChain) {
         setExprResult(expressionResult);
         return;
     } else if (!chainState.actuallyHasOptionals) {
         setExprResult(expressionResult);
-        m_optionalChainsStates.pop();
+        m_optionalChainsStates->pop();
         return;
     }
 
@@ -2512,7 +2554,7 @@ void Codegen::optionalChainFinalizer(const Reference &expressionResult, bool tai
         ref.savedCallPropertyNameIndex = expressionResult.propertyNameIndex;
     }
     setExprResult(ref);
-    m_optionalChainsStates.pop();
+    m_optionalChainsStates->pop();
 }
 
 bool Codegen::visit(FieldMemberExpression *ast)
@@ -2558,7 +2600,7 @@ bool Codegen::visit(FieldMemberExpression *ast)
     }
 
     auto ref = Reference::fromMember(base, ast->name.toString(), ast->lastSourceLocation(),
-                                     ast->isOptional, &m_optionalChainsStates.top().jumpsToPatch);
+                                     ast->isOptional, &m_optionalChainsStates->top().jumpsToPatch);
 
     optionalChainFinalizer(ref, isTailOfChain);
     return false;
@@ -2575,7 +2617,10 @@ bool Codegen::visit(TaggedTemplate *ast)
         return false;
 
     RegisterScope scope(this);
-    return handleTaggedTemplate(expression(ast->base), ast);
+    auto base = expression(ast->base);
+    if (hasError())
+        return false;
+    return handleTaggedTemplate(std::move(base), ast);
 }
 
 bool Codegen::handleTaggedTemplate(Reference base, TaggedTemplate *ast)
@@ -2666,8 +2711,13 @@ Codegen::Reference Codegen::referenceForName(const QString &name, bool isLhs, co
         if (resolved.declarationLocation.isValid() && accessLocation.isValid()
                 && resolved.declarationLocation.begin() > accessLocation.end()) {
             Q_ASSERT(_interface);
-            _interface->reportVarUsedBeforeDeclaration(
-                    name, url().toLocalFile(), resolved.declarationLocation, accessLocation);
+            if (resolved.memberType == Context::FunctionDefinition) {
+                _interface->reportFunctionUsedBeforeDeclaration(
+                        name, url().toLocalFile(), resolved.declarationLocation, accessLocation);
+            } else {
+                _interface->reportVarUsedBeforeDeclaration(
+                        name, url().toLocalFile(), resolved.declarationLocation, accessLocation);
+            }
             if (resolved.type == Context::ResolvedName::Stack && resolved.requiresTDZCheck)
                 throwsReferenceError = true;
         }
@@ -2706,8 +2756,15 @@ Codegen::Reference Codegen::referenceForName(const QString &name, bool isLhs, co
     r.global = useFastLookups && (resolved.type == Context::ResolvedName::Global || resolved.type == Context::ResolvedName::QmlGlobal);
     r.qmlGlobal = resolved.type == Context::ResolvedName::QmlGlobal;
     r.sourceLocation = accessLocation;
-    if (!r.global && !r.qmlGlobal && m_globalNames.contains(name))
+    if (!r.global && !r.qmlGlobal
+            && _context->contextType == ContextType::ScriptImportedByQML
+            && Codegen::isNameGlobal(name)) {
+        // the global object is frozen, so we know that members of it are
+        // pointing to the global object. This is important so that references
+        // to Math etc. do not go through the expensive path in the context wrapper
+        // that tries to see whether we have a matching type
         r.global = true;
+    }
     return r;
 }
 
@@ -2826,7 +2883,10 @@ bool Codegen::visit(NotExpression *ast)
         return false;
 
     TailCallBlocker blockTailCalls(this);
-    setExprResult(unop(Not, expression(ast->expression)));
+    auto e = expression(ast->expression);
+    if (hasError())
+        return false;
+    setExprResult(unop(Not, e));
     return false;
 }
 
@@ -3011,7 +3071,7 @@ bool Codegen::visit(PreDecrementExpression *ast)
     if (hasError())
         return false;
     if (!expr.isLValue()) {
-        throwReferenceError(ast->expression->lastSourceLocation(), QStringLiteral("Prefix ++ operator applied to value that is not a reference."));
+        throwReferenceError(ast->expression->lastSourceLocation(), QStringLiteral("Prefix -- operator applied to value that is not a reference."));
         return false;
     }
 
@@ -3144,7 +3204,11 @@ bool Codegen::visit(TildeExpression *ast)
         return false;
 
     TailCallBlocker blockTailCalls(this);
-    setExprResult(unop(Compl, expression(ast->expression)));
+    auto e = expression(ast->expression);
+    if (hasError())
+        return false;
+
+    setExprResult(unop(Compl, e));
     return false;
 }
 
@@ -3190,7 +3254,11 @@ bool Codegen::visit(UnaryMinusExpression *ast)
         return false;
 
     TailCallBlocker blockTailCalls(this);
-    setExprResult(unop(UMinus, expression(ast->expression)));
+    auto e = expression(ast->expression);
+    if (hasError())
+        return false;
+
+    setExprResult(unop(UMinus, e));
     return false;
 }
 
@@ -3200,7 +3268,11 @@ bool Codegen::visit(UnaryPlusExpression *ast)
         return false;
 
     TailCallBlocker blockTailCalls(this);
-    setExprResult(unop(UPlus, expression(ast->expression)));
+    auto e = expression(ast->expression);
+    if (hasError())
+        return false;
+
+    setExprResult(unop(UPlus, e));
     return false;
 }
 
@@ -3379,6 +3451,10 @@ int Codegen::defineFunction(const QString &name, AST::Node *ast, AST::FormalPara
     BytecodeGenerator::Label *savedReturnLabel = _returnLabel;
     _returnLabel = nullptr;
 
+    OptionalChainStates optionalChainStates;
+    OptionalChainStates *savedOptionalChainStates = m_optionalChainsStates;
+    m_optionalChainsStates = &optionalChainStates;
+
     bool savedFunctionEndsWithReturn = functionEndsWithReturn;
     functionEndsWithReturn = endsWithReturn(_module, body);
 
@@ -3446,7 +3522,9 @@ int Codegen::defineFunction(const QString &name, AST::Node *ast, AST::FormalPara
 
     statementList(body);
 
-    if (!hasError()) {
+    if (hasError()) {
+        bytecodeGenerator->setError(true);
+    } else {
         bytecodeGenerator->setLocation(ast->lastSourceLocation());
         _context->emitBlockFooter(this);
 
@@ -3482,6 +3560,7 @@ int Codegen::defineFunction(const QString &name, AST::Node *ast, AST::FormalPara
     qSwap(_returnAddress, returnAddress);
     qSwap(requiresReturnValue, _requiresReturnValue);
     qSwap(_inFormalParameterList, inFormalParameterList);
+    m_optionalChainsStates = savedOptionalChainStates;
     bytecodeGenerator = savedBytecodeGenerator;
     delete _returnLabel;
     _returnLabel = savedReturnLabel;
@@ -4559,6 +4638,7 @@ Codegen::Reference Codegen::Reference::storeRetainAccumulator() const
         // a store will
         auto tmp = Reference::fromStackSlot(codegen);
         tmp.storeAccumulator(); // this is safe, and won't destory the accumulator
+        tmp.isReadonly = isReadonly;
         storeAccumulator();
         return tmp;
     } else {

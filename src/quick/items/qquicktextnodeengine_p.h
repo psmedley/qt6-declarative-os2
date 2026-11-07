@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <QtCore/qlist.h>
 #include <QtCore/qvarlengtharray.h>
@@ -10,6 +11,8 @@
 #include <QtGui/qtextlayout.h>
 #include "qquickclipnode_p.h"
 #include "qsginternaltextnode_p.h"
+
+#include <QtCore/qspan.h>
 
 #ifndef QQUICKTEXTNODEENGINE_P_H
 #define QQUICKTEXTNODEENGINE_P_H
@@ -62,7 +65,8 @@ public:
         }
 
         BinaryTreeNode(const QGlyphRun &g, SelectionState selState, const QRectF &brect,
-                       const Decorations &decs, const QColor &c, const QColor &bc, const QColor &dc,
+                       const Decorations &decs, QTextCharFormat::UnderlineStyle us,
+                       const QColor &c, const QColor &bc, const QColor &dc,
                        const QPointF &pos, qreal a);
 
         QGlyphRun glyphRun;
@@ -70,6 +74,7 @@ public:
         SelectionState selectionState;
         QQuickDefaultClipNode *clipNode;
         Decorations decorations;
+        QTextCharFormat::UnderlineStyle underlineStyle = QTextCharFormat::NoUnderline;
         QColor color;
         QColor backgroundColor;
         QColor decorationColor;
@@ -80,13 +85,16 @@ public:
         int leftChildIndex;
         int rightChildIndex;
 
-        QList<QPair<int, int> > ranges;
+        QList<std::pair<int, int> > ranges;
 
         static void insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree, const QRectF &rect, const QImage &image, qreal ascent, SelectionState selectionState)
         { insert(binaryTree, BinaryTreeNode(rect, image, selectionState, ascent)); }
 
-        static void insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree, const QGlyphRun &glyphRun, SelectionState selectionState,
-                           Decorations decorations, const QColor &textColor, const QColor &backgroundColor, const QColor &underlineColor, const QPointF &position);
+        static void insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree,
+                           const QGlyphRun &glyphRun, SelectionState selectionState,
+                           Decorations decorations, QTextCharFormat::UnderlineStyle underlineStyle,
+                           const QColor &textColor, const QColor &backgroundColor,
+                           const QColor &underlineColor, const QPointF &position);
         static void insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree, const BinaryTreeNode &binaryTreeNode);
         static void inOrder(const QVarLengthArray<BinaryTreeNode, 16> &binaryTree, QVarLengthArray<int> *sortedIndexes, int currentIndex = 0);
     };
@@ -152,15 +160,17 @@ public:
     void addSelectedGlyphs(const QGlyphRun &glyphRun);
     void addUnselectedGlyphs(const QGlyphRun &glyphRun);
     void addGlyphsInRange(int rangeStart, int rangeEnd,
-                          const QColor &color, const QColor &backgroundColor, const QColor &underlineColor,
-                          int selectionStart, int selectionEnd);
+                          QTextCharFormat::UnderlineStyle underlineStyle,
+                          const QColor &color, const QColor &backgroundColor,
+                          const QColor &underlineColor, int selectionStart, int selectionEnd);
     void addGlyphsForRanges(const QVarLengthArray<QTextLayout::FormatRange> &ranges,
                             int start, int end,
                             int selectionStart, int selectionEnd);
 
-    void mergeProcessedNodes(QList<BinaryTreeNode *> *regularNodes,
-                             QList<BinaryTreeNode *> *imageNodes);
+    void mergeProcessedNodes(QVarLengthArray<BinaryTreeNode *, 8> *regularNodes,
+                             QVarLengthArray<BinaryTreeNode *, 8> *imageNodes);
     void addToSceneGraph(QSGInternalTextNode *parent,
+                         QSGInternalTextNode::RecycleBin *recycleBin,
                          QQuickText::TextStyle style = QQuickText::Normal,
                          const QColor &styleColor = QColor());
 
@@ -189,28 +199,29 @@ public:
         m_position = position;
     }
 
-
+    void setDevicePixelRatio(qreal dpr)
+    {
+        m_devicePixelRatio = dpr;
+    }
 
 private:
     struct TextDecoration
     {
         TextDecoration() : selectionState(Unselected) {}
-        TextDecoration(const SelectionState &s,
-                       const QRectF &r,
-                       const QColor &c)
-            : selectionState(s)
-            , rect(r)
-            , color(c)
+        TextDecoration(const SelectionState &s, const QRectF &r, const QColor &c,
+                       QTextCharFormat::UnderlineStyle us = QTextCharFormat::NoUnderline)
+            : selectionState(s), underlineStyle(us), rect(r), color(c)
         {
         }
 
         SelectionState selectionState;
+        QTextCharFormat::UnderlineStyle underlineStyle = QTextCharFormat::NoUnderline;
         QRectF rect;
         QColor color;
     };
 
     void processCurrentLine();
-    void addTextDecorations(const QVarLengthArray<TextDecoration> &textDecorations, qreal offset, qreal thickness);
+    void addTextDecorations(QSpan<const TextDecoration> textDecorations, qreal offset, qreal thickness);
     void mergeFormats(QTextLayout *textLayout, QVarLengthArray<QTextLayout::FormatRange> *mergedFormats);
 
     QColor m_selectionColor;
@@ -220,16 +231,19 @@ private:
     QColor m_selectedTextColor;
     QColor m_anchorColor;
     QPointF m_position;
+    QTextCharFormat::UnderlineStyle m_underlineStyle = QTextCharFormat::NoUnderline;
 
     QTextLine m_currentLine;
     Qt::LayoutDirection m_currentTextDirection;
 
-    QList<QPair<QRectF, QColor> > m_backgrounds;
+    QList<std::pair<QRectF, QColor> > m_backgrounds;
     QList<QRectF> m_selectionRects;
     QVarLengthArray<BinaryTreeNode, 16> m_currentLineTree;
 
     QList<TextDecoration> m_lines;
-    QVector<BinaryTreeNode> m_processedNodes;
+    QList<BinaryTreeNode> m_processedNodes;
+
+    qreal m_devicePixelRatio = 1.0;
 
     bool m_hasSelection : 1;
     bool m_hasContents : 1;

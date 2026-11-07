@@ -132,7 +132,7 @@ void tst_qquickborderimage::imageSource()
     if (remote)
         QTRY_COMPARE(obj->status(), QQuickBorderImage::Loading);
 
-    QCOMPARE(obj->source(), remote ? source : QUrl(source));
+    QCOMPARE(obj->source(), QUrl(source));
 
     if (error.isEmpty()) {
         QTRY_COMPARE(obj->status(), QQuickBorderImage::Ready);
@@ -283,7 +283,7 @@ void tst_qquickborderimage::sciSource()
     if (remote)
         QTRY_COMPARE(obj->status(), QQuickBorderImage::Loading);
 
-    QCOMPARE(obj->source(), remote ? source : QUrl(source));
+    QCOMPARE(obj->source(), QUrl(source));
     QCOMPARE(obj->width(), 300.);
     QCOMPARE(obj->height(), 300.);
 
@@ -440,7 +440,7 @@ void tst_qquickborderimage::statusChanges()
     qRegisterMetaType<QQuickImageBase::Status>();
     QSignalSpy spy(obj, SIGNAL(statusChanged(QQuickImageBase::Status)));
     QVERIFY(obj != nullptr);
-    obj->setSource(source);
+    obj->setSource(QUrl{source});
     if (remote)
         server.sendDelayedItem();
     QTRY_COMPARE(obj->status(), finalStatus);
@@ -575,8 +575,7 @@ void tst_qquickborderimage::progressAndStatusChanges()
 #if QT_CONFIG(opengl)
 void tst_qquickborderimage::borderImageMesh()
 {
-    if (QGuiApplication::platformName() == QLatin1String("minimal"))
-        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
+    SKIP_IF_NO_WINDOW_GRAB;
 
     QQuickView *window = new QQuickView;
 
@@ -608,8 +607,7 @@ void tst_qquickborderimage::multiFrame_data()
 
 void tst_qquickborderimage::multiFrame()
 {
-    if (QGuiApplication::platformName() == QLatin1String("minimal"))
-        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
+    SKIP_IF_NO_WINDOW_GRAB;
 
     QFETCH(QString, qmlfile);
     QFETCH(bool, asynchronous);

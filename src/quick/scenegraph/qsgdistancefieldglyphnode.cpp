@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgdistancefieldglyphnode_p.h"
 #include "qsgdistancefieldglyphnode_p_p.h"
@@ -9,10 +10,12 @@ QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcSgText, "qt.scenegraph.text")
 
-qint64 QSGDistanceFieldGlyphNode::m_totalAllocation = 0;
+// all SG glyph vertices and indices; only for qCDebug metrics
+static std::atomic<qint64> s_totalAllocation = 0;
 
 QSGDistanceFieldGlyphNode::QSGDistanceFieldGlyphNode(QSGRenderContext *context)
-    : m_glyphNodeType(RootGlyphNode)
+    : QSGGlyphNode(QSGTextNode::QtRendering)
+    , m_glyphNodeType(RootGlyphNode)
     , m_context(context)
     , m_material(nullptr)
     , m_glyph_cache(nullptr)
@@ -33,7 +36,14 @@ QSGDistanceFieldGlyphNode::QSGDistanceFieldGlyphNode(QSGRenderContext *context)
 
 QSGDistanceFieldGlyphNode::~QSGDistanceFieldGlyphNode()
 {
+    cleanup();
+}
+
+void QSGDistanceFieldGlyphNode::cleanup()
+{
     delete m_material;
+    m_material = nullptr;
+    m_texture = nullptr;
 
     if (m_glyphNodeType == SubGlyphNode)
         return;
@@ -41,7 +51,27 @@ QSGDistanceFieldGlyphNode::~QSGDistanceFieldGlyphNode()
     if (m_glyph_cache) {
         m_glyph_cache->release(m_glyphs.glyphIndexes());
         m_glyph_cache->unregisterGlyphNode(this);
+        m_glyph_cache = nullptr;
     }
+}
+
+void QSGDistanceFieldGlyphNode::recycle()
+{
+    QSGGlyphNode::recycle();
+
+    cleanup();
+    m_color = QColor{};
+    m_baseLine = QPointF{};
+    m_originalPosition = QPointF{};
+    m_position = QPointF{};
+    m_glyphs = QGlyphRun{};
+    m_geometry.allocate(0, 0); // Shrink
+    m_style = QQuickText::Normal;
+    m_antialiasingMode = GrayAntialiasing;
+    m_boundingRect = QRectF{};
+    m_renderTypeQuality = -1;
+    m_dirtyGeometry = true;
+    m_dirtyMaterial = true;
 }
 
 void QSGDistanceFieldGlyphNode::setColor(const QColor &color)
@@ -89,15 +119,16 @@ void QSGDistanceFieldGlyphNode::setGlyphs(const QPointF &position, const QGlyphR
         return;
 
     if (m_glyph_cache != oldCache) {
-        if (oldCache) {
+        if (oldCache)
             oldCache->unregisterGlyphNode(this);
-        }
-        m_glyph_cache->registerGlyphNode(this);
+
+        if (m_glyph_cache)
+            m_glyph_cache->registerGlyphNode(this);
     }
     if (m_glyph_cache)
         m_glyph_cache->populate(glyphs.glyphIndexes());
 
-    const QVector<quint32> glyphIndexes = m_glyphs.glyphIndexes();
+    const QList<quint32> glyphIndexes = m_glyphs.glyphIndexes();
     for (int i = 0; i < glyphIndexes.size(); ++i)
         m_allGlyphIndexesLookup.insert(glyphIndexes.at(i));
     qCDebug(lcSgText, "inserting %" PRIdQSIZETYPE " glyphs, %" PRIdQSIZETYPE " unique",
@@ -139,7 +170,7 @@ void QSGDistanceFieldGlyphNode::preprocess()
     setFlag(UsePreprocess, false);
 }
 
-void QSGDistanceFieldGlyphNode::invalidateGlyphs(const QVector<quint32> &glyphs)
+void QSGDistanceFieldGlyphNode::invalidateGlyphs(const QList<quint32> &glyphs)
 {
     if (m_dirtyGeometry)
         return;
@@ -173,8 +204,8 @@ void QSGDistanceFieldGlyphNode::updateGeometry()
     Q_ASSERT(g->indexType() == QSGGeometry::UnsignedShortType);
     m_glyphsInOtherTextures.clear();
 
-    const QVector<quint32> indexes = m_glyphs.glyphIndexes();
-    const QVector<QPointF> positions = m_glyphs.positions();
+    const QList<quint32> indexes = m_glyphs.glyphIndexes();
+    const QList<QPointF> positions = m_glyphs.positions();
     qreal fontPixelSize = m_glyphs.rawFont().pixelSize();
 
     // The template parameters here are assuming that most strings are short, 64
@@ -312,9 +343,9 @@ void QSGDistanceFieldGlyphNode::updateGeometry()
         }
     }
 
-    m_totalAllocation += vp.size() * sizeof(QSGGeometry::TexturedPoint2D) + ip.size() * sizeof(quint16);
+    s_totalAllocation += vp.size() * sizeof(QSGGeometry::TexturedPoint2D) + ip.size() * sizeof(quint16);
     qCDebug(lcSgText) << "allocating for" << vp.size() << "vtx (reserved" << likelyGlyphCount * 4 << "):" << vp.size() * sizeof(QSGGeometry::TexturedPoint2D)
-            << "bytes;" << ip.size() << "idx:" << ip.size() * sizeof(quint16) << "bytes; total bytes so far" << m_totalAllocation;
+            << "bytes;" << ip.size() << "idx:" << ip.size() * sizeof(quint16) << "bytes; total bytes so far" << s_totalAllocation;
     g->allocate(vp.size(), ip.size());
     memcpy(g->vertexDataAsTexturedPoint2D(), vp.constData(), vp.size() * sizeof(QSGGeometry::TexturedPoint2D));
     memcpy(g->indexDataAsUShort(), ip.constData(), ip.size() * sizeof(quint16));

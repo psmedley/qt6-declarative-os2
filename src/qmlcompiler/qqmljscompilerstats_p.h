@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSCOMPILERSTATS_P_H
 #define QQMLJSCOMPILERSTATS_P_H
@@ -22,20 +23,23 @@
 #include <private/qqmljsdiagnosticmessage_p.h>
 #include <private/qqmljssourcelocation_p.h>
 
+#include <chrono>
 #include <memory>
 
 QT_BEGIN_NAMESPACE
 
 namespace QQmlJS {
 
+enum class CodegenResult : quint8 { Success, Skip, Failure };
+
 struct Q_QMLCOMPILER_EXPORT AotStatsEntry
 {
     std::chrono::microseconds codegenDuration;
     QString functionName;
-    QString errorMessage;
+    QString message;
     int line = 0;
     int column = 0;
-    bool codegenSuccessful = true;
+    CodegenResult codegenResult = CodegenResult::Success;
 
     bool operator<(const AotStatsEntry &) const;
 };
@@ -60,7 +64,7 @@ public:
     static std::optional<AotStats> parseAotstatsFile(const QString &aotstatsPath);
     static std::optional<AotStats> aggregateAotstatsList(const QString &aotstatsListPath);
 
-    static AotStats fromJsonDocument(const QJsonDocument &);
+    static std::optional<AotStats> fromJsonDocument(const QJsonDocument &);
     QJsonDocument toJsonDocument() const;
 
 private:
@@ -76,8 +80,8 @@ public:
     static bool recordAotStats() { return s_recordAotStats; }
     static void setRecordAotStats(bool recordAotStats) { s_recordAotStats = recordAotStats; }
 
-    static const QString &moduleId() { return s_moduleId; }
-    static void setModuleId(QString moduleId) { s_moduleId = moduleId; }
+    static QString moduleId() { return s_moduleId; }
+    static void setModuleId(const QString &moduleId) { s_moduleId = moduleId; }
 
     static void registerFile(const QString &filepath);
     static void addEntry(const QString &filepath, const QQmlJS::AotStatsEntry &entry);

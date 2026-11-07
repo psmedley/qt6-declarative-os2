@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGCURVEFILLNODE_P_H
 #define QSGCURVEFILLNODE_P_H
@@ -200,7 +201,7 @@ public:
         appendTriangle({v1, v2, v3}, {}, uvForPoint);
     }
 
-    QVector<quint32> uncookedIndexes() const
+    QList<quint32> uncookedIndexes() const
     {
         return m_uncookedIndexes;
     }
@@ -231,6 +232,16 @@ public:
         m_boundsSize = boundsSize;
     }
 
+    bool useStandardDerivatives() const
+    {
+        return m_useStandardDerivatives;
+    }
+
+    void setUseStandardDerivatives(bool useStandardDerivatives) override
+    {
+        m_useStandardDerivatives = useStandardDerivatives;
+    }
+
 private Q_SLOTS:
     void handleTextureChanged()
     {
@@ -256,8 +267,8 @@ private:
 
     QScopedPointer<QSGMaterial> m_material;
 
-    QVector<CurveNodeVertex> m_uncookedVertexes;
-    QVector<quint32> m_uncookedIndexes;
+    QList<CurveNodeVertex> m_uncookedVertexes;
+    QList<quint32> m_uncookedIndexes;
 
     QSGGradientCache::GradientDesc m_fillGradient;
     QSGTextureProvider *m_textureProvider = nullptr;
@@ -266,6 +277,7 @@ private:
     QColor m_color = Qt::white;
     QGradient::Type m_gradientType = QGradient::NoGradient;
     float m_debug = 0.0f;
+    bool m_useStandardDerivatives = false;
 };
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgsoftwarecontext_p.h"
 
@@ -21,29 +22,6 @@
 #include <QtGui/QWindow>
 #include <QtQuick/private/qquickwindow_p.h>
 #include <QtQuick/private/qquickitem_p.h>
-
-// Used for very high-level info about the renderering and gl context
-// Includes GL_VERSION, type of render loop, atlas size, etc.
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_INFO,                "qt.scenegraph.info")
-
-// Used to debug the renderloop logic. Primarily useful for platform integrators
-// and when investigating the render loop logic.
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_RENDERLOOP,          "qt.scenegraph.renderloop")
-
-// GLSL shader compilation
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_COMPILATION,    "qt.scenegraph.time.compilation")
-
-// polish, animations, sync, render and swap in the render loop
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_RENDERLOOP,     "qt.scenegraph.time.renderloop")
-
-// Texture uploads and swizzling
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_TEXTURE,        "qt.scenegraph.time.texture")
-
-// Glyph preparation (only for distance fields atm)
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_GLYPH,          "qt.scenegraph.time.glyph")
-
-// Timing inside the renderer base class
-Q_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_RENDERER,       "qt.scenegraph.time.renderer")
 
 QT_BEGIN_NAMESPACE
 
@@ -75,12 +53,17 @@ QSGPainterNode *QSGSoftwareContext::createPainterNode(QQuickPaintedItem *item)
     return new QSGSoftwarePainterNode(item);
 }
 
-QSGGlyphNode *QSGSoftwareContext::createGlyphNode(QSGRenderContext *rc, QSGTextNode::RenderType renderType, int renderTypeQuality)
+QSGGlyphNode *QSGSoftwareContext::createGlyphNode(QSGRenderContext *rc, QSGTextNode::RenderType renderType)
 {
     Q_UNUSED(rc);
     Q_UNUSED(renderType);
-    Q_UNUSED(renderTypeQuality);
     return new QSGSoftwareGlyphNode();
+}
+
+QSGTextNode::RenderType QSGSoftwareContext::processTextRenderType(QSGTextNode::RenderType renderType)
+{
+    Q_UNUSED(renderType);
+    return QSGTextNode::NativeRendering;
 }
 
 QSGLayer *QSGSoftwareContext::createLayer(QSGRenderContext *renderContext)
@@ -94,6 +77,8 @@ QSurfaceFormat QSGSoftwareContext::defaultSurfaceFormat() const
     format.setRenderableType(QSurfaceFormat::DefaultRenderableType);
     format.setMajorVersion(0);
     format.setMinorVersion(0);
+    if (QQuickWindow::hasDefaultAlphaBuffer())
+        format.setAlphaBufferSize(8);
     return format;
 }
 
@@ -117,6 +102,9 @@ void QSGSoftwareRenderContext::invalidate()
 
     qDeleteAll(m_glyphCaches);
     m_glyphCaches.clear();
+
+    qDeleteAll(m_staleGlyphCaches);
+    m_staleGlyphCaches.clear();
 
     m_sg->renderContextInvalidated(this);
     emit invalidated();

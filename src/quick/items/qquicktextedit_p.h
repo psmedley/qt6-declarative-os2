@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTEXTEDIT_P_H
 #define QQUICKTEXTEDIT_P_H
@@ -27,6 +28,7 @@ class QQuickTextDocument;
 class QQuickTextEditPrivate;
 class QQuickTextSelection;
 class QTextBlock;
+class QQmlComponent;
 
 class QQuickTextBlockForeign
 {
@@ -45,7 +47,7 @@ class Q_QUICK_EXPORT QQuickTextEdit : public QQuickImplicitSizeItem, public QQui
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
     Q_PROPERTY(QColor selectedTextColor READ selectedTextColor WRITE setSelectedTextColor NOTIFY selectedTextColorChanged)
-    Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY fontChanged)
+    Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY fontChanged VIRTUAL)
     Q_PROPERTY(HAlignment horizontalAlignment READ hAlign WRITE setHAlign RESET resetHAlign NOTIFY horizontalAlignmentChanged)
     Q_PROPERTY(HAlignment effectiveHorizontalAlignment READ effectiveHAlign NOTIFY effectiveHorizontalAlignmentChanged)
     Q_PROPERTY(VAlignment verticalAlignment READ vAlign WRITE setVAlign NOTIFY verticalAlignmentChanged)
@@ -244,7 +246,7 @@ public:
     Q_INVOKABLE QRectF positionToRectangle(int) const;
     Q_INVOKABLE int positionAt(qreal x, qreal y) const;
     Q_INVOKABLE void moveCursorSelection(int pos);
-    Q_INVOKABLE void moveCursorSelection(int pos, SelectionMode mode);
+    Q_INVOKABLE void moveCursorSelection(int pos, QQuickTextEdit::SelectionMode mode);
 
     QQuickTextSelection *cursorSelection() const;
 
@@ -335,6 +337,7 @@ Q_SIGNALS:
     Q_REVISION(2, 6) void rightPaddingChanged();
     Q_REVISION(2, 6) void bottomPaddingChanged();
     Q_REVISION(2, 10) void tabStopDistanceChanged(qreal distance);
+    Q_REVISION(6, 9) void textEdited();
 
 public Q_SLOTS:
     void selectAll();
@@ -404,6 +407,9 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    bool contextMenuEvent(QContextMenuEvent *event) override;
+#endif
 #if QT_CONFIG(im)
     void inputMethodEvent(QInputMethodEvent *e) override;
 #endif

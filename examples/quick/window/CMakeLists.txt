@@ -16,6 +16,8 @@ qt_add_executable(windowexample
     main.cpp
 )
 
+set_target_properties(windowexample PROPERTIES FOLDER "qtc_runnable")
+
 target_link_libraries(windowexample PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -43,7 +45,6 @@ install(TARGETS windowexample
 qt_generate_deploy_qml_app_script(
     TARGET windowexample
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

@@ -1,13 +1,11 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
-#include "qquickfluentwinui3theme_p.h"
-
-#include <QtQuickControls2/private/qquickstyleplugin_p.h>
-#include <QtQuickControls2/private/qquickstyleplugin_p.h>
-#include <QtQuickTemplates2/private/qquicktheme_p.h>
-
-#include "qquickfluentwinui3focusframe_p.h"
+#include <private/qquickfluentwinui3focusframe_p.h>
+#include <private/qquickfluentwinui3theme_p.h>
+#include <private/qquickstyleplugin_p.h>
+#include <private/qquicktheme_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,10 +53,10 @@ void QtQuickControls2FluentWinUI3StylePlugin::initializeTheme(QQuickTheme *theme
 
 void QtQuickControls2FluentWinUI3StylePlugin::updateTheme()
 {
-    QQuickTheme *theme = QQuickTheme::instance();
-    QPalette palette;
-    this->theme.updatePalette(palette);
-    theme->setPalette(QQuickTheme::System, palette);
+    auto *theme = QQuickTheme::instance();
+    if (theme)
+        theme->setPalette(QQuickTheme::System, this->theme.initializeDefaultPalette());
+    // TODO: Update the font too if needed
 }
 
 QT_END_NAMESPACE

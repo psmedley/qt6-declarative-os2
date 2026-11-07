@@ -25,6 +25,14 @@ static QJSValue myQJSValueQObjectSingleton(QQmlEngine *engine, QJSEngine *script
     return value;
 }
 
+static QObject *readCounterSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
+{
+    Q_UNUSED(engine);
+    Q_UNUSED(scriptEngine);
+
+    return new ReadCounter();
+}
+
 void registerTypes()
 {
     qmlRegisterInterface<MyInterface>("MyInterface", 1);
@@ -106,6 +114,7 @@ void registerTypes()
     qmlRegisterType<ImmediateProperties>("Test", 1, 0, "ImmediateProperties");
 
     qmlRegisterTypesAndRevisions<Extended, Foreign, ForeignExtended>("Test", 1);
+
     qmlRegisterTypesAndRevisions<BareSingleton>("Test", 1);
     qmlRegisterTypesAndRevisions<UncreatableSingleton>("Test", 1);
 
@@ -157,6 +166,9 @@ void registerTypes()
 
     qmlRegisterTypesAndRevisions<BaseValueType>("ValueTypes", 1);
     qmlRegisterTypesAndRevisions<DerivedValueType>("ValueTypes", 1);
+    qmlRegisterTypesAndRevisions<CustomIdentifier>("ValueTypes", 1);
+    qmlRegisterTypesAndRevisions<IdProvider>("ValueTypes", 1);
+
     qmlRegisterTypesAndRevisions<GetterObject>("Test", 1);
 
     qmlRegisterNamespaceAndRevisions(&TypedEnums::staticMetaObject, "TypedEnums", 1);
@@ -186,7 +198,37 @@ void registerTypes()
             InvokableValueType
     >("Test", 1);
     qmlRegisterTypesAndRevisions<NestedVectors>("Test", 1);
+    qmlRegisterTypesAndRevisions<VariantAssociationProvider>("Test", 1);
+    qmlRegisterTypesAndRevisions<ReadCounter>("Test", 1);
+    qmlRegisterSingletonType<ReadCounter>("Test", 1, 0, "ReadCounterSingleton", readCounterSingleton);
+
+    qmlRegisterTypesAndRevisions<BindablePoint>("Test", 1);
+
+    qmlRegisterTypesAndRevisions<LargeRevisionBase>("Test", 1);
+    qmlRegisterTypesAndRevisions<LargeRevision>("Test", 1);
 }
+
+static_assert(std::is_same_v<typename QQmlPrivate::QmlExtended<Extended>::Type, Extension>);
+static_assert(std::is_same_v<typename QQmlPrivate::QmlExtended<ForeignExtended>::Type, Extension>);
+
+static_assert(std::is_same_v<typename QQmlPrivate::QmlResolved<Foreign>::Type, Local>);
+static_assert(std::is_same_v<typename QQmlPrivate::QmlResolved<ForeignExtended>::Type, Local>);
+
+static_assert(QQmlPrivate::QmlUncreatable<UncreatableElementNoReason>::Value);
+static_assert(!QQmlPrivate::QmlUncreatable<UncreatableSingleton>::Value);
+
+static_assert(QQmlPrivate::QmlAnonymous<AttachedType>::Value);
+static_assert(!QQmlPrivate::QmlAnonymous<Local>::Value);
+
+static_assert(QQmlPrivate::QmlSingleton<BareSingleton>::Value);
+static_assert(QQmlPrivate::QmlSingleton<UncreatableSingleton>::Value);
+static_assert(!QQmlPrivate::QmlSingleton<Local>::Value);
+
+static_assert(QQmlPrivate::QmlSequence<IntListRegistration>::Value);
+static_assert(!QQmlPrivate::QmlSequence<Local>::Value);
+
+static_assert(QQmlPrivate::QmlInterface<SomeQmlInterface>::Value);
+static_assert(!QQmlPrivate::QmlInterface<Local>::Value);
 
 QVariant myCustomVariantTypeConverter(const QString &data)
 {
@@ -296,9 +338,7 @@ const QMetaObject *QtPrivate::MetaObjectForType<FakeDynamicObject *, void>::meta
         QMetaObjectBuilder builder(&FakeDynamicObject::staticMetaObject);
         builder.setFlags(DynamicMetaObject);
         auto mo = builder.toMetaObject();
-        QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, [mo]() {
-            delete mo;
-        });
+        QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, [mo] { delete mo; });
         return mo;
     }();
     return ptr;

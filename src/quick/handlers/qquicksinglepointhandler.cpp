@@ -1,12 +1,14 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicksinglepointhandler_p.h"
 #include "qquicksinglepointhandler_p_p.h"
 #include <private/qquickdeliveryagent_p_p.h>
 
+#include <private/qquickdeliveryagent_p.h>
+
 QT_BEGIN_NAMESPACE
-Q_DECLARE_LOGGING_CATEGORY(lcTouchTarget)
 
 /*!
     \qmltype SinglePointHandler

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMFILEDIALOG_P_H
 #define QQUICKLABSPLATFORMFILEDIALOG_P_H
@@ -19,6 +20,8 @@
 #include <QtCore/qurl.h>
 #include <QtQml/qqml.h>
 
+#if QT_DEPRECATED_SINCE(6, 9)
+
 QT_BEGIN_NAMESPACE
 
 class QQuickLabsPlatformFileNameFilter;
@@ -27,6 +30,7 @@ class QQuickLabsPlatformFileDialog : public QQuickLabsPlatformDialog
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(FileDialog)
+    QML_ADDED_IN_VERSION(1, 0)
     QML_EXTENDED_NAMESPACE(QFileDialogOptions)
     Q_PROPERTY(FileMode fileMode READ fileMode WRITE setFileMode NOTIFY fileModeChanged FINAL)
     Q_PROPERTY(QUrl file READ file WRITE setFile NOTIFY fileChanged FINAL)
@@ -126,6 +130,7 @@ class QQuickLabsPlatformFileNameFilter : public QObject
 {
     Q_OBJECT
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(int index READ index WRITE setIndex NOTIFY indexChanged FINAL)
     Q_PROPERTY(QString name READ name NOTIFY nameChanged FINAL)
     Q_PROPERTY(QStringList extensions READ extensions NOTIFY extensionsChanged FINAL)
@@ -160,5 +165,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#endif // QT_DEPRECATED_SINCE(6, 9)
 
 #endif // QQUICKLABSPLATFORMFILEDIALOG_P_H

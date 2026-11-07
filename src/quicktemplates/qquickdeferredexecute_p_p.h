@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDEFERREDEXECUTE_P_P_H
 #define QQUICKDEFERREDEXECUTE_P_P_H
@@ -27,9 +28,11 @@ class QString;
 class QObject;
 
 namespace QtQuickPrivate {
-    Q_QUICKTEMPLATES2_EXPORT void beginDeferred(QObject *object, const QString &property, QQuickUntypedDeferredPointer *delegate, bool isOwnState);
+    Q_QUICKTEMPLATES2_EXPORT void beginDeferred(QObject *object, const QString &property,
+        QQuickUntypedDeferredPointer *delegate, bool isOwnState, QQmlEngine *engine = nullptr);
     Q_QUICKTEMPLATES2_EXPORT void cancelDeferred(QObject *object, const QString &property);
-    Q_QUICKTEMPLATES2_EXPORT void completeDeferred(QObject *object, const QString &property, QQuickUntypedDeferredPointer *delegate);
+    Q_QUICKTEMPLATES2_EXPORT void completeDeferred(QObject *object, const QString &property,
+        QQuickUntypedDeferredPointer *delegate, QQmlEngine *engine = nullptr);
 }
 
 template<typename T>
@@ -38,7 +41,23 @@ void quickBeginDeferred(QObject *object, const QString &property, QQuickDeferred
     if (!QQmlVME::componentCompleteEnabled())
         return;
 
+    // Populating can re-enter this: writing the property notifies observers, and a binding among
+    // them may read it back. Beginning again would orphan the outer DeferredState.
+    if (delegate.isExecuting())
+        return;
+
     QtQuickPrivate::beginDeferred(object, property, &delegate, delegate.setExecuting(true));
+    delegate.setExecuting(false);
+}
+
+template<typename T>
+void quickBeginAttachedDeferred(QObject *object, const QString &property,
+    QQuickDeferredPointer<T> &delegate, QQmlEngine *engine)
+{
+    if (!QQmlVME::componentCompleteEnabled())
+        return;
+
+    QtQuickPrivate::beginDeferred(object, property, &delegate, delegate.setExecuting(true), engine);
     delegate.setExecuting(false);
 }
 
@@ -52,6 +71,15 @@ void quickCompleteDeferred(QObject *object, const QString &property, QQuickDefer
 {
     Q_ASSERT(!delegate.wasExecuted());
     QtQuickPrivate::completeDeferred(object, property, &delegate);
+    delegate.setExecuted();
+}
+
+template<typename T>
+void quickCompleteAttachedDeferred(QObject *object, const QString &property,
+    QQuickDeferredPointer<T> &delegate, QQmlEngine *engine)
+{
+    Q_ASSERT(!delegate.wasExecuted());
+    QtQuickPrivate::completeDeferred(object, property, &delegate, engine);
     delegate.setExecuted();
 }
 

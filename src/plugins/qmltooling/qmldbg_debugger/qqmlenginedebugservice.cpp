@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlenginedebugservice.h"
 #include "qqmlwatcher.h"
@@ -478,9 +479,17 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
 
         if (engine) {
             QQmlContext *rootContext = engine->rootContext();
-            QQmlContextPrivate *ctxtPriv = QQmlContextPrivate::get(rootContext);
-            ctxtPriv->cleanInstances(); // Clean deleted objects
-            const QList<QPointer<QObject>> instances = ctxtPriv->instances();
+            QList<QPointer<QObject>> instances;
+            std::function<void(const QQmlRefPointer<QQmlContextData> &)> collectInstances;
+            collectInstances = [&](const QQmlRefPointer<QQmlContextData> &ctx) {
+                QQmlContextPrivate *ctxPriv =
+                        QQmlContextPrivate::get(ctx->asQQmlContext());
+                ctxPriv->cleanInstances(); // Clean deleted objects
+                instances.append(ctxPriv->instances());
+                for (auto child = ctx->childContexts(); child; child = child->nextChild())
+                    collectInstances(child);
+            };
+            collectInstances(QQmlContextData::get(rootContext));
             buildObjectList(rs, rootContext, instances);
             buildStatesList(true, instances);
         }

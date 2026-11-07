@@ -13,7 +13,7 @@
 #include <QtCore/qprocess.h>
 #include <QtCore/qlibraryinfo.h>
 #include <QtCore/qstringlist.h>
-
+#include <QtCore/qmap.h>
 #include <QtTest/qtest.h>
 #include <QtQmlLS/private/qlspcustomtypes_p.h>
 
@@ -23,7 +23,7 @@
 
 class tst_qmlls_modules : public QQmlDataTest
 {
-    using ExpectedCompletion = QPair<QString, QLspSpecification::CompletionItemKind>;
+    using ExpectedCompletion = std::pair<QString, QLspSpecification::CompletionItemKind>;
     using ExpectedCompletions = QList<ExpectedCompletion>;
 
     using ExpectedDocumentation = std::tuple<QString, QString, QString>;
@@ -37,6 +37,7 @@ public:
     std::optional<QByteArray> openFile(const QString &uri);
     std::optional<QByteArray> openFileFromAbsolutePath(const QString &uri);
     void ignoreDiagnostics();
+    void ignoreWorkspaceSemanticTokensRefreshRequestHandler();
     void compareQTextDocumentEdit(const QLspSpecification::TextDocumentEdit &a,
                                   const QLspSpecification::TextDocumentEdit &b);
 private slots:
@@ -46,6 +47,7 @@ private slots:
     void function_documentations_data();
     void function_documentations();
     void buildDir();
+    void inMemoryEnumCompletion();
     void goToTypeDefinition_data();
     void goToTypeDefinition();
     void goToDefinition_data();
@@ -58,6 +60,14 @@ private slots:
     void renameUsages();
     void linting_data();
     void linting();
+
+private:
+    struct ExpectedWarnings
+    {
+        QStringList warnings;
+        QMap<QString, QStringList> extraImportPathsPerWorkspace = {};
+    };
+private slots:
     void warnings_data();
     void warnings();
     void rangeFormatting_data();
@@ -65,6 +75,7 @@ private slots:
     void qmldirImports_data();
     void qmldirImports();
     void quickFixes_data();
+    // TODO QTBUG-145439
     void quickFixes();
     void automaticSemicolonInsertionForCompletions_data();
     void automaticSemicolonInsertionForCompletions();
@@ -77,6 +88,9 @@ private slots:
     void semanticHighlightingRange();
     void semanticHighlightingDelta_data();
     void semanticHighlightingDelta();
+
+    void documentSymbols();
+
 private:
     QProcess m_server;
     std::unique_ptr<QLanguageServerProtocol> m_protocol;

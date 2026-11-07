@@ -1,12 +1,13 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest>
+#include <QSignalSpy>
+#include <QTest>
 #include <QtQuick>
 #include <QtQuickControls2/qquickstyle.h>
 #include <QtQuickControls2/private/qquickstyle_p.h>
 
-typedef QPair<QString, QString> QStringPair;
+typedef std::pair<QString, QString> QStringPair;
 
 class tst_Snippets : public QObject
 {
@@ -15,8 +16,8 @@ class tst_Snippets : public QObject
 private slots:
     void initTestCase();
 
-    void verify();
     void verify_data();
+    void verify();
 
 private:
     void loadSnippet(const QString &source);
@@ -32,7 +33,7 @@ static QMap<QString, QStringPair> findSnippets(const QDir &inputDir, const QDir 
     while (it.hasNext()) {
         QFileInfo fi(it.next());
         const QString outDirPath = !outputDir.path().isEmpty() ? outputDir.filePath(fi.baseName() + ".png") : QString();
-        snippetPaths.insert(fi.baseName(), qMakePair(fi.filePath(), outDirPath));
+        snippetPaths.insert(fi.baseName(), std::make_pair(fi.filePath(), outDirPath));
     }
     return snippetPaths;
 }
@@ -59,10 +60,39 @@ void tst_Snippets::initTestCase()
 
 Q_DECLARE_METATYPE(QList<QQmlError>)
 
+void tst_Snippets::verify_data()
+{
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<QString>("output");
+
+    QMap<QString, QStringPair>::const_iterator it;
+    for (it = snippetPaths.constBegin(); it != snippetPaths.constEnd(); ++it)
+        QTest::newRow(qPrintable(it.key())) << it.value().first << it.value().second;
+}
+
 void tst_Snippets::verify()
 {
     QFETCH(QString, input);
     QFETCH(QString, output);
+
+    // TODO: QTBUG-135009
+    if (QTest::currentDataTag() != QLatin1String("qtquickcontrols-spinbox-custom"))
+        QTest::failOnWarning();
+
+    QUrl url = QUrl::fromLocalFile(input);
+#if !QT_CONFIG(qml_labs)
+    QStringList filesUsingLabs {
+        "qtquickcontrols-headerview-simple.qml",
+        "qtquickcontrols-headerview.qml",
+        "qtquickcontrols-headerviewdelegate.qml",
+        "qtquickcontrols-selectionrectangle.qml",
+        "qtquickcontrols-tableviewdelegate-custom.qml",
+        "qtquickcontrols-tableviewdelegate.qml"
+    };
+
+    if (filesUsingLabs.contains(url.fileName()))
+        QSKIP("Test requires feature qml-labs");
+#endif
 
     QQmlEngine engine;
     QQmlComponent component(&engine);
@@ -71,7 +101,6 @@ void tst_Snippets::verify()
     QSignalSpy warnings(&engine, SIGNAL(warnings(QList<QQmlError>)));
     QVERIFY(warnings.isValid());
 
-    QUrl url = QUrl::fromLocalFile(input);
     component.loadUrl(url);
 
     QScopedPointer<QObject> root(component.create());
@@ -122,16 +151,6 @@ void tst_Snippets::verify()
 
         window->close();
     }
-}
-
-void tst_Snippets::verify_data()
-{
-    QTest::addColumn<QString>("input");
-    QTest::addColumn<QString>("output");
-
-    QMap<QString, QStringPair>::const_iterator it;
-    for (it = snippetPaths.constBegin(); it != snippetPaths.constEnd(); ++it)
-        QTest::newRow(qPrintable(it.key())) << it.value().first << it.value().second;
 }
 
 QTEST_MAIN(tst_Snippets)

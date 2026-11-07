@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKABSTRACTBUTTON_P_P_H
 #define QQUICKABSTRACTBUTTON_P_P_H
@@ -22,6 +23,8 @@
 #endif
 
 #include <QtCore/qpointer.h>
+
+#include <QtQml/private/qqmlpropertyutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -48,6 +51,8 @@ public:
     void handleUngrab() override;
 
     virtual bool acceptKeyClick(Qt::Key key) const;
+    virtual void accessiblePressAction();
+    virtual void accessibleToggleAction();
 
     bool isPressAndHoldConnected();
     bool isDoubleClickConnected();
@@ -67,7 +72,7 @@ public:
     QList<QQuickAbstractButton *> findExclusiveButtons() const;
 
     void actionTextChange();
-    void setText(const QString &text, bool isExplicit);
+    void setText(const QString &text, QQml::PropertyUtils::State propertyState);
     void init();
 
     void updateEffectiveIcon();
@@ -98,6 +103,7 @@ public:
     bool autoRepeat = false;
     bool wasHeld = false;
     bool wasDoubleClick = false;
+    bool wasEnabledBeforeTrigger = false;
     int holdTimer = 0;
     int delayTimer = 0;
     int repeatTimer = 0;

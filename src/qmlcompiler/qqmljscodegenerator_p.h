@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:critical reason:code-generation
 
 #ifndef QQMLJSCODEGENERATOR_P_H
 #define QQMLJSCODEGENERATOR_P_H
@@ -15,6 +16,7 @@
 // We mean it.
 
 #include <private/qqmljscompiler_p.h>
+#include <private/qqmljslookupsignatures_p.h>
 #include <private/qqmljstypepropagator_p.h>
 #include <private/qqmljstyperesolver_p.h>
 
@@ -22,8 +24,6 @@
 #include <private/qv4codegen_p.h>
 
 #include <QtCore/qstring.h>
-
-#include <memory>
 
 QT_BEGIN_NAMESPACE
 
@@ -33,11 +33,13 @@ public:
     QQmlJSCodeGenerator(const QV4::Compiler::Context *compilerContext,
                         const QV4::Compiler::JSUnitGenerator *unitGenerator,
                         const QQmlJSTypeResolver *typeResolver, QQmlJSLogger *logger,
-                        BasicBlocks basicBlocks, InstructionAnnotations annotations);
+                        const BasicBlocks &basicBlocks, const InstructionAnnotations &annotations,
+                        bool noAotValidation);
     ~QQmlJSCodeGenerator() = default;
 
-    QQmlJSAotFunction run(const Function *function, QQmlJS::DiagnosticMessage *error,
-                          bool basicBlocksValidationFailed);
+    QQmlJSAotFunction run(const Function *function, bool basicBlocksValidationFailed);
+
+    LookupSignatures lookupSignatures() const { return m_lookupSignaturesRecorder.signatures(); }
 
 protected:
     struct CodegenState : public State
@@ -209,19 +211,19 @@ protected:
         m_includes.append(include);
     }
 
-    QString conversion(const QQmlJSRegisterContent &from,
-                       const QQmlJSRegisterContent &to,
+    QString conversion(QQmlJSRegisterContent from,
+                       QQmlJSRegisterContent to,
                        const QString &variable);
 
     QString conversion(const QQmlJSScope::ConstPtr &from,
-                       const QQmlJSRegisterContent &to,
+                       QQmlJSRegisterContent to,
                        const QString &variable)
     {
-        const QQmlJSScope::ConstPtr contained = m_typeResolver->containedType(to);
-        if (m_typeResolver->equals(to.storedType(), contained)
+        const QQmlJSScope::ConstPtr contained = to.containedType();
+        if (to.storedType() == contained
                 || m_typeResolver->isNumeric(to.storedType())
                 || to.storedType()->isReferenceType()
-                || m_typeResolver->equals(from, contained)) {
+                || from == contained) {
             // If:
             // * the output is not actually wrapped at all, or
             // * the output is a number (as there are no internals to a number)
@@ -230,36 +232,60 @@ protected:
             // we can convert by stored type.
             return convertStored(from, to.storedType(), variable);
         } else {
-            return convertContained(m_typeResolver->globalType(from), to, variable);
+            return convertContained(
+                    m_pool->storedIn(
+                            m_typeResolver->syntheticType(from), m_typeResolver->storedType(from)),
+                    to, variable);
         }
+    }
+
+    QString conversion(QQmlJSRegisterContent from,
+                       const QQmlJSScope::ConstPtr &to,
+                       const QString &variable)
+    {
+        Q_ASSERT(m_typeResolver->storedType(to) == to);
+        return conversion(from, m_pool->storedIn(m_pool->castTo(from, to), to), variable);
+    }
+
+    QString conversion(const QQmlJSScope::ConstPtr &from,
+                       const QQmlJSScope::ConstPtr &to,
+                       const QString &variable)
+    {
+        return convertStored(from, to, variable);
     }
 
     QString convertStored(const QQmlJSScope::ConstPtr &from,
                           const QQmlJSScope::ConstPtr &to,
                           const QString &variable);
 
-    QString convertContained(const QQmlJSRegisterContent &from,
-                             const QQmlJSRegisterContent &to,
+    QString convertContained(QQmlJSRegisterContent from,
+                             QQmlJSRegisterContent to,
                              const QString &variable);
 
     void generateReturnError();
     void reject(const QString &thing);
+    void skip(const QString &thing);
+
+    template<typename T>
+    T reject(const QString &thing)
+    {
+        reject(thing);
+        return T();
+    }
 
     QString metaTypeFromType(const QQmlJSScope::ConstPtr &type) const;
     QString metaTypeFromName(const QQmlJSScope::ConstPtr &type) const;
     QString compositeMetaType(const QString &elementName) const;
     QString compositeListMetaType(const QString &elementName) const;
 
-    QString contentPointer(const QQmlJSRegisterContent &content, const QString &var);
-    QString contentType(const QQmlJSRegisterContent &content, const QString &var);
+    QString contentPointer(QQmlJSRegisterContent content, const QString &var);
+    QString contentType(QQmlJSRegisterContent content, const QString &var);
 
     void generateSetInstructionPointer();
     void generateLookup(const QString &lookup, const QString &initialization,
                         const QString &resultPreparation = QString());
     QString getLookupPreparation(
-            const QQmlJSRegisterContent &content, const QString &var, int lookup);
-    QString setLookupPreparation(
-            const QQmlJSRegisterContent &content, const QString &arg, int lookup);
+            QQmlJSRegisterContent content, const QString &var, int lookup);
     void generateEnumLookup(int index);
 
     QString registerVariable(int index) const;
@@ -272,6 +298,11 @@ protected:
     QQmlJSRegisterContent lookupType(int lookupIndex) const;
     bool shouldMoveRegister(int index) const;
 
+    void recordPropertyLookup(const QQmlJSScope::ConstPtr &base, const QQmlJSMetaProperty &prop);
+    void recordMethodLookup(const QQmlJSScope::ConstPtr &base, const QQmlJSMetaMethod &method);
+    void recordEnumKeyLookup(const QQmlJSScope::ConstPtr &base, const QQmlJSMetaEnum &metaEnum,
+                             const QString &keyName);
+
     QString m_body;
     CodegenState m_state;
 
@@ -281,7 +312,7 @@ private:
     void generateExceptionCheck();
 
     void generateEqualityOperation(
-            const QQmlJSRegisterContent &lhsContent, const QString &lhsName,
+            QQmlJSRegisterContent lhsContent, const QString &lhsName,
             const QString &function, bool invert) {
         generateEqualityOperation(
                 lhsContent, m_state.accumulatorIn(), lhsName, m_state.accumulatorVariableIn,
@@ -289,7 +320,7 @@ private:
     }
 
     void generateEqualityOperation(
-            const QQmlJSRegisterContent &lhsContent, const QQmlJSRegisterContent &rhsContent,
+            QQmlJSRegisterContent lhsContent, QQmlJSRegisterContent rhsContent,
             const QString &lhsName, const QString &rhsName, const QString &function, bool invert);
     void generateCompareOperation(int lhs, const QString &cppOperator);
     void generateArithmeticOperation(int lhs, const QString &cppOperator);
@@ -300,21 +331,35 @@ private:
     void generateJumpCodeWithTypeConversions(int relativeOffset);
     void generateUnaryOperation(const QString &cppOperator);
     void generateInPlaceOperation(const QString &cppOperator);
-    void generateMoveOutVar(const QString &outVar);
+    void generateMoveOutVarAfterCall(const QString &outVar);
     void generateTypeLookup(int index);
     void generateVariantEqualityComparison(
-            const QQmlJSRegisterContent &nonStorable, const QString &registerName, bool invert);
+            QQmlJSRegisterContent nonStorable, const QString &registerName, bool invert);
     void generateVariantEqualityComparison(
-            const QQmlJSRegisterContent &storableContent, const QString &typedRegisterName,
+            QQmlJSRegisterContent storableContent, const QString &typedRegisterName,
             const QString &varRegisterName, bool invert);
     void generateArrayInitializer(int argc, int argv);
     void generateWriteBack(int registerIndex);
     void rejectIfNonQObjectOut(const QString &error);
     void rejectIfBadArray();
 
+    struct GeneratePragmaWarningBlock {
+        Q_DISABLE_COPY_MOVE(GeneratePragmaWarningBlock)
+        GeneratePragmaWarningBlock(QQmlJSCodeGenerator *generator);
+        ~GeneratePragmaWarningBlock();
+
+        void silenceDivideByZero();
+
+        QQmlJSCodeGenerator *m_generator;
+    };
+
 
     QString eqIntExpression(int lhsConst);
-    QString argumentsList(int argc, int argv, QString *outVar);
+
+    QString initAndCall(
+            int argc, int argv, const QString &callMethodTemplate,
+            const QString &initMethodTemplate, QString *outVar);
+
     QString castTargetName(const QQmlJSScope::ConstPtr &type) const;
 
     bool inlineStringMethod(const QString &name, int base, int argc, int argv);
@@ -326,14 +371,51 @@ private:
     void generate_GetLookupHelper(int index);
 
     QString resolveValueTypeContentPointer(
-            const QQmlJSScope::ConstPtr &required, const QQmlJSRegisterContent &actual,
+            const QQmlJSScope::ConstPtr &required, QQmlJSRegisterContent actual,
             const QString &variable, const QString &errorMessage);
     QString resolveQObjectPointer(
-            const QQmlJSScope::ConstPtr &required, const QQmlJSRegisterContent &actual,
+            const QQmlJSScope::ConstPtr &required, QQmlJSRegisterContent actual,
             const QString &variable, const QString &errorMessage);
     bool generateContentPointerCheck(
-            const QQmlJSScope::ConstPtr &required, const QQmlJSRegisterContent &actual,
+            const QQmlJSScope::ConstPtr &required, QQmlJSRegisterContent actual,
             const QString &variable, const QString &errorMessage);
+
+    QString generateCallConstructor(
+            const QQmlJSMetaMethod &ctor, const QList<QQmlJSRegisterContent> &argumentTypes,
+            const QStringList &arguments, const QString &metaType, const QString &metaObject);
+
+    QString generateVariantMapGetLookup(const QString &map, const int nameIndex);
+    QString generateVariantMapSetLookup(
+            const QString &map, const int nameIndex, const QQmlJSScope::ConstPtr &property,
+            const QString &variableIn);
+
+    QQmlJSRegisterContent originalType(QQmlJSRegisterContent tracked)
+    {
+        const QQmlJSRegisterContent restored = m_typeResolver->original(tracked);
+        return m_pool->storedIn(
+                restored, m_typeResolver->original(tracked.storage()).containedType());
+    }
+
+    QQmlJSMetaProperty originalProperty(const QQmlJSRegisterContent &reg) const
+    {
+        auto r = m_typeResolver->original(reg);
+        r = m_typeResolver->shadowed(r);
+        return r.property();
+    }
+
+    QQmlJSMetaMethod originalMethod(const QQmlJSRegisterContent &reg) const
+    {
+        auto r = m_typeResolver->original(reg);
+        r = m_typeResolver->shadowed(r);
+        return r.methodCall();
+    }
+
+    QQmlJSRegisterContent literalType(const QQmlJSScope::ConstPtr &contained)
+    {
+        return m_pool->storedIn(m_typeResolver->literalType(contained), contained);
+    }
+
+    bool isRegisterAffectedBySideEffects(int registerIndex);
 
     // map from instruction offset to sequential label number
     QHash<int, QString> m_labels;
@@ -344,41 +426,18 @@ private:
 
     QStringList m_includes;
 
-    struct RegisterVariablesKey
-    {
-        QString internalName;
-        int registerIndex = -1;
-        int lookupIndex = QQmlJSRegisterContent::InvalidLookupIndex;
-
-    private:
-        friend size_t qHash(const RegisterVariablesKey &key, size_t seed = 0) noexcept
-        {
-            return qHashMulti(seed, key.internalName, key.registerIndex, key.lookupIndex);
-        }
-
-        friend bool operator==(
-                const RegisterVariablesKey &lhs, const RegisterVariablesKey &rhs) noexcept
-        {
-            return lhs.registerIndex == rhs.registerIndex
-                    && lhs.lookupIndex == rhs.lookupIndex
-                    && lhs.internalName == rhs.internalName;
-        }
-
-        friend bool operator!=(
-                const RegisterVariablesKey &lhs, const RegisterVariablesKey &rhs) noexcept
-        {
-            return !(lhs == rhs);
-        }
-    };
-
     struct RegisterVariablesValue
     {
         QString variableName;
         QQmlJSScope::ConstPtr storedType;
+        int initialRegisterIndex = InvalidRegister;
         int numTracked = 0;
     };
 
-    QHash<RegisterVariablesKey, RegisterVariablesValue> m_registerVariables;
+    QHash<QQmlJSRegisterContent, RegisterVariablesValue> m_registerVariables;
+
+    QQmlJSLookupSignaturesRecorder m_lookupSignaturesRecorder;
+    bool m_noAotValidation = false;
 };
 
 QT_END_NAMESPACE

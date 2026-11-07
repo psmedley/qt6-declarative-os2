@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPOPUP_P_P_H
 #define QQUICKPOPUP_P_P_H
@@ -20,6 +21,8 @@
 #include <QtQuickTemplates2/private/qquicktheme_p.h>
 
 #include <QtCore/private/qobject_p.h>
+#include <QtGui/qpa/qplatformwindow.h>
+#include <QtGui/qpa/qplatformwindow_p.h>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQuick/private/qquicktransitionmanager_p_p.h>
@@ -55,7 +58,7 @@ private:
 
 class Q_QUICKTEMPLATES2_EXPORT QQuickPopupPrivate
     : public QObjectPrivate
-    , public QQuickItemChangeListener
+    , public QSafeQuickItemChangeListener<QQuickPopupPrivate>
     , public QQuickPaletteProviderPrivateBase<QQuickPopup, QQuickPopupPrivate>
 {
 public:
@@ -120,7 +123,8 @@ public:
 
     virtual void opened();
 
-    virtual Qt::WindowFlags popupWindowType() const;
+    Qt::WindowFlags popupWindowFlags() const;
+    void setPopupWindowFlags(Qt::WindowFlags flags);
 
     QMarginsF getMargins() const;
 
@@ -173,6 +177,7 @@ public:
     bool inDestructor = false;
     bool relaxEdgeConstraint = false;
     bool popupWindowDirty = false;
+    QPointer<QQuickItem> lastActiveFocusItem;
     int touchId = -1;
     qreal x = 0;
     qreal y = 0;
@@ -200,8 +205,18 @@ public:
     qreal explicitDimmerOpacity = 0;
     qreal prevOpacity = 0;
     qreal prevScale = 0;
-    QString m_title;
-    QQuickPopup::PopupType m_popupType = QQuickPopup::Item;
+    QString title;
+    QQuickPopup::PopupType popupType = QQuickPopup::Item;
+    Qt::WindowModality popupWndModality = Qt::NonModal;
+    Qt::WindowFlags windowFlags = Qt::Popup | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint;
+#if QT_CONFIG(wayland)
+    // The extended window type is used by the wayland compositor to support things like flipping of menus and combobox popups
+    QNativeInterface::Private::QWaylandWindow::WindowType extendedWindowType = QNativeInterface::Private::QWaylandWindow::Default;
+#endif
+#if QT_CONFIG(xcb)
+    // When popupType is Popup.Window, this will end up setting the _NET_WM_WINDOW_TYPE extended window manager hint.
+    QNativeInterface::Private::QXcbWindow::WindowTypes wmWindowType = QNativeInterface::Private::QXcbWindow::None;
+#endif
 
     friend class QQuickPopupTransitionManager;
 };

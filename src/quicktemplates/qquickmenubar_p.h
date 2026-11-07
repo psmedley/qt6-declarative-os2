@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKMENUBAR_P_H
 #define QQUICKMENUBAR_P_H
@@ -23,6 +24,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickMenu;
 class QQuickMenuBarPrivate;
+class QQmlComponent;
 
 class Q_QUICKTEMPLATES2_EXPORT QQuickMenuBar : public QQuickContainer
 {

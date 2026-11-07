@@ -5,7 +5,7 @@
     \page qtquickcontrols-separators.html
     \title Separator Controls
     \ingroup qtquickcontrols-guidelines
-    \brief Guidelines for separator controls
+    \brief Guidelines for separator controls.
 
     Qt Quick Controls offers a selection of separators.
 
@@ -17,7 +17,8 @@
 
     \section1 MenuSeparator Control
 
-    \image qtquickcontrols-menuseparator.png
+    \image qtquickcontrols-menuseparator.webp
+           {Menu separator dividing menu items}
 
     \l MenuSeparator should be used to separate items (typically MenuItem
     controls) in a Menu. Grouping related menu items together makes it easier
@@ -28,6 +29,7 @@
     \section1 ToolSeparator Control
 
     \image qtquickcontrols-toolseparator.png
+           {Tool separator dividing toolbar buttons}
 
     \l ToolSeparator should be used to separate items (typically ToolButton
     controls) in a ToolBar. It can be used in horizontal or vertical toolbars.

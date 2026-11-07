@@ -204,6 +204,69 @@ TestCase {
         compare(control.Material.roundedScale, Material.NotRounded)
     }
 
+    function test_resetBackground_propagation_fromDefaultSet() {
+        // Parent/child that will exercise propagation
+        let parent = createTemporaryObject(buttonComponent, testCase)
+        verify(parent)
+        let child = buttonComponent.createObject(parent)
+        verify(child)
+
+        // Start from Dark background
+        parent.Material.theme = Material.Dark
+        compare(child.Material.theme, Material.Dark)
+
+        // 1) Make background explicit to light background (children "freeze" to this explicit color)
+        parent.Material.background = "#fafafa"
+        compare(parent.Material.background, "#fafafa")
+        compare(child.Material.background, parent.Material.background)
+
+        // 2) Switch to light theme, background remains unchanged
+        parent.Material.theme = Material.Light
+        compare(parent.Material.background, "#fafafa")
+        compare(child.Material.background, parent.Material.background)
+
+        // 3) Reset background to the theme default (remains unchanged)
+        parent.Material.background = undefined
+        compare(parent.Material.background, "#fffbfe")
+        compare(child.Material.background, parent.Material.background)
+
+        // 4) Now theme flips; child must track theme default (Dark)
+        parent.Material.theme = Material.Dark
+        compare(parent.Material.background, "#1c1b1f")
+        compare(child.Material.background, parent.Material.background)
+    }
+
+    function test_resetForeground_propagation_fromDefaultSet() {
+        let parent = createTemporaryObject(buttonComponent, testCase)
+        verify(parent)
+        let child = buttonComponent.createObject(parent)
+        verify(child)
+
+        // Start from Dark theme
+        parent.Material.theme = Material.Dark
+        compare(child.Material.theme, Material.Dark)
+
+        // 1) Make foreground explicit to light foreground (children "freeze" to this explicit color)
+        parent.Material.foreground = "#dd000000"
+        compare(parent.Material.foreground, "#dd000000")
+        compare(child.Material.foreground, parent.Material.foreground)
+
+        // 2) Switch to light theme, foreground remains unchanged
+        parent.Material.theme = Material.Light
+        compare(parent.Material.foreground, "#dd000000")
+        compare(child.Material.foreground, parent.Material.foreground)
+
+        // 3) Reset foreground to the theme default (remains unchanged)
+        parent.Material.foreground = undefined
+        compare(parent.Material.foreground, "#dd000000")
+        compare(child.Material.foreground, parent.Material.foreground)
+
+        // 4) Now theme flips; child must track theme default (Dark)
+        parent.Material.theme = Material.Dark
+        compare(parent.Material.foreground, "#ffffff")
+        compare(child.Material.foreground, parent.Material.foreground)
+    }
+
     function test_inheritance_data() {
         return [
             { tag: "primary", value1: Material.color(Material.Amber), value2: Material.color(Material.Indigo) },
@@ -286,6 +349,38 @@ TestCase {
         compare(popupObject.popup.Material.textSelectionColor.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label.color.toString(), popupObject.Material.textSelectionColor.toString())
         compare(popupObject.label2.color.toString(), popupObject.Material.textSelectionColor.toString())
+    }
+
+    function test_setBackground_toGlobalDefault_propagates() {
+        let parent = createTemporaryObject(buttonComponent, testCase)
+        verify(parent)
+        let child = buttonComponent.createObject(parent)
+        verify(child)
+
+        parent.Material.theme = Material.Dark
+
+        // Explicitly set to the global default value
+        parent.Material.background = "#fafafa"
+
+        // Explicitly set background is inherited to children
+        compare(parent.Material.background, "#fafafa")
+        compare(child.Material.background, "#fafafa")
+    }
+
+    function test_setForeground_toGlobalDefault_propagates() {
+        let parent = createTemporaryObject(buttonComponent, testCase)
+        verify(parent)
+        let child = buttonComponent.createObject(parent)
+        verify(child)
+
+        parent.Material.theme = Material.Dark
+
+        // Explicitly set to the global default value
+        parent.Material.foreground = "#dd000000"
+
+        // Explicitly set foreground is inherited to children
+        compare(parent.Material.foreground, "#dd000000")
+        compare(child.Material.foreground, "#dd000000")
     }
 
     component StyledChildWindow: Window {
@@ -736,12 +831,24 @@ TestCase {
     Component {
         id: backgroundControlsComponent
         ApplicationWindow {
+            visible: true
             property Button button: Button { }
             property ComboBox combobox: ComboBox { }
             property Drawer drawer: Drawer { }
             property GroupBox groupbox: GroupBox { Material.elevation: 10 }
             property Frame frame: Frame { Material.elevation: 10 }
             property Menu menu: Menu { }
+            property Menu menu_window_propagate: Menu {
+                readonly property var childItem: _subSubMenuItem
+                popupType: Popup.Window
+                onOpened: _subMenuItem.open()
+                Menu {
+                    id: _subMenuItem
+                    onOpened: _subSubMenuItem.open()
+                    Menu { id: _subSubMenuItem }
+                }
+                Component.onCompleted: this.open()
+            }
             property Page page: Page { }
             property Pane pane: Pane { }
             property Popup popup: Popup { }
@@ -759,6 +866,7 @@ TestCase {
             { tag: "groupbox", inherit: true },
             { tag: "frame", inherit: true },
             { tag: "menu", inherit: true },
+            { tag: "menu_window_propagate", inherit: true, propagate: true },
             { tag: "page", inherit: true },
             { tag: "pane", inherit: true },
             { tag: "popup", inherit: true },
@@ -779,6 +887,13 @@ TestCase {
         control.parent = window.contentItem
         control.visible = true
 
+        if (data.propagate) {
+            control = control.childItem
+            if (control instanceof T.Menu) {
+                tryCompare(control, "opened", true)
+            }
+        }
+
         let defaultBackground = control.background.color
 
         window.Material.background = "#ff0000"
@@ -795,7 +910,7 @@ TestCase {
         // so they don't use the generic background color unless explicitly set, so we
         // compare the actual background rect color instead.
         if (data.inherit)
-            compare(control.background.color, "#ff0000")
+            tryCompare(control.background, "color", "#ff0000")
         else
             compare(control.background.color, defaultBackground)
 
@@ -1317,6 +1432,68 @@ TestCase {
     }
 
     Component {
+        id: textFieldWithPlaceHolderComponent
+
+        Rectangle {
+            anchors.fill: parent
+            property alias textControl1: textControl1
+            property alias textControl2: textControl2
+
+            TextField{
+                id: textControl1
+                objectName: "textControl1"
+                width: 200
+                height: 50
+                placeholderText:"Placeholder"
+                onActiveFocusChanged:{
+                    if(!activeFocus)
+                        delayedTimer.start();
+                }
+            }
+
+            Timer {
+                id: delayedTimer
+                interval: 10
+                repeat: false
+                running: false
+                onTriggered: {
+                    textControl1.text = "test";
+                }
+            }
+
+            TextField{
+                id: textControl2
+                objectName: "textControl2"
+                anchors.top:textControl1.bottom
+                width: 200
+                height: 50
+            }
+
+            Component.onCompleted: {
+                textControl2.forceActiveFocus()
+            }
+        }
+    }
+
+    function test_textFieldPlaceHolderPosition() {
+        let window = createTemporaryObject(textFieldWithPlaceHolderComponent, testCase)
+        verify(window)
+
+        let textControl1 = window.textControl1
+        let textControl2 = window.textControl2
+        let placeholderTextItem = textControl1.children[0]
+        let y = placeholderTextItem.y
+
+        textControl1.forceActiveFocus()
+        verify(textControl1.activeFocus)
+        textControl2.forceActiveFocus()
+        verify(textControl2.activeFocus)
+        // y should be different because now text field has text assigned
+        // so placeholder should sit on top of the text field
+        tryVerify(() => { return placeholderTextItem.y != y; })
+    }
+
+    Component {
         id: childWindowComponent
 
         ApplicationWindow {
@@ -1398,7 +1575,9 @@ TestCase {
         let window = createTemporaryObject(systemThemeComponent, testCase)
         verify(window)
 
+        // The theme might be Material.System initially, but that's fine, since we'll just set it to Dark immediately
         const toggleTheme = (theme) => (theme === Material.Dark) ? Material.Light : Material.Dark
+        verify(TestHelper.platformTheme !== undefined)
 
         TestHelper.platformTheme = toggleTheme(TestHelper.platformTheme)
         tryCompare(window.Material, "theme", TestHelper.platformTheme)
@@ -1416,5 +1595,143 @@ TestCase {
         busyIndicator.running = true
 
         tryCompare(busyIndicator.contentItem, "visible", true)
+    }
+
+    Component {
+        id: primaryColorAsBackgroundComponent
+
+        ApplicationWindow {
+            property alias container: container
+            property alias label: label
+            width: 200
+            height: 200
+            visible: true
+            Material.theme: Material.Dark
+            Material.background: Material.primary
+            Rectangle {
+                id: container
+                anchors.fill: parent
+                color: Material.background
+                Text {
+                    id: label
+                    text: "TEXT"
+                    color: Material.foreground
+                }
+            }
+        }
+    }
+
+    function test_primaryColorAsBackground_data() {
+        return [
+            { primary: Material.Red,        expectedForeground: "#ffffff" },
+            { primary: Material.Pink,       expectedForeground: "#ffffff" },
+            { primary: Material.Purple,     expectedForeground: "#ffffff" },
+            { primary: Material.DeepPurple, expectedForeground: "#ffffff" },
+            { primary: Material.Indigo,     expectedForeground: "#ffffff" },
+            { primary: Material.Blue,       expectedForeground: "#ffffff" },
+            { primary: Material.Teal,       expectedForeground: "#ffffff" },
+            { primary: Material.DeepOrange, expectedForeground: "#ffffff" },
+            { primary: Material.Brown,      expectedForeground: "#ffffff" },
+            { primary: Material.BlueGrey,   expectedForeground: "#ffffff" },
+            { primary: Material.LightBlue,  expectedForeground: "#dd000000" },
+            { primary: Material.Cyan,       expectedForeground: "#dd000000" },
+            { primary: Material.Green,      expectedForeground: "#dd000000" },
+            { primary: Material.LightGreen, expectedForeground: "#dd000000" },
+            { primary: Material.Lime,       expectedForeground: "#dd000000" },
+            { primary: Material.Yellow,     expectedForeground: "#dd000000" },
+            { primary: Material.Amber,      expectedForeground: "#dd000000" },
+            { primary: Material.Orange,     expectedForeground: "#dd000000" },
+            { primary: Material.Grey,       expectedForeground: "#dd000000" },
+            // The below color (#F44346) corresponds to Material.Red but still
+            // it shall be considered as the custom primary color
+            { primary: "#F44336",           expectedForegroundLight: "#dd000000",
+                                            expectedForegroundDark: "#ffffff"},
+            { primary: "#7938b6",           expectedForegroundLight: "#dd000000",
+                                            expectedForegroundDark: "#ffffff"}
+        ]
+    }
+
+    function test_primaryColorAsBackground(data) {
+        let window = createTemporaryObject(primaryColorAsBackgroundComponent, testCase)
+        verify(window)
+
+        window.Material.primary = data.primary
+        let customPrimary = !Number.isInteger(data.primary)
+        let expectedBackground = customPrimary ?  window.Material.primary :
+                            window.Material.color(data.primary, Material.Shade200)
+        let expectedForeground = customPrimary ? data.expectedForegroundDark : data.expectedForeground
+        compare(window.Material.background.toString(), expectedBackground)
+        compare(window.Material.foreground.toString(), expectedForeground)
+        compare(window.container.Material.background.toString(), expectedBackground)
+        compare(window.container.Material.foreground.toString(), expectedForeground)
+        compare(window.label.color.toString(), expectedForeground)
+
+        window.Material.theme = Material.Light
+        if (!customPrimary)
+            expectedBackground = window.Material.color(data.primary, Material.Shade500)
+        expectedForeground = customPrimary ? data.expectedForegroundLight : data.expectedForeground
+        compare(window.Material.background.toString(), expectedBackground)
+        compare(window.Material.foreground.toString(), expectedForeground)
+        compare(window.container.Material.background.toString(), expectedBackground)
+        compare(window.container.Material.foreground.toString(), expectedForeground)
+        compare(window.label.color.toString(), expectedForeground)
+    }
+
+    Component {
+        id: labelInPopupComponent
+
+        Popup {
+            id: popupInstance
+
+            property alias label: label
+
+            Material.theme: Material.Dark
+
+            Label {
+                id: label
+                text: "Should have a dark theme"
+            }
+        }
+    }
+
+    function test_popupPropagatesToChildItem() {
+        let popup = createTemporaryObject(labelInPopupComponent, testCase)
+        verify(popup)
+
+        compare(popup.Material.theme, Material.Dark)
+        compare(popup.label.Material.theme, Material.Dark)
+
+        popup.Material.theme = Material.Light
+        compare(popup.Material.theme, Material.Light)
+        compare(popup.label.Material.theme, Material.Light)
+    }
+
+    Component {
+        id: spinBoxComponent
+
+        SpinBox {
+            anchors.centerIn: parent
+        }
+    }
+
+    function test_spinBoxShouldNotBeHoveredOnTouch() {
+        let spinBox = createTemporaryObject(spinBoxComponent, testCase)
+        verify(spinBox)
+        let up = spinBox.up
+        let indicator = up.indicator
+
+        let touch = touchEvent(indicator)
+        touch.press(0, indicator, indicator.width * 0.5, indicator.height * 0.5).commit()
+        verify(up.pressed)
+        verify(!up.hovered)
+
+        // Move around a bit while pressed.
+        touch.move(0, indicator, indicator.width * 0.4, indicator.height * 0.4).commit()
+        verify(up.pressed)
+        verify(!up.hovered)
+
+        touch.release(0).commit()
+        verify(!up.pressed)
+        verify(!up.hovered)
     }
 }

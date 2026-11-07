@@ -1,10 +1,12 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qqmljsbasicblocks_p.h"
-#include "qqmljsutils_p.h"
 
-#include <QtQml/private/qv4instr_moth_p.h>
+#include <private/qqmlglobal_p.h>
+#include <private/qqmljsutils_p.h>
+#include <private/qv4instr_moth_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -21,16 +23,12 @@ void QQmlJSBasicBlocks::dumpBasicBlocks()
         debug << "Block " << (blockOffset < 0 ? "Function prolog"_L1 : QString::number(blockOffset))
               << ":\n";
         debug << "  jumpOrigins[" << block.jumpOrigins.size() << "]: ";
-        for (auto origin : block.jumpOrigins) {
+        for (auto origin : std::as_const(block.jumpOrigins)) {
             debug << origin << ", ";
         }
         debug << "\n  readRegisters[" << block.readRegisters.size() << "]: ";
-        for (auto reg : block.readRegisters) {
+        for (auto reg : std::as_const(block.readRegisters)) {
             debug << reg << ", ";
-        }
-        debug << "\n  readTypes[" << block.readTypes.size() << "]: ";
-        for (const auto &type : block.readTypes) {
-            debug << type->augmentedInternalName() << ", ";
         }
         debug << "\n  jumpTarget: " << block.jumpTarget;
         debug << "\n  jumpIsUnConditional: " << block.jumpIsUnconditional;
@@ -50,7 +48,7 @@ void QQmlJSBasicBlocks::dumpDOTGraph()
 
     QFlatMap<int, BasicBlock> blocks{ m_basicBlocks };
     for (const auto &[blockOffset, block] : blocks) {
-        for (int originOffset : block.jumpOrigins) {
+        for (int originOffset : std::as_const(block.jumpOrigins)) {
             const auto originBlockIt = basicBlockForInstruction(blocks, originOffset);
             const auto isBackEdge = originOffset > blockOffset && originBlockIt->second.jumpIsUnconditional;
             s << "    %1 -> %2%3\n"_L1.arg(QString::number(originBlockIt.key()))
@@ -74,6 +72,7 @@ void QQmlJSBasicBlocks::dumpDOTGraph()
                 m_context->lineAndStatementNumberMapping);
         dump = dump.replace(" "_L1, "&#160;"_L1); // prevent collapse of extra whitespace for formatting
         dump = dump.replace("\n"_L1, "\\l"_L1); // new line + left aligned
+        dump = dump.replace("<"_L1, "\\<"_L1).replace(">"_L1, "\\>"_L1); // escape < and > for "SetUnwindHandler <null>" instruction
         s << "    %1 [shape=record, fontname=\"Monospace\", label=\"{Block %1: | %2}\"]\n"_L1
                         .arg(QString::number(blockOffset))
                         .arg(dump);
@@ -130,7 +129,7 @@ QQmlJSBasicBlocks::run(const Function *function, QQmlJSAotCompiler::Flags compil
     zeroBlock.jumpOrigins.append(m_basicBlocks.begin().key());
     m_basicBlocks.insert(0, zeroBlock);
 
-    const QByteArray byteCode = function->code;
+    const QByteArray &byteCode = function->code;
     decode(byteCode.constData(), static_cast<uint>(byteCode.size()));
     if (m_hadBackJumps) {
         // We may have missed some connections between basic blocks if there were back jumps.
@@ -288,21 +287,6 @@ void QQmlJSBasicBlocks::processJump(int offset, JumpMode mode)
         m_basicBlocks.insert(nextInstructionOffset(), BasicBlock());
 }
 
-QQmlJSCompilePass::BasicBlocks::iterator QQmlJSBasicBlocks::basicBlockForInstruction(
-        QFlatMap<int, BasicBlock> &container, int instructionOffset)
-{
-    auto block = container.lower_bound(instructionOffset);
-    if (block == container.end() || block->first != instructionOffset)
-        --block;
-    return block;
-}
-
-QQmlJSCompilePass::BasicBlocks::const_iterator QQmlJSBasicBlocks::basicBlockForInstruction(
-        const BasicBlocks &container, int instructionOffset)
-{
-    return basicBlockForInstruction(const_cast<BasicBlocks &>(container), instructionOffset);
-}
-
 QQmlJSBasicBlocks::BasicBlocksValidationResult QQmlJSBasicBlocks::basicBlocksValidation()
 {
     if (m_basicBlocks.empty())
@@ -321,19 +305,28 @@ QQmlJSBasicBlocks::BasicBlocksValidationResult QQmlJSBasicBlocks::basicBlocksVal
             return { false, "Return or throw block jumps to somewhere"_L1 };
     }
 
-    // 2. The basic blocks graph must be connected.
-    QSet<int> visitedBlockOffsets;
-    QList<QFlatMap<int, BasicBlock>::const_iterator> toVisit;
-    toVisit.append(returnOrThrowBlocks);
+    // 2. Every basic block must be reachable from the entry block.
+    //    The recorded jump origins (which include fall-through edges) describe the reverse
+    //    edges of the control flow graph, so we invert them to obtain the forward edges and
+    //    then traverse forward from the entry block. Traversing backward from the return and
+    //    throw blocks instead would wrongly flag infinite loops, whose blocks have no path to
+    //    any terminal block but are nonetheless legitimately reachable.
+    QMultiHash<int, int> forwardEdges;
+    for (auto it = blocks.cbegin(), end = blocks.cend(); it != end; ++it) {
+        for (int originOffset : it.value().jumpOrigins)
+            forwardEdges.insert(constBasicBlockForInstruction(blocks, originOffset).key(), it.key());
+    }
 
+    QSet<int> visitedBlockOffsets;
+    QList<int> toVisit{ blocks.cbegin().key() };
     while (!toVisit.empty()) {
-        const auto &[offset, block] = *toVisit.takeLast();
+        const int offset = toVisit.takeLast();
+        if (visitedBlockOffsets.contains(offset))
+            continue;
         visitedBlockOffsets.insert(offset);
-        for (int originOffset : block.jumpOrigins) {
-            const auto originBlock = basicBlockForInstruction(blocks, originOffset);
-            if (visitedBlockOffsets.find(originBlock.key()) == visitedBlockOffsets.end()
-                && !toVisit.contains(originBlock))
-                toVisit.append(originBlock);
+        for (auto [it, end] = forwardEdges.equal_range(offset); it != end; ++it) {
+            if (!visitedBlockOffsets.contains(*it))
+                toVisit.append(*it);
         }
     }
 

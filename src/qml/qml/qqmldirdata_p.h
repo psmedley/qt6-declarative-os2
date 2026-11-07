@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDIRDATA_P_H
 #define QQMLDIRDATA_P_H
@@ -24,15 +25,16 @@ class Q_AUTOTEST_EXPORT QQmlQmldirData : public QQmlTypeLoader::Blob
 private:
     friend class QQmlTypeLoader;
 
+public:
     QQmlQmldirData(const QUrl &, QQmlTypeLoader *);
 
-public:
     const QString &content() const;
     QV4::CompiledData::Location importLocation(Blob *blob) const;
 
     template<typename Callback>
     bool processImports(Blob *blob, const Callback &callback) const
     {
+        assertTypeLoaderThread();
         bool result = true;
         const auto range = m_imports.equal_range(blob);
         for (auto it = range.first; it != range.second; ++it) {
@@ -47,7 +49,7 @@ public:
         return result;
     }
 
-    void setPriority(Blob *, PendingImportPtr, int);
+    void setPriority(Blob *, const PendingImportPtr &, int);
 
 protected:
     void dataReceived(const SourceCodeData &) override;

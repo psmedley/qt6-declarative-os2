@@ -1,14 +1,17 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshortcut_p.h"
 
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickwindow.h>
-#include <QtQuick/qquickrendercontrol.h>
+#include <QtQuick/private/qquickrendercontrol_p.h>
 #include <QtQuick/private/qtquickglobal_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQml/qqmlinfo.h>
+
+QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype Shortcut
@@ -59,15 +62,20 @@ static bool qQuickShortcutContextMatcher(QObject *obj, Qt::ShortcutContext conte
     switch (context) {
     case Qt::ApplicationShortcut:
         return true;
-    case Qt::WindowShortcut:
+    case Qt::WindowShortcut: {
         while (obj && !obj->isWindowType()) {
             obj = obj->parent();
             if (QQuickItem *item = qobject_cast<QQuickItem *>(obj))
                 obj = item->window();
         }
-        if (QWindow *renderWindow = QQuickRenderControl::renderWindowFor(qobject_cast<QQuickWindow *>(obj)))
-            obj = renderWindow;
-        return obj && obj == QGuiApplication::focusWindow();
+        const QWindow *focusWindow = QGuiApplication::focusWindow();
+        if (!obj || !focusWindow)
+            return false;
+        if (obj == focusWindow)
+            return true;
+        return QQuickRenderControlPrivate::isFocusWindowFor(
+            qobject_cast<QQuickWindow *>(obj), focusWindow);
+    }
     default:
         return false;
     }
@@ -88,12 +96,10 @@ Q_QUICK_EXPORT void qt_quick_set_shortcut_context_matcher(ContextMatcher matcher
         *ctxMatcher() = matcher;
 }
 
-QT_BEGIN_NAMESPACE
-
 static QKeySequence valueToKeySequence(const QVariant &value, const QQuickShortcut *const shortcut)
 {
     if (value.userType() == QMetaType::Int) {
-        const QVector<QKeySequence> s =
+        const QList<QKeySequence> s =
                 QKeySequence::keyBindings(static_cast<QKeySequence::StandardKey>(value.toInt()));
         if (s.size() > 1) {
             const QString templateString = QString::fromUtf16(
@@ -103,6 +109,8 @@ static QKeySequence valueToKeySequence(const QVariant &value, const QQuickShortc
                     << templateString.arg(static_cast<QKeySequence::StandardKey>(value.toInt()));
         }
         return s.size() > 0 ? s[0] : QKeySequence {};
+    } else if (value.userType() == QMetaType::QKeySequence) {
+        return value.value<QKeySequence>();
     }
 
     return QKeySequence::fromString(value.toString());
@@ -114,7 +122,10 @@ static QList<QKeySequence> valueToKeySequences(const QVariant &value)
         return QKeySequence::keyBindings(static_cast<QKeySequence::StandardKey>(value.toInt()));
     } else {
         QList<QKeySequence> result;
-        result.push_back(QKeySequence::fromString(value.toString()));
+        if (value.userType() == QMetaType::QKeySequence)
+            result.push_back(value.value<QKeySequence>());
+        else
+            result.push_back(QKeySequence::fromString(value.toString()));
         return result;
     }
 }
@@ -171,6 +182,12 @@ void QQuickShortcut::setSequence(const QVariant &value)
     m_shortcut.keySequence = keySequence;
     grabShortcut(m_shortcut, m_context);
     emit sequenceChanged();
+    if (m_shortcuts.isEmpty()) {
+        // The text only changes if m_shortcuts contained no entry
+        // as we prefer the entry from there otherwise
+        emit nativeTextChanged();
+        emit portableTextChanged();
+    }
 }
 
 /*!
@@ -199,10 +216,10 @@ QVariantList QQuickShortcut::sequences() const
 
 void QQuickShortcut::setSequences(const QVariantList &values)
 {
-    // convert QVariantList to QVector<QKeySequence>
-    QVector<Shortcut> requestedShortcuts;
+    // convert QVariantList to QList<QKeySequence>
+    QList<Shortcut> requestedShortcuts;
     for (const QVariant &v : values) {
-        const QVector<QKeySequence> list = valueToKeySequences(v);
+        const QList<QKeySequence> list = valueToKeySequences(v);
         for (const QKeySequence &s : list) {
             Shortcut sc;
             sc.userValue = v;
@@ -228,13 +245,23 @@ void QQuickShortcut::setSequences(const QVariantList &values)
         }
     }
 
+    const Shortcut oldUsedShortcut = m_shortcuts.isEmpty() ? m_shortcut
+                                                           : m_shortcuts.first();
+
     for (Shortcut &s : m_shortcuts)
         ungrabShortcut(s);
     m_shortcuts = requestedShortcuts;
     for (Shortcut &s : m_shortcuts)
         grabShortcut(s, m_context);
 
+    const Shortcut currentUsedShortcut = m_shortcuts.isEmpty() ? m_shortcut
+                                                               : m_shortcuts.first();
+
     emit sequencesChanged();
+    if (oldUsedShortcut.keySequence != currentUsedShortcut.keySequence) {
+        emit nativeTextChanged();
+        emit portableTextChanged();
+    }
 }
 
 /*!
@@ -246,11 +273,15 @@ void QQuickShortcut::setSequences(const QVariantList &values)
     resemble a key sequence from the menu bar. It is best to display this text
     to the user (for example, on a tooltip).
 
+    \include qquickshortcut.qdocinc multishortcut
+
     \sa sequence, portableText
 */
 QString QQuickShortcut::nativeText() const
 {
-    return m_shortcut.keySequence.toString(QKeySequence::NativeText);
+    const Shortcut &shortCut = m_shortcuts.isEmpty() ? m_shortcut
+                                                     : m_shortcuts.front();
+    return shortCut.keySequence.toString(QKeySequence::NativeText);
 }
 
 /*!
@@ -261,11 +292,15 @@ QString QQuickShortcut::nativeText() const
     "portable" format, suitable for reading and writing to a file. In many
     cases, it will look similar to the native text on Windows and X11.
 
+    \include qquickshortcut.qdocinc multishortcut
+
     \sa sequence, nativeText
 */
 QString QQuickShortcut::portableText() const
 {
-    return m_shortcut.keySequence.toString(QKeySequence::PortableText);
+    const Shortcut &shortCut = m_shortcuts.isEmpty() ? m_shortcut
+                                                     : m_shortcuts.front();
+    return shortCut.keySequence.toString(QKeySequence::PortableText);
 }
 
 /*!

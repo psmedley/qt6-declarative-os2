@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
@@ -9,10 +10,10 @@ T.GroupBox {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding,
+                            implicitContentWidth + leftPadding + rightPadding,
                             implicitLabelWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding)
+                             implicitContentHeight + topPadding + bottomPadding)
 
     spacing: 6
     padding: 12
@@ -35,6 +36,8 @@ T.GroupBox {
         height: parent.height - control.topPadding + control.bottomPadding
 
         color: "transparent"
-        border.color: control.palette.mid
+        border.color: Qt.styleHints.accessibility.contrastPreference !== Qt.HighContrast ?
+                      control.palette.mid : Color.blend(control.palette.dark, control.palette.base,
+                                                        enabled ? 0.0 : 0.5)
     }
 }

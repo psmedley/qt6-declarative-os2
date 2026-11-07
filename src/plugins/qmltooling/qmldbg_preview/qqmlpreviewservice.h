@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPREVIEWSERVICE_H
 #define QQMLPREVIEWSERVICE_H
@@ -19,6 +20,8 @@
 #include "qqmlpreviewfileengine.h"
 #include <private/qqmldebugserviceinterfaces_p.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 class QQmlPreviewFileEngineHandler;
@@ -37,7 +40,11 @@ public:
         Directory,
         ClearCache,
         Zoom,
-        Fps
+        Fps,
+        AnimationSpeed,
+        Configuration,
+        Confirmation,
+        HotReloadFailure,
     };
 
     static const QString s_key;
@@ -53,6 +60,7 @@ public:
     void forwardRequest(const QString &file);
     void forwardError(const QString &error);
     void forwardFps(const QQmlPreviewHandler::FpsInfo &frames);
+    void forwardHotReloadFailure(const QString &reason);
 
     QQuickItem *currentRootItem();
 
@@ -61,14 +69,18 @@ Q_SIGNALS:
     void file(const QString &file, const QByteArray &contents);
     void directory(const QString &file, const QStringList &entries);
     void load(const QUrl &url);
+    void drop(const QUrl &url);
     void rerun();
     void clearCache();
     void zoom(qreal factor);
+    void animationSpeed(qreal factor);
 
 private:
+    void switchToInPlaceHandler();
+
     QScopedPointer<QQmlPreviewFileEngineHandler> m_fileEngine;
     QScopedPointer<QQmlPreviewFileLoader> m_loader;
-    QQmlPreviewHandler m_handler;
+    std::unique_ptr<QQmlPreviewHandler> m_handler;
     QUrl m_currentUrl;
 };
 

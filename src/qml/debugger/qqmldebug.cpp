@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:enables-debug-framework
 
 #include "qqmldebug.h"
 #include "qqmldebugconnector_p.h"
@@ -8,8 +9,14 @@
 #include <private/qqmlengine_p.h>
 #include <private/qv4compileddata_p.h>
 
+#include <QByteArray>
+
 #include <atomic>
 #include <cstdio>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 QT_REQUIRE_CONFIG(qml_debug);
 
@@ -21,18 +28,64 @@ QT_BEGIN_NAMESPACE
 # define Q_ATOMIC_FLAG_INIT ATOMIC_FLAG_INIT // deprecated in C++20
 #endif
 
+/*!
+   \class QQmlDebuggingEnabler
+   \inmodule QtQml
+   \brief The QQmlDebuggingEnabler class provides methods to enable debugging or profiling.
+
+   Usually QML debugging and profiling is enabled by passing
+   \c{QT_ENABLE_QML_DEBUG} via CMake or \c{CONFIG+=qml_debug} via qmake when
+   building your application. At run time, the application generally parses
+   any \c{-qmljsdebugger} command line arguments to actually start debugging
+   or profiling.
+
+   You can instead handle these tasks manually by using the methods in this
+   class.
+ */
+
 Q_CONSTINIT static std::atomic_flag s_printedWarning = Q_ATOMIC_FLAG_INIT;
 
+/*!
+   Enable debugging or profiling. If \a printWarning is \c{true}, print the
+   following warning to stderr:
+
+   \badcode
+   QML debugging is enabled. Only use this in a safe environment.
+   \endcode
+
+   This method is automatically called at startup if \c{QT_ENABLE_QML_DEBUG}
+   or \c{CONFIG+=qml_debug} is passed at build time.
+
+   This method needs to be called one way or another before starting a debug
+   connector of any kind. Otherwise the connector will refuse to start.
+
+   \sa startTcpDebugServer(), connectToLocalDebugger(), startDebugConnector()
+ */
 void QQmlDebuggingEnabler::enableDebugging(bool printWarning)
 {
     if (printWarning && !s_printedWarning.test_and_set(std::memory_order_relaxed)) {
-        fprintf(stderr, "QML debugging is enabled. Only use this in a safe environment.\n");
+        QByteArray warning("QML debugging is enabled. Only use this in a safe environment.");
+        if (qEnvironmentVariableIsSet("CLICOLOR_FORCE") || qEnvironmentVariableIsSet("QTC_RUN")
+            || qEnvironmentVariableIsSet("VSCODE_CLI")) {
+            warning = QByteArray("\033[38;2;255;0;0m") + warning + "\033[0m";
+        }
+        warning += '\n';
+#ifdef Q_OS_WIN
+        // Debuggers on Windows (except vscode) do not display the stderr output
+        if (!qEnvironmentVariableIsSet("VSCODE_CLI"))
+            OutputDebugStringA(warning);
+#endif
+
+        fprintf(stderr, "%s", warning.constData());
         fflush(stderr); // We really want to print this warning, even if stderr is buffered
     }
     QQmlEnginePrivate::qml_debugging_enabled.store(true, std::memory_order_relaxed);
 }
 
 #if QT_DEPRECATED_SINCE(6, 4)
+/*!
+   \internal
+ */
 QQmlDebuggingEnabler::QQmlDebuggingEnabler(bool printWarning)
 {
     enableDebugging(printWarning);

@@ -27,6 +27,7 @@ private slots:
     void fractionalFontSize();
     void resizeBackgroundKeepsBindings();
     void hoverInMouseArea();
+    void backgroundAlignment();
 
 private:
     QScopedPointer<QPointingDevice> touchDevice;
@@ -67,7 +68,7 @@ void tst_QQuickControl::flickable()
     QSignalSpy buttonClickedSpy(button, SIGNAL(clicked()));
     QVERIFY(buttonClickedSpy.isValid());
 
-    QPoint p(button->width() / 2, button->height() / 2);
+    QPoint p = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
     QTest::touchEvent(window, touchDevice.data()).press(0, p);
     QTRY_COMPARE(buttonPressedSpy.size(), 1);
     p += QPoint(1, 1); // less than the drag threshold
@@ -135,6 +136,19 @@ void tst_QQuickControl::hoverInMouseArea()
     QVERIFY(textField);
     pointLerper.move(mapCenterToWindow(textField));
     QVERIFY(textField->isHovered());
+}
+
+void tst_QQuickControl::backgroundAlignment()
+{
+    QQuickApplicationHelper helper(this, QStringLiteral("backgroundAlignment.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto ctxt = qmlContext(window);
+    QVERIFY(ctxt);
+    auto image = window->grabWindow();
+    // If the top inset is applied, the top 6 pixels will appear white.
+    QCOMPARE(image.pixelColor(0, 0), QColor(255,255,255));
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickControl)

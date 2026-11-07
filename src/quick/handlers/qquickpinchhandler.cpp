@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpinchhandler_p.h"
 #include <QtQml/qqmlinfo.h>
@@ -17,7 +18,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcPinchHandler, "qt.quick.handler.pinch")
+Q_STATIC_LOGGING_CATEGORY(lcPinchHandler, "qt.quick.handler.pinch")
 
 /*!
     \qmltype PinchHandler
@@ -48,6 +49,8 @@ Q_LOGGING_CATEGORY(lcPinchHandler, "qt.quick.handler.pinch")
     \snippet pointerHandlers/pinchHandlerNullTarget.qml 0
 
     \image touchpoints-pinchhandler.png
+           {Touch points, target center, and pinch center during a two-finger
+           rotation and scaling}
 
     \note The pinch begins when the number of fingers pressed is between
     \l {MultiPointHandler::minimumPointCount}{minimumPointCount} and
@@ -69,7 +72,7 @@ QQuickPinchHandler::QQuickPinchHandler(QQuickItem *parent)
 #if QT_DEPRECATED_SINCE(6, 5)
 /*!
     \qmlproperty real QtQuick::PinchHandler::minimumScale
-    \deprecated [6.5] Use scaleAxis.minimum
+    \deprecated [6.5] Use scaleAxis.minimum.
 
     The minimum acceptable \l {Item::scale}{scale} to be applied
     to the \l target.
@@ -85,7 +88,7 @@ void QQuickPinchHandler::setMinimumScale(qreal minimumScale)
 
 /*!
     \qmlproperty real QtQuick::PinchHandler::maximumScale
-    \deprecated [6.5] Use scaleAxis.maximum
+    \deprecated [6.5] Use scaleAxis.maximum.
 
     The maximum acceptable \l {Item::scale}{scale} to be applied
     to the \l target.
@@ -142,7 +145,7 @@ void QQuickPinchHandler::setActiveScale(qreal scale)
 /*!
     \readonly
     \qmlproperty vector2d QtQuick::PinchHandler::scale
-    \deprecated [6.5] Use persistentScale
+    \deprecated [6.5] Use persistentScale.
 */
 
 /*!
@@ -172,7 +175,7 @@ void QQuickPinchHandler::setPersistentScale(qreal scale)
 #if QT_DEPRECATED_SINCE(6, 5)
 /*!
     \qmlproperty real QtQuick::PinchHandler::minimumRotation
-    \deprecated [6.5] Use rotationAxis.minimum
+    \deprecated [6.5] Use rotationAxis.minimum.
 
     The minimum acceptable \l {Item::rotation}{rotation} to be applied
     to the \l target.
@@ -188,7 +191,7 @@ void QQuickPinchHandler::setMinimumRotation(qreal minimumRotation)
 
 /*!
     \qmlproperty real QtQuick::PinchHandler::maximumRotation
-    \deprecated [6.5] Use rotationAxis.maximum
+    \deprecated [6.5] Use rotationAxis.maximum.
 
     The maximum acceptable \l {Item::rotation}{rotation} to be applied
     to the \l target.
@@ -221,7 +224,7 @@ void QQuickPinchHandler::setMaximumRotation(qreal maximumRotation)
 /*!
     \readonly
     \qmlproperty vector2d QtQuick::PinchHandler::rotation
-    \deprecated [6.5] Use activeRotation
+    \deprecated [6.5] Use activeRotation.
 */
 
 /*!
@@ -287,7 +290,7 @@ void QQuickPinchHandler::setPersistentRotation(qreal rot)
 /*!
     \readonly
     \qmlproperty vector2d QtQuick::PinchHandler::translation
-    \deprecated [6.5] Use activeTranslation
+    \deprecated [6.5] Use activeTranslation.
 */
 /*!
     \readonly
@@ -532,7 +535,7 @@ void QQuickPinchHandler::handlePointerEventImpl(QPointerEvent *event)
 #endif // QT_CONFIG(gestures)
     {
         const bool containsReleasedPoints = event->isEndEvent();
-        QVector<QEventPoint> chosenPoints;
+        QList<QEventPoint> chosenPoints;
         for (const QQuickHandlerPoint &p : std::as_const(currentPoints())) {
             auto ep = event->pointById(p.id());
             Q_ASSERT(ep);
@@ -660,7 +663,7 @@ void QQuickPinchHandler::handlePointerEventImpl(QPointerEvent *event)
 
         // 2. rotate
         if (m_rotationAxis.enabled()) {
-            QVector<PointData> newAngles = angles(centroid().scenePosition());
+            QList<PointData> newAngles = angles(centroid().scenePosition());
             const qreal angleDelta = averageAngleDelta(m_startAngles, newAngles);
             setActiveRotation(m_rotationAxis.m_activeValue + angleDelta);
             m_startAngles = std::move(newAngles);

@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmltableinstancemodel_p.h"
 #include "qqmlabstractdelegatecomponent_p.h"
@@ -10,34 +11,42 @@
 #include <QtQmlModels/private/qqmlchangeset_p.h>
 #include <QtQml/private/qqmlcomponent_p.h>
 
+#include <QtCore/qtyperevision.h>
+
 QT_BEGIN_NAMESPACE
 
 const char* kModelItemTag = "_tableinstancemodel_modelItem";
 
 bool QQmlTableInstanceModel::isDoneIncubating(QQmlDelegateModelItem *modelItem)
 {
-    if (!modelItem->incubationTask)
+    QQDMIncubationTask *incubationTask = modelItem->incubationTask();
+    if (!incubationTask)
         return true;
 
-    const auto status = modelItem->incubationTask->status();
-    return (status == QQmlIncubator::Ready) || (status == QQmlIncubator::Error);
+    switch (incubationTask->status()) {
+    case QQmlIncubator::Ready:
+    case QQmlIncubator::Error:
+        return true;
+    default:
+        break;
+    }
+
+    return false;
 }
 
 void QQmlTableInstanceModel::deleteModelItemLater(QQmlDelegateModelItem *modelItem)
 {
     Q_ASSERT(modelItem);
 
-    delete modelItem->object;
-    modelItem->object = nullptr;
-    modelItem->contextData.reset();
+    modelItem->destroyObject();
     modelItem->deleteLater();
 }
 
 QQmlTableInstanceModel::QQmlTableInstanceModel(QQmlContext *qmlContext, QObject *parent)
     : QQmlInstanceModel(*(new QObjectPrivate()), parent)
     , m_qmlContext(qmlContext)
-    , m_metaType(new QQmlDelegateModelItemMetaType(m_qmlContext->engine()->handle(), nullptr, QStringList()),
-                 QQmlRefPointer<QQmlDelegateModelItemMetaType>::Adopt)
+    , m_metaType(QQml::makeRefPointer<QQmlDelegateModelItemMetaType>(
+            m_qmlContext->engine()->handle(), this))
 {
 }
 
@@ -52,22 +61,24 @@ QQmlTableInstanceModel::~QQmlTableInstanceModel()
         // No item in m_modelItems should be referenced at this point. The view
         // should release all its items before it deletes this model. Only model items
         // that are still being incubated should be left for us to delete.
-        Q_ASSERT(modelItem->objectRef == 0);
-        Q_ASSERT(modelItem->incubationTask);
+        // We can't rely on that, though. So we only check the strong ref.
+        Q_ASSERT(modelItem->objectStrongRef() == 0);
+        Q_ASSERT(modelItem->incubationTask());
         // Check that we are not being deleted while we're
         // in the process of e.g emitting a created signal.
-        Q_ASSERT(modelItem->scriptRef == 0);
+        Q_ASSERT(modelItem->scriptRef() == 0);
 
-        if (modelItem->object) {
-            delete modelItem->object;
-            modelItem->object = nullptr;
-            modelItem->contextData.reset();
-        }
+        modelItem->destroyObject();
     }
 
     deleteAllFinishedIncubationTasks();
     qDeleteAll(m_modelItems);
     drainReusableItemsPool(0);
+
+    // We don't expect there to be any released items at this point.
+    // The view must explicitly call commitReleasedItems() after each
+    // rebuild of the viewport, and long before the model is destructed.
+    Q_ASSERT(m_releasedItems.isEmpty());
 }
 
 QQmlComponent *QQmlTableInstanceModel::resolveDelegate(int index)
@@ -87,51 +98,96 @@ QQmlComponent *QQmlTableInstanceModel::resolveDelegate(int index)
     return m_delegate;
 }
 
-QQmlDelegateModelItem *QQmlTableInstanceModel::resolveModelItem(int index)
+QQmlDelegateModelItem *QQmlTableInstanceModel::resolveModelItem(int flatIndex, const QModelIndex &modelIndex)
 {
+    Q_ASSERT(flatIndex >= 0 && flatIndex < m_adaptorModel.count());
+
     // Check if an item for the given index is already loaded and ready
-    QQmlDelegateModelItem *modelItem = m_modelItems.value(index, nullptr);
-    if (modelItem)
+    if (QQmlDelegateModelItem *modelItem = m_modelItems.value(flatIndex, nullptr))
         return modelItem;
 
-    QQmlComponent *delegate = resolveDelegate(index);
+    QQmlComponent *delegate = resolveDelegate(flatIndex);
     if (!delegate)
         return nullptr;
 
-    // Check if the pool contains an item that can be reused
-    modelItem = m_reusableItemsPool.takeItem(delegate, index);
-    if (modelItem) {
-        reuseItem(modelItem, index);
-        m_modelItems.insert(index, modelItem);
+    // Check if the temporary release cache contains the requested item
+    if (modelIndex.isValid()) {
+        const auto it = std::find_if(m_releasedItems.cbegin(), m_releasedItems.cend(),
+            [&modelIndex](const QQmlDelegateModelItem *item) {
+                return item->persistentModelIndex() == modelIndex;
+            });
+
+        if (it != m_releasedItems.cend()) {
+            QQmlDelegateModelItem *modelItem = *it;
+            // Note: a rebuild can change which delegate a DelegateChooser assigns to a cell, so the
+            // released item may no longer use the right delegate, even if it has the correct index.
+            if (modelItem->delegate() == delegate) {
+                m_releasedItems.erase(it);
+                restoreFromReleasedItemsCache(modelItem, flatIndex);
+                return modelItem;
+            }
+        }
+    }
+
+    // Check if the pool contains an item with the same delegate that can be reused
+    if (QQmlDelegateModelItem *modelItem = m_reusableItemsPool.takeItem(delegate, flatIndex)) {
+        m_modelItems.insert(flatIndex, modelItem);
+        reuseItem(modelItem, flatIndex);
         return modelItem;
     }
 
     // Create a new item from scratch
-    modelItem = m_adaptorModel.createItem(m_metaType.data(), index);
-    if (modelItem) {
-        modelItem->delegate = delegate;
-        m_modelItems.insert(index, modelItem);
+    if (QQmlDelegateModelItem *modelItem = m_adaptorModel.createItem(m_metaType.data(), flatIndex)) {
+        modelItem->setDelegate(delegate);
+        m_modelItems.insert(flatIndex, modelItem);
         return modelItem;
     }
 
-    qWarning() << Q_FUNC_INFO << "failed creating a model item for index: " << index;
+    qWarning() << Q_FUNC_INFO << "failed creating a model item for index: " << flatIndex << modelIndex;
     return nullptr;
+}
+
+void QQmlTableInstanceModel::commitReleasedItems()
+{
+    // Transfer all released items from the temporary cache to the reuse pool. From
+    // now on, they can only be reused based on delegate type and not model index.
+    for (auto *item : std::as_const(m_releasedItems)) {
+        item->setPersistentModelIndex(QModelIndex());
+        if (m_reusableItemsPool.insertItem(item))
+            emit itemPooled(item->modelIndex(), item->object());
+        else
+            destroyModelItem(item, Deferred);
+    }
+    m_releasedItems.clear();
 }
 
 QObject *QQmlTableInstanceModel::object(int index, QQmlIncubator::IncubationMode incubationMode)
 {
     Q_ASSERT(m_delegate);
-    Q_ASSERT(index >= 0 && index < m_adaptorModel.count());
 
-    QQmlDelegateModelItem *modelItem = resolveModelItem(index);
-    if (!modelItem)
-        return nullptr;
+    QModelIndex modelIndex;
+    if (const QAbstractItemModel *aim = abstractItemModel()) {
+        // A valid QModelIndex is needed for resolveModelItem() to match
+        // items in the release cache rather than just delegate type alone.
+        const int row = m_adaptorModel.rowAt(index);
+        const int column = m_adaptorModel.columnAt(index);
+        modelIndex = aim->index(row, column);
+    }
 
-    if (modelItem->object) {
+    if (QQmlDelegateModelItem *modelItem = resolveModelItem(index, modelIndex)) {
+        // Return the incubated object, or start an async incubation task and return nullptr for now
+        return incubateModelItemIfNeeded(modelItem, incubationMode);
+    }
+
+    return nullptr;
+}
+
+QObject *QQmlTableInstanceModel::incubateModelItemIfNeeded(QQmlDelegateModelItem *modelItem, QQmlIncubator::IncubationMode incubationMode)
+{
+    if (modelItem->object()) {
         // The model item has already been incubated. So
         // just bump the ref-count and return it.
-        modelItem->referenceObject();
-        return modelItem->object;
+        return modelItem->referenceObjectWeak();
     }
 
     // The object is not ready, and needs to be incubated
@@ -140,23 +196,21 @@ QObject *QQmlTableInstanceModel::object(int index, QQmlIncubator::IncubationMode
         return nullptr;
 
     // Incubation is done, so the task should be removed
-    Q_ASSERT(!modelItem->incubationTask);
-
-    if (!modelItem->object) {
-        // The object was incubated synchronously (otherwise we would return above). But since
-        // we have no object, the incubation must have failed. And when we have no object, there
-        // should be no object references either. And there should also not be any internal script
-        // refs at this point. So we delete the model item.
-        Q_ASSERT(!modelItem->isObjectReferenced());
-        Q_ASSERT(!modelItem->isReferenced());
-        m_modelItems.remove(modelItem->index);
-        delete modelItem;
-        return nullptr;
-    }
+    Q_ASSERT(!modelItem->incubationTask());
 
     // Incubation was completed sync and successful
-    modelItem->referenceObject();
-    return modelItem->object;
+    if (modelItem->object())
+        return modelItem->referenceObjectWeak();
+
+    // The object was incubated synchronously (otherwise we would return above). But since
+    // we have no object, the incubation must have failed. And when we have no object, there
+    // should be no object references either. And there should also not be any internal script
+    // refs at this point. So we delete the model item.
+    Q_ASSERT(!modelItem->isObjectReferenced());
+    Q_ASSERT(!modelItem->isScriptReferenced());
+    m_modelItems.remove(modelItem->modelIndex());
+    delete modelItem;
+    return nullptr;
 }
 
 QQmlInstanceModel::ReleaseFlags QQmlTableInstanceModel::release(QObject *object, ReusableFlag reusable)
@@ -165,13 +219,13 @@ QQmlInstanceModel::ReleaseFlags QQmlTableInstanceModel::release(QObject *object,
     auto modelItem = qvariant_cast<QQmlDelegateModelItem *>(object->property(kModelItemTag));
     Q_ASSERT(modelItem);
     // Ensure that the object was incubated by this QQmlTableInstanceModel
-    Q_ASSERT(m_modelItems.contains(modelItem->index));
-    Q_ASSERT(m_modelItems[modelItem->index]->object == object);
+    Q_ASSERT(m_modelItems.contains(modelItem->modelIndex()));
+    Q_ASSERT(m_modelItems[modelItem->modelIndex()]->object() == object);
 
-    if (!modelItem->releaseObject())
+    if (!modelItem->releaseObjectWeak())
         return QQmlDelegateModel::Referenced;
 
-    if (modelItem->isReferenced()) {
+    if (modelItem->isScriptReferenced()) {
         // We still have an internal reference to this object, which means that we are told to release an
         // object while the createdItem signal for it is still on the stack. This can happen when objects
         // are e.g delivered async, and the user flicks back and forth quicker than the loading can catch
@@ -182,11 +236,17 @@ QQmlInstanceModel::ReleaseFlags QQmlTableInstanceModel::release(QObject *object,
     }
 
     // The item is not referenced by anyone
-    m_modelItems.remove(modelItem->index);
+    m_modelItems.remove(modelItem->modelIndex());
 
     if (reusable == Reusable) {
-        m_reusableItemsPool.insertItem(modelItem);
-        emit itemPooled(modelItem->index, modelItem->object);
+        // Stage the item in a temporary cache rather than moving it directly to the reuse pool.
+        // The view calls commitReleasedItems() once the rebuild is done, which transfers the cache
+        // to the pool. Keeping a temporary cache lets resolveModelItem() match a staged item by
+        // persistent model index first, during viewport builds, and hand back the exact same
+        // delegate item that was showing that cell. That way we can avoid the otherwise full
+        // reuse of an item, which includes emitting pooled signals etc. This also preserves
+        // ongoing visual state such as animations.
+        m_releasedItems.append(modelItem);
         return QQmlInstanceModel::Pooled;
     }
 
@@ -197,11 +257,11 @@ QQmlInstanceModel::ReleaseFlags QQmlTableInstanceModel::release(QObject *object,
 
 void QQmlTableInstanceModel::destroyModelItem(QQmlDelegateModelItem *modelItem, DestructionMode mode)
 {
-    emit destroyingItem(modelItem->object);
+    emit destroyingItem(modelItem->object());
     if (mode == Deferred)
-        modelItem->destroyObject();
+        modelItem->destroyObjectLater();
     else
-        delete modelItem->object;
+        modelItem->destroyObject();
     delete modelItem;
 }
 
@@ -211,19 +271,20 @@ void QQmlTableInstanceModel::dispose(QObject *object)
     auto modelItem = qvariant_cast<QQmlDelegateModelItem *>(object->property(kModelItemTag));
     Q_ASSERT(modelItem);
 
-    modelItem->releaseObject();
+    modelItem->releaseObjectWeak();
 
     // The item is not referenced by anyone
     Q_ASSERT(!modelItem->isObjectReferenced());
-    Q_ASSERT(!modelItem->isReferenced());
+    Q_ASSERT(!modelItem->isScriptReferenced());
     // Ensure that the object was incubated by this QQmlTableInstanceModel
-    Q_ASSERT(m_modelItems.contains(modelItem->index));
-    Q_ASSERT(m_modelItems[modelItem->index]->object == object);
+    Q_ASSERT(m_modelItems.contains(modelItem->modelIndex()));
+    Q_ASSERT(m_modelItems[modelItem->modelIndex()]->object() == object);
 
-    m_modelItems.remove(modelItem->index);
+    m_modelItems.remove(modelItem->modelIndex());
 
     emit destroyingItem(object);
-    delete object;
+    modelItem->destroyObject();
+
     delete modelItem;
 }
 
@@ -235,13 +296,12 @@ void QQmlTableInstanceModel::cancel(int index)
     // Since the view expects the item to be incubating, there should be
     // an incubation task. And since the incubation is not done, no-one
     // should yet have received, and therfore hold a reference to, the object.
-    Q_ASSERT(modelItem->incubationTask);
+    Q_ASSERT(modelItem->incubationTask());
     Q_ASSERT(!modelItem->isObjectReferenced());
 
     m_modelItems.remove(index);
 
-    if (modelItem->object)
-        delete modelItem->object;
+    modelItem->destroyObject();
 
     // modelItem->incubationTask will be deleted from the modelItems destructor
     delete modelItem;
@@ -252,6 +312,21 @@ void QQmlTableInstanceModel::drainReusableItemsPool(int maxPoolTime)
     m_reusableItemsPool.drain(maxPoolTime, [this](QQmlDelegateModelItem *modelItem) {
         destroyModelItem(modelItem, Immediate);
     });
+}
+
+void QQmlTableInstanceModel::restoreFromReleasedItemsCache(QQmlDelegateModelItem *item, int newFlatIndex)
+{
+    // Row/column shifts elsewhere in the table may have changed this item's
+    // position, so update its index before handing it back from the released
+    // items cache. Also notify the view so it can refresh any index-dependent
+    // required properties (such as 'expanded' and 'hasChildren').
+    m_modelItems.insert(newFlatIndex, item);
+    const bool alwaysEmit = true;
+    const bool init = false;
+    const int row = m_adaptorModel.rowAt(newFlatIndex);
+    const int column = m_adaptorModel.columnAt(newFlatIndex);
+    item->setModelIndex(newFlatIndex, row, column, alwaysEmit);
+    emit updateItemProperties(newFlatIndex, item->object(), init);
 }
 
 void QQmlTableInstanceModel::reuseItem(QQmlDelegateModelItem *item, int newModelIndex)
@@ -265,102 +340,125 @@ void QQmlTableInstanceModel::reuseItem(QQmlDelegateModelItem *item, int newModel
     const int newRow = m_adaptorModel.rowAt(newModelIndex);
     const int newColumn = m_adaptorModel.columnAt(newModelIndex);
     item->setModelIndex(newModelIndex, newRow, newColumn, alwaysEmit);
+    if (auto *qaim = abstractItemModel())
+        item->setPersistentModelIndex(qaim->index(newRow, newColumn));
 
     // Notify the application that all 'dynamic'/role-based context data has
     // changed as well (their getter function will use the updated index).
     auto const itemAsList = QList<QQmlDelegateModelItem *>() << item;
-    auto const updateAllRoles = QVector<int>();
+    auto const updateAllRoles = QList<int>();
     m_adaptorModel.notify(itemAsList, newModelIndex, 1, updateAllRoles);
 
     // Inform the view that the item is recycled. This will typically result
     // in the view updating its own attached delegate item properties.
-    emit itemReused(newModelIndex, item->object);
+    const bool init = false;
+    emit updateItemProperties(newModelIndex, item->object(), init);
+    emit itemReused(newModelIndex, item->object());
 }
 
 void QQmlTableInstanceModel::incubateModelItem(QQmlDelegateModelItem *modelItem, QQmlIncubator::IncubationMode incubationMode)
 {
     // Guard the model item temporarily so that it's not deleted from
     // incubatorStatusChanged(), in case the incubation is done synchronously.
-    modelItem->scriptRef++;
+    QQmlDelegateModelItem::ScriptReference scriptRef(modelItem);
 
-    if (modelItem->incubationTask) {
+    if (QQDMIncubationTask *incubationTask = modelItem->incubationTask()) {
         // We're already incubating the model item from a previous request. If the previous call requested
         // the item async, but the current request needs it sync, we need to force-complete the incubation.
         const bool sync = (incubationMode == QQmlIncubator::Synchronous || incubationMode == QQmlIncubator::AsynchronousIfNested);
-        if (sync && modelItem->incubationTask->incubationMode() == QQmlIncubator::Asynchronous)
-            modelItem->incubationTask->forceCompletion();
+        if (sync && incubationTask->incubationMode() == QQmlIncubator::Asynchronous)
+            incubationTask->forceCompletion();
     } else if (m_qmlContext && m_qmlContext->isValid()) {
-        modelItem->incubationTask = new QQmlTableInstanceModelIncubationTask(this, modelItem, incubationMode);
+        modelItem->setIncubationTask(
+                new QQmlTableInstanceModelIncubationTask(this, modelItem, incubationMode));
+        // TODO: In order to retain compatibility, we cannot allow the incubation task to clear the
+        //       context object in the presence of required properties. This results in the context
+        //       properties still being available in the delegate even though they shouldn't.
+        // modelItem->incubationTask->incubating = modelItem;
 
-        QQmlContext *creationContext = modelItem->delegate->creationContext();
+        QQmlComponent *delegate = modelItem->delegate();
+        QQmlContext *creationContext = delegate->creationContext();
         const QQmlRefPointer<QQmlContextData> componentContext
                 = QQmlContextData::get(creationContext  ? creationContext : m_qmlContext.data());
 
-        QQmlComponentPrivate *cp = QQmlComponentPrivate::get(modelItem->delegate);
+        QQmlComponentPrivate *cp = QQmlComponentPrivate::get(delegate);
         if (cp->isBound()) {
-            modelItem->contextData = componentContext;
+            modelItem->setContextData(componentContext);
+
+            // Ignore return value of initProxy. We want to know the proxy when assigning required
+            // properties, but we don't want it to pollute our context. The context is bound.
+            if (m_adaptorModel.hasProxyObject())
+                modelItem->initProxy();
+
             cp->incubateObject(
-                        modelItem->incubationTask,
-                        modelItem->delegate,
-                        m_qmlContext->engine(),
-                        componentContext,
-                        QQmlContextData::get(m_qmlContext));
+                    modelItem->incubationTask(), delegate, m_qmlContext->engine(), componentContext,
+                    QQmlContextData::get(m_qmlContext));
         } else {
             QQmlRefPointer<QQmlContextData> ctxt = QQmlContextData::createRefCounted(
                         QQmlContextData::get(creationContext  ? creationContext : m_qmlContext.data()));
             ctxt->setContextObject(modelItem);
-            modelItem->contextData = ctxt;
+            modelItem->setContextData(ctxt);
+
+            // If the model is read-only we cannot just expose the object as context
+            // We actually need a separate model object to moderate access.
+            if (m_adaptorModel.hasProxyObject()) {
+                if (m_adaptorModel.delegateModelAccess == QQmlDelegateModel::ReadOnly)
+                    modelItem->initProxy();
+                else
+                    ctxt = modelItem->initProxy();
+            }
 
             cp->incubateObject(
-                        modelItem->incubationTask,
-                        modelItem->delegate,
-                        m_qmlContext->engine(),
-                        ctxt,
-                        QQmlContextData::get(m_qmlContext));
+                    modelItem->incubationTask(), modelItem->delegate(), m_qmlContext->engine(),
+                    ctxt, QQmlContextData::get(m_qmlContext));
         }
     }
-
-    // Remove the temporary guard
-    modelItem->scriptRef--;
 }
 
 void QQmlTableInstanceModel::incubatorStatusChanged(QQmlTableInstanceModelIncubationTask *incubationTask, QQmlIncubator::Status status)
 {
     QQmlDelegateModelItem *modelItem = incubationTask->modelItemToIncubate;
-    Q_ASSERT(modelItem->incubationTask);
+    Q_ASSERT(modelItem->incubationTask());
 
-    modelItem->incubationTask = nullptr;
+    modelItem->clearIncubationTask();
     incubationTask->modelItemToIncubate = nullptr;
 
     if (status == QQmlIncubator::Ready) {
+        QObject *object = modelItem->object();
+        Q_ASSERT(object);
+
+        if (auto *qaim = abstractItemModel()) {
+            // Optimization: store a persistent model index so that resolveModelItem(QModelIndex)
+            // can match this item by index after a rebuild, even if its flat index has shifted
+            // due to row or column insertions/removals.
+            modelItem->setPersistentModelIndex(qaim->index(modelItem->modelRow(), modelItem->modelColumn()));
+        }
+
         // Tag the incubated object with the model item for easy retrieval upon release etc.
-        modelItem->object->setProperty(kModelItemTag, QVariant::fromValue(modelItem));
+        object->setProperty(kModelItemTag, QVariant::fromValue(modelItem));
 
         // Emit that the item has been created. What normally happens next is that the view
         // upon receiving the signal asks for the model item once more. And since the item is
         // now in the map, it will be returned directly.
-        Q_ASSERT(modelItem->object);
-        modelItem->scriptRef++;
-        emit createdItem(modelItem->index, modelItem->object);
-        modelItem->scriptRef--;
+        QQmlDelegateModelItem::ScriptReference scriptRef(modelItem);
+        emit createdItem(modelItem->modelIndex(), object);
     } else if (status == QQmlIncubator::Error) {
         qWarning() << "Error incubating delegate:" << incubationTask->errors();
     }
 
-    if (!modelItem->isReferenced() && !modelItem->isObjectReferenced()) {
+    if (!modelItem->isScriptReferenced() && !modelItem->isObjectReferenced()) {
         // We have no internal reference to the model item, and the view has no
         // reference to the incubated object. So just delete the model item.
         // Note that being here means that the object was incubated _async_
         // (otherwise modelItem->isReferenced() would be true).
-        m_modelItems.remove(modelItem->index);
+        m_modelItems.remove(modelItem->modelIndex());
 
-        if (modelItem->object) {
-            modelItem->scriptRef++;
-            emit destroyingItem(modelItem->object);
-            modelItem->scriptRef--;
-            Q_ASSERT(!modelItem->isReferenced());
+        if (QObject *object = modelItem->object()) {
+            QQmlDelegateModelItem::ScriptReference scriptRef(modelItem);
+            emit destroyingItem(object);
         }
 
+        Q_ASSERT(!modelItem->isScriptReferenced());
         deleteModelItemLater(modelItem);
     }
 
@@ -372,8 +470,8 @@ QQmlIncubator::Status QQmlTableInstanceModel::incubationStatus(int index) {
     if (!modelItem)
         return QQmlIncubator::Null;
 
-    if (modelItem->incubationTask)
-        return modelItem->incubationTask->status();
+    if (QQDMIncubationTask *incubationTask = modelItem->incubationTask())
+        return incubationTask->status();
 
     // Since we clear the incubation task when we're done
     // incubating, it means that the status is Ready.
@@ -389,23 +487,28 @@ bool QQmlTableInstanceModel::setRequiredProperty(int index, const QString &name,
     const auto modelItem = m_modelItems.value(index, nullptr);
     if (!modelItem)
         return false;
-    if (!modelItem->object)
+    if (!modelItem->object())
         return false;
-    if (!modelItem->incubationTask)
+    if (!modelItem->incubationTask())
         return false;
 
     bool wasInRequired = false;
-    const auto task = QQmlIncubatorPrivate::get(modelItem->incubationTask);
+    const auto task = QQmlIncubatorPrivate::get(modelItem->incubationTask());
     RequiredProperties *props = task->requiredProperties();
     if (props->empty())
         return false;
 
     QQmlProperty componentProp = QQmlComponentPrivate::removePropertyFromRequired(
-                modelItem->object, name, props, QQmlEnginePrivate::get(task->enginePriv),
-                &wasInRequired);
+            modelItem->object(), name, props, QQmlEnginePrivate::get(task->enginePriv),
+            &wasInRequired);
     if (wasInRequired)
         componentProp.write(value);
     return wasInRequired;
+}
+
+QQmlDelegateModelItem *QQmlTableInstanceModel::getModelItem(int index)
+{
+    return m_modelItems.value(index, nullptr);
 }
 
 void QQmlTableInstanceModel::deleteIncubationTaskLater(QQmlIncubator *incubationTask)
@@ -429,7 +532,7 @@ QVariant QQmlTableInstanceModel::model() const
     return m_adaptorModel.model();
 }
 
-void QQmlTableInstanceModel::setModel(const QVariant &model)
+void QQmlTableInstanceModel::forceSetModel(const QVariant &model)
 {
     // Pooled items are still accessible/alive for the application, and
     // needs to stay in sync with the model. So we need to drain the pool
@@ -446,18 +549,49 @@ void QQmlTableInstanceModel::setModel(const QVariant &model)
     }
 }
 
-void QQmlTableInstanceModel::dataChangedCallback(const QModelIndex &begin, const QModelIndex &end, const QVector<int> &roles)
+void QQmlTableInstanceModel::setModel(const QVariant &model)
 {
-    // This function is called when model data has changed. In that case, we tell the adaptor model
-    // to go through all the items we have created, find the ones that are affected, and notify that
-    // their model data has changed. This will in turn update QML bindings inside the delegate items.
-    int numberOfRowsChanged = end.row() - begin.row() + 1;
-    int numberOfColumnsChanged = end.column() - begin.column() + 1;
+    if (m_adaptorModel.model() == model)
+        return;
 
-    for (int column = 0; column < numberOfColumnsChanged; ++column) {
-        const int columnIndex = begin.column() + column;
-        const int rowIndex = begin.row() + (columnIndex * rows());
-        m_adaptorModel.notify(m_modelItems.values(), rowIndex, numberOfRowsChanged, roles);
+    forceSetModel(model);
+
+    emit modelChanged();
+}
+
+void QQmlTableInstanceModel::dataChangedCallback(const QModelIndex &begin, const QModelIndex &end, const QList<int> &roles)
+{
+    // This function is called when model data has changed. We iterate over the affected cells,
+    // find the delegate item (if any) currently showing each cell via its persistent model index,
+    // and notify the adaptor model so it can update role-based QML bindings in that item.
+    // NOTE: A model may sometimes emit layoutChanged first (e.g. after sorting), and then
+    // emit dataChanged for some of the affected items (e.g. because a data change triggered
+    // the sort in the first place). This causes a problem here, because TableView hasn't
+    // processed the layout change yet (it will do so on the next updatePolish()), so the
+    // items in this QQmlTableInstanceModel are index-wise out-of-sync with QAbstractItemModel.
+    // When we detect this, we temporarily correct an item's flat index before notifying, so
+    // that the right QModelIndex is read from QAbstractItemModel. Afterwards we restore the
+    // old flat index to stay in sync with what TableView expects. When TableView later
+    // rebuilds in response to the layout change, all flat indices will be corrected.
+    for (int row = begin.row(); row <= end.row(); ++row) {
+        for (int column = begin.column(); column <= end.column(); ++column) {
+            const QModelIndex modelIndex = abstractItemModel()->index(row, column);
+            const auto it = std::find_if(m_modelItems.cbegin(), m_modelItems.cend(),
+                [&modelIndex](const QQmlDelegateModelItem *item) {
+                    return item->persistentModelIndex() == modelIndex;
+                });
+            if (it == m_modelItems.cend())
+                continue;
+
+            QQmlDelegateModelItem *modelItem = *it;
+            const int oldFlatIndex = modelItem->modelIndex();
+            const int newFlatIndex = row + column * rows();
+            if (oldFlatIndex != newFlatIndex)
+                modelItem->setModelIndex(newFlatIndex, row, column, false);
+            m_adaptorModel.notify({modelItem}, newFlatIndex, 1, roles);
+            if (oldFlatIndex != newFlatIndex)
+                modelItem->setModelIndex(oldFlatIndex, row, column, false);
+        }
     }
 }
 
@@ -471,8 +605,11 @@ void QQmlTableInstanceModel::modelAboutToBeResetCallback()
     auto const aim = abstractItemModel();
     auto oldRoleNames = aim->roleNames();
     QObject::connect(aim, &QAbstractItemModel::modelReset, this, [this, aim, oldRoleNames](){
-        if (oldRoleNames != aim->roleNames())
-            setModel(model());
+        if (oldRoleNames != aim->roleNames()) {
+            // We refresh the model, but without sending any signals. The actual model object
+            // stays the same after all.
+            forceSetModel(model());
+        }
     }, Qt::SingleShotConnection);
 }
 
@@ -506,14 +643,17 @@ const QAbstractItemModel *QQmlTableInstanceModel::abstractItemModel() const
 
 void QQmlTableInstanceModelIncubationTask::setInitialState(QObject *object)
 {
-    initializeRequiredProperties(modelItemToIncubate, object);
-    modelItemToIncubate->object = object;
-    emit tableInstanceModel->initItem(modelItemToIncubate->index, object);
+    initializeRequiredProperties(
+            modelItemToIncubate, object, tableInstanceModel->delegateModelAccess());
+    modelItemToIncubate->setObject(object);
 
-    if (!QQmlIncubatorPrivate::get(this)->requiredProperties()->empty()) {
-        modelItemToIncubate->object = nullptr;
-        object->deleteLater();
-    }
+    const bool init = true;
+    const int flatIndex = modelItemToIncubate->modelIndex();
+    emit tableInstanceModel->initItem(flatIndex, object);
+    emit tableInstanceModel->updateItemProperties(flatIndex, object, init);
+
+    if (!QQmlIncubatorPrivate::get(this)->requiredProperties()->empty())
+        modelItemToIncubate->destroyObjectLater();
 }
 
 void QQmlTableInstanceModelIncubationTask::statusChanged(QQmlIncubator::Status status)

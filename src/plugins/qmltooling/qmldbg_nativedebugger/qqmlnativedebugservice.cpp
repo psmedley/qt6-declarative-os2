@@ -1,20 +1,22 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlnativedebugservice.h"
 
 #include <private/qqmldebugconnector_p.h>
+#include <private/qqmldebugserviceinterfaces_p.h>
+#include <private/qv4debugging_p.h>
 #include <private/qv4debugging_p.h>
 #include <private/qv4engine_p.h>
-#include <private/qv4debugging_p.h>
-#include <private/qv4script_p.h>
-#include <private/qv4string_p.h>
-#include <private/qv4objectiterator_p.h>
 #include <private/qv4identifierhash_p.h>
-#include <private/qv4runtime_p.h>
-#include <private/qversionedpacket_p.h>
-#include <private/qqmldebugserviceinterfaces_p.h>
 #include <private/qv4identifiertable_p.h>
+#include <private/qv4objectiterator_p.h>
+#include <private/qv4runtime_p.h>
+#include <private/qv4script_p.h>
+#include <private/qv4stackframe_p.h>
+#include <private/qv4string_p.h>
+#include <private/qversionedpacket_p.h>
 
 #include <QtQml/qjsengine.h>
 #include <QtCore/qjsonarray.h>
@@ -102,7 +104,7 @@ public:
     bool m_haveBreakPoints;
     bool m_breakOnThrow;
     int m_lastBreakpoint;
-    QVector<BreakPoint> m_breakPoints;
+    QList<BreakPoint> m_breakPoints;
 };
 
 void BreakPointHandler::handleSetBreakpoint(QJsonObject *response, const QJsonObject &arguments)
@@ -220,11 +222,12 @@ QV4::ReturnedValue NativeDebugger::evaluateExpression(const QString &expression)
 
     QV4::Script script(ctx, QV4::Compiler::ContextType::Eval, expression);
     if (const QV4::Function *function = m_engine->currentStackFrame
-            ? m_engine->currentStackFrame->v4Function : m_engine->globalCode)
-        script.strictMode = function->isStrict();
+                ? m_engine->currentStackFrame->v4Function : m_engine->globalCode) {
+        script.setStrictMode(function->isStrict());
+    }
     // In order for property lookups in QML to work, we need to disable fast v4 lookups.
     // That is a side-effect of inheritContext.
-    script.inheritContext = true;
+    script.setInheritContext();
     script.parse();
     if (!m_engine->hasException) {
         if (m_engine->currentStackFrame) {
@@ -701,8 +704,11 @@ void QQmlNativeDebugServiceImpl::engineAboutToBeRemoved(QJSEngine *engine)
         QV4::ExecutionEngine *executionEngine = engine->handle();
         const auto debuggersCopy = m_debuggers;
         for (NativeDebugger *debugger : debuggersCopy) {
-            if (debugger->engine() == executionEngine)
+            if (debugger->engine() == executionEngine) {
                 m_debuggers.removeAll(debugger);
+                if (executionEngine->debugger() != debugger)
+                    delete debugger;
+            }
         }
     }
     QQmlDebugService::engineAboutToBeRemoved(engine);

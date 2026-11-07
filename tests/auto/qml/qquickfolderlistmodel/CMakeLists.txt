@@ -26,8 +26,11 @@ qt_internal_add_test(tst_qquickfolderlistmodel
         Qt::CorePrivate
         Qt::Gui
         Qt::GuiPrivate
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QuickTestUtilsPrivate
+        Qt::LabsFolderListModelPrivate
+
     TESTDATA ${test_data}
 )
 

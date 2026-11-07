@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickrendercontrol.h"
 #include "qquickrendercontrol_p.h"
@@ -103,10 +104,6 @@ QT_BEGIN_NAMESPACE
   \l{QQuickItem::forceActiveFocus()}{forceActiveFocus()} on the desired item,
   for example the scene's root item, once it is associated with the scene (the
   QQuickWindow).
-
-  \note In general QQuickRenderControl is supported in combination with all Qt
-  Quick backends. However, some functionality, in particular grab(), may not be
-  available in all cases.
 
   \inmodule QtQuick
 */
@@ -561,6 +558,30 @@ bool QQuickRenderControlPrivate::isRenderWindowFor(QQuickWindow *quickWin, const
     return false;
 }
 
+/*
+    Returns \c true if \a focusWindow is the window that holds focus on behalf of
+    \a quickWindow, which is the case when it's the window \a quickWindow renders
+    into, or an ancestor of it.
+*/
+bool QQuickRenderControlPrivate::isFocusWindowFor(QQuickWindow *quickWindow, const QWindow *focusWindow)
+{
+    if (!quickWindow || !focusWindow)
+        return false;
+
+    if (isRenderWindowFor(quickWindow, focusWindow))
+        return true;
+
+    // Qt Widgets manages focus via the top level QWindow, so the check
+    // above is not sufficient when the render window is a child QWindow.
+    // To match Qt Widgets expectations, we also check if the render window
+    // is a non-transient descendant of the focus window. Note: We still
+    // need the isRenderWindowFor check above, to handle the case of graphics
+    // view proxy widgets, where a single QQuickWidget may be proxied into
+    // multiple graphics views in different windows.
+    QWindow *renderWindow = QQuickRenderControl::renderWindowFor(quickWindow);
+    return renderWindow && focusWindow->isAncestorOf(renderWindow, QWindow::ExcludeTransients);
+}
+
 bool QQuickRenderControlPrivate::isRenderWindow(const QWindow *w)
 {
     Q_Q(QQuickRenderControl);
@@ -778,7 +799,16 @@ bool QQuickRenderControlPrivate::initRhi()
 #endif
 
     // for OpenGL
-    if (!offscreenSurface)
+    bool wantOffscreenSurface = true;
+
+    QQuickWindowPrivate *wd = QQuickWindowPrivate::get(window);
+    const QQuickGraphicsDevicePrivate *customDevD = QQuickGraphicsDevicePrivate::get(&wd->customDeviceObjects);
+    if (customDevD->type == QQuickGraphicsDevicePrivate::Type::Rhi) {
+        if (customDevD->u.rhi)
+            wantOffscreenSurface = false;
+    }
+
+    if (wantOffscreenSurface && !offscreenSurface)
         offscreenSurface = rhiSupport->maybeCreateOffscreenSurface(window);
 
     QSGRhiSupport::RhiCreateResult result = rhiSupport->createRhi(window, offscreenSurface);

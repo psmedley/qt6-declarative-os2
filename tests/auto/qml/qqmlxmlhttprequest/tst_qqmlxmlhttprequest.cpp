@@ -20,6 +20,8 @@
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 
+using namespace Qt::StringLiterals;
+
 class tst_qqmlxmlhttprequest : public QQmlDataTest
 {
     Q_OBJECT
@@ -342,7 +344,7 @@ void tst_qqmlxmlhttprequest::open_sync()
     QQmlComponent component(engine.get(), testFileUrl("open_sync.qml"));
     QScopedPointer<QObject> object(component.beginCreate(engine.get()->rootContext()));
     QVERIFY(!object.isNull());
-    object->setProperty("url", server.serverBaseUrl.resolved(QStringLiteral("/testdocument.html")).toString());
+    object->setProperty("url", server.serverBaseUrl.resolved(QUrl{u"/testdocument.html"_s}).toString());
     component.completeCreate();
 
     QCOMPARE(object->property("responseText").toString(), QStringLiteral("QML Rocks!\n"));
@@ -1020,6 +1022,8 @@ void tst_qqmlxmlhttprequest::responseText_data()
     QTest::newRow("Not Found") << testFileUrl("status.404.reply") << testFileUrl("testdocument.html") << "QML Rocks!\n";
     QTest::newRow("Bad Request") << testFileUrl("status.400.reply") << testFileUrl("testdocument.html") << "QML Rocks!\n";
     QTest::newRow("Internal server error") << testFileUrl("status.500.reply") << testFileUrl("testdocument.html") << "QML Rocks!\n";
+    QTest::newRow("Content Conflict") << testFileUrl("status.409.reply") << testFileUrl("testdocument.html") << "QML Rocks!\n";
+    QTest::newRow("Content Gone") << testFileUrl("status.410.reply") << testFileUrl("testdocument.html") << "QML Rocks!\n";
 }
 
 
@@ -1171,8 +1175,8 @@ void tst_qqmlxmlhttprequest::sendFileRequest()
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNotSet() {
-#ifdef Q_OS_ANDROID
-    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform (QTBUG-99214)");
 #endif
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
         // Test with no settings, neither reading nor writing should work
@@ -1228,8 +1232,8 @@ void tst_qqmlxmlhttprequest::sendFileRequestNotSet() {
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNoWrite() {
-#ifdef Q_OS_ANDROID
-    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform (QTBUG-99214)");
 #endif
 
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
@@ -1261,8 +1265,8 @@ void tst_qqmlxmlhttprequest::sendFileRequestNoWrite() {
 
 #if QT_CONFIG(process)
 void tst_qqmlxmlhttprequest::sendFileRequestNoRead() {
-#ifdef Q_OS_ANDROID
-    QSKIP("Trying to run the main app .so lib crashes on Android (QTBUG-99214)");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform (QTBUG-99214)");
 #endif
 
     if (qEnvironmentVariableIsSet("TEST_CUSTOM_PERMISSIONS")) {
@@ -1503,7 +1507,7 @@ void tst_qqmlxmlhttprequest::noQmlContext()
     QVERIFY(server.wait(testFileUrl("open_network.expect"),
                         testFileUrl("open_network.reply"),
                         testFileUrl("testdocument.html")));
-    QUrl url = server.urlString(QStringLiteral("/testdocument.html"));
+    auto url = server.url(u"/testdocument.html"_s);
 
     QQmlEngine engine;
 
@@ -1539,7 +1543,7 @@ void tst_qqmlxmlhttprequest::stateChangeCallingContext()
     object->setProperty("serverBaseUrl", server.baseUrl().toString());
     component.completeCreate();
     server.sendDelayedItem();
-    QTRY_VERIFY(object->property("success").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(object->property("success").toBool(), 3s);
 }
 
 void tst_qqmlxmlhttprequest::overrideMime()

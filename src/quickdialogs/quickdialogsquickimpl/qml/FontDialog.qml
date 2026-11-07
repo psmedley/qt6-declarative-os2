@@ -1,9 +1,10 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
-import QtQuick.Controls.Basic
-import QtQuick.Controls.Basic.impl
+import QtQuick.Controls
+import QtQuick.Controls.impl
 import QtQuick.Dialogs
 import QtQuick.Dialogs.quickimpl
 import QtQuick.Layouts
@@ -13,11 +14,11 @@ FontDialogImpl {
     id: control
 
     implicitWidth: Math.max(control.implicitBackgroundWidth + control.leftInset + control.rightInset,
-                            control.contentWidth + control.leftPadding + control.rightPadding,
+                            control.implicitContentWidth + control.leftPadding + control.rightPadding,
                             control.implicitHeaderWidth,
                             control.implicitFooterWidth)
     implicitHeight: Math.max(control.implicitBackgroundHeight + control.topInset + control.bottomInset,
-                             control.contentHeight + control.topPadding + control.bottomPadding
+                             control.implicitContentHeight + control.topPadding + control.bottomPadding
                              + (control.implicitHeaderHeight > 0 ? control.implicitHeaderHeight + control.spacing : 0)
                              + (control.implicitFooterHeight > 0 ? control.implicitFooterHeight + control.spacing : 0))
 
@@ -104,6 +105,7 @@ FontDialogImpl {
             DialogButtonBox {
                 id: buttonBox
                 standardButtons: control.standardButtons
+                defaultStandardButton: T.Dialog.Ok
                 palette.window: control.palette.light
                 spacing: 12
                 horizontalPadding: 0

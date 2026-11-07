@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSLOGGINGUTILS_P_H
 #define QQMLJSLOGGINGUTILS_P_H
@@ -28,6 +29,7 @@ class QCommandLineParser;
 namespace QQmlJS {
 
 using LoggerWarningId = QQmlSA::LoggerWarningId;
+using WarningSeverity = QQmlSA::WarningSeverity;
 
 class LoggerCategoryPrivate;
 
@@ -36,9 +38,12 @@ class Q_QMLCOMPILER_EXPORT LoggerCategory
     Q_DECLARE_PRIVATE(LoggerCategory)
 
 public:
+    enum Essentiality { Essential, NonEssential };
+
     LoggerCategory();
-    LoggerCategory(QString name, QString settingsName, QString description, QtMsgType level,
-                   bool ignored = false, bool isDefault = false);
+    LoggerCategory(
+            const QString &name, const QString &settingsName, const QString &description,
+            WarningSeverity severity, Essentiality essentiality = NonEssential);
     LoggerCategory(const LoggerCategory &);
     LoggerCategory(LoggerCategory &&) noexcept;
     LoggerCategory &operator=(const LoggerCategory &);
@@ -48,36 +53,36 @@ public:
     QString name() const;
     QString settingsName() const;
     QString description() const;
-    QtMsgType level() const;
-    bool isIgnored() const;
-    bool isDefault() const;
+    WarningSeverity severity() const;
+    bool isEssential() const;
 
     LoggerWarningId id() const;
 
-    void setLevel(QtMsgType);
-    void setIgnored(bool);
+    void setSeverity(WarningSeverity);
 
 private:
     std::unique_ptr<QQmlJS::LoggerCategoryPrivate> d_ptr;
 };
 
-class LoggerCategoryPrivate
+class Q_QMLCOMPILER_EXPORT LoggerCategoryPrivate
 {
-    friend class QT_PREPEND_NAMESPACE(QQmlJS::LoggerCategory);
-
 public:
+    LoggerCategoryPrivate() = default;
+    LoggerCategoryPrivate(const QString &name, const QString &settingsName,
+                          const QString &description, WarningSeverity severity,
+                          LoggerCategory::Essentiality essentiality);
+
     LoggerWarningId id() const { return LoggerWarningId(m_name); }
 
-    void setLevel(QtMsgType);
-    void setIgnored(bool);
+    QString name() const { return m_name; }
+    QString settingsName() const { return m_settingsName; }
+    QString description() const { return m_description; }
+    bool isEssential() const { return m_isEssential; }
 
-    QString name() const;
-    QString settingsName() const;
-    QString description() const;
-    QtMsgType level() const;
-    bool isIgnored() const;
-    bool isDefault() const;
-    bool hasChanged() const;
+    WarningSeverity severity() const { return m_severity; }
+    void setSeverity(WarningSeverity);
+
+    bool hasChanged() const { return m_changed; }
 
     static LoggerCategoryPrivate *get(LoggerCategory *);
 
@@ -98,18 +103,19 @@ private:
     QString m_name;
     QString m_settingsName;
     QString m_description;
-    QtMsgType m_level = QtDebugMsg;
-    bool m_ignored = false;
-    bool m_isDefault = false; // Whether or not the category can be disabled
+    WarningSeverity m_severity = WarningSeverity::Info;
+    bool m_isEssential = false; // qmllint or other tooling might malfunction without it. Can't be disabled.
     bool m_changed = false;
 };
 
 namespace LoggingUtils {
-Q_QMLCOMPILER_EXPORT void updateLogLevels(QList<LoggerCategory> &categories,
-                                          const QQmlToolingSettings &settings,
-                                          QCommandLineParser *parser);
+enum class CategorySelection { All, Explicit };
+Q_QMLCOMPILER_EXPORT void updateLogSeverities(
+        QList<LoggerCategory> &categories, const QQmlToolingSettings &settings,
+        QCommandLineParser *parser, CategorySelection categorySelection = CategorySelection::All);
 
-Q_QMLCOMPILER_EXPORT QString levelToString(const QQmlJS::LoggerCategory &category);
+Q_QMLCOMPILER_EXPORT std::optional<QQmlJS::WarningSeverity> severityFromString(const QString &);
+Q_QMLCOMPILER_EXPORT QString severityToString(QQmlJS::WarningSeverity);
 } // namespace LoggingUtils
 
 } // namespace QQmlJS

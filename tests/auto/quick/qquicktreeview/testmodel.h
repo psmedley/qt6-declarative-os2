@@ -14,9 +14,9 @@ public:
     ~TreeItem();
 
     int row() const;
-    QVector<TreeItem *> m_childItems;
+    QList<TreeItem *> m_childItems;
     TreeItem *m_parentItem;
-    QVector<QVariant> m_entries;
+    QList<QVariant> m_entries;
 };
 
 // ########################################################
@@ -36,10 +36,13 @@ public:
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
     QModelIndex parent(const QModelIndex &index) const override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
     int maxDepth() { return 4; }
 
     bool insertRows(int position, int rows, const QModelIndex &parent) override;
     bool insertColumns(int position, int cols, const QModelIndex &parent) override;
+
+    QList<QModelIndex> m_editableIndices;
 
 private:
     QScopedPointer<TreeItem> m_rootItem;

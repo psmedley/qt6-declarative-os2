@@ -12,6 +12,8 @@ qt_internal_add_plugin(QQmlPreviewServiceFactoryPlugin
     CLASS_NAME QQmlPreviewServiceFactory
     PLUGIN_TYPE qmltooling
     SOURCES
+        qqmlclassicpreviewhandler.cpp qqmlclassicpreviewhandler.h
+        qqmlinplacepreviewhandler.cpp qqmlinplacepreviewhandler.h
         qqmlpreviewblacklist.cpp qqmlpreviewblacklist.h
         qqmlpreviewfileengine.cpp qqmlpreviewfileengine.h
         qqmlpreviewfileloader.cpp qqmlpreviewfileloader.h
@@ -28,7 +30,7 @@ qt_internal_add_plugin(QQmlPreviewServiceFactoryPlugin
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
-    OS2_SHORT_NAME qmldbgpv
+        Qt::QmlPreviewPrivate
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_preview.pro:<TRUE>:

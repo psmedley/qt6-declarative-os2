@@ -21,6 +21,7 @@ list(APPEND test_data ${test_data_glob})
 
 qt_internal_add_test(tst_qqmlinstantiator
     SOURCES
+        delegatemodelkinds.h
         stringmodel.h
         tst_qqmlinstantiator.cpp
     LIBRARIES
@@ -28,6 +29,7 @@ qt_internal_add_test(tst_qqmlinstantiator
         Qt::Gui
         Qt::GuiPrivate
         Qt::QmlModelsPrivate
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QuickTestUtilsPrivate
     TESTDATA ${test_data}

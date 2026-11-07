@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 pragma ComponentBehavior: Bound
 
@@ -8,6 +9,7 @@ import QtQuick.Window
 import QtQuick.Controls.impl
 import QtQuick.Templates as T
 import QtQuick.Controls.Universal
+import QtQuick.Controls.Universal.impl
 
 T.ComboBox {
     id: control
@@ -53,6 +55,8 @@ T.ComboBox {
     }
 
     contentItem: T.TextField {
+        implicitHeight: contentHeight + topPadding + bottomPadding
+
         leftPadding: control.mirrored ? 1 : 12
         rightPadding: control.mirrored ? 10 : 1
         topPadding: 5 - control.topPadding
@@ -72,6 +76,10 @@ T.ComboBox {
         selectionColor: control.Universal.accent
         selectedTextColor: control.Universal.chromeWhiteColor
         verticalAlignment: Text.AlignVCenter
+
+        ContextMenu.menu: TextEditingContextMenu {
+            editor: parent
+        }
     }
 
     background: Rectangle {
@@ -106,6 +114,7 @@ T.ComboBox {
         height: Math.min(contentItem.implicitHeight, control.Window.height - topMargin - bottomMargin)
         topMargin: 8
         bottomMargin: 8
+        font: control.font
 
         Universal.theme: control.Universal.theme
         Universal.accent: control.Universal.accent

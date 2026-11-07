@@ -1,11 +1,11 @@
 TEMPLATE = lib
-CONFIG += plugin
+CONFIG += plugin qmltypes
 QT += qml quick
 
+QML_IMPORT_NAME = ImageProviderCore
+QML_IMPORT_MAJOR_VERSION = 1
 DESTDIR = ImageProviderCore
 TARGET  = qmlimageproviderplugin
-os2:TARGET_SHORT = qmlipp
-os2:CONFIG += target_short_symlink
 
 SOURCES += imageprovider.cpp
 

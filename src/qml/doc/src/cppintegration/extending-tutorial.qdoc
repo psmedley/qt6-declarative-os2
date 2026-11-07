@@ -30,8 +30,14 @@ Examples/Qt-\QtVersion/qml/tutorials/extending-qml/.
 \section1 Creating Project from Scratch
 
 Alternatively, you can follow the tutorial by creating the sources from scratch:
-For each chapter, create a new project using the \e {Qt Quick Application} template
-in Qt Creator, as instructed in \l {Qt Creator: Creating Qt Quick Projects}.
+For each chapter, create a new project using the \e {Qt Quick Application}
+template:
+
+\list
+\li If you use \QC, as instructed in \l {\QC: Create Qt Quick Applications}.
+\li If you use \QVSC, as instructed in \l {\QVSC: Create Qt projects}.
+\endlist
+
 Then follow along by adapting and extending the generated skeleton code.
 
 \section1 Chapter 1: Creating a New Type
@@ -63,6 +69,11 @@ We want this \c PieChart type to be usable from QML like this:
         color: "red"
     }
 \endqml
+\note You might need to enable \QMLLS and its semantic
+highlighting (\l {\QC: Configure \QMLLS}{in \QC} or
+\l{\QVSC: Turn on \QMLLS}{in \QVSC}) to make Qt Creator highlight
+\c{PieChart} correctly.
+
 
 To do this, we need a C++ class that encapsulates this \c PieChart type and its
 properties. Since QML makes extensive use of Qt's \l{Meta-Object System}{meta object system},
@@ -101,12 +112,20 @@ For the registration to take effect, the \c qmltypes option is added to
 
 \snippet tutorials/extending-qml/chapter1-basics/chapter1-basics.pro 0
 
+Additionally, a \l{Module Definition qmldir Files}{qmldir} file needs to be added manually to
+create a \l{Writing QML Modules}{QML module}.
+
+\quotefile tutorials/extending-qml/chapter1-basics/qmldir
+
 \section2 CMake Setup
 
-Similarly, for the registration to take effect when using CMake, use the
-\l{qt6_add_qml_module} {qt_add_qml_module} command:
+For the registration to take effect when using CMake, use the
+\l qt_add_qml_module() command:
 
 \snippet tutorials/extending-qml/chapter1-basics/CMakeLists.txt 0
+
+The \l qt_add_qml_module() API automatically generates a
+\c qmldir file for the QML module.
 
 \section2 Class Implementation
 
@@ -154,9 +173,10 @@ Using CMake:
 
 Now we can build and run the application:
 
-\image extending-tutorial-chapter1.png
+\image extending-tutorial-chapter1.png {Application creates the pie chart with
+       properties defined by the pie chart type}
 
-\note You may see a warning \e {Expression ... depends on non-NOTIFYable properties:
+\note You may see a warning \e {Expression ... depends on non-bindable properties:
       PieChart::name}. This happens because we add a binding to the writable \c name
       property, but haven't yet defined a notify signal for it. The QML engine therefore
       cannot update the binding if the \c name value changes. This is addressed in
@@ -171,7 +191,9 @@ to call \c clearChart() and receive \c chartCleared() signals like this:
 
 \snippet tutorials/extending-qml/chapter2-methods/App.qml 0
 
-\image extending-tutorial-chapter2.png
+\image extending-tutorial-chapter2.png {User can click anywhere on the
+       application window to clear the chart. This invokes the Clear Chart
+       method}
 
 To do this, we add a \c clearChart() method and a \c chartCleared() signal
 to our C++ class:
@@ -217,7 +239,8 @@ if we have code like this:
 
 \snippet tutorials/extending-qml/chapter3-bindings/App.qml 0
 
-\image extending-tutorial-chapter3.png
+\image extending-tutorial-chapter3.png {Pie chart B's color property is bound
+                                        to pie chart A's color property.}
 
 The "color: chartA.color" statement binds the \c color value of
 \c chartB to the \c color of \c chartA.
@@ -353,7 +376,8 @@ have a \c slices property that accepts a list of \c PieSlice items:
 
 \snippet tutorials/extending-qml/chapter5-listproperties/App.qml 0
 
-\image extending-tutorial-chapter5.png
+\image extending-tutorial-chapter5.png {The slices property accepts a list of
+ pie slice items. The pieslice item sets the angle and color of each pie slice}
 
 To do this, we replace the \c pieSlice property in \c PieChart with a \c slices property,
 declared as a \l QQmlListProperty type. The \l QQmlListProperty class enables the
@@ -422,7 +446,7 @@ When building this example on Windows or Linux, the \c Charts directory will be
 located at the same level as the application that uses our new import module.
 This way, the QML engine will find our module as the default search path for QML
 imports includes the directory of the application executable. On \macos, the
-plugin binary is copied to \c Contents/PlugIns in the the application bundle.
+plugin binary is copied to \c Contents/PlugIns in the application bundle.
 With qmake, this path is set in \c {chapter6-plugins/app.pro}:
 
 \quotefromfile tutorials/extending-qml/chapter6-plugins/app.pro
@@ -480,7 +504,8 @@ In this tutorial, we've shown the basic steps for creating a QML extension:
 
 The \l{Overview - QML and C++ Integration}{QML and C++ Integration overview}
 documentation shows other useful features that can be added to QML extensions.
-For example, we could use \l{Default Properties}{default properties} to allow
+For example, we could use
+\l{QML Object Attributes#Default Properties}{default properties} to allow
 slices to be added without using the \c slices property:
 
 \badcode

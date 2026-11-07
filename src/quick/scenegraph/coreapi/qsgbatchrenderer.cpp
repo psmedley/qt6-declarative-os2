@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
 // Copyright (C) 2016 Robin Burchell <robin.burchell@viroteck.net>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgbatchrenderer_p.h"
 
@@ -17,13 +18,11 @@
 
 #include "qsgrhivisualizer_p.h"
 
+#include <QtQuick/private/qsgnode_p.h>
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
-
-#ifndef QT_NO_DEBUG
-Q_QUICK_EXPORT bool qsg_test_and_clear_material_failure();
-#endif
 
 int qt_sg_envInt(const char *name, int defaultValue);
 
@@ -69,7 +68,6 @@ static inline int size_of_type(int type)
 
 bool qsg_sort_element_increasing_order(Element *a, Element *b) { return a->order < b->order; }
 bool qsg_sort_element_decreasing_order(Element *a, Element *b) { return a->order > b->order; }
-bool qsg_sort_batch_is_valid(Batch *a, Batch *b) { return a->first && !b->first; }
 bool qsg_sort_batch_increasing_order(Batch *a, Batch *b) { return a->first->order < b->first->order; }
 bool qsg_sort_batch_decreasing_order(Batch *a, Batch *b) { return a->first->order > b->first->order; }
 
@@ -178,7 +176,7 @@ QRhiCommandBuffer::IndexFormat qsg_indexFormat(const QSGGeometry *geometry)
     }
 }
 
-QRhiGraphicsPipeline::Topology qsg_topology(int geomDrawMode)
+QRhiGraphicsPipeline::Topology qsg_topology(int geomDrawMode, QRhi *rhi)
 {
     QRhiGraphicsPipeline::Topology topology = QRhiGraphicsPipeline::Triangles;
     switch (geomDrawMode) {
@@ -197,6 +195,20 @@ QRhiGraphicsPipeline::Topology qsg_topology(int geomDrawMode)
     case QSGGeometry::DrawTriangleStrip:
         topology = QRhiGraphicsPipeline::TriangleStrip;
         break;
+    case QSGGeometry::DrawTriangleFan:
+    {
+        static bool triangleFanSupported = false;
+        static bool triangleFanSupportChecked = false;
+        if (!triangleFanSupportChecked) {
+            triangleFanSupportChecked = true;
+            triangleFanSupported = rhi->isFeatureSupported(QRhi::TriangleFanTopology);
+        }
+        if (triangleFanSupported) {
+            topology = QRhiGraphicsPipeline::TriangleFan;
+            break;
+        }
+        Q_FALLTHROUGH();
+    }
     default:
         qWarning("Primitive topology 0x%x not supported", geomDrawMode);
         break;
@@ -863,6 +875,7 @@ Renderer::Renderer(QSGDefaultRenderContext *ctx, QSGRendererInterface::RenderMod
     , m_renderOrderRebuildLower(-1)
     , m_renderOrderRebuildUpper(-1)
 #endif
+    , m_minimumOrderPadding(4)
     , m_currentMaterial(nullptr)
     , m_currentShader(nullptr)
     , m_vertexUploadPool(256)
@@ -876,6 +889,11 @@ Renderer::Renderer(QSGDefaultRenderContext *ctx, QSGRendererInterface::RenderMod
     m_uint32IndexForRhi = !m_rhi->isFeatureSupported(QRhi::NonFourAlignedEffectiveIndexBufferOffset);
     if (qEnvironmentVariableIntValue("QSG_RHI_UINT32_INDEX"))
         m_uint32IndexForRhi = true;
+
+    bool ok = false;
+    int padding = qEnvironmentVariableIntValue("QSG_BATCHRENDERER_MINIMUM_ORDER_PADDING", &ok);
+    if (ok)
+        m_minimumOrderPadding = padding;
 
     m_visualizer = new RhiVisualizer(this);
 
@@ -1433,7 +1451,14 @@ void Renderer::nodeChanged(QSGNode *node, QSGNode::DirtyState state)
     if (state & QSGNode::DirtyGeometry && node->type() == QSGNode::GeometryNodeType) {
         QSGGeometryNode *gn = static_cast<QSGGeometryNode *>(node);
         Element *e = shadowNode->element();
+
         if (e) {
+            const quint8 nodeMutabilityGroup = QSGNodePrivate::mutabilityGroup(gn);
+            if (nodeMutabilityGroup != e->mutabilityGroup) {
+                m_rebuild |= Renderer::FullRebuild;
+                e->mutabilityGroup = nodeMutabilityGroup;
+            }
+
             e->boundsComputed = false;
             Batch *b = e->batch;
             if (b) {
@@ -1540,7 +1565,7 @@ void Renderer::buildRenderLists(QSGNode *node)
             int currentOrder = m_nextRenderOrder;
             QSGNODE_TRAVERSE(node)
                 buildRenderLists(child);
-            int padding = (m_nextRenderOrder - currentOrder) >> 2;
+            int padding = qMax((m_nextRenderOrder - currentOrder) >> 2, m_minimumOrderPadding);
             info->firstOrder = currentOrder;
             info->availableOrders = padding;
             info->lastOrder = m_nextRenderOrder + padding;
@@ -1722,15 +1747,19 @@ void Renderer::invalidateBatchAndOverlappingRenderOrders(Batch *batch)
  * batches and moving all invalidated batches to the batches pool.
  */
 void Renderer::cleanupBatches(QDataBuffer<Batch *> *batches) {
-    if (batches->size()) {
-        std::stable_sort(&batches->first(), &batches->last() + 1, qsg_sort_batch_is_valid);
-        int count = 0;
-        while (count < batches->size() && batches->at(count)->first)
-            ++count;
-        for (int i=count; i<batches->size(); ++i)
-            invalidateAndRecycleBatch(batches->at(i));
-        batches->resize(count);
+    qsizetype n = batches->size();
+    if (n == 0)
+        return;
+
+    qsizetype writeIndex = 0;
+    for (qsizetype i = 0; i < n; ++i) {
+        Batch *b = batches->at(i);
+        if (b->first)
+            (*batches).data()[writeIndex++] = b;
+        else
+            invalidateAndRecycleBatch(b);
     }
+    batches->resize(writeIndex);
 }
 
 void Renderer::prepareOpaqueBatches()
@@ -1770,13 +1799,16 @@ void Renderer::prepareOpaqueBatches()
             const QSGMaterial *gnjMaterial = gnj->activeMaterial();
             if (gni->clipList() == gnj->clipList()
                     && gniGeometry->drawingMode() == gnjGeometry->drawingMode()
-                    && (gniGeometry->drawingMode() != QSGGeometry::DrawLines || gniGeometry->lineWidth() == gnjGeometry->lineWidth())
+                    && (gniGeometry->lineWidth() == gnjGeometry->lineWidth()
+                        || (gniGeometry->drawingMode() != QSGGeometry::DrawLines
+                            && gniGeometry->drawingMode() != QSGGeometry::DrawLineStrip))
                     && gniGeometry->attributes() == gnjGeometry->attributes()
                     && gniGeometry->indexType() == gnjGeometry->indexType()
                     && gni->inheritedOpacity() == gnj->inheritedOpacity()
                     && gniMaterial->type() == gnjMaterial->type()
                     && gniMaterial->viewCount() == gnjMaterial->viewCount()
-                    && gniMaterial->compare(gnjMaterial) == 0)
+                    && gniMaterial->compare(gnjMaterial) == 0
+                    && ei->mutabilityGroup == ej->mutabilityGroup)
             {
                 ej->batch = batch;
                 next->nextInBatch = ej;
@@ -1894,7 +1926,8 @@ void Renderer::prepareAlphaBatches()
                     && gni->inheritedOpacity() == gnj->inheritedOpacity()
                     && gniMaterial->type() == gnjMaterial->type()
                     && gniMaterial->viewCount() == gnjMaterial->viewCount()
-                    && gniMaterial->compare(gnjMaterial) == 0)
+                    && gniMaterial->compare(gnjMaterial) == 0
+                    && ei->mutabilityGroup == ej->mutabilityGroup)
             {
                 if (!overlapBounds.intersects(ej->bounds) || !checkOverlap(i+1, j - 1, ej->bounds)) {
                     ej->batch = batch;
@@ -2546,11 +2579,11 @@ void Renderer::updateClipState(const QSGClipNode *clipList, Batch *batch)
             if (firstStencilClipInBatch) {
                 m_stencilClipCommon.inputLayout.setBindings({ QRhiVertexInputBinding(g->sizeOfVertex()) });
                 m_stencilClipCommon.inputLayout.setAttributes({ QRhiVertexInputAttribute(0, 0, qsg_vertexInputFormat(*a), 0) });
-                m_stencilClipCommon.topology = qsg_topology(g->drawingMode());
+                m_stencilClipCommon.topology = qsg_topology(g->drawingMode(), m_rhi);
             }
 #ifndef QT_NO_DEBUG
             else {
-                if (qsg_topology(g->drawingMode()) != m_stencilClipCommon.topology)
+                if (qsg_topology(g->drawingMode(), m_rhi) != m_stencilClipCommon.topology)
                     qWarning("updateClipState: Clip list entries have different primitive topologies, this is not currently supported.");
                 if (qsg_vertexInputFormat(*a) != m_stencilClipCommon.inputLayout.cbeginAttributes()->format())
                     qWarning("updateClipState: Clip list entries have different vertex input layouts, this is must not happen.");
@@ -2742,8 +2775,9 @@ bool Renderer::ensurePipelineState(Element *e, const ShaderManager::Shader *sms,
         flags |= QRhiGraphicsPipeline::UsesStencilRef;
 
     ps->setFlags(flags);
-    ps->setTopology(qsg_topology(m_gstate.drawMode));
+    ps->setTopology(qsg_topology(m_gstate.drawMode, m_rhi));
     ps->setCullMode(m_gstate.cullMode);
+    ps->setFrontFace(invertFrontFace() ? QRhiGraphicsPipeline::CW : QRhiGraphicsPipeline::CCW);
     ps->setPolygonMode(m_gstate.polygonMode);
     ps->setMultiViewCount(m_gstate.multiViewCount);
 
@@ -2940,7 +2974,6 @@ void Renderer::updateMaterialDynamicData(ShaderManager::Shader *sms,
                                          const Batch *batch,
                                          Element *e,
                                          int ubufOffset,
-                                         int ubufRegionSize,
                                          char *directUpdatePtr)
 {
     m_current_resource_update_batch = m_resourceUpdates;
@@ -2956,16 +2989,16 @@ void Renderer::updateMaterialDynamicData(ShaderManager::Shader *sms,
 
         if (changed || !batch->ubufDataValid) {
             if (directUpdatePtr)
-                memcpy(directUpdatePtr + ubufOffset, pd->masterUniformData.constData(), ubufRegionSize);
+                memcpy(directUpdatePtr + ubufOffset, pd->masterUniformData.constData(), pd->masterUniformData.size());
             else
-                m_resourceUpdates->updateDynamicBuffer(batch->ubuf, ubufOffset, ubufRegionSize, pd->masterUniformData.constData());
+                m_resourceUpdates->updateDynamicBuffer(batch->ubuf, ubufOffset, pd->masterUniformData);
         }
 
         bindings.append(QRhiShaderResourceBinding::uniformBuffer(pd->ubufBinding,
                                                                  pd->ubufStages,
                                                                  batch->ubuf,
                                                                  ubufOffset,
-                                                                 ubufRegionSize));
+                                                                 pd->masterUniformData.size()));
     }
 
     for (int binding = 0; binding < QSGMaterialShaderPrivate::MAX_SHADER_RESOURCE_BINDINGS; ++binding) {
@@ -3071,7 +3104,7 @@ void Renderer::updateMaterialDynamicData(ShaderManager::Shader *sms,
     // currently unused srb that is layout-compatible with our binding list.
     if (!e->srb) {
         // reuse a QVector as our work area, thus possibly reusing the underlying allocation too
-        QVector<quint32> &layoutDesc(m_shaderManager->srbLayoutDescSerializeWorkspace);
+        QList<quint32> &layoutDesc(m_shaderManager->srbLayoutDescSerializeWorkspace);
         layoutDesc.clear();
         QRhiShaderResourceBinding::serializeLayoutDescription(bindings.cbegin(), bindings.cend(), std::back_inserter(layoutDesc));
         e->srb = m_shaderManager->srbPool.take(layoutDesc);
@@ -3184,7 +3217,8 @@ bool Renderer::prepareRenderMergedBatch(Batch *batch, PreparedRenderBatch *rende
               << " Nodes:" << QString::fromLatin1("%1").arg(qsg_countNodesInBatch(batch), 4).toLatin1().constData()
               << " Vertices:" << QString::fromLatin1("%1").arg(batch->vertexCount, 5).toLatin1().constData()
               << " Indices:" << QString::fromLatin1("%1").arg(batch->indexCount, 5).toLatin1().constData()
-              << " root:" << batch->root;
+              << " root:" << batch->root
+              << " mutability group: " << e->mutabilityGroup;
         if (batch->drawSets.size() > 1)
             debug << "sets:" << batch->drawSets.size();
         if (!batch->isOpaque)
@@ -3266,23 +3300,10 @@ bool Renderer::prepareRenderMergedBatch(Batch *batch, PreparedRenderBatch *rende
     if (batch->ubuf->nativeBuffer().slotCount == 0)
         directUpdatePtr = batch->ubuf->beginFullDynamicBufferUpdateForCurrentFrame();
 
-    updateMaterialDynamicData(sms, renderState, material, batch, e, 0, ubufSize, directUpdatePtr);
+    updateMaterialDynamicData(sms, renderState, material, batch, e, 0, directUpdatePtr);
 
     if (directUpdatePtr)
         batch->ubuf->endFullDynamicBufferUpdateForCurrentFrame();
-
-#ifndef QT_NO_DEBUG
-    if (qsg_test_and_clear_material_failure()) {
-        qDebug("QSGMaterial::updateState triggered an error (merged), batch will be skipped:");
-        Element *ee = e;
-        while (ee) {
-            qDebug() << "   -" << ee->node;
-            ee = ee->nextInBatch;
-        }
-        QSGNodeDumper::dump(rootNode());
-        qFatal("Aborting: scene graph is invalid...");
-    }
-#endif
 
     m_gstate.drawMode = QSGGeometry::DrawingMode(g->drawingMode());
     m_gstate.lineWidth = g->lineWidth();
@@ -3385,7 +3406,9 @@ bool Renderer::prepareRenderUnmergedBatch(Batch *batch, PreparedRenderBatch *ren
                  << " Nodes:" << QString::fromLatin1("%1").arg(qsg_countNodesInBatch(batch), 4).toLatin1().constData()
                  << " Vertices:" << QString::fromLatin1("%1").arg(batch->vertexCount, 5).toLatin1().constData()
                  << " Indices:" << QString::fromLatin1("%1").arg(batch->indexCount, 5).toLatin1().constData()
-                 << " root:" << batch->root;
+                 << " root:" << batch->root
+                 << " mutability group: " << e->mutabilityGroup;
+
 
         batch->uploadedThisFrame = false;
     }
@@ -3491,17 +3514,7 @@ bool Renderer::prepareRenderUnmergedBatch(Batch *batch, PreparedRenderBatch *ren
         }
 
         QSGMaterialShader::RenderState renderState = state(QSGMaterialShader::RenderState::DirtyStates(int(dirty)));
-        updateMaterialDynamicData(sms, renderState, material, batch, e, ubufOffset, ubufSize, directUpdatePtr);
-
-#ifndef QT_NO_DEBUG
-        if (qsg_test_and_clear_material_failure()) {
-            qDebug("QSGMaterial::updateState() triggered an error (unmerged), batch will be skipped:");
-            qDebug() << "   - offending node is" << e->node;
-            QSGNodeDumper::dump(rootNode());
-            qFatal("Aborting: scene graph is invalid...");
-            return false;
-        }
-#endif
+        updateMaterialDynamicData(sms, renderState, material, batch, e, ubufOffset, directUpdatePtr);
 
         ubufOffset += aligned(ubufSize, m_ubufAlignment);
 
@@ -3600,20 +3613,16 @@ void Renderer::renderUnmergedBatch(PreparedRenderBatch *renderBatch, bool depthP
     }
 }
 
-void Renderer::setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, Element *e, bool depthPostPass)
+void Renderer::setViewportAndScissors(QRhiCommandBuffer *cb, const Batch *batch)
 {
-    cb->setGraphicsPipeline(depthPostPass ? e->depthPostPassPs : e->ps);
-
     if (!m_pstate.viewportSet) {
         m_pstate.viewportSet = true;
         cb->setViewport(m_pstate.viewport);
     }
     if (batch->clipState.type & ClipState::ScissorClip) {
-        Q_ASSERT(e->ps->flags().testFlag(QRhiGraphicsPipeline::UsesScissor));
         m_pstate.scissorSet = true;
         cb->setScissor(batch->clipState.scissor);
     } else {
-        Q_ASSERT(!e->ps->flags().testFlag(QRhiGraphicsPipeline::UsesScissor));
         // Regardless of the ps not using scissor, the scissor may need to be
         // reset, depending on the backend. So set the viewport again, which in
         // turn also sets the scissor on backends where a scissor rect is
@@ -3623,6 +3632,15 @@ void Renderer::setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, El
             cb->setViewport(m_pstate.viewport);
         }
     }
+}
+
+
+void Renderer::setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, Element *e, bool depthPostPass)
+{
+    cb->setGraphicsPipeline(depthPostPass ? e->depthPostPassPs : e->ps);
+
+    setViewportAndScissors(cb, batch);
+
     if (batch->clipState.type & ClipState::StencilClip) {
         Q_ASSERT(e->ps->flags().testFlag(QRhiGraphicsPipeline::UsesStencilRef));
         cb->setStencilRef(batch->clipState.stencilRef);
@@ -4074,6 +4092,14 @@ bool Renderer::prepareRhiRenderNode(Batch *batch, PreparedRenderBatch *renderBat
     if (Q_UNLIKELY(debug_render()))
         qDebug() << " -" << batch << "rendernode";
 
+    const int viewCount = projectionMatrixCount();
+    m_current_projection_matrix.resize(viewCount);
+    for (int viewIndex = 0; viewIndex < viewCount; ++viewIndex)
+        m_current_projection_matrix[viewIndex] = projectionMatrix(viewIndex);
+    m_current_projection_matrix_native_ndc.resize(projectionMatrixWithNativeNDCCount());
+    for (int viewIndex = 0; viewIndex < projectionMatrixWithNativeNDCCount(); ++viewIndex)
+        m_current_projection_matrix_native_ndc[viewIndex] = projectionMatrixWithNativeNDC(viewIndex);
+
     Q_ASSERT(batch->first->isRenderNode);
     RenderNodeElement *e = static_cast<RenderNodeElement *>(batch->first);
 
@@ -4122,7 +4148,6 @@ bool Renderer::prepareRhiRenderNode(Batch *batch, PreparedRenderBatch *renderBat
 
     rd->m_rt = renderTarget();
 
-    const int viewCount = projectionMatrixCount();
     rd->m_projectionMatrix.resize(viewCount);
     for (int viewIndex = 0; viewIndex < viewCount; ++viewIndex)
         rd->m_projectionMatrix[viewIndex] = projectionMatrix(viewIndex);
@@ -4162,6 +4187,7 @@ void Renderer::renderRhiRenderNode(const Batch *batch)
     const QSGRenderNode::StateFlags changes = e->renderNode->changedStates();
 
     QRhiCommandBuffer *cb = renderTarget().cb;
+    setViewportAndScissors(cb, batch);
     const bool needsExternal = !e->renderNode->flags().testFlag(QSGRenderNode::NoExternalRendering);
     if (needsExternal)
         cb->beginExternal();

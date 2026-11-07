@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPROFILER_P_H
 #define QQMLPROFILER_P_H
@@ -15,7 +16,6 @@
 // We mean it.
 //
 
-#include <private/qfinitestack_p.h>
 #include <private/qqmlbinding_p.h>
 #include <private/qqmlboundsignal_p.h>
 #include <private/qqmlglobal_p.h>
@@ -353,12 +353,12 @@ public:
     void setTimer(const QElapsedTimer &timer) { m_timer = timer; }
 
 Q_SIGNALS:
-    void dataReady(const QVector<QQmlProfilerData> &, const QQmlProfiler::LocationHash &);
+    void dataReady(const QList<QQmlProfilerData> &, const QQmlProfiler::LocationHash &);
 
 protected:
     QElapsedTimer m_timer;
     QHash<quintptr, RefLocation> m_locations;
-    QVector<QQmlProfilerData> m_data;
+    QList<QQmlProfilerData> m_data;
 };
 
 //
@@ -418,30 +418,30 @@ public:
 
     QQmlVmeProfiler() : profiler(nullptr) {}
 
-    void init(QQmlProfiler *p, int maxDepth)
+    void init(QQmlProfiler *p)
     {
         profiler = p;
-        ranges.allocate(maxDepth);
     }
 
     const QV4::CompiledData::Object *pop()
     {
-        if (ranges.count() > 0)
-            return ranges.pop();
-        else
-            return nullptr;
+        if (ranges.size() > 0) {
+            const auto *result = ranges.back();
+            ranges.pop_back();
+            return result;
+        }
+        return nullptr;
     }
 
     void push(const QV4::CompiledData::Object *object)
     {
-        if (ranges.capacity() > ranges.count())
-            ranges.push(object);
+        ranges.push_back(object);
     }
 
     QQmlProfiler *profiler;
 
 private:
-    QFiniteStack<const QV4::CompiledData::Object *> ranges;
+    std::vector<const QV4::CompiledData::Object *> ranges;
 };
 
 class QQmlObjectCreationProfiler {
@@ -493,7 +493,7 @@ QT_END_NAMESPACE
 
 #if QT_CONFIG(qml_debug)
 
-Q_DECLARE_METATYPE(QVector<QQmlProfilerData>)
+Q_DECLARE_METATYPE(QList<QQmlProfilerData>)
 Q_DECLARE_METATYPE(QQmlProfiler::LocationHash)
 
 #endif // QT_CONFIG(qml_debug)

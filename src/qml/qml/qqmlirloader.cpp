@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlirloader_p.h"
 #include <private/qqmlirbuilder_p.h>
@@ -66,9 +67,9 @@ void QQmlIRLoader::load()
     if (unit->flags & QV4::CompiledData::Unit::IsStrict)
         createPragma(Pragma::Strict);
 
-    if (unit->flags & QV4::CompiledData::Unit::ListPropertyAssignReplace)
+    if (unit->isListPropertyAssignReplace())
         createListPragma(Pragma::ListPropertyAssignBehavior, Pragma::Replace);
-    else if (unit->flags & QV4::CompiledData::Unit::ListPropertyAssignReplaceIfNotDefault)
+    else if (unit->isListPropertyAssignReplaceIfNotDefault())
         createListPragma(Pragma::ListPropertyAssignBehavior, Pragma::ReplaceIfNotDefault);
 
     if (unit->flags & QV4::CompiledData::Unit::ComponentsBound)
@@ -125,7 +126,7 @@ QmlIR::Object *QQmlIRLoader::loadObject(const QV4::CompiledData::Object *seriali
     object->id = serializedObject->objectId();
     object->locationOfIdProperty = serializedObject->locationOfIdProperty;
 
-    QVector<int> functionIndices;
+    QList<int> functionIndices;
     functionIndices.reserve(serializedObject->nFunctions + serializedObject->nBindings / 2);
 
     for (uint i = 0; i < serializedObject->nBindings; ++i) {

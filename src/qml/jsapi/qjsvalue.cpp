@@ -1,27 +1,32 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
+
+#include "qjsvalue.h"
+
+#include <private/qjsvalue_p.h>
+#include <private/qqmlbuiltins_p.h>
+#include <private/qv4dateobject_p.h>
+#include <private/qv4errorobject_p.h>
+#include <private/qv4functionobject_p.h>
+#include <private/qv4jscall_p.h>
+#include <private/qv4mm_p.h>
+#include <private/qv4object_p.h>
+#include <private/qv4qmetaobjectwrapper_p.h>
+#include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4regexpobject_p.h>
+#include <private/qv4runtime_p.h>
+#include <private/qv4urlobject_p.h>
+#include <private/qv4value_p.h>
+#include <private/qv4variantassociationobject_p.h>
+#include <private/qv4variantobject_p.h>
+
+#include <QtQml/qjsprimitivevalue.h>
+#include <QtQml/qjsmanagedvalue.h>
 
 #include <QtCore/qstring.h>
 #include <QtCore/qvarlengtharray.h>
 #include <QtCore/qdatetime.h>
-#include "qjsvalue.h"
-#include "qjsprimitivevalue.h"
-#include "qjsmanagedvalue.h"
-#include "qjsvalue_p.h"
-#include "qv4value_p.h"
-#include "qv4object_p.h"
-#include "qv4functionobject_p.h"
-#include "qv4dateobject_p.h"
-#include "qv4runtime_p.h"
-#include "qv4variantobject_p.h"
-#include "qv4regexpobject_p.h"
-#include "qv4errorobject_p.h"
-#include <private/qv4mm_p.h>
-#include <private/qv4jscall_p.h>
-#include <private/qv4qobjectwrapper_p.h>
-#include <private/qv4qmetaobjectwrapper_p.h>
-#include <private/qv4urlobject_p.h>
-#include <private/qqmlbuiltins_p.h>
 
 /*!
   \since 5.0
@@ -101,7 +106,7 @@
   reads the array we created above back into a list:
 
   \code
-  QVector<int> integers;
+  QList<int> integers;
   const int length = jsArray.property("length").toInt();
   for (int i = 0; i < length; ++i) {
       integers.append(jsArray.property(i).toInt());
@@ -628,6 +633,8 @@ QVariant QJSValue::toVariant() const
     \row    \li Number     \li A QVariant containing the value of the number.
     \row    \li String     \li A QVariant containing the value of the string.
     \row    \li QVariant Object \li The result is the QVariant value of the object (no conversion).
+    \row    \li QVariantMap Object \li A QVariant containing the QVariantMap stored in the object (no conversion).
+    \row    \li QVariantHash Object \li A QVariant containing the QVariantHash stored in the object (no conversion).
     \row    \li QObject Object \li A QVariant containing a pointer to the QObject.
     \row    \li Date Object \li A QVariant containing the date value (toDateTime()).
     \row    \li RegularExpression Object \li A QVariant containing the regular expression value.
@@ -666,12 +673,12 @@ QVariant QJSValue::toVariant(QJSValue::ObjectConversionBehavior behavior) const
 
     if (val.isString())
         return QVariant(val.toQString());
-    if (val.as<QV4::Managed>()) {
-        if (behavior == RetainJSObjects)
-            return QV4::ExecutionEngine::toVariant(
-                    val, /*typeHint*/ QMetaType{}, /*createJSValueForObjectsAndSymbols=*/ true);
-        else
-            return QV4::ExecutionEngine::toVariantLossy(val);
+
+    if (behavior == RetainJSObjects) {
+        return QV4::ExecutionEngine::toVariant(
+                val, /*typeHint*/ QMetaType{}, /*createJSValueForObjectsAndSymbols=*/ true);
+    } else {
+        return QV4::ExecutionEngine::toVariantLossy(val);
     }
 
     Q_ASSERT(false);
@@ -1040,7 +1047,7 @@ bool QJSValue::equals(const QJSValue& other) const
     \header \li Type \li Result
     \row    \li Undefined  \li true
     \row    \li Null       \li true
-    \row    \li Boolean    \li true if both values are true, false otherwise
+    \row    \li Boolean    \li true if values are both true or both false, false otherwise
     \row    \li Number     \li false if either value is NaN (Not-a-Number); true if values are equal, false otherwise
     \row    \li String     \li true if both values are exactly the same sequence of characters, false otherwise
     \row    \li Object     \li true if both values refer to the same object, false otherwise

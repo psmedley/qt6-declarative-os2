@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLINSTANCEMODEL_P_H
 #define QQMLINSTANCEMODEL_P_H
@@ -68,6 +69,7 @@ Q_SIGNALS:
     void modelUpdated(const QQmlChangeSet &changeSet, bool reset);
     void createdItem(int index, QObject *object);
     void initItem(int index, QObject *object);
+    void updateItemProperties(int index, QObject *object, bool init);
     void destroyingItem(QObject *object);
     Q_REVISION(2, 15) void itemPooled(int index, QObject *object);
     Q_REVISION(2, 15) void itemReused(int index, QObject *object);
@@ -88,6 +90,7 @@ class Q_QMLMODELS_EXPORT QQmlObjectModel : public QQmlInstanceModel
     Q_DECLARE_PRIVATE(QQmlObjectModel)
 
     Q_PROPERTY(QQmlListProperty<QObject> children READ children NOTIFY childrenChanged DESIGNABLE false)
+    Q_CLASSINFO("qt_QmlJSWrapperFactoryMethod", "_q_createJSWrapper(QQmlV4ExecutionEnginePtr)")
     Q_CLASSINFO("DefaultProperty", "children")
     QML_NAMED_ELEMENT(ObjectModel)
     QML_ADDED_IN_VERSION(2, 1)
@@ -95,7 +98,7 @@ class Q_QMLMODELS_EXPORT QQmlObjectModel : public QQmlInstanceModel
 
 public:
     QQmlObjectModel(QObject *parent=nullptr);
-    ~QQmlObjectModel() {}
+    ~QQmlObjectModel();
 
     int count() const override;
     bool isValid() const override;
@@ -124,6 +127,7 @@ Q_SIGNALS:
     void childrenChanged();
 
 private:
+    Q_PRIVATE_SLOT(d_func(), quint64 _q_createJSWrapper(QQmlV4ExecutionEnginePtr))
     Q_DISABLE_COPY(QQmlObjectModel)
 };
 

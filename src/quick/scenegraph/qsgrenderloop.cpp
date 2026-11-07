@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgrenderloop_p.h"
 #include "qsgthreadedrenderloop_p.h"
@@ -72,7 +73,8 @@ void QSGRenderLoop::cleanup()
 {
     if (!s_instance)
         return;
-    for (QQuickWindow *w : s_instance->windows()) {
+    const auto windows = s_instance->windows();
+    for (QQuickWindow *w : windows) {
         QQuickWindowPrivate *wd = QQuickWindowPrivate::get(w);
         if (wd->windowManager == s_instance) {
            s_instance->windowDestroyed(w);
@@ -384,13 +386,15 @@ void QSGGuiThreadRenderLoop::teardownGraphics()
 {
     for (auto it = m_windows.begin(), itEnd = m_windows.end(); it != itEnd; ++it) {
         if (it->rhi) {
-            QQuickWindowPrivate::get(it.key())->cleanupNodesOnShutdown();
+            QQuickWindowPrivate *wd = QQuickWindowPrivate::get(it.key());
+            wd->cleanupNodesOnShutdown();
             if (it->rc)
                 it->rc->invalidate();
             releaseSwapchain(it.key());
             if (it->ownRhi)
                 QSGRhiSupport::instance()->destroyRhi(it->rhi, {});
             it->rhi = nullptr;
+            wd->rhi = nullptr;
         }
     }
 }
@@ -403,7 +407,8 @@ void QSGGuiThreadRenderLoop::handleDeviceLoss()
         if (!it->rhi || !it->rhi->isDeviceLost())
             continue;
 
-        QQuickWindowPrivate::get(it.key())->cleanupNodesOnShutdown();
+        QQuickWindowPrivate *wd = QQuickWindowPrivate::get(it.key());
+        wd->cleanupNodesOnShutdown();
 
         if (it->rc)
             it->rc->invalidate();
@@ -414,6 +419,7 @@ void QSGGuiThreadRenderLoop::handleDeviceLoss()
         if (it->ownRhi)
             QSGRhiSupport::instance()->destroyRhi(it->rhi, {});
         it->rhi = nullptr;
+        wd->rhi = nullptr;
     }
 }
 
@@ -580,14 +586,6 @@ void QSGGuiThreadRenderLoop::renderWindow(QQuickWindow *window)
     if (!ensureRhi(window, data))
         return;
 
-    bool lastDirtyWindow = true;
-    for (auto it = m_windows.cbegin(), end = m_windows.cend(); it != end; ++it) {
-        if (it->updatePending) {
-            lastDirtyWindow = false;
-            break;
-        }
-    }
-
     cd->deliveryAgentPrivate()->flushFrameSynchronousEvents(window);
     // Event delivery/processing triggered the window to be deleted or stop rendering.
     if (!m_windows.contains(window))
@@ -689,8 +687,7 @@ void QSGGuiThreadRenderLoop::renderWindow(QQuickWindow *window)
     data.rhi->makeThreadLocalNativeContextCurrent();
 
     cd->syncSceneGraph();
-    if (lastDirtyWindow)
-        data.rc->endSync();
+    data.rc->endSync();
 
     if (profileFrames)
         syncTime = renderTimer.nsecsElapsed();
@@ -824,15 +821,11 @@ void QSGGuiThreadRenderLoop::maybeUpdate(QQuickWindow *window)
     if (winDataIt == m_windows.end())
         return;
 
-    // Even if the window is not renderable,
-    // renderWindow() called on different window
-    // should not delete QSGTexture's
-    // from this unrenderable window.
-    winDataIt->updatePending = true;
-
     QQuickWindowPrivate *cd = QQuickWindowPrivate::get(window);
     if (!cd->isRenderable())
         return;
+
+    winDataIt->updatePending = true;
 
     // An updatePolish() implementation may call update() to get the QQuickItem
     // dirtied. That's fine but it also leads to calling this function.

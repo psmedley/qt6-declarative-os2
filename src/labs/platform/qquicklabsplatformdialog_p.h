@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMDIALOG_P_H
 #define QQUICKLABSPLATFORMDIALOG_P_H
@@ -33,6 +34,7 @@ class QQuickLabsPlatformDialog : public QObject, public QQmlParserStatus
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
     QML_NAMED_ELEMENT(Dialog)
+    QML_ADDED_IN_VERSION(1, 0)
     QML_UNCREATABLE("Dialog is an abstract base class")
     Q_PROPERTY(QQmlListProperty<QObject> data READ data FINAL)
     Q_PROPERTY(QWindow *parentWindow READ parentWindow WRITE setParentWindow NOTIFY parentWindowChanged FINAL)

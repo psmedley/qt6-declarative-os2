@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <qtest.h>
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickTextDocument>
 #include <QtQuick/QQuickView>
@@ -34,7 +34,7 @@ public:
     tst_qquicktextdocument();
 
 private:
-    QPair<int, int> fragmentsAndItalics(const QTextDocument *doc);
+    std::pair<int, int> fragmentsAndItalics(const QTextDocument *doc);
     bool isMainFontFixed();
 
 private slots:
@@ -43,6 +43,8 @@ private slots:
     void replaceDocument();
     void sourceAndSave_data();
     void sourceAndSave();
+    void sourceEmitsTextChanged();
+    void sourceResetsCursor();
     void loadErrorNoSuchFile();
     void loadErrorPermissionDenied();
     void overrideTextFormat_data();
@@ -97,7 +99,7 @@ tst_qquicktextdocument::tst_qquicktextdocument()
     Returns {fragmentCount, italicFragmentIndex}. If no italic fragment is found,
     italicFragmentIndex is -1.
 */
-QPair<int, int> tst_qquicktextdocument::fragmentsAndItalics(const QTextDocument *doc)
+std::pair<int, int> tst_qquicktextdocument::fragmentsAndItalics(const QTextDocument *doc)
 {
     int fragmentCount = 0;
     int italicFragment = -1;
@@ -194,7 +196,8 @@ void tst_qquicktextdocument::customDocument()
         if (!imageName.isEmpty()) {
             QCOMPARE(imageName, imageUrl);
             foundImage = true;
-            QCOMPARE(fdoc.resource(QTextDocument::ImageResource, imageUrl).toString(), fakeImageData);
+            QCOMPARE(fdoc.resource(QTextDocument::ImageResource, QUrl{imageUrl}).toString(),
+                     fakeImageData);
         }
     }
     QVERIFY(foundImage);
@@ -298,6 +301,9 @@ void tst_qquicktextdocument::sourceAndSave()
     QVERIFY(sf.exists());
     QString tmpPath = tmpDir.filePath(source);
     QVERIFY(sf.copy(tmpPath));
+#ifdef Q_OS_ANDROID
+    QVERIFY(QFile::setPermissions(tmpPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
+#endif
     qCDebug(lcTests) << source << "copy ->" << tmpDir.path() << ":" << tmpPath;
 
     QCOMPARE(statusChangedSpy.size(), 0);
@@ -650,6 +656,40 @@ void tst_qquicktextdocument::independentDocumentsSameSource() // QTBUG-120772
     fragCountAndItalic = fragmentsAndItalics(textEditMarkdown->textDocument()->textDocument());
     QCOMPARE(fragCountAndItalic.first, 3);
     QCOMPARE(fragCountAndItalic.second, 1);
+}
+
+// QTBUG-149576: loading content via textDocument.source (which happens during QML
+// initialization, before componentComplete) must emit textChanged, so that bindings
+// on the text property reflect the loaded content and don't stay stuck at empty.
+void tst_qquicktextdocument::sourceEmitsTextChanged()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("sourceBinding.qml"));
+    QScopedPointer<QQuickTextEdit> textEdit(qobject_cast<QQuickTextEdit *>(c.create()));
+    QVERIFY2(!textEdit.isNull(), qPrintable(c.errorString()));
+
+    const QString loaded = textEdit->property("text").toString();
+    QVERIFY(loaded.contains(QString::fromUtf8("Γειά σου Κόσμε!")));
+    // textChanged must have been emitted at least once for the loaded content, so that a
+    // binding on the text property reflects it rather than the empty initial value.
+    // The exact count is not guaranteed: the document load (setSource -> setPlainText) emits
+    // textChanged during QML init, and componentComplete emits it again; whether the QML
+    // onTextChanged handler is already connected when the load-time emission happens depends
+    // on object-construction order, so the count is 1 or 2.
+    QCOMPARE_GE(textEdit->property("textChangedCount").toInt(), 1);
+    QCOMPARE(textEdit->property("boundText").toString(), loaded);
+}
+
+// QTBUG-120180: after loading via textDocument.source, the cursor should be at the
+// start of the freshly loaded document, not left at the end by setPlainText()/setHtml().
+void tst_qquicktextdocument::sourceResetsCursor()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("sourceBinding.qml"));
+    QScopedPointer<QQuickTextEdit> textEdit(qobject_cast<QQuickTextEdit *>(c.create()));
+    QVERIFY2(!textEdit.isNull(), qPrintable(c.errorString()));
+    QVERIFY(textEdit->property("text").toString().contains(QString::fromUtf8("Κόσμε")));
+    QCOMPARE(textEdit->property("cursorPosition").toInt(), 0);
 }
 
 QTEST_MAIN(tst_qquicktextdocument)

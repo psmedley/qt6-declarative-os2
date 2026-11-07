@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QABSTRACTANIMATIONJOB_P_H
 #define QABSTRACTANIMATIONJOB_P_H
@@ -193,7 +194,11 @@ public:
     void updateAnimationsTime(qint64 timeStep) override;
 
     //useful for profiling/debugging
+#ifdef QT_QAbstractAnimationTimer_runningAnimationCount_IS_CONST
+    qsizetype runningAnimationCount() const override { return animations.size(); }
+#else
     int runningAnimationCount() override { return animations.size(); }
+#endif
 
     bool hasStartAnimationPending() const { return startAnimationPending; }
 

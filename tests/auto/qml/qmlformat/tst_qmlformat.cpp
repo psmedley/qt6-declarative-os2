@@ -1,7 +1,7 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QDir>
 #include <QFile>
 #include <QProcess>
@@ -11,31 +11,17 @@
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQmlDom/private/qqmldomitem_p.h>
 #include <QtQmlDom/private/qqmldomlinewriter_p.h>
+#include <QtQmlDom/private/qqmldomlinewriterfactory_p.h>
 #include <QtQmlDom/private/qqmldomoutwriter_p.h>
 #include <QtQmlDom/private/qqmldomtop_p.h>
+#include <QtQmlToolingSettings/private/qqmltoolingsettings_p.h>
+#include <QtQmlFormat/private/qqmlformatoptions_p.h>
+
+#include "tst_qmlformat_base.h"
 
 using namespace QQmlJS::Dom;
 
-// TODO refactor extension helpers
-const QString QML_EXT = ".qml";
-const QString JS_EXT = ".js";
-const QString MJS_EXT = ".mjs";
-
-static QStringView fileExt(QStringView filename)
-{
-    if (filename.endsWith(QML_EXT)) {
-        return QML_EXT;
-    }
-    if (filename.endsWith(JS_EXT)) {
-        return JS_EXT;
-    }
-    if (filename.endsWith(MJS_EXT)) {
-        return MJS_EXT;
-    }
-    Q_UNREACHABLE();
-};
-
-class TestQmlformat: public QQmlDataTest
+class TestQmlformat : public TestQmlformatBase
 {
     Q_OBJECT
 
@@ -44,430 +30,51 @@ public:
     TestQmlformat();
 
 private Q_SLOTS:
-    void initTestCase() override;
-
-    //actually testFormat tests CLI of qmlformat
-    void testFormat();
-    void testFormat_data();
-
-    void testLineEndings();
 #if !defined(QTEST_CROSS_COMPILED) // sources not available when cross compiled
     void testExample();
     void testExample_data();
     void normalizeExample();
     void normalizeExample_data();
 #endif
-
-    void testBackupFileLimit();
-
-    void testFilesOption_data();
-    void testFilesOption();
-
     void plainJS_data();
     void plainJS();
 
     void ecmascriptModule();
 
+    void qml_data();
+    void qml();
+
+    void qmlSnippet_data();
+    void qmlSnippet();
+
+    void semicolonRule_data();
+    void semicolonRule();
+
+    void disableViaComments_data();
+    void disableViaComments();
+
+    void normalizedId_data();
+    void normalizedId();
+
+    void reject_data();
+    void reject();
+
 private:
-    QString readTestFile(const QString &path);
-    //TODO(QTBUG-117849) refactor this helper function
-    QString runQmlformat(const QString &fileToFormat, QStringList args, bool shouldSucceed = true,
-                         RunOption rOption = RunOption::OnCopy, QStringView ext = QML_EXT);
     QString formatInMemory(const QString &fileToFormat, bool *didSucceed = nullptr,
                            LineWriterOptions options = LineWriterOptions(),
                            WriteOutChecks extraChecks = WriteOutCheck::ReparseCompare,
                            WriteOutChecks largeChecks = WriteOutCheck::None);
-
-    QString m_qmlformatPath;
-    QStringList m_excludedDirs;
-    QStringList m_invalidFiles;
-    QStringList m_ignoreFiles;
-
-    QStringList findFiles(const QDir &);
-    bool isInvalidFile(const QFileInfo &fileName) const;
-    bool isIgnoredFile(const QFileInfo &fileName) const;
+    QString formatSnippetInMemory(const QString &snippet, bool *didSucceed,
+                                  LineWriterOptions options);
+    QString formatInMemoryImpl(bool *didSucceed, LineWriterOptions options,
+                               WriteOutChecks extraChecks, WriteOutChecks largeChecks,
+                               std::shared_ptr<DomEnvironment> &&env, FileToLoad &&fileToLoad);
 };
 
 // Don't fail on warnings because we read a lot of QML files that might intentionally be malformed.
 TestQmlformat::TestQmlformat()
-    : QQmlDataTest(QT_QMLTEST_DATADIR, FailOnWarningsPolicy::DoNotFailOnWarnings)
+    : TestQmlformatBase(QT_QMLTEST_DATADIR, FailOnWarningsPolicy::DoNotFailOnWarnings)
 {
-}
-
-void TestQmlformat::initTestCase()
-{
-    QQmlDataTest::initTestCase();
-    m_qmlformatPath = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QLatin1String("/qmlformat");
-#ifdef Q_OS_WIN
-    m_qmlformatPath += QLatin1String(".exe");
-#endif
-    if (!QFileInfo(m_qmlformatPath).exists()) {
-        QString message = QStringLiteral("qmlformat executable not found (looked for %0)").arg(m_qmlformatPath);
-        QFAIL(qPrintable(message));
-    }
-
-    // Add directories you want excluded here
-
-    // These snippets are not expected to run on their own.
-    m_excludedDirs << "doc/src/snippets/qml/visualdatamodel_rootindex";
-    m_excludedDirs << "doc/src/snippets/qml/qtbinding";
-    m_excludedDirs << "doc/src/snippets/qml/imports";
-    m_excludedDirs << "doc/src/snippets/qtquick1/visualdatamodel_rootindex";
-    m_excludedDirs << "doc/src/snippets/qtquick1/qtbinding";
-    m_excludedDirs << "doc/src/snippets/qtquick1/imports";
-    m_excludedDirs << "tests/manual/v4";
-    m_excludedDirs << "tests/manual/qmllsformatter";
-    m_excludedDirs << "tests/auto/qml/ecmascripttests";
-    m_excludedDirs << "tests/auto/qml/qmllint";
-
-    // Add invalid files (i.e. files with syntax errors)
-    m_invalidFiles << "tests/auto/quick/qquickloader/data/InvalidSourceComponent.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/signal.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/signal.3.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/signal.5.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/property.4.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/empty.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/missingObject.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/insertedSemicolon.1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nonexistantProperty.5.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidRoot.1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidQmlEnumValue.1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidQmlEnumValue.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidQmlEnumValue.3.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/invalidID.4.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/questionDotEOF.qml";
-    m_invalidFiles << "tests/auto/qml/qquickfolderlistmodel/data/dummy.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.3.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.4.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.5.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/stringParsing_error.6.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/numberParsing_error.1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/numberParsing_error.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/incrDecrSemicolon_error1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/incrDecrSemicolon_error1.qml";
-    m_invalidFiles << "tests/auto/qml/debugger/qqmlpreview/data/broken.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/fuzzed.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/fuzzed.3.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/requiredProperties.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nullishCoalescing_LHS_And.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nullishCoalescing_LHS_And.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nullishCoalescing_LHS_Or.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nullishCoalescing_RHS_And.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/nullishCoalescing_RHS_Or.qml";
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/typeAnnotations.2.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlparser/data/disallowedtypeannotations/qmlnestedfunction.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/emptyFile.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/completions/missingRHS.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/completions/missingRHS.parserfail.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/completions/attachedPropertyMissingRHS.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/completions/groupedPropertyMissingRHS.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/completions/afterDots.qml";
-    m_invalidFiles << "tests/auto/qmlls/modules/data/completions/bindingAfterDot.qml";
-    m_invalidFiles << "tests/auto/qmlls/modules/data/completions/defaultBindingAfterDot.qml";
-    m_invalidFiles << "tests/auto/qmlls/utils/data/qualifiedModule.qml";
-
-    // Files that get changed:
-    // rewrite of import "bla/bla/.." to import "bla"
-    m_invalidFiles << "tests/auto/qml/qqmlcomponent/data/componentUrlCanonicalization.4.qml";
-    // block -> object in internal update
-    m_invalidFiles << "tests/auto/qml/qqmlpromise/data/promise-executor-throw-exception.qml";
-    // removal of unsupported indexing of Object declaration
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/hangOnWarning.qml";
-    // removal of duplicated id
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/component.3.qml";
-    // Optional chains are not permitted on the left-hand-side in assignments
-    m_invalidFiles << "tests/auto/qml/qqmllanguage/data/optionalChaining.LHS.qml";
-    // object literal with = assignements
-    m_invalidFiles << "tests/auto/quickcontrols/controls/data/tst_scrollbar.qml";
-
-    // These files rely on exact formatting
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/incrDecrSemicolon1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/incrDecrSemicolon_error1.qml";
-    m_invalidFiles << "tests/auto/qml/qqmlecmascript/data/incrDecrSemicolon2.qml";
-
-    // These files are too big
-    m_ignoreFiles << "tests/benchmarks/qml/qmldom/data/longQmlFile.qml";
-    m_ignoreFiles << "tests/benchmarks/qml/qmldom/data/deeplyNested.qml";
-}
-
-QStringList TestQmlformat::findFiles(const QDir &d)
-{
-    for (int ii = 0; ii < m_excludedDirs.size(); ++ii) {
-        QString s = m_excludedDirs.at(ii);
-        if (d.absolutePath().endsWith(s))
-            return QStringList();
-    }
-
-    QStringList rv;
-
-    const QStringList files = d.entryList(QStringList() << QLatin1String("*.qml"),
-                                          QDir::Files);
-    for (const QString &file: files) {
-        QString absoluteFilePath = d.absoluteFilePath(file);
-        if (!isIgnoredFile(QFileInfo(absoluteFilePath)))
-            rv << absoluteFilePath;
-    }
-
-    const QStringList dirs = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot |
-                                         QDir::NoSymLinks);
-    for (const QString &dir: dirs) {
-        QDir sub = d;
-        sub.cd(dir);
-        rv << findFiles(sub);
-    }
-
-    return rv;
-}
-
-bool TestQmlformat::isInvalidFile(const QFileInfo &fileName) const
-{
-    for (const QString &invalidFile : m_invalidFiles) {
-        if (fileName.absoluteFilePath().endsWith(invalidFile))
-            return true;
-    }
-    return false;
-}
-
-bool TestQmlformat::isIgnoredFile(const QFileInfo &fileName) const
-{
-    for (const QString &file : m_ignoreFiles) {
-        if (fileName.absoluteFilePath().endsWith(file))
-            return true;
-    }
-    return false;
-}
-
-QString TestQmlformat::readTestFile(const QString &path)
-{
-    QFile file(testFile(path));
-
-    if (!file.open(QIODevice::ReadOnly))
-        return "";
-
-    return QString::fromUtf8(file.readAll());
-}
-
-void TestQmlformat::testLineEndings()
-{
-    // macos
-    const QString macosContents =
-            runQmlformat(testFile("Example1.formatted.qml"), { "-l", "macos" });
-    QVERIFY(!macosContents.contains("\n"));
-    QVERIFY(macosContents.contains("\r"));
-
-    // windows
-    const QString windowsContents =
-            runQmlformat(testFile("Example1.formatted.qml"), { "-l", "windows" });
-    QVERIFY(windowsContents.contains("\r\n"));
-
-    // unix
-    const QString unixContents = runQmlformat(testFile("Example1.formatted.qml"), { "-l", "unix" });
-    QVERIFY(unixContents.contains("\n"));
-    QVERIFY(!unixContents.contains("\r"));
-}
-
-void TestQmlformat::testFormat_data()
-{
-    QTest::addColumn<QString>("file");
-    QTest::addColumn<QString>("fileFormatted");
-    QTest::addColumn<QStringList>("args");
-    QTest::addColumn<RunOption>("runOption");
-
-    QTest::newRow("example1") << "Example1.qml"
-                              << "Example1.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("example1 (tabs)")
-            << "Example1.qml"
-            << "Example1.formatted.tabs.qml" << QStringList { "-t" } << RunOption::OnCopy;
-    QTest::newRow("example1 (two spaces)")
-            << "Example1.qml"
-            << "Example1.formatted.2spaces.qml" << QStringList { "-w", "2" } << RunOption::OnCopy;
-    QTest::newRow("annotation") << "Annotations.qml"
-                                << "Annotations.formatted.qml" << QStringList {}
-                                << RunOption::OnCopy;
-    QTest::newRow("front inline") << "FrontInline.qml"
-                                  << "FrontInline.formatted.qml" << QStringList {}
-                                  << RunOption::OnCopy;
-    QTest::newRow("if blocks") << "IfBlocks.qml"
-                               << "IfBlocks.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("read-only properties")
-            << "readOnlyProps.qml"
-            << "readOnlyProps.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("states and transitions")
-            << "statesAndTransitions.qml"
-            << "statesAndTransitions.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("large bindings")
-            << "largeBindings.qml"
-            << "largeBindings.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("verbatim strings")
-            << "verbatimString.qml"
-            << "verbatimString.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("inline components")
-            << "inlineComponents.qml"
-            << "inlineComponents.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("nested ifs") << "nestedIf.qml"
-                                << "nestedIf.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("QTBUG-85003") << "QtBug85003.qml"
-                                 << "QtBug85003.formatted.qml" << QStringList {}
-                                 << RunOption::OnCopy;
-    QTest::newRow("nested functions")
-            << "nestedFunctions.qml"
-            << "nestedFunctions.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("multiline comments")
-            << "multilineComment.qml"
-            << "multilineComment.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("for of") << "forOf.qml"
-                            << "forOf.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("property names")
-            << "propertyNames.qml"
-            << "propertyNames.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("empty object") << "emptyObject.qml"
-                                  << "emptyObject.formatted.qml" << QStringList {}
-                                  << RunOption::OnCopy;
-    QTest::newRow("arrow functions")
-            << "arrowFunctions.qml"
-            << "arrowFunctions.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("settings") << "settings/Example1.qml"
-                              << "settings/Example1.formatted_mac_cr.qml" << QStringList {}
-                              << RunOption::OrigToCopy;
-    QTest::newRow("forWithLet")
-            << "forWithLet.qml"
-            << "forWithLet.formatted.qml" << QStringList {} << RunOption::OnCopy;
-
-    QTest::newRow("objects spacing (no changes)")
-            << "objectsSpacing.qml"
-            << "objectsSpacing.formatted.qml" << QStringList { "--objects-spacing" } << RunOption::OnCopy;
-
-    QTest::newRow("normalize + objects spacing")
-            << "normalizedObjectsSpacing.qml"
-            << "normalizedObjectsSpacing.formatted.qml" << QStringList { "-n", "--objects-spacing" } << RunOption::OnCopy;
-
-    QTest::newRow("ids new lines")
-            << "checkIdsNewline.qml"
-            << "checkIdsNewline.formatted.qml" << QStringList { "-n" } << RunOption::OnCopy;
-
-    QTest::newRow("functions spacing (no changes)")
-            << "functionsSpacing.qml"
-            << "functionsSpacing.formatted.qml" << QStringList { "--functions-spacing" } << RunOption::OnCopy;
-
-    QTest::newRow("normalize + functions spacing")
-            << "normalizedFunctionsSpacing.qml"
-            << "normalizedFunctionsSpacing.formatted.qml" << QStringList { "-n", "--functions-spacing" } << RunOption::OnCopy;
-    QTest::newRow("dontRemoveComments")
-            << "dontRemoveComments.qml"
-            << "dontRemoveComments.formatted.qml" << QStringList {} << RunOption::OnCopy;
-    QTest::newRow("ecmaScriptClassInQml")
-            << "ecmaScriptClassInQml.qml"
-            << "ecmaScriptClassInQml.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("arrowFunctionWithBinding")
-            << "arrowFunctionWithBinding.qml"
-            << "arrowFunctionWithBinding.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("blanklinesAfterComment")
-            << "blanklinesAfterComment.qml"
-            << "blanklinesAfterComment.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("pragmaValueList")
-            << "pragma.qml"
-            << "pragma.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("objectDestructuring")
-            << "objectDestructuring.qml"
-            << "objectDestructuring.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("destructuringFunctionParameter")
-            << "destructuringFunctionParameter.qml"
-            << "destructuringFunctionParameter.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("ellipsisFunctionArgument")
-            << "ellipsisFunctionArgument.qml"
-            << "ellipsisFunctionArgument.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("importStatements")
-            << "importStatements.qml"
-            << "importStatements.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("arrayEndComma")
-            << "arrayEndComma.qml"
-            << "arrayEndComma.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("escapeChars")
-            << "escapeChars.qml"
-            << "escapeChars.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("javascriptBlock")
-            << "javascriptBlock.qml"
-            << "javascriptBlock.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("enumWithValues")
-            << "enumWithValues.qml"
-            << "enumWithValues.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("typeAnnotatedSignal")
-            << "signal.qml"
-            << "signal.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    //plainJS
-    QTest::newRow("nestedLambdaWithIfElse")
-            << "lambdaWithIfElseInsideLambda.js"
-            << "lambdaWithIfElseInsideLambda.formatted.js" << QStringList{} << RunOption::OnCopy;
-
-    QTest::newRow("indentEquals2")
-            << "threeFunctionsOneLine.js"
-            << "threeFunctions.formattedW2.js" << QStringList{"-w=2"} << RunOption::OnCopy;
-
-    QTest::newRow("tabIndents")
-            << "threeFunctionsOneLine.js"
-            << "threeFunctions.formattedTabs.js" << QStringList{"-t"} << RunOption::OnCopy;
-
-    QTest::newRow("normalizedFunctionSpacing")
-            << "threeFunctionsOneLine.js"
-            << "threeFunctions.formattedFuncSpacing.js"
-            << QStringList{ "-n", "--functions-spacing" } << RunOption::OnCopy;
-
-    QTest::newRow("esm_tabIndents")
-            << "mini_esm.mjs"
-            << "mini_esm.formattedTabs.mjs" << QStringList{ "-t" } << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions")
-            << "noSuperfluousSpaceInsertions.qml"
-            << "noSuperfluousSpaceInsertions.formatted.qml" << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions.fail_id")
-            << "noSuperfluousSpaceInsertions.fail_id.qml"
-            << "noSuperfluousSpaceInsertions.fail_id.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions.fail_QtObject")
-            << "noSuperfluousSpaceInsertions.fail_QtObject.qml"
-            << "noSuperfluousSpaceInsertions.fail_QtObject.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions.fail_signal")
-            << "noSuperfluousSpaceInsertions.fail_signal.qml"
-            << "noSuperfluousSpaceInsertions.fail_signal.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions.fail_enum")
-            << "noSuperfluousSpaceInsertions.fail_enum.qml"
-            << "noSuperfluousSpaceInsertions.fail_enum.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("noSuperfluousSpaceInsertions.fail_parameters")
-            << "noSuperfluousSpaceInsertions.fail_parameters.qml"
-            << "noSuperfluousSpaceInsertions.fail_parameters.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-    QTest::newRow("fromAsIdentifier")
-            << "fromAsIdentifier.qml"
-            << "fromAsIdentifier.formatted.qml"
-            << QStringList{} << RunOption::OnCopy;
-}
-
-void TestQmlformat::testFormat()
-{
-    QFETCH(QString, file);
-    QFETCH(QString, fileFormatted);
-    QFETCH(QStringList, args);
-    QFETCH(RunOption, runOption);
-
-    auto formatted = runQmlformat(testFile(file), args, true, runOption, fileExt(file));
-    QEXPECT_FAIL("normalizedFunctionSpacing",
-                 "Normalize && function spacing are not yet supported for JS", Abort);
-    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_id",
-                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
-    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_QtObject",
-                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
-    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_signal",
-                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
-    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_enum",
-                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
-    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_parameters",
-                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
-    auto exp = readTestFile(fileFormatted);
-    QCOMPARE(formatted, exp);
 }
 
 void TestQmlformat::plainJS_data()
@@ -506,6 +113,10 @@ void TestQmlformat::plainJS_data()
             << "noSuperfluousSpaceInsertions.fail_pragma.formatted.js";
     QTest::newRow("fromAsIdentifier") << "fromAsIdentifier.js"
                                       << "fromAsIdentifier.formatted.js";
+    QTest::newRow("caseWithComment") << "caseWithComment.js"
+                                     << "caseWithComment.formatted.js";
+    QTest::newRow("longStatementList") << "longStatementList.js"
+                                       << "longStatementList.formatted.js";
 }
 
 void TestQmlformat::plainJS()
@@ -522,8 +133,6 @@ void TestQmlformat::plainJS()
 
     QVERIFY(wasSuccessful && !output.isEmpty());
 
-    // TODO(QTBUG-119404)
-    QEXPECT_FAIL("classConstructor", "see QTBUG-119404", Abort);
     // TODO(QTBUG-119770)
     QEXPECT_FAIL("legacyDirectivesWithComments", "see QTBUG-119770", Abort);
     QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_pragma",
@@ -642,131 +251,6 @@ void TestQmlformat::normalizeExample()
 }
 #endif
 
-void TestQmlformat::testBackupFileLimit()
-{
-    // Create a temporary directory
-    QTemporaryDir tempDir;
-
-    // Unformatted file to format
-    const QString fileToFormat{ testFile("Annotations.qml") };
-
-    {
-        const QString tempFile = tempDir.path() + QDir::separator() + "test_0.qml";
-        const QString backupFile = tempFile + QStringLiteral("~");
-        QFile::copy(fileToFormat, tempFile);
-
-        QProcess process;
-        process.start(m_qmlformatPath, QStringList{ "--verbose", "--inplace", tempFile });
-        QVERIFY(process.waitForFinished());
-        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-        QCOMPARE(process.exitCode(), 0);
-        QVERIFY(QFileInfo::exists(tempFile));
-        QVERIFY(!QFileInfo::exists(backupFile));
-    };
-}
-
-void TestQmlformat::testFilesOption_data()
-{
-    QTest::addColumn<QString>("containerFile");
-    QTest::addColumn<QStringList>("individualFiles");
-
-    QTest::newRow("initial") << "fileListToFormat" << QStringList{ "valid1.qml", "valid2.qml" };
-}
-
-void TestQmlformat::testFilesOption()
-{
-    QFETCH(QString, containerFile);
-    QFETCH(QStringList, individualFiles);
-
-    // Create a temporary directory
-    QTemporaryDir tempDir;
-    tempDir.setAutoRemove(false);
-    QStringList actualFormattedFilesPath;
-
-    // Iterate through files in the source directory and copy them to the temporary directory
-    const auto sourceDir = dataDirectory() + QDir::separator() + "filesOption";
-
-    // Create a file that contains the list of files to be formatted
-    const QString tempFilePath = tempDir.path() + QDir::separator() + containerFile;
-    QFile container(tempFilePath);
-    if (container.open(QIODevice::Text | QIODevice::WriteOnly)) {
-        QTextStream out(&container);
-
-        for (const auto &file : individualFiles) {
-            QString destinationFilePath = tempDir.path() + QDir::separator() + file;
-            if (QFile::copy(sourceDir + QDir::separator() + file, destinationFilePath))
-                actualFormattedFilesPath << destinationFilePath;
-            out << destinationFilePath << "\n";
-        }
-
-        container.close();
-    } else {
-        QFAIL("Cannot create temp test file\n");
-        return;
-    }
-
-    {
-        QProcess process;
-        process.start(m_qmlformatPath, QStringList{"-F", tempFilePath});
-        QVERIFY(process.waitForFinished());
-        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-    }
-
-    const auto readFile = [](const QString &filePath){
-        QFile file(filePath);
-        if (!file.open(QIODevice::ReadOnly)) {
-            qWarning() << "Error on opening the file " << filePath;
-            return QByteArray{};
-        }
-
-        return file.readAll();
-    };
-
-    for (const auto &filePath : actualFormattedFilesPath) {
-        auto expectedFormattedFile = QFileInfo(filePath).fileName();
-        const auto expectedFormattedFilePath = sourceDir + QDir::separator() +
-            expectedFormattedFile.replace(".qml", ".formatted.qml");
-
-        QCOMPARE(readFile(filePath), readFile(expectedFormattedFilePath));
-    }
-}
-
-QString TestQmlformat::runQmlformat(const QString &fileToFormat, QStringList args,
-                                    bool shouldSucceed, RunOption rOptions, QStringView ext)
-{
-    // Copy test file to temporary location
-    QTemporaryDir tempDir;
-    const QString tempFile = (tempDir.path() + QDir::separator() + "to_format") % ext;
-
-    if (rOptions == RunOption::OnCopy) {
-        QFile::copy(fileToFormat, tempFile);
-        args << QLatin1String("-i");
-        args << tempFile;
-    } else {
-        args << fileToFormat;
-    }
-
-    auto verify = [&]() {
-        QProcess process;
-        if (rOptions == RunOption::OrigToCopy)
-            process.setStandardOutputFile(tempFile);
-        process.start(m_qmlformatPath, args);
-        QVERIFY(process.waitForFinished());
-        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
-        if (shouldSucceed)
-            QCOMPARE(process.exitCode(), 0);
-    };
-    verify();
-
-    QFile temp(tempFile);
-
-    if (!temp.open(QIODevice::ReadOnly))
-        qFatal("Could not open %s", qPrintable(tempFile));
-    QString formatted = QString::fromUtf8(temp.readAll());
-
-    return formatted;
-}
-
 QString TestQmlformat::formatInMemory(const QString &fileToFormat, bool *didSucceed,
                                       LineWriterOptions options, WriteOutChecks extraChecks,
                                       WriteOutChecks largeChecks)
@@ -775,13 +259,23 @@ QString TestQmlformat::formatInMemory(const QString &fileToFormat, bool *didSucc
             QStringList(), // as we load no dependencies we do not need any paths
             QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                     | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+
+    return formatInMemoryImpl(didSucceed, options, extraChecks, largeChecks, std::move(env),
+                              FileToLoad::fromFileSystem(env, fileToFormat));
+}
+
+QString TestQmlformat::formatInMemoryImpl(bool *didSucceed, LineWriterOptions options,
+                                          WriteOutChecks extraChecks, WriteOutChecks largeChecks,
+                                          std::shared_ptr<DomEnvironment> &&env,
+                                          FileToLoad &&fileToLoad)
+{
     DomItem tFile;
-    env->loadFile(FileToLoad::fromFileSystem(env, fileToFormat),
+    env->loadFile(fileToLoad,
                   [&tFile](Path, const DomItem &, const DomItem &newIt) { tFile = newIt; });
     env->loadPendingDependencies();
     MutableDomItem myFile = tFile.field(Fields::currentItem);
 
-    bool writtenOut;
+    bool writtenOut = false;
     QString resultStr;
     if (myFile.field(Fields::isValid).value().toBool()) {
         WriteOutChecks checks = extraChecks;
@@ -790,17 +284,387 @@ QString TestQmlformat::formatInMemory(const QString &fileToFormat, bool *didSucc
             checks = largeChecks;
 
         QTextStream res(&resultStr);
-        LineWriter lw([&res](QStringView s) { res << s; }, QLatin1String("*testStream*"), options);
-        OutWriter ow(lw);
-        ow.indentNextlines = true;
+        auto lw = QQmlJS::Dom::createLineWriter([&res](QStringView s) { res << s; },
+                QLatin1String("*testStream*"), options);
         DomItem qmlFile = tFile.field(Fields::currentItem);
+        OutWriter ow(getFileItemOwner(qmlFile), *lw);
+        ow.indentNextlines = true;
         writtenOut = qmlFile.writeOutForFile(ow, checks);
-        lw.eof();
+        lw->eof();
         res.flush();
     }
     if (didSucceed)
         *didSucceed = writtenOut;
     return resultStr;
+}
+
+QString TestQmlformat::formatSnippetInMemory(const QString &snippet, bool *didSucceed,
+                                             LineWriterOptions options)
+{
+    auto env = DomEnvironment::create(
+            QStringList(), // as we load no dependencies we do not need any paths
+            QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                    | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+
+    return formatInMemoryImpl(didSucceed, options, WriteOutCheck::None, WriteOutCheck::None,
+                              std::move(env),
+                              FileToLoad::fromMemory(env, testFile("file.qml"), snippet));
+}
+
+void TestQmlformat::qml_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("fileFormatted");
+
+    QTest::newRow("example1") << "Example1.qml"
+                              << "Example1.formatted.qml";
+    QTest::newRow("annotation") << "Annotations.qml"
+                                << "Annotations.formatted.qml";
+    QTest::newRow("front inline") << "FrontInline.qml"
+                                  << "FrontInline.formatted.qml";
+    QTest::newRow("if blocks") << "IfBlocks.qml"
+                               << "IfBlocks.formatted.qml";
+    QTest::newRow("read-only properties") << "readOnlyProps.qml"
+                                          << "readOnlyProps.formatted.qml";
+    QTest::newRow("states and transitions") << "statesAndTransitions.qml"
+                                            << "statesAndTransitions.formatted.qml";
+    QTest::newRow("large bindings") << "largeBindings.qml"
+                                    << "largeBindings.formatted.qml";
+    QTest::newRow("verbatim strings") << "verbatimString.qml"
+                                      << "verbatimString.formatted.qml";
+    QTest::newRow("inline components") << "inlineComponents.qml"
+                                       << "inlineComponents.formatted.qml";
+    QTest::newRow("nested ifs") << "nestedIf.qml"
+                                << "nestedIf.formatted.qml";
+    QTest::newRow("QTBUG-85003") << "QtBug85003.qml"
+                                 << "QtBug85003.formatted.qml";
+    QTest::newRow("nested functions") << "nestedFunctions.qml"
+                                      << "nestedFunctions.formatted.qml";
+    QTest::newRow("multiline comments") << "multilineComment.qml"
+                                        << "multilineComment.formatted.qml";
+    QTest::newRow("for of") << "forOf.qml"
+                            << "forOf.formatted.qml";
+    QTest::newRow("property names") << "propertyNames.qml"
+                                    << "propertyNames.formatted.qml";
+    QTest::newRow("empty object") << "emptyObject.qml"
+                                  << "emptyObject.formatted.qml";
+    QTest::newRow("arrow functions") << "arrowFunctions.qml"
+                                     << "arrowFunctions.formatted.qml";
+    QTest::newRow("forWithLet") << "forWithLet.qml"
+                                << "forWithLet.formatted.qml";
+    QTest::newRow("dontRemoveComments") << "dontRemoveComments.qml"
+                                        << "dontRemoveComments.formatted.qml";
+    QTest::newRow("ecmaScriptClassInQml") << "ecmaScriptClassInQml.qml"
+                                          << "ecmaScriptClassInQml.formatted.qml";
+    QTest::newRow("arrowFunctionWithBinding") << "arrowFunctionWithBinding.qml"
+                                              << "arrowFunctionWithBinding.formatted.qml";
+    QTest::newRow("blanklinesAfterComment") << "blanklinesAfterComment.qml"
+                                            << "blanklinesAfterComment.formatted.qml";
+    QTest::newRow("pragmaValueList") << "pragma.qml"
+                                     << "pragma.formatted.qml";
+    QTest::newRow("objectDestructuring") << "objectDestructuring.qml"
+                                         << "objectDestructuring.formatted.qml";
+    QTest::newRow("destructuringFunctionParameter")
+            << "destructuringFunctionParameter.qml"
+            << "destructuringFunctionParameter.formatted.qml";
+    QTest::newRow("ellipsisFunctionArgument") << "ellipsisFunctionArgument.qml"
+                                              << "ellipsisFunctionArgument.formatted.qml";
+    QTest::newRow("importStatements") << "importStatements.qml"
+                                      << "importStatements.formatted.qml";
+    QTest::newRow("arrayEndComma") << "arrayEndComma.qml"
+                                   << "arrayEndComma.formatted.qml";
+    QTest::newRow("escapeChars") << "escapeChars.qml"
+                                 << "escapeChars.formatted.qml";
+    QTest::newRow("javascriptBlock") << "javascriptBlock.qml"
+                                     << "javascriptBlock.formatted.qml";
+    QTest::newRow("enumWithValues") << "enumWithValues.qml"
+                                    << "enumWithValues.formatted.qml";
+    QTest::newRow("typeAnnotatedSignal") << "signal.qml"
+                                         << "signal.formatted.qml";
+    // plainJS
+    QTest::newRow("nestedLambdaWithIfElse") << "lambdaWithIfElseInsideLambda.js"
+                                            << "lambdaWithIfElseInsideLambda.formatted.js";
+    QTest::newRow("noSuperfluousSpaceInsertions") << "noSuperfluousSpaceInsertions.qml"
+                                                  << "noSuperfluousSpaceInsertions.formatted.qml";
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_id")
+            << "noSuperfluousSpaceInsertions.fail_id.qml"
+            << "noSuperfluousSpaceInsertions.fail_id.formatted.qml";
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_QtObject")
+            << "noSuperfluousSpaceInsertions_QtObject.qml"
+            << "noSuperfluousSpaceInsertions_QtObject.formatted.qml";
+    QTest::newRow("noSuperfluousSpaceInsertions_signal")
+            << "noSuperfluousSpaceInsertions_signal.qml"
+            << "noSuperfluousSpaceInsertions_signal.formatted.qml";
+    QTest::newRow("noSuperfluousSpaceInsertions_enum")
+            << "noSuperfluousSpaceInsertions_enum.qml"
+            << "noSuperfluousSpaceInsertions_enum.formatted.qml";
+    QTest::newRow("noSuperfluousSpaceInsertions.fail_parameters")
+            << "noSuperfluousSpaceInsertions.fail_parameters.qml"
+            << "noSuperfluousSpaceInsertions.fail_parameters.formatted.qml";
+    QTest::newRow("nonInitializedPropertyInComponent")
+            << "nonInitializedPropertyInComponent.qml"
+            << "nonInitializedPropertyInComponent.formatted.qml";
+    QTest::newRow("fromAsIdentifier") << "fromAsIdentifier.qml"
+                                      << "fromAsIdentifier.formatted.qml";
+    QTest::newRow("finalProperties") << "finalProperties.qml"
+                                     << "finalProperties.formatted.qml";
+    QTest::newRow("commentsStressTest_enum") << "commentsStressTest_enum.qml"
+                                             << "commentsStressTest_enum.formatted.qml";
+
+    QTest::newRow("commentInEnum") << "commentInEnum.qml"
+                                   << "commentInEnum.formatted.qml";
+    QTest::newRow("commentInQmlObject") << "commentInQmlObject.qml"
+                                        << "commentInQmlObject.formatted.qml";
+    QTest::newRow("commentsOnArrayAndObjectPatterns")
+            << "commentsOnArrayAndObjectPatterns.qml"
+            << "commentsOnArrayAndObjectPatterns.formatted.qml";
+    QTest::newRow("commentsOnGenerator") << "commentsOnGenerator.qml"
+                                         << "commentsOnGenerator.formatted.qml";
+    QTest::newRow("commentsOnTryCatchFinally") << "commentsOnTryCatchFinally.qml"
+                                               << "commentsOnTryCatchFinally.formatted.qml";
+}
+void TestQmlformat::qml()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, fileFormatted);
+
+    bool wasSuccessful;
+    LineWriterOptions opts;
+    opts.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+#ifdef Q_OS_WIN
+    opts.lineEndings = QQmlJS::Dom::LineWriterOptions::LineEndings::Windows;
+#endif
+    QString output = formatInMemory(testFile(file), &wasSuccessful, opts, WriteOutCheck::None);
+    QVERIFY(wasSuccessful && !output.isEmpty());
+    auto exp = readTestFile(fileFormatted);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_id",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_parameters",
+                 "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)", Abort);
+    QCOMPARE(output, exp);
+}
+
+void TestQmlformat::qmlSnippet_data()
+{
+    QTest::addColumn<QString>("unformatted");
+    QTest::addColumn<QString>("expectedResult");
+    QTest::addColumn<LineWriterOptions>("opts");
+
+    LineWriterOptions defaultOptions ;
+    defaultOptions.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+    // the expected snippets use unix newlines, also on windows
+    defaultOptions.lineEndings = LineWriterOptions::LineEndings::Unix;
+
+    {
+        LineWriterOptions maxColumnWidth = defaultOptions;
+        maxColumnWidth.maxLineLength = 80;
+        QTest::addRow("LambdaMaxColumnWidth")
+                << uR"(Item { Component.onCompleted: () => { console.info("a"); A.b.c = rs => { let x = 3; return x; }; }})"_s
+                << uR"(Item {
+    Component.onCompleted: () => {
+        console.info("a");
+        A.b.c = rs => {
+            let x = 3;
+            return x;
+        };
+    }
+}
+)"_s
+                << maxColumnWidth;
+    }
+
+    QTest::addRow("QmlObjectComment")
+            << u"EIUMAPQTE.ResourceMapHistoryControls { // qmllint disable required\n}"_s
+            << u"EIUMAPQTE.ResourceMapHistoryControls { // qmllint disable required\n}\n"_s
+            << defaultOptions;
+    QTest::addRow("underscoreId")
+            << u"Item {\n    id: _myObject\n}\n"_s
+            << u"Item {\n    id: _myObject\n}\n"_s
+            << defaultOptions;
+}
+
+void TestQmlformat::qmlSnippet()
+{
+    QFETCH(QString, unformatted);
+    QFETCH(QString, expectedResult);
+    QFETCH(LineWriterOptions, opts);
+
+    constexpr QLatin1String snippetTemplate = R"(import QtQuick
+
+%1)"_L1;
+
+    bool wasSuccessful;
+    QString output = formatSnippetInMemory(snippetTemplate.arg(unformatted), &wasSuccessful, opts);
+    QVERIFY(wasSuccessful && !output.isEmpty());
+    QCOMPARE(output, snippetTemplate.arg(expectedResult));
+}
+
+void TestQmlformat::semicolonRule_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("formattedFile");
+    QTest::addColumn<LineWriterOptions>("opts");
+    {
+        LineWriterOptions opts;
+        opts.semicolonRule = LineWriterOptions::SemicolonRule::Always;
+        QTest::newRow("keywords-always") << "semicolon/keywords.js"
+                                         << "semicolon/keywords.always.formatted.js" << opts;
+        QTest::newRow("restrictedChars-always")
+                << "semicolon/restrictedChars.js"
+                << "semicolon/restrictedChars.always.formatted.js" << opts;
+        QTest::newRow("emptyStatements-always")
+                << "semicolon/emptyStatements.qml"
+                << "semicolon/emptyStatements.always.formatted.qml" << opts;
+    }
+    {
+        LineWriterOptions opts;
+        opts.semicolonRule = LineWriterOptions::SemicolonRule::Essential;
+        QTest::newRow("keywords-essential") << "semicolon/keywords.js"
+                                            << "semicolon/keywords.essential.formatted.js" << opts;
+        QTest::newRow("restrictedChars-essential")
+                << "semicolon/restrictedChars.js"
+                << "semicolon/restrictedChars.essential.formatted.js" << opts;
+        QTest::newRow("emptyStatements-essential")
+                << "semicolon/emptyStatements.qml"
+                << "semicolon/emptyStatements.essential.formatted.qml" << opts;
+        QTest::newRow("comments-essential")
+            << "semicolon/comments.qml"
+            << "semicolon/comments.essential.formatted.qml" << opts;
+    }
+}
+
+void TestQmlformat::semicolonRule()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, formattedFile);
+    QFETCH(LineWriterOptions, opts);
+
+    bool wasSuccessful = false;
+
+#ifdef Q_OS_WIN
+    opts.lineEndings = QQmlJS::Dom::LineWriterOptions::LineEndings::Windows;
+#endif
+    QString output = formatInMemory(testFile(file), &wasSuccessful, opts, WriteOutCheck::None);
+
+    QVERIFY(wasSuccessful && !output.isEmpty());
+    QCOMPARE(output, readTestFile(formattedFile));
+}
+
+void TestQmlformat::disableViaComments_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("fileFormatted");
+    QTest::addColumn<LineWriterOptions>("opts");
+    {
+        // Basic test for the disableViaComments feature
+        LineWriterOptions opts;
+        opts.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+        QTest::newRow("disableFormat") << "disableViaComments/qmlobject.qml"
+                                       << "disableViaComments/qmlobject.formatted.qml" << opts;
+        QTest::newRow("disableFormatScriptExpressions")
+                << "disableViaComments/scriptExpressions.qml"
+                << "disableViaComments/scriptExpressions.formatted.qml" << opts;
+    }
+    {
+        // Basic test non-functional disableViaComments feature, i.e in normalized mode and
+        // sortImports
+        LineWriterOptions opt1;
+        opt1.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+        opt1.sortImports = true;
+        QTest::newRow("disableFormatInSortImports")
+                << "disableViaComments/qmlobject.qml"
+                << "disableViaComments/qmlobject.nodisable.qml" << opt1;
+        opt1.attributesSequence = LineWriterOptions::AttributesSequence::Normalize;
+        QTest::newRow("disableFormatInNormalizedMode")
+                << "disableViaComments/scriptExpressions.qml"
+                << "disableViaComments/scriptExpressions.nodisable.qml" << opt1;
+    }
+    {
+        // Basic test for the disableViaComments feature
+        LineWriterOptions opts;
+        opts.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+        QTest::newRow("disableFormatFuzzy") << "disableViaComments/fuzzy.qml"
+                                            << "disableViaComments/fuzzy.formatted.qml" << opts;
+    }
+}
+
+void TestQmlformat::disableViaComments()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, fileFormatted);
+    QFETCH(LineWriterOptions, opts);
+
+    bool wasSuccessful = false;
+
+#ifdef Q_OS_WIN
+    opts.lineEndings = QQmlJS::Dom::LineWriterOptions::LineEndings::Windows;
+#endif
+    QString output = formatInMemory(testFile(file), &wasSuccessful, opts, WriteOutCheck::None);
+    QVERIFY(wasSuccessful && !output.isEmpty());
+    auto exp = readTestFile(fileFormatted);
+    QCOMPARE(output, exp);
+}
+
+void TestQmlformat::normalizedId_data()
+{
+    QTest::addColumn<QString>("fileNameBase");
+
+    QTest::addRow("soloId") << "normalizedSoloId";
+    QTest::addRow("soloIdCommented") << "normalizedSoloIdCommented";
+    QTest::addRow("idAndItem") << "normalizedIdAndItem";
+    QTest::addRow("idAndItemCommented") << "normalizedIdAndItemCommented";
+}
+
+void TestQmlformat::normalizedId()
+{
+    QFETCH(QString, fileNameBase);
+
+    bool wasSuccessful = false;
+
+    LineWriterOptions opts;
+    opts.attributesSequence = QQmlJS::Dom::LineWriterOptions::AttributesSequence::Normalize;
+#ifdef Q_OS_WIN
+    opts.lineEndings = QQmlJS::Dom::LineWriterOptions::LineEndings::Windows;
+#endif
+
+    const QString file = testFile(fileNameBase + ".qml");
+    QString output = formatInMemory(file, &wasSuccessful, opts, WriteOutCheck::None);
+    QVERIFY(wasSuccessful && !output.isEmpty());
+    auto exp = readTestFile(fileNameBase + ".formatted.qml");
+    QCOMPARE(output, exp);
+}
+
+void TestQmlformat::reject_data()
+{
+    QTest::addColumn<QString>("snippet");
+
+    QTest::addRow("var-in-object") << "var x = 3;";
+}
+
+void TestQmlformat::reject()
+{
+    QFETCH(QString, snippet);
+
+    const QString code = snippet.startsWith("import"_L1) || snippet.startsWith("pragam"_L1)
+            ? snippet
+            : R"(import QtQuick
+Item {
+%1
+})"_L1.arg(snippet);
+
+    bool wasSuccessful = true;
+
+    auto env = DomEnvironment::create(
+            QStringList(), // as we load no dependencies we do not need any paths
+            QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
+                    | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
+
+    const QString formatted = formatInMemoryImpl(
+            &wasSuccessful, LineWriterOptions{}, WriteOutCheck::None, WriteOutCheck::None,
+            std::move(env), FileToLoad::fromMemory(env, testFile("file.qml"), code));
+
+    QVERIFY(!wasSuccessful);
+    QCOMPARE(formatted, ""_L1);
 }
 
 QTEST_MAIN(TestQmlformat)

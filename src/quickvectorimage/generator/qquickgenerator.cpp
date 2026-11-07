@@ -1,6 +1,8 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
+#include <QVarLengthArray>
+
 #include "qquickgenerator_p.h"
 #include "qsvgvisitorimpl_p.h"
 #include "qquicknodeinfo_p.h"
@@ -20,13 +22,11 @@ Q_LOGGING_CATEGORY(lcQuickVectorImage, "qt.quick.vectorimage", QtWarningMsg)
 QQuickGenerator::QQuickGenerator(const QString fileName, QQuickVectorImageGenerator::GeneratorFlags flags)
     : m_flags(flags)
     , m_fileName(fileName)
-    , m_loader(nullptr)
 {
 }
 
 QQuickGenerator::~QQuickGenerator()
 {
-    delete m_loader;
 }
 
 void QQuickGenerator::setGeneratorFlags(QQuickVectorImageGenerator::GeneratorFlags flags)
@@ -41,18 +41,21 @@ QQuickVectorImageGenerator::GeneratorFlags QQuickGenerator::generatorFlags()
 
 bool QQuickGenerator::generate()
 {
-    m_loader = new QSvgVisitorImpl(m_fileName, this);
-    m_generationSucceeded = m_loader->traverse();
-    return m_generationSucceeded;
+    m_errorState = QQuickVectorImageGenerator::NoError;
+    QSvgVisitorImpl loader(m_fileName, this, m_flags.testFlag(QQuickVectorImageGenerator::AssumeTrustedSource));
+    return loader.doTraversal();
 }
 
 void QQuickGenerator::optimizePaths(const PathNodeInfo &info, const QRectF &overrideBoundingRect)
 {
-    QPainterPath pathCopy = info.painterPath;
+    if (Q_UNLIKELY(errorState()))
+        return;
+
+    QPainterPath pathCopy = info.path.defaultValue().value<QPainterPath>();
     pathCopy.setFillRule(info.fillRule);
 
     const QRectF &boundingRect = overrideBoundingRect.isNull() ? pathCopy.boundingRect() : overrideBoundingRect;
-    if (m_flags.testFlag(QQuickVectorImageGenerator::GeneratorFlag::OptimizePaths)) {
+    if (m_flags.testFlag(QQuickVectorImageGenerator::GeneratorFlag::OptimizePaths) && !info.path.isAnimated()) {
         QQuadPath strokePath = QQuadPath::fromPainterPath(pathCopy);
         bool fillPathNeededClose;
         QQuadPath fillPath = strokePath.subPathsClosed(&fillPathNeededClose);
@@ -78,6 +81,13 @@ bool QQuickGenerator::isNodeVisible(const NodeInfo &info)
         return false;
 
     return true;
+}
+
+void QQuickGenerator::checkSanityLimit_helper(quint64 limit, QLatin1StringView limitObject)
+{
+    qCWarning(lcQuickVectorImage) << "QML generation of untrusted source" << m_fileName
+                                  << "failed: exceeded sanity limit of" << limit << limitObject;
+    m_errorState = QQuickVectorImageGenerator::SanityLimitsExceeded;
 }
 
 QT_END_NAMESPACE

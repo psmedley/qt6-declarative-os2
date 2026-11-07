@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qjsprimitivevalue.h"
 
@@ -312,7 +313,7 @@ QT_BEGIN_NAMESPACE
   \fn template<QJSPrimitiveValue::Type type> QJSPrimitiveValue QJSPrimitiveValue::to() const
   \since 6.6
 
-  Coerces the value to the specified \e type and returns the result as a new
+  Coerces the value to the specified \a type and returns the result as a new
   QJSPrimitiveValue.
 
   \sa toBoolean(), toInteger(), toDouble(), toString()

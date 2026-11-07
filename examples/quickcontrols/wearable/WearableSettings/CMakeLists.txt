@@ -20,7 +20,6 @@ qt_add_qml_module(wearablesettings
     PLUGIN_TARGET wearablesettings
     QML_FILES
         WearableSettings.qml
-    OS2_SHORT_NAME wearsett
 )
 
 target_link_libraries(wearablesettings PUBLIC

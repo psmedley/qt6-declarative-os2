@@ -39,7 +39,7 @@
 /* ==== PLATFORM handles OS, operating environment, graphics API, and
    CPU. This macro will be phased out in favor of platform adaptation
    macros, policy decision macros, and top-level port definitions. ==== */
-#define PLATFORM(WTF_FEATURE) WTF_PLATFORM_##WTF_FEATURE
+#define PLATFORM(WTF_FEATURE) (defined WTF_PLATFORM_##WTF_FEATURE && WTF_PLATFORM_##WTF_FEATURE)
 
 
 /* ==== Platform adaptation macros: these describe properties of the target environment. ==== */
@@ -48,20 +48,20 @@
 #ifdef Q_OS_VXWORKS
 #undef CPU
 #endif // Q_OS_VXWORKS
-#define CPU(WTF_FEATURE) WTF_CPU_##WTF_FEATURE
+#define CPU(WTF_FEATURE) (defined WTF_CPU_##WTF_FEATURE && WTF_CPU_##WTF_FEATURE)
 /* HAVE() - specific system features (headers, functions or similar) that are present or not */
-#define HAVE(WTF_FEATURE) HAVE_##WTF_FEATURE
+#define HAVE(WTF_FEATURE) (defined HAVE_##WTF_FEATURE && HAVE_##WTF_FEATURE)
 /* OS() - underlying operating system; only to be used for mandated low-level services like 
    virtual memory, not to choose a GUI toolkit */
-#define OS(WTF_FEATURE) WTF_OS_##WTF_FEATURE
+#define OS(WTF_FEATURE) (defined WTF_OS_##WTF_FEATURE && WTF_OS_##WTF_FEATURE)
 
 
 /* ==== Policy decision macros: these define policy choices for a particular port. ==== */
 
 /* USE() - use a particular third-party library or optional OS service */
-#define USE(WTF_FEATURE) WTF_USE_##WTF_FEATURE
+#define USE(WTF_FEATURE) (defined WTF_USE_##WTF_FEATURE && WTF_USE_##WTF_FEATURE)
 /* ENABLE() - turn on a specific feature of WebKit */
-#define ENABLE(WTF_FEATURE) ENABLE_##WTF_FEATURE
+#define ENABLE(WTF_FEATURE) (defined ENABLE_##WTF_FEATURE && ENABLE_##WTF_FEATURE)
 
 
 /* ==== CPU() - the target CPU architecture ==== */
@@ -442,11 +442,6 @@
 #define WTF_OS_WINDOWS 1
 #endif
 
-/* OS(OS2) - Any version of OS/2 */
-#if defined(__OS2__)
-#define WTF_OS_OS2 1
-#endif
-
 #ifdef __rtems__
 #define WTF_OS_RTEMS 1
 #endif
@@ -478,11 +473,6 @@
 #define WTF_OS_UNIX 1
 #endif
 
-/* OS(UNIXLIKE) - Any Unix-like system or OS/2 (with Posix) */
-#if OS(UNIX) || OS(OS2)
-#define WTF_OS_UNIXLIKE 1
-#endif
-
 /* Operating environments */
 
 /* FIXME: these are all mixes of OS, operating environment and policy choices. */
@@ -507,8 +497,6 @@
 #define WTF_PLATFORM_MAC 1
 #elif OS(WINDOWS)
 #define WTF_PLATFORM_WIN 1
-#elif OS(OS2)
-#define WTF_PLATFORM_OS2 1
 #else
 
 /* PLATFORM(IOS) */
@@ -642,7 +630,7 @@
 #endif
 #endif /* !defined(HAVE_ACCESSIBILITY) */
 
-#if OS(UNIXLIKE)
+#if OS(UNIX)
 #define HAVE_ERRNO_H 1
 #if !OS(INTEGRITY)
 #define HAVE_MMAP 1
@@ -653,7 +641,7 @@
 #define HAVE_SYS_TIME_H 1 
 #define WTF_USE_OS_RANDOMNESS 1
 #define WTF_USE_PTHREADS 1
-#endif /* OS(UNIXLIKE) */
+#endif /* OS(UNIX) */
 
 #if OS(UNIX) && !OS(QNX)
 #define HAVE_LANGINFO_H 1

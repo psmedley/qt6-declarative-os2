@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgdefaultglyphnode_p_p.h"
 #include <private/qsgmaterialshader_p.h>
@@ -398,8 +399,8 @@ void QSGTextMaskMaterial::updateCache(QFontEngine::GlyphFormat glyphFormat)
 }
 
 void QSGTextMaskMaterial::populate(const QPointF &p,
-                                   const QVector<quint32> &glyphIndexes,
-                                   const QVector<QPointF> &glyphPositions,
+                                   const QList<quint32> &glyphIndexes,
+                                   const QList<QPointF> &glyphPositions,
                                    QSGGeometry *geometry,
                                    QRectF *boundingRect,
                                    QPointF *baseLine,
@@ -407,7 +408,7 @@ void QSGTextMaskMaterial::populate(const QPointF &p,
 {
     Q_ASSERT(m_font.isValid());
     QPointF position(p.x(), p.y() - m_font.ascent());
-    QVector<QFixedPoint> fixedPointPositions;
+    QList<QFixedPoint> fixedPointPositions;
     const int glyphPositionsSize = glyphPositions.size();
     fixedPointPositions.reserve(glyphPositionsSize);
     for (int i=0; i < glyphPositionsSize; ++i)

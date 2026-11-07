@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshapesoftwarerenderer_p.h"
 #include <private/qquickpath_p_p.h>
@@ -15,11 +16,6 @@ void QQuickShapeSoftwareRenderer::beginSync(int totalCount, bool *countChanged)
     } else {
         *countChanged = false;
     }
-}
-
-void QQuickShapeSoftwareRenderer::setPath(int index, const QQuickPath *path)
-{
-    setPath(index, path ? path->path() : QPainterPath());
 }
 
 void QQuickShapeSoftwareRenderer::setPath(int index, const QPainterPath &path, QQuickShapePath::PathHints)
@@ -44,6 +40,14 @@ void QQuickShapeSoftwareRenderer::setStrokeWidth(int index, qreal w)
     d.strokeWidth = w;
     if (w > 0.0f)
         d.pen.setWidthF(w);
+    d.dirty |= DirtyPen;
+    m_accDirty |= DirtyPen;
+}
+
+void QQuickShapeSoftwareRenderer::setCosmeticStroke(int index, bool c)
+{
+    ShapePathGuiData &d(m_sp[index]);
+    d.pen.setCosmetic(c);
     d.dirty |= DirtyPen;
     m_accDirty |= DirtyPen;
 }
@@ -83,7 +87,7 @@ void QQuickShapeSoftwareRenderer::setCapStyle(int index, QQuickShapePath::CapSty
 }
 
 void QQuickShapeSoftwareRenderer::setStrokeStyle(int index, QQuickShapePath::StrokeStyle strokeStyle,
-                                                    qreal dashOffset, const QVector<qreal> &dashPattern)
+                                                    qreal dashOffset, const QList<qreal> &dashPattern)
 {
     ShapePathGuiData &d(m_sp[index]);
     switch (strokeStyle) {
@@ -120,27 +124,40 @@ static inline void setupPainterGradient(QGradient *painterGradient, const QQuick
     }
 }
 
-void QQuickShapeSoftwareRenderer::setFillGradient(int index, QQuickShapeGradient *gradient)
+static QBrush copyGradient(const QQuickShapeGradient *gradient, const QColor &color)
 {
-    ShapePathGuiData &d(m_sp[index]);
-    if (QQuickShapeLinearGradient *g = qobject_cast<QQuickShapeLinearGradient *>(gradient)) {
+    if (const QQuickShapeLinearGradient *g = qobject_cast<const QQuickShapeLinearGradient *>(gradient)) {
         QLinearGradient painterGradient(g->x1(), g->y1(), g->x2(), g->y2());
         setupPainterGradient(&painterGradient, *g);
-        d.brush = QBrush(painterGradient);
-    } else if (QQuickShapeRadialGradient *g = qobject_cast<QQuickShapeRadialGradient *>(gradient)) {
+        return QBrush(painterGradient);
+    } else if (const QQuickShapeRadialGradient *g = qobject_cast<const QQuickShapeRadialGradient *>(gradient)) {
         QRadialGradient painterGradient(g->centerX(), g->centerY(), g->centerRadius(),
                                         g->focalX(), g->focalY(), g->focalRadius());
         setupPainterGradient(&painterGradient, *g);
-        d.brush = QBrush(painterGradient);
-    } else if (QQuickShapeConicalGradient *g = qobject_cast<QQuickShapeConicalGradient *>(gradient)) {
+        return QBrush(painterGradient);
+    } else if (const QQuickShapeConicalGradient *g = qobject_cast<const QQuickShapeConicalGradient *>(gradient)) {
         QConicalGradient painterGradient(g->centerX(), g->centerY(), g->angle());
         setupPainterGradient(&painterGradient, *g);
-        d.brush = QBrush(painterGradient);
+        return QBrush(painterGradient);
     } else {
-        d.brush = QBrush(d.fillColor);
+        return QBrush(color);
     }
+}
+
+void QQuickShapeSoftwareRenderer::setFillGradient(int index, QQuickShapeGradient *gradient)
+{
+    ShapePathGuiData &d(m_sp[index]);
+    d.brush = copyGradient(gradient, d.fillColor);
     d.dirty |= DirtyBrush;
     m_accDirty |= DirtyBrush;
+}
+
+void QQuickShapeSoftwareRenderer::setStrokeGradient(int index, QQuickShapeGradient *gradient)
+{
+    ShapePathGuiData &d(m_sp[index]);
+    d.pen.setBrush(copyGradient(gradient, d.pen.color()));
+    d.dirty |= DirtyPen;
+    m_accDirty |= DirtyPen;
 }
 
 void QQuickShapeSoftwareRenderer::setFillTextureProvider(int index, QQuickItem *textureProviderItem)
@@ -162,6 +179,14 @@ void QQuickShapeSoftwareRenderer::setFillTransform(int index, const QSGTransform
         d.brush.setTransform(transform.matrix().toTransform());
     d.dirty |= DirtyBrush;
     m_accDirty |= DirtyBrush;
+}
+
+void QQuickShapeSoftwareRenderer::setTriangulationScale(int index, qreal scale)
+{
+    ShapePathGuiData &d(m_sp[index]);
+    d.triangulationScale = scale;
+    d.dirty |= DirtyPen;
+    m_accDirty |= DirtyPen;
 }
 
 void QQuickShapeSoftwareRenderer::endSync(bool)
@@ -201,6 +226,7 @@ void QQuickShapeSoftwareRenderer::updateNode()
         if (listChanged || (src.dirty & DirtyPen)) {
             dst.pen = src.pen;
             dst.strokeWidth = src.strokeWidth;
+            dst.triangulationScale = src.triangulationScale;
         }
 
         if (listChanged || (src.dirty & DirtyBrush))
@@ -209,7 +235,9 @@ void QQuickShapeSoftwareRenderer::updateNode()
         src.dirty = 0;
 
         QRectF br = dst.path.boundingRect();
-        const float sw = qMax(1.0f, dst.strokeWidth);
+        float sw = qMax(1.0f, dst.strokeWidth);
+        if (dst.pen.isCosmetic())
+            sw *= 2.0f / dst.triangulationScale;
         br.adjust(-sw, -sw, sw, sw);
         m_node->m_boundingRect |= br;
     }

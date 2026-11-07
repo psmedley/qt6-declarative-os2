@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QV4EXECUTABLECOMPILATIONUNIT_P_H
 #define QV4EXECUTABLECOMPILATIONUNIT_P_H
@@ -49,9 +50,9 @@ struct CompilationUnitRuntimeData
     const StaticValue **imports = nullptr;
 
     QV4::Lookup *runtimeLookups = nullptr;
-    QVector<QV4::Function *> runtimeFunctions;
-    QVector<QV4::Heap::InternalClass *> runtimeBlocks;
-    mutable QVector<QV4::Heap::Object *> templateObjects;
+    QList<QV4::Function *> runtimeFunctions;
+    QList<QV4::Heap::InternalClass *> runtimeBlocks;
+    mutable QList<QV4::Heap::Object *> templateObjects;
 };
 
 static_assert(std::is_standard_layout_v<CompilationUnitRuntimeData>);
@@ -99,10 +100,6 @@ public:
     QHash<int, IdentifierHash> namedObjectsPerComponentCache;
     inline IdentifierHash namedObjectsPerComponent(int componentObjectIndex);
 
-    int totalBindingsCount(const QString &inlineComponentRoot) const { return m_compilationUnit->totalBindingsCount(inlineComponentRoot); }
-    int totalParserStatusCount(const QString &inlineComponentRoot) const { return m_compilationUnit->totalParserStatusCount(inlineComponentRoot); }
-    int totalObjectCount(const QString &inlineComponentRoot) const { return m_compilationUnit->totalObjectCount(inlineComponentRoot); }
-
     ResolvedTypeReference *resolvedType(int id) const
     {
         return m_compilationUnit->resolvedType(id);
@@ -139,6 +136,11 @@ public:
     bool isESModule() const { return m_compilationUnit->isESModule(); }
 
     int objectCount() const { return m_compilationUnit->objectCount(); }
+    int resolvedIndex(int index) const { return m_compilationUnit->resolvedIndex(index); }
+    int implicitComponentForObject(int index) const
+    {
+        return m_compilationUnit->implicitComponentForObject(index);
+    }
     const CompiledObject *objectAt(int index) const
     {
         return m_compilationUnit->objectAt(index);
@@ -147,16 +149,16 @@ public:
     Heap::Object *templateObjectAt(int index) const;
 
     Heap::Module *instantiate();
-    const Value *resolveExport(QV4::String *exportName)
+    const Value *resolveExport(QV4::String *exportName) const
     {
-        QVector<ResolveSetEntry> resolveSet;
+        QList<ResolveSetEntry> resolveSet;
         return resolveExportRecursively(exportName, &resolveSet);
     }
 
     QStringList exportedNames() const
     {
         QStringList names;
-        QVector<const ExecutableCompilationUnit*> exportNameSet;
+        QList<const ExecutableCompilationUnit*> exportNameSet;
         getExportedNamesRecursively(&names, &exportNameSet);
         names.sort();
         auto last = std::unique(names.begin(), names.end());
@@ -192,13 +194,17 @@ public:
     void setModule(Heap::Module *module);
 
     ReturnedValue value() const { return m_valueOrModule.asReturnedValue(); }
+
+    // Non-ES script values are held in the context's importedScripts array.
+    // That one uses the generic write barrier we have for JavaScript arrays.
+    // We don't need to markCustom() here.
     void setValue(const QV4::Value &value) { m_valueOrModule = value; }
 
     const CompiledData::Unit *unitData() const { return m_compilationUnit->data; }
 
     QString stringAt(uint index) const { return m_compilationUnit->stringAt(index); }
 
-    const QVector<QQmlRefPointer<QQmlScriptData>> *dependentScriptsPtr() const
+    const QList<QQmlRefPointer<QQmlScriptData>> *dependentScriptsPtr() const
     {
         return &m_compilationUnit->dependentScripts;
     }
@@ -225,6 +231,23 @@ public:
                 : nullptr;
     }
 
+    template<typename Engine = ExecutionEngine>
+    QQmlRefPointer<ExecutableCompilationUnit> dependentModule(const QUrl &relative) const
+    {
+        auto cu = static_cast<Engine *>(engine)->moduleForUrl(relative, this);
+
+        // Make sure that this is actually a dependent script.
+        // Otherwise we cannot guarantee that it's available.
+        Q_ASSERT(cu);
+        Q_ASSERT(std::any_of(m_compilationUnit->dependentScripts.cbegin(),
+                             m_compilationUnit->dependentScripts.cend(),
+                             [&](const auto &dependentScript) {
+            return dependentScript->url == cu->finalUrl();
+        }));
+
+        return cu;
+    }
+
     void populate();
     void clear();
 
@@ -241,9 +264,9 @@ private:
     struct ResolveSetEntry
     {
         ResolveSetEntry() {}
-        ResolveSetEntry(ExecutableCompilationUnit *module, QV4::String *exportName)
+        ResolveSetEntry(const ExecutableCompilationUnit *module, QV4::String *exportName)
             : module(module), exportName(exportName) {}
-        ExecutableCompilationUnit *module = nullptr;
+        const ExecutableCompilationUnit *module = nullptr;
         QV4::String *exportName = nullptr;
     };
 
@@ -256,7 +279,7 @@ private:
             ExecutionEngine *engine);
 
     const Value *resolveExportRecursively(QV4::String *exportName,
-                                          QVector<ResolveSetEntry> *resolveSet);
+                                          QList<ResolveSetEntry> *resolveSet) const;
 
     QUrl urlAt(int index) const { return QUrl(stringAt(index)); }
 
@@ -266,7 +289,7 @@ private:
             QV4::String *name) const;
 
     void getExportedNamesRecursively(
-            QStringList *names, QVector<const ExecutableCompilationUnit *> *exportNameSet,
+            QStringList *names, QList<const ExecutableCompilationUnit *> *exportNameSet,
             bool includeDefaultExport = true) const;
 };
 
@@ -275,7 +298,7 @@ IdentifierHash ExecutableCompilationUnit::namedObjectsPerComponent(int component
     auto it = namedObjectsPerComponentCache.constFind(componentObjectIndex);
     if (Q_UNLIKELY(it == namedObjectsPerComponentCache.cend()))
         return createNamedObjectsPerComponent(componentObjectIndex);
-    Q_ASSERT(!it->isEmpty());
+    Q_ASSERT(it->isValid());
     return *it;
 }
 

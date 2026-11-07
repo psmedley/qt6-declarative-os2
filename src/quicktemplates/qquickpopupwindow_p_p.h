@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPOPUPWINDOW_P_P_H
 #define QQUICKPOPUPWINDOW_P_P_H
@@ -46,7 +47,9 @@ private:
     void handlePopupPositionChangeFromWindowSystem(const QPoint &pos);
     void implicitWidthChanged();
     void implicitHeightChanged();
-
+#if QT_CONFIG(wayland)
+    QRect parentControlGeometry() const;
+#endif
     Q_DISABLE_COPY(QQuickPopupWindow)
     Q_DECLARE_PRIVATE(QQuickPopupWindow)
 };

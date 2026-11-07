@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -11,14 +12,14 @@ T.Drawer {
     parent: T.Overlay.overlay
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding)
+                            implicitContentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding)
+                             implicitContentHeight + topPadding + bottomPadding)
 
-    topPadding: control.edge === Qt.BottomEdge
-    leftPadding: control.edge === Qt.RightEdge
-    rightPadding: control.edge === Qt.LeftEdge
-    bottomPadding: control.edge === Qt.TopEdge
+    topPadding: SafeArea.margins.top + (control.edge === Qt.BottomEdge)
+    leftPadding: SafeArea.margins.left + (control.edge === Qt.RightEdge)
+    rightPadding: SafeArea.margins.right + (control.edge === Qt.LeftEdge)
+    bottomPadding: SafeArea.margins.bottom + (control.edge === Qt.TopEdge)
 
     enter: Transition { SmoothedAnimation { velocity: 5 } }
     exit: Transition { SmoothedAnimation { velocity: 5 } }

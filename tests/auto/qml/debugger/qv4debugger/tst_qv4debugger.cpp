@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
+#include <QtTest/QSignalSpy>
+#include <QtCore/QTimer>
+#include <QtCore/QEventLoop>
 
 #include "qv4datacollector.h"
 #include "qv4debugger.h"
@@ -22,7 +25,7 @@
 using namespace QV4;
 using namespace QV4::Debugging;
 
-Q_IMPORT_QML_PLUGIN(TestTypesPlugin);
+Q_IMPORT_QML_PLUGIN(QV4DebuggerTestTypesPlugin);
 
 typedef QV4::ReturnedValue (*InjectedFunction)(const FunctionObject *b, const QV4::Value *, const QV4::Value *, int);
 Q_DECLARE_METATYPE(InjectedFunction)
@@ -257,8 +260,8 @@ public:
     int m_targetScope = -1;
     QList<QV4Debugger::ExecutionState> m_statesWhenPaused;
     QList<TestBreakPoint> m_breakPointsToAddWhenPaused;
-    QVector<QV4::StackFrame> m_stackTrace;
-    QVector<NamedRefs> m_capturedScope;
+    QList<QV4::StackFrame> m_stackTrace;
+    QList<NamedRefs> m_capturedScope;
     qint64 m_thrownValue;
     QV4DataCollector collector;
 
@@ -270,7 +273,7 @@ public:
     };
 
 
-    QVector<ExpressionRequest> m_expressionRequests;
+    QList<ExpressionRequest> m_expressionRequests;
     QV4Debugger::Speed m_resumeSpeed;
     QList<QJsonObject> m_expressionResults;
     QList<QJsonObject> m_lookupResults;

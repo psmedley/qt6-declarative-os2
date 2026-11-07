@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickwheelhandler_p.h"
 #include "qquickwheelhandler_p_p.h"
@@ -9,7 +10,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcWheelHandler, "qt.quick.handler.wheel")
+Q_STATIC_LOGGING_CATEGORY(lcWheelHandler, "qt.quick.handler.wheel")
 
 /*!
     \qmltype WheelHandler

@@ -1,26 +1,22 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <private/qqmldatablob_p.h>
 #include <private/qqmlglobal_p.h>
 #include <private/qqmlprofiler_p.h>
+#include <private/qqmlsourcecoordinate_p.h>
+#include <private/qqmltypedata_p.h>
 #include <private/qqmltypeloader_p.h>
 #include <private/qqmltypeloaderthread_p.h>
-#include <private/qqmlsourcecoordinate_p.h>
 
 #include <QtQml/qqmlengine.h>
 
+#include <QtCore/qcryptographichash.h>
+
 #include <qtqml_tracepoints_p.h>
 
-#ifdef DATABLOB_DEBUG
-#define ASSERT_CALLBACK() do { if (!m_typeLoader || !m_typeLoader->m_thread->isThisThread()) qFatal("QQmlDataBlob: An API call was made outside a callback"); } while (false)
-#else
-#define ASSERT_CALLBACK()
-#endif
-
 DEFINE_BOOL_CONFIG_OPTION(dumpErrors, QML_DUMP_ERRORS);
-
-Q_DECLARE_LOGGING_CATEGORY(lcCycle)
 
 QT_BEGIN_NAMESPACE
 
@@ -63,18 +59,35 @@ This enum describes the type of the data blob.
 Create a new QQmlDataBlob for \a url and of the provided \a type.
 */
 QQmlDataBlob::QQmlDataBlob(const QUrl &url, Type type, QQmlTypeLoader *manager)
-: m_typeLoader(manager), m_type(type), m_url(url), m_finalUrl(url), m_redirectCount(0),
-  m_inCallback(false), m_isDone(false)
+    : m_typeLoader(manager)
+    , m_type(type)
+    , m_url(manager->interceptUrl(url, (QQmlAbstractUrlInterceptor::DataType)type))
+    , m_finalUrl(url)
+    , m_redirectCount(0)
+    , m_inCallback(false)
+    , m_isDone(false)
 {
-    //Set here because we need to get the engine from the manager
-    if (const QQmlEngine *qmlEngine = m_typeLoader->engine())
-        m_url = qmlEngine->interceptUrl(m_url, (QQmlAbstractUrlInterceptor::DataType)m_type);
 }
 
 /*!  \internal */
 QQmlDataBlob::~QQmlDataBlob()
 {
     Q_ASSERT(m_waitingOnMe.isEmpty());
+
+    // Deleting a QQmlDataBlob in the engine thread is conceptually dangerous
+    // because it manipulates other blobs' m_waitingFor lists. We can guarantee
+    // that the list is empty if the blob isCompleteOrError. Therefore, in such
+    // a case, it's fine to delete it from the engine thread.
+    // Furthermore, if the type loader thread is (temporarily or permanently)
+    // shut down, we cannot run into concurrency here.
+    //
+    // Unfortunately, the typeLoader pointer itself may be dangling at this point
+    // if the QQmlDataBlob is destroyed after the engine. That can happen if you
+    // hold on to a QQmlComponent for longer than the engine it belongs to. You
+    // shouldn't do it, but the mistake is very common and harmless if you don't
+    // touch the component anymore after the engine is gone. In order to actually
+    // assert on the thread safety here, we'd have to touch the typeLoader pointer.
+    // Q_ASSERT(isCompleteOrError() || isTypeLoaderThread() || !isTypeLoaderThreadRunning());
 
     cancelAllWaitingFor();
 }
@@ -84,8 +97,10 @@ QQmlDataBlob::~QQmlDataBlob()
 */
 void QQmlDataBlob::startLoading()
 {
+    // This can be called on either thread but since both status() and setStatus() are atomic
+    // this is fine.
     Q_ASSERT(status() == QQmlDataBlob::Null);
-    m_data.setStatus(QQmlDataBlob::Loading);
+    setStatus(QQmlDataBlob::Loading);
 }
 
 /*!
@@ -154,14 +169,17 @@ bool QQmlDataBlob::isCompleteOrError() const
     return s == Error || s == Complete;
 }
 
+bool QQmlDataBlob::isAsync() const
+{
+    return m_data.isAsync();
+}
+
 /*!
 Returns the data download progress from 0 to 1.
 */
 qreal QQmlDataBlob::progress() const
 {
-    quint8 p = m_data.progress();
-    if (p == 0xFF) return 1.;
-    else return qreal(p) / qreal(0xFF);
+    return m_data.progress();
 }
 
 /*!
@@ -178,6 +196,7 @@ QUrl QQmlDataBlob::url() const
 
 QString QQmlDataBlob::urlString() const
 {
+    // TODO: This is dangerous. It can be called from either thread.
     if (m_urlString.isEmpty())
         m_urlString = m_url.toString();
 
@@ -207,6 +226,8 @@ Returns the finalUrl() as a string.
 */
 QString QQmlDataBlob::finalUrlString() const
 {
+    // TODO: This is dangerous. It can be called from either thread.
+
     if (m_finalUrlString.isEmpty())
         m_finalUrlString = m_finalUrl.toString();
 
@@ -220,7 +241,10 @@ May only be called from the load thread, or after the blob isCompleteOrError().
 */
 QList<QQmlError> QQmlDataBlob::errors() const
 {
-    Q_ASSERT(isCompleteOrError() || (m_typeLoader && m_typeLoader->m_thread->isThisThread()));
+    Q_ASSERT(isCompleteOrError()
+             || !m_typeLoader
+             || !m_typeLoader->thread()
+             || m_typeLoader->thread()->isThisThread());
     return m_errors;
 }
 
@@ -234,7 +258,7 @@ The setError() method may only be called from within a QQmlDataBlob callback.
 */
 void QQmlDataBlob::setError(const QQmlError &errors)
 {
-    ASSERT_CALLBACK();
+    assertTypeLoaderThread();
 
     QList<QQmlError> l;
     l << errors;
@@ -246,7 +270,7 @@ void QQmlDataBlob::setError(const QQmlError &errors)
 */
 void QQmlDataBlob::setError(const QList<QQmlError> &errors)
 {
-    ASSERT_CALLBACK();
+    assertTypeLoaderThread();
 
     Q_ASSERT(status() != Error);
     Q_ASSERT(m_errors.isEmpty());
@@ -263,14 +287,14 @@ void QQmlDataBlob::setError(const QList<QQmlError> &errors)
         }
     }
 
-    m_data.setStatus(Error);
+    cancelAllWaitingFor();
+    setStatus(Error);
 
     if (dumpErrors()) {
         qWarning().nospace() << "Errors for " << urlString();
         for (int ii = 0; ii < errors.size(); ++ii)
             qWarning().nospace() << "    " << qPrintable(errors.at(ii).toString());
     }
-    cancelAllWaitingFor();
 
     if (!m_inCallback)
         tryDone();
@@ -278,6 +302,7 @@ void QQmlDataBlob::setError(const QList<QQmlError> &errors)
 
 void QQmlDataBlob::setError(const QQmlJS::DiagnosticMessage &error)
 {
+    assertTypeLoaderThread();
     QQmlError e;
     e.setColumn(qmlConvertSourceCoordinate<quint32, int>(error.loc.startColumn));
     e.setLine(qmlConvertSourceCoordinate<quint32, int>(error.loc.startLine));
@@ -288,6 +313,7 @@ void QQmlDataBlob::setError(const QQmlJS::DiagnosticMessage &error)
 
 void QQmlDataBlob::setError(const QString &description)
 {
+    assertTypeLoaderThread();
     QQmlError e;
     e.setDescription(description);
     e.setUrl(url());
@@ -300,9 +326,9 @@ complete or in error, or this blob is already complete, this has no effect.
 
 The setError() method may only be called from within a QQmlDataBlob callback.
 */
-void QQmlDataBlob::addDependency(QQmlDataBlob *blob)
+void QQmlDataBlob::addDependency(const QQmlDataBlob::Ptr &blob)
 {
-    ASSERT_CALLBACK();
+    assertTypeLoaderThread();
 
     Q_ASSERT(status() != Null);
 
@@ -311,20 +337,25 @@ void QQmlDataBlob::addDependency(QQmlDataBlob *blob)
         status() == Error || status() == Complete || m_isDone)
         return;
 
-    for (const auto &existingDep: std::as_const(m_waitingFor))
+    for (const auto &existingDep: std::as_const(m_waitingFor)) {
         if (existingDep.data() == blob)
             return;
-
-    m_data.setStatus(WaitingForDependencies);
+    }
 
     m_waitingFor.append(blob);
     blob->m_waitingOnMe.append(this);
 
+    setStatus(WaitingForDependencies);
+
     // Check circular dependency
-    if (m_waitingOnMe.indexOf(blob) >= 0) {
+    if (m_waitingOnMe.indexOf(blob.data()) >= 0) {
         qCWarning(lcCycle) << "Cyclic dependency detected between" << this->url().toString()
                            << "and" << blob->url().toString();
-        m_data.setStatus(Error);
+        QQmlError error;
+        error.setUrl(url());
+        error.setDescription(QString::fromLatin1("Cyclic dependency detected between \"%1\" and \"%2\"")
+                                     .arg(url().toString(), blob->url().toString()));
+        setError(error);
     }
 }
 
@@ -350,6 +381,7 @@ and completed() (main thread)
 */
 void QQmlDataBlob::done()
 {
+    assertTypeLoaderThread();
 }
 
 #if QT_CONFIG(qml_network)
@@ -360,6 +392,8 @@ The default implementation sets an appropriate QQmlError.
 */
 void QQmlDataBlob::networkError(QNetworkReply::NetworkError networkError)
 {
+    assertTypeLoaderThread();
+
     Q_UNUSED(networkError);
 
     QQmlError error;
@@ -412,8 +446,9 @@ Called if \a blob, which was previously waited for, has an error.
 
 The default implementation does nothing.
 */
-void QQmlDataBlob::dependencyError(QQmlDataBlob *blob)
+void QQmlDataBlob::dependencyError(const QQmlDataBlob::Ptr &blob)
 {
+    assertTypeLoaderThread();
     Q_UNUSED(blob);
 }
 
@@ -422,8 +457,9 @@ Called if \a blob, which was previously waited for, has completed.
 
 The default implementation does nothing.
 */
-void QQmlDataBlob::dependencyComplete(QQmlDataBlob *blob)
+void QQmlDataBlob::dependencyComplete(const QQmlDataBlob::Ptr &blob)
 {
+    assertTypeLoaderThread();
     Q_UNUSED(blob);
 }
 
@@ -435,7 +471,8 @@ The default implementation does nothing.
 */
 void QQmlDataBlob::allDependenciesDone()
 {
-    m_data.setStatus(QQmlDataBlob::ResolvingDependencies);
+    assertTypeLoaderThread();
+    setStatus(QQmlDataBlob::ResolvingDependencies);
 }
 
 /*!
@@ -452,6 +489,7 @@ The default implementation does nothing.
 void QQmlDataBlob::downloadProgressChanged(qreal progress)
 {
     Q_UNUSED(progress);
+    assertEngineThread();
 }
 
 /*!
@@ -470,11 +508,13 @@ The default implementation does nothing.
 */
 void QQmlDataBlob::completed()
 {
+    assertEngineThread();
 }
-
 
 void QQmlDataBlob::tryDone()
 {
+    assertTypeLoaderThread();
+
     if (status() != Loading && m_waitingFor.isEmpty() && !m_isDone) {
         m_isDone = true;
         addref();
@@ -485,7 +525,7 @@ void QQmlDataBlob::tryDone()
         done();
 
         if (status() != Error)
-            m_data.setStatus(Complete);
+            setStatus(Complete);
 
         notifyAllWaitingOnMe();
 
@@ -494,7 +534,7 @@ void QQmlDataBlob::tryDone()
 #ifdef DATABLOB_DEBUG
         qWarning("QQmlDataBlob: Dispatching completed");
 #endif
-        m_typeLoader->m_thread->callCompleted(this);
+        m_typeLoader->thread()->callCompleted(this);
 
         release();
     }
@@ -503,6 +543,12 @@ void QQmlDataBlob::tryDone()
 void QQmlDataBlob::cancelAllWaitingFor()
 {
     while (m_waitingFor.size()) {
+
+        // We can assert here since we are sure that m_waitingFor is either empty whenever
+        // we delete a QQmlDataBlob from outside the type loader thread, or the type loader
+        // thread has been suspended before.
+        assertTypeLoaderThreadIfRunning();
+
         QQmlRefPointer<QQmlDataBlob> blob = m_waitingFor.takeLast();
 
         Q_ASSERT(blob->m_waitingOnMe.contains(this));
@@ -513,8 +559,10 @@ void QQmlDataBlob::cancelAllWaitingFor()
 
 void QQmlDataBlob::notifyAllWaitingOnMe()
 {
+    assertTypeLoaderThread();
+
     while (m_waitingOnMe.size()) {
-        QQmlDataBlob *blob = m_waitingOnMe.takeLast();
+        QQmlDataBlob::Ptr blob = m_waitingOnMe.takeLast();
 
         Q_ASSERT(std::any_of(blob->m_waitingFor.constBegin(), blob->m_waitingFor.constEnd(),
                              [this](const QQmlRefPointer<QQmlDataBlob> &waiting) { return waiting.data() == this; }));
@@ -523,11 +571,13 @@ void QQmlDataBlob::notifyAllWaitingOnMe()
     }
 }
 
-void QQmlDataBlob::notifyComplete(QQmlDataBlob *blob)
+void QQmlDataBlob::notifyComplete(const QQmlDataBlob::Ptr &blob)
 {
+    assertTypeLoaderThread();
+
     Q_ASSERT(blob->status() == Error || blob->status() == Complete);
     Q_TRACE_SCOPE(QQmlCompiling, blob->url());
-    QQmlCompilingProfiler prof(typeLoader()->profiler(), blob);
+    QQmlCompilingProfiler prof(typeLoader()->profiler(), blob.data());
 
     m_inCallback = true;
 
@@ -560,13 +610,13 @@ QString QQmlDataBlob::SourceCodeData::readAll(QString *error) const
     if (hasInlineSourceCode)
         return inlineSourceCode;
 
-    QFile f(fileInfo.absoluteFilePath());
+    QFile f(fileInfo.filePath());
     if (!f.open(QIODevice::ReadOnly)) {
         *error = f.errorString();
         return QString();
     }
 
-    const qint64 fileSize = fileInfo.size();
+    const qint64 fileSize = f.size();
 
     if (uchar *mappedData = f.map(0, fileSize)) {
         QString source = QString::fromUtf8(reinterpret_cast<const char *>(mappedData), fileSize);
@@ -587,21 +637,50 @@ QDateTime QQmlDataBlob::SourceCodeData::sourceTimeStamp() const
     if (hasInlineSourceCode)
         return QDateTime();
 
+    // If the file is from the resource file system we're never
+    // interested in the timestamp. Either it's content-hashed anyway
+    // (if we're checking against a .qmlc file), or we use the
+    // application timestamp because we don't trust qrc timestamps.
+    // So don't query the file system here.
+    if (QQmlTypeLoader::isResource(fileInfo.path()))
+        return QDateTime();
+
     return fileInfo.lastModified();
 }
 
-bool QQmlDataBlob::SourceCodeData::exists() const
+QByteArray QQmlDataBlob::SourceCodeData::checksum() const
 {
-    if (hasInlineSourceCode)
-        return true;
-    return fileInfo.exists();
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    if (hasInlineSourceCode) {
+        hash.addData(inlineSourceCode.toUtf8());
+        return hash.result();
+    }
+
+    QFile f(fileInfo.filePath());
+    if (!f.open(QIODevice::ReadOnly))
+        return QByteArray();
+    if (!hash.addData(&f))
+        return QByteArray();
+    return hash.result();
 }
 
-bool QQmlDataBlob::SourceCodeData::isEmpty() const
+bool QQmlDataBlob::setStatus(Status status)
 {
-    if (hasInlineSourceCode)
-        return inlineSourceCode.isEmpty();
-    return fileInfo.size() == 0;
+    switch (status) {
+    case Loading:
+        break;
+    case WaitingForDependencies:
+        Q_ASSERT(!m_waitingFor.isEmpty());
+        break;
+    case Null:
+    case ResolvingDependencies:
+    case Complete:
+    case Error:
+        Q_ASSERT(m_waitingFor.isEmpty());
+        break;
+    }
+
+    return m_data.setStatus(status);
 }
 
 QT_END_NAMESPACE

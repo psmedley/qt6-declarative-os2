@@ -11,7 +11,7 @@
 
 
 qt_find_package(LTTngUST PROVIDED_TARGETS LTTng::UST MODULE_NAME qml QMAKE_LIB lttng-ust)
-qt_find_package(Python REQUIRED)
+qt_find_package(Python MODULE REQUIRED)
 if(Python_Interpreter_FOUND)
     # Need to make it globally available to the project
     set(QT_INTERNAL_DECLARATIVE_PYTHON "${Python_EXECUTABLE}" CACHE STRING "" FORCE)
@@ -96,8 +96,8 @@ qt_feature("qml-jit" PRIVATE
     AUTODETECT NOT IOS AND NOT TVOS
     CONDITION ( ( TEST_architecture_arch STREQUAL i386 AND QT_FEATURE_sse2 ) OR
         ( TEST_architecture_arch STREQUAL x86_64 AND QT_FEATURE_sse2 ) OR
-        ( TEST_architecture_arch STREQUAL arm AND TEST_arm_fp AND TEST_arm_thumb AND ( ANDROID OR LINUX OR IOS OR TVOS OR QNX ) ) OR
-        ( TEST_architecture_arch STREQUAL arm64 AND TEST_arm_fp AND ( ANDROID OR LINUX OR IOS OR TVOS OR QNX OR INTEGRITY ) ) )
+        ( TEST_architecture_arch STREQUAL arm AND TEST_arm_fp AND TEST_arm_thumb AND ( ANDROID OR LINUX OR IOS OR TVOS OR QNX OR VXWORKS ) ) OR
+        ( TEST_architecture_arch STREQUAL arm64 AND TEST_arm_fp AND ( ANDROID OR LINUX OR IOS OR TVOS OR QNX OR INTEGRITY OR VXWORKS ) ) )
 )
 # special case begin
 # When doing macOS universal builds, JIT needs to be disabled for the ARM slice.
@@ -127,6 +127,11 @@ qt_feature("qml-debug" PUBLIC
     SECTION "QML"
     LABEL "QML debugging and profiling support"
     PURPOSE "Provides infrastructure and plugins for debugging and profiling."
+)
+qt_feature("qml-labs" PUBLIC
+    SECTION "QML"
+    LABEL "Qt Labs"
+    PURPOSE "Provides experimental features and components."
 )
 qt_feature("qml-profiler" PRIVATE
     SECTION "QML"
@@ -175,19 +180,40 @@ qt_feature("qml-xmllistmodel" PRIVATE
     PURPOSE "Enable XmlListModel in QML"
     CONDITION QT_FEATURE_qml_itemmodel AND QT_FEATURE_future
 )
+qt_feature("qml-type-loader-thread" PRIVATE
+    SECTION "QML"
+    LABEL "QmlTypeLoader on separate thread."
+    PURPOSE "Run QmlTypeLoader on separate thread."
+    CONDITION QT_FEATURE_thread AND NOT WASM
+)
 
 qt_feature("qml-python" PRIVATE
     LABEL "python"
     CONDITION Python_Interpreter_FOUND
 )
-qt_configure_add_summary_section(NAME "Qt QML")
+
+qt_feature("qmlcontextpropertydump" PRIVATE
+    LABEL "qmlcontextpropertydump"
+    PURPOSE "Enables qmlcontextpropertydump tooling"
+    CONDITION QT_FEATURE_settings
+)
+
+qt_feature("qml-designsupport" PUBLIC
+    SECTION "QML"
+    LABEL "QML design support"
+    PURPOSE "Provides support for design tooling."
+)
+
+qt_configure_add_summary_section(NAME "Qt Qml")
 qt_configure_add_summary_entry(ARGS "qml-network")
 qt_configure_add_summary_entry(ARGS "qml-debug")
+qt_configure_add_summary_entry(ARGS "qml-labs")
 qt_configure_add_summary_entry(ARGS "qml-jit")
 qt_configure_add_summary_entry(ARGS "qml-xml-http-request")
 qt_configure_add_summary_entry(ARGS "qml-locale")
 qt_configure_add_summary_entry(ARGS "qml-ssl")
-qt_configure_end_summary_section() # end of "Qt QML" section
+qt_configure_add_summary_entry(ARGS "qml-designsupport")
+qt_configure_end_summary_section() # end of "Qt Qml" section
 qt_configure_add_report_entry(
     TYPE ERROR
     MESSAGE "Python is required to build QtQml."

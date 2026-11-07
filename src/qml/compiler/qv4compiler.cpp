@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // Copyright (C) 2018 Intel Corporation.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <qv4compiler_p.h>
 #include <qv4codegen_p.h>
@@ -9,7 +10,6 @@
 #include <private/qv4alloca_p.h>
 #include <private/qqmljslexer_p.h>
 #include <private/qqmljsast_p.h>
-#include <private/qml_compile_hash_p.h>
 #include <private/qqmlirbuilder_p.h>
 #include <QCryptographicHash>
 #include <QtEndian>
@@ -251,6 +251,7 @@ int QV4::Compiler::JSUnitGenerator::registerTranslation(const QV4::CompiledData:
 
 QV4::CompiledData::Unit *QV4::Compiler::JSUnitGenerator::generateUnit(GeneratorOption option)
 {
+    Q_ALLOCA_INIT();
     const auto registerTypeStrings = [this](QQmlJS::AST::Type *type) {
         if (!type)
             return;
@@ -293,13 +294,13 @@ QV4::CompiledData::Unit *QV4::Compiler::JSUnitGenerator::generateUnit(GeneratorO
         std::for_each(module->starExportEntries.constBegin(), module->starExportEntries.constEnd(), registerExportEntry);
     }
     {
-        for (const auto &entry: module->importEntries) {
+        for (const auto &entry: std::as_const(module->importEntries)) {
             registerString(entry.moduleRequest);
             registerString(entry.importName);
             registerString(entry.localName);
         }
 
-        for (const QString &request: module->moduleRequests)
+        for (const QString &request: std::as_const(module->moduleRequests))
             registerString(request);
     }
 
@@ -380,7 +381,7 @@ QV4::CompiledData::Unit *QV4::Compiler::JSUnitGenerator::generateUnit(GeneratorO
     }
 
     {
-        const auto populateExportEntryTable = [this, dataPtr](const QVector<Compiler::ExportEntry> &table, quint32_le offset) {
+        const auto populateExportEntryTable = [this, dataPtr](const QList<Compiler::ExportEntry> &table, quint32_le offset) {
             CompiledData::ExportEntry *entryToWrite = reinterpret_cast<CompiledData::ExportEntry *>(dataPtr + offset);
             for (const Compiler::ExportEntry &entry: table) {
                 entryToWrite->exportName = getStringId(entry.exportName);
@@ -398,7 +399,7 @@ QV4::CompiledData::Unit *QV4::Compiler::JSUnitGenerator::generateUnit(GeneratorO
 
     {
         CompiledData::ImportEntry *entryToWrite = reinterpret_cast<CompiledData::ImportEntry *>(dataPtr + unit->offsetToImportEntryTable);
-        for (const Compiler::ImportEntry &entry: module->importEntries) {
+        for (const Compiler::ImportEntry &entry: std::as_const(module->importEntries)) {
             entryToWrite->moduleRequest = getStringId(entry.moduleRequest);
             entryToWrite->importName = getStringId(entry.importName);
             entryToWrite->localName = getStringId(entry.localName);
@@ -409,7 +410,7 @@ QV4::CompiledData::Unit *QV4::Compiler::JSUnitGenerator::generateUnit(GeneratorO
 
     {
         quint32_le *moduleRequestEntryToWrite = reinterpret_cast<quint32_le *>(dataPtr + unit->offsetToModuleRequestTable);
-        for (const QString &moduleRequest: module->moduleRequests) {
+        for (const QString &moduleRequest: std::as_const(module->moduleRequests)) {
             *moduleRequestEntryToWrite = getStringId(moduleRequest);
             moduleRequestEntryToWrite++;
         }
@@ -442,6 +443,7 @@ void QV4::Compiler::JSUnitGenerator::writeFunction(char *f, QV4::Compiler::Conte
         function->flags |= CompiledData::Function::IsClosureWrapper;
 
     if (!irFunction->returnsClosure
+            || (irFunction->usesArgumentsObject == Context::UsesArgumentsObject::Used)
             || irFunction->innerFunctionAccessesThis
             || irFunction->innerFunctionAccessesNewTarget) {
         // If the inner function does things with this and new.target we need to do some work in
@@ -528,7 +530,7 @@ void QV4::Compiler::JSUnitGenerator::writeClass(char *b, const QV4::Compiler::Cl
 
     quint32 currentOffset = sizeof(QV4::CompiledData::Class);
 
-    QVector<Class::Method> allMethods = c.staticMethods;
+    QList<Class::Method> allMethods = c.staticMethods;
     allMethods += c.methods;
 
     cls->constructorFunction = c.constructorIndex;
@@ -632,8 +634,6 @@ QV4::CompiledData::Unit QV4::Compiler::JSUnitGenerator::generateHeader(QV4::Comp
     unit.flags = QV4::CompiledData::Unit::IsJavascript;
     unit.flags |= module->unitFlags;
     unit.version = QV4_DATA_STRUCTURE_VERSION;
-    unit.qtVersion = QT_VERSION;
-    qstrcpy(unit.libraryVersionHash, QML_COMPILE_HASH);
     memset(unit.md5Checksum, 0, sizeof(unit.md5Checksum));
     memset(unit.dependencyMD5Checksum, 0, sizeof(unit.dependencyMD5Checksum));
 
@@ -717,7 +717,7 @@ QV4::CompiledData::Unit QV4::Compiler::JSUnitGenerator::generateHeader(QV4::Comp
 
         quint32 size = QV4::CompiledData::Function::calculateSize(
                     f->arguments.size(), f->locals.size(), f->lineAndStatementNumberMapping.size(),
-                    f->nestedContexts.size(), int(f->labelInfo.size()), f->code.size());
+                    int(f->labelInfo.size()), f->code.size());
         functionSize += size - f->code.size();
         nextOffset += size;
     }

@@ -5,11 +5,13 @@
 
 #include <QtQml/QQmlComponent>
 #include <QtQuick/qquickitem.h>
+#include <QtQuick/qquickitemgrabresult.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtQuick/qquickview.h>
 #include "private/qquickfocusscope_p.h"
 #include "private/qquickrectangle_p.h"
 #include "private/qquickitem_p.h"
+#include <QtGui/qimage.h>
 #include <QtGui/private/qevent_p.h>
 #include <qpa/qwindowsysteminterface.h>
 #ifdef Q_OS_WIN
@@ -18,6 +20,7 @@
 #include <QDebug>
 #include <QTimer>
 #include <QQmlEngine>
+#include <QtQuickTest/quicktest.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QSignalSpy>
@@ -232,6 +235,12 @@ private slots:
 
     void transformChanged();
 
+    void grabImage();
+    void invisibleItemCursorShape();
+
+    void focusItemDestroyed();
+    void testUpdateOfInvisibleItem();
+
 private:
 
     enum PaintOrderOp {
@@ -245,6 +254,8 @@ private:
         w->requestActivate();
         return QTest::qWaitForWindowActive(w);
     }
+
+    std::unique_ptr<QPointingDevice> touchscreen{QTest::createTouchDevice()};
 };
 
 tst_qquickitem::tst_qquickitem()
@@ -809,13 +820,13 @@ void tst_qquickitem::focusSubItemInNonFocusScope()
 
     QVERIFY(dummyItem->hasFocus());
     QVERIFY(!textInput->hasFocus());
-    QVERIFY(dummyItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(dummyItem);
 
     QVERIFY(QMetaObject::invokeMethod(textInput, "forceActiveFocus"));
 
     QVERIFY(!dummyItem->hasFocus());
     QVERIFY(textInput->hasFocus());
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 }
 
 void tst_qquickitem::parentItemWithFocus()
@@ -967,12 +978,12 @@ void tst_qquickitem::activeFocusChangedOrder()
         QTRY_VERIFY(scope1.hasActiveFocus());
 
         int counter = 0;
-        connect(&scope1, &QQuickItem::activeFocusChanged, [&counter, &scope1](bool focus) {
+        connect(&scope1, &QQuickItem::activeFocusChanged, this, [&counter, &scope1](bool focus) {
             QCOMPARE(scope1.childItems().front()->hasActiveFocus(), focus);
             QCOMPARE(counter, 0);
             counter++;
         });
-        connect(&scope2, &QQuickItem::activeFocusChanged, [&counter, &scope2](bool focus) {
+        connect(&scope2, &QQuickItem::activeFocusChanged, this, [&counter, &scope2](bool focus) {
             QCOMPARE(scope2.childItems().front()->hasActiveFocus(), focus);
             QCOMPARE(counter, 1);
             counter++;
@@ -1006,12 +1017,12 @@ void tst_qquickitem::activeFocusChangedOrder()
         QTRY_VERIFY(item1.hasActiveFocus());
 
         int counter = 0;
-        connect(&item1, &QQuickItem::activeFocusChanged, [&counter](bool focus) {
+        connect(&item1, &QQuickItem::activeFocusChanged, this, [&counter](bool focus) {
             QVERIFY(!focus);
             QCOMPARE(counter, 0);
             counter++;
         });
-        connect(&item2, &QQuickItem::activeFocusChanged, [&counter](bool focus) {
+        connect(&item2, &QQuickItem::activeFocusChanged, this, [&counter](bool focus) {
             QVERIFY(focus);
             QCOMPARE(counter, 1);
             counter++;
@@ -1459,21 +1470,19 @@ void tst_qquickitem::touchEventAcceptIgnore()
         item->setAcceptTouchEvents(itemAcceptsTouch); // it's false by default in Qt 6
     item->acceptIncomingTouchEvents = itemAcceptsTouchEvents;
 
-    static QPointingDevice* device = QTest::createTouchDevice();
-
     // Send Begin, Update & End touch sequence
     item->touchEventReached = false;
-    QTest::touchEvent(&window, device).press(1, QPoint(50, 50), &window);
+    QTest::touchEvent(&window, touchscreen.get()).press(1, QPoint(50, 50), &window);
     QQuickTouchUtils::flush(&window);
     QTRY_COMPARE(item->touchEventReached, itemAcceptsTouch);
 
     item->touchEventReached = false;
-    QTest::touchEvent(&window, device).move(1, QPoint(60, 60), &window);
+    QTest::touchEvent(&window, touchscreen.get()).move(1, QPoint(60, 60), &window);
     QQuickTouchUtils::flush(&window);
     QTRY_COMPARE(item->touchEventReached, itemAcceptsTouchEvents);
 
     item->touchEventReached = false;
-    QTest::touchEvent(&window, device).release(1, QPoint(60, 60), &window);
+    QTest::touchEvent(&window, touchscreen.get()).release(1, QPoint(60, 60), &window);
     QQuickTouchUtils::flush(&window);
     QTRY_COMPARE(item->touchEventReached, itemAcceptsTouchEvents);
 }
@@ -1517,7 +1526,7 @@ struct PolishItemSpan {
  * For instance, two consecutive spans {99,0} and {1,2000} } instructs to
  * construct 99 items with no repolish, and 1 item with 2000 repolishes (in that sibling order)
  */
-typedef QVector<PolishItemSpan> PolishItemSpans;
+typedef QList<PolishItemSpan> PolishItemSpans;
 
 Q_DECLARE_METATYPE(PolishItemSpan)
 Q_DECLARE_METATYPE(PolishItemSpans)
@@ -1724,7 +1733,7 @@ void tst_qquickitem::hoverEvent()
 
     // Ensure that we don't get extra hover events delivered on the
     // side, since it can affect the number of hover move events we receive below.
-    QQuickWindowPrivate::get(window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    QQuickWindowPrivate::get(window)->deliveryAgentPrivate()->frameSynchronousHoverInterval = -1;
     // And flush out any mouse events that might be queued up
     // in QPA, since QTest::mouseMove() calls processEvents.
     qGuiApp->processEvents();
@@ -2312,7 +2321,7 @@ void tst_qquickitem::shortcutOverride()
 
     QQuickItem *escapeItem = view.rootObject()->property("escapeItem").value<QQuickItem*>();
     QVERIFY(escapeItem);
-    QVERIFY(escapeItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(escapeItem);
 
     // escapeItem's onEscapePressed handler should accept the first escape press event.
     QTest::keyPress(&view, Qt::Key_Escape);
@@ -2445,7 +2454,7 @@ void tst_qquickitem::objectCastInDestructor()
     QQuickItem *item = view.findChild<QQuickItem *>("testRectangle");
     QVERIFY(item);
     bool destroyed = false;
-    connect(item, &QObject::destroyed, [&]{
+    connect(item, &QObject::destroyed, this, [&destroyed, item] {
         destroyed = true;
         QCOMPARE(qobject_cast<QQuickItem *>(item), nullptr);
         QCOMPARE(qobject_cast<QQuickRectangle *>(item), nullptr);
@@ -2622,7 +2631,7 @@ class TransformItemPrivate :public QQuickItemPrivate
 protected:
     Q_DECLARE_PUBLIC(TransformItem)
 
-    bool transformChanged(QQuickItem *transformedItem) override
+    bool transformChanged(QQuickItem *) override
     {
         Q_Q(TransformItem);
         q->transformChanged = true;
@@ -2675,6 +2684,75 @@ void tst_qquickitem::transformChanged()
     QVERIFY2(transformItem.transformChanged,
         "Changing one of the new ancestors should result in transformChanged");
     QCOMPARE(transformItem.mapToScene(QPoint(0, 0)), parents[1][0]->position());
+}
+
+void tst_qquickitem::grabImage()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("grabImage.qml"));
+
+    QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow*>(component.create()));
+    QVERIFY(window);
+
+    gc(engine);
+
+    QTRY_VERIFY(window->property("finishedSuccessfuly").toBool());
+    QQuickItemGrabResult *result = window->property("itemGrabResult").value<QQuickItemGrabResult*>();
+    QVERIFY(result);
+    QVERIFY(!window->property("grabbedUrl").toUrl().isEmpty());
+    QVERIFY(!window->property("grabbedImage").value<QImage>().isNull());
+}
+
+void tst_qquickitem::invisibleItemCursorShape()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("invisibleItemCursorShape.qml")));
+    QQuickItem *root = qobject_cast<QQuickItem *>(window.rootObject());
+    QVERIFY(root);
+
+    QTest::mouseMove(&window, QPoint(100, 100));
+    QCOMPARE(window.cursor().shape(), Qt::ArrowCursor);
+}
+
+void tst_qquickitem::focusItemDestroyed()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("focusItemDestroyed.qml")));
+
+    QPointer<QObject> focusObject;
+    QTRY_VERIFY(focusObject = qApp->focusObject());
+    QCOMPARE(window.activeFocusItem(), focusObject);
+
+    // dialog will be closed by timer
+    QTRY_VERIFY(!focusObject);
+    QVERIFY(!window.activeFocusItem());
+}
+
+void tst_qquickitem::testUpdateOfInvisibleItem()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("invisibleUpdate.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QSignalSpy spy(&view, &QQuickWindow::afterRendering);
+    spy.wait(1000);
+    spy.clear();
+
+    // Image is visible, make sure we get an update
+    view.rootObject()->setProperty("itemColor", "blue");
+    QTRY_COMPARE(spy.count(), 1);
+    spy.clear();
+
+    // One update for hiding the Image
+    view.rootObject()->setProperty("itemVisible", false);
+    QTRY_COMPARE(spy.count(), 1);
+    spy.clear();
+
+    // Make sure we don't get an update when the invisible Item changes
+    view.rootObject()->setProperty("itemColor", "red");
+    spy.wait(1000);
+    QCOMPARE(spy.count(), 0);
 }
 
 QTEST_MAIN(tst_qquickitem)

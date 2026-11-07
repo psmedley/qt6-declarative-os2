@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicktextnodeengine_p.h"
 
@@ -11,6 +12,7 @@
 #include <QtGui/qtextobject.h>
 #include <QtGui/qtexttable.h>
 #include <QtGui/qtextlist.h>
+#include <QtGui/qimageiohandler.h>
 
 #include <private/qquicktext_p.h>
 #include <private/qtextdocumentlayout_p.h>
@@ -18,10 +20,42 @@
 #include <private/qrawfont_p.h>
 #include <private/qglyphrun_p.h>
 #include <private/qquickitem_p.h>
+#include <private/qsgdistancefieldglyphnode_p.h>
+
+#include <QtGui/private/qguiapplication_p.h>
+#include <qpa/qplatformtheme.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcSgText)
+// Resolves SpellCheckUnderline to the platform-specific style and normalizes
+// unknown styles to SingleUnderline.
+static QTextCharFormat::UnderlineStyle resolveUnderlineStyle(QTextCharFormat::UnderlineStyle style)
+{
+    if (style == QTextCharFormat::SpellCheckUnderline) {
+        QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme();
+        if (theme) {
+            style = QTextCharFormat::UnderlineStyle(
+                    theme->themeHint(QPlatformTheme::SpellCheckUnderlineStyle).toInt());
+        }
+        if (style == QTextCharFormat::SpellCheckUnderline)
+            style = QTextCharFormat::WaveUnderline;
+    }
+
+    switch (style) {
+    case QTextCharFormat::NoUnderline:
+    case QTextCharFormat::SingleUnderline:
+    case QTextCharFormat::DashUnderline:
+    case QTextCharFormat::DotLine:
+    case QTextCharFormat::DashDotLine:
+    case QTextCharFormat::DashDotDotLine:
+    case QTextCharFormat::WaveUnderline:
+        return style;
+    default:
+        qWarning("QQuickTextNodeEngine: unknown underline style %d, falling back to SingleUnderline",
+                 int(style));
+        return QTextCharFormat::SingleUnderline;
+    }
+}
 
 QQuickTextNodeEngine::BinaryTreeNodeKey::BinaryTreeNodeKey(BinaryTreeNode *node)
     : fontEngine(QRawFontPrivate::get(node->glyphRun.rawFont())->fontEngine)
@@ -35,6 +69,7 @@ QQuickTextNodeEngine::BinaryTreeNode::BinaryTreeNode(const QGlyphRun &g,
                                                      SelectionState selState,
                                                      const QRectF &brect,
                                                      const Decorations &decs,
+                                                     QTextCharFormat::UnderlineStyle us,
                                                      const QColor &c,
                                                      const QColor &bc, const QColor &dc,
                                                      const QPointF &pos, qreal a)
@@ -43,6 +78,7 @@ QQuickTextNodeEngine::BinaryTreeNode::BinaryTreeNode(const QGlyphRun &g,
     , selectionState(selState)
     , clipNode(nullptr)
     , decorations(decs)
+    , underlineStyle(us)
     , color(c)
     , backgroundColor(bc)
     , decorationColor(dc)
@@ -52,12 +88,11 @@ QQuickTextNodeEngine::BinaryTreeNode::BinaryTreeNode(const QGlyphRun &g,
     , rightChildIndex(-1)
 {
     QGlyphRunPrivate *d = QGlyphRunPrivate::get(g);
-    ranges.append(qMakePair(d->textRangeStart, d->textRangeEnd));
+    ranges.append(std::make_pair(d->textRangeStart, d->textRangeEnd));
 }
 
-
 void QQuickTextNodeEngine::BinaryTreeNode::insert(QVarLengthArray<BinaryTreeNode, 16> *binaryTree, const QGlyphRun &glyphRun, SelectionState selectionState,
-                                             Decorations decorations, const QColor &textColor,
+                                             Decorations decorations, QTextCharFormat::UnderlineStyle underlineStyle, const QColor &textColor,
                                              const QColor &backgroundColor, const QColor &decorationColor, const QPointF &position)
 {
     QRectF searchRect = glyphRun.boundingRect();
@@ -66,7 +101,8 @@ void QQuickTextNodeEngine::BinaryTreeNode::insert(QVarLengthArray<BinaryTreeNode
     if (qFuzzyIsNull(searchRect.width()) || qFuzzyIsNull(searchRect.height()))
         return;
 
-    decorations |= (glyphRun.underline() ? Decoration::Underline : Decoration::NoDecoration);
+    if (glyphRun.underline() || underlineStyle != QTextCharFormat::NoUnderline)
+        decorations |= Decoration::Underline;
     decorations |= (glyphRun.overline()  ? Decoration::Overline  : Decoration::NoDecoration);
     decorations |= (glyphRun.strikeOut() ? Decoration::StrikeOut : Decoration::NoDecoration);
     decorations |= (backgroundColor.isValid() ? Decoration::Background : Decoration::NoDecoration);
@@ -76,6 +112,7 @@ void QQuickTextNodeEngine::BinaryTreeNode::insert(QVarLengthArray<BinaryTreeNode
                                       selectionState,
                                       searchRect,
                                       decorations,
+                                      underlineStyle,
                                       textColor,
                                       backgroundColor,
                                       decorationColor,
@@ -168,17 +205,13 @@ int QQuickTextNodeEngine::addText(const QTextBlock &block,
     return textPos;
 }
 
-void QQuickTextNodeEngine::addTextDecorations(const QVarLengthArray<TextDecoration> &textDecorations,
+void QQuickTextNodeEngine::addTextDecorations(QSpan<const TextDecoration> textDecorations,
                                               qreal offset, qreal thickness)
 {
-    for (int i=0; i<textDecorations.size(); ++i) {
-        TextDecoration textDecoration = textDecorations.at(i);
-
-        {
-            QRectF &rect = textDecoration.rect;
-            rect.setY(qRound(rect.y() + m_currentLine.ascent() + offset));
-            rect.setHeight(thickness);
-        }
+    for (auto textDecoration : textDecorations) {
+        QRectF &rect = textDecoration.rect;
+        rect.setY(qRound(rect.y() + m_currentLine.ascent() + offset));
+        rect.setHeight(thickness);
 
         m_lines.append(textDecoration);
     }
@@ -219,10 +252,11 @@ void QQuickTextNodeEngine::processCurrentLine()
     QColor lastColor;
     QColor lastBackgroundColor;
     QColor lastDecorationColor;
+    QTextCharFormat::UnderlineStyle lastUnderlineStyle = QTextCharFormat::NoUnderline;
 
-    QVarLengthArray<TextDecoration> pendingUnderlines;
-    QVarLengthArray<TextDecoration> pendingOverlines;
-    QVarLengthArray<TextDecoration> pendingStrikeOuts;
+    QVarLengthArray<TextDecoration, 16> pendingUnderlines;
+    QVarLengthArray<TextDecoration, 16> pendingOverlines;
+    QVarLengthArray<TextDecoration, 16> pendingStrikeOuts;
     if (!sortedIndexes.isEmpty()) {
         QQuickDefaultClipNode *currentClipNode = m_hasSelection ? new QQuickDefaultClipNode(QRectF()) : nullptr;
         bool currentClipNodeUsed = false;
@@ -242,8 +276,15 @@ void QQuickTextNodeEngine::processCurrentLine()
                 decorationRect.setY(m_position.y() + m_currentLine.y());
                 decorationRect.setHeight(m_currentLine.height());
 
-                if (node != nullptr)
-                    decorationRect.setRight(node->boundingRect.left());
+                // Extend decoration rect to the next node only if the next node continues the
+                // same decoration, or if it is directly adjacent. Don't extend across gaps
+                // (e.g. tab characters) to a node that does not share the same decoration, as
+                // that would draw the decoration through invisible content.
+                if (node != nullptr) {
+                    const bool continuesDecoration = node->decorations & currentDecorations;
+                    if (continuesDecoration || node->boundingRect.left() < decorationRect.right())
+                        decorationRect.setRight(node->boundingRect.left());
+                }
 
                 TextDecoration textDecoration(currentSelectionState, decorationRect, lastColor);
                 if (lastDecorationColor.isValid() &&
@@ -252,8 +293,26 @@ void QQuickTextNodeEngine::processCurrentLine()
                          currentDecorations.testFlag(Decoration::StrikeOut)))
                     textDecoration.color = lastDecorationColor;
 
-                if (currentDecorations & Decoration::Underline)
-                    pendingUnderlines.append(textDecoration);
+                if (currentDecorations & Decoration::Underline) {
+                    textDecoration.underlineStyle = lastUnderlineStyle;
+                    // Try to merge with previous underline if style, color, and selection match
+                    if (!pendingUnderlines.isEmpty()) {
+                        TextDecoration &last = pendingUnderlines.last();
+                        // Half-pixel threshold accounts for floating-point gaps between adjacent glyph runs
+                        constexpr qreal mergeThreshold = 0.5;
+                        if (last.underlineStyle == lastUnderlineStyle
+                            && last.color == textDecoration.color
+                            && last.selectionState == textDecoration.selectionState
+                            && qAbs(last.rect.right() - textDecoration.rect.left()) < mergeThreshold) {
+                            // Extend previous range instead of creating a new one
+                            last.rect.setRight(textDecoration.rect.right());
+                        } else {
+                            pendingUnderlines.append(textDecoration);
+                        }
+                    } else {
+                        pendingUnderlines.append(textDecoration);
+                    }
+                }
 
                 if (currentDecorations & Decoration::Overline)
                     pendingOverlines.append(textDecoration);
@@ -262,7 +321,7 @@ void QQuickTextNodeEngine::processCurrentLine()
                     pendingStrikeOuts.append(textDecoration);
 
                 if (currentDecorations & Decoration::Background)
-                    m_backgrounds.append(qMakePair(decorationRect, lastBackgroundColor));
+                    m_backgrounds.append(std::make_pair(decorationRect, lastBackgroundColor));
             }
 
             // If we've reached an unselected node from a selected node, we add the
@@ -371,6 +430,7 @@ void QQuickTextNodeEngine::processCurrentLine()
                 lastColor = node->color;
                 lastBackgroundColor = node->backgroundColor;
                 lastDecorationColor = node->decorationColor;
+                lastUnderlineStyle = node->underlineStyle;
                 m_processedNodes.append(*node);
             }
         }
@@ -435,11 +495,15 @@ void QQuickTextNodeEngine::addTextObject(const QTextBlock &block, const QPointF 
         }
 
         if (image.isNull()) {
-            image = QImage(size.toSize(), QImage::Format_ARGB32_Premultiplied);
-            image.fill(Qt::transparent);
-            {
-                QPainter painter(&image);
-                handler->drawObject(&painter, image.rect(), textDocument, pos, format);
+            if (QImageIOHandler::allocateImage((size * m_devicePixelRatio).toSize(),
+                                               QImage::Format_ARGB32_Premultiplied,
+                                               &image)) {
+                image.setDevicePixelRatio(m_devicePixelRatio);
+                image.fill(Qt::transparent);
+                {
+                    QPainter painter(&image);
+                    handler->drawObject(&painter, QRectF({}, size), textDocument, pos, format);
+                }
             }
         }
 
@@ -460,7 +524,11 @@ void QQuickTextNodeEngine::addTextObject(const QTextBlock &block, const QPointF 
         case QTextCharFormat::AlignBottom:
             ascent = size.height() - line.descent();
             break;
-        case QTextCharFormat::AlignBaseline:
+        case QTextCharFormat::AlignBaseline: {
+            QFontMetricsF m(format.font());
+            ascent = size.height() - m.descent();
+            break;
+        }
         default:
             ascent = size.height();
         }
@@ -475,6 +543,7 @@ void QQuickTextNodeEngine::addUnselectedGlyphs(const QGlyphRun &glyphRun)
                            glyphRun,
                            Unselected,
                            Decoration::NoDecoration,
+                           m_underlineStyle,
                            m_textColor,
                            m_backgroundColor,
                            m_decorationColor,
@@ -488,6 +557,7 @@ void QQuickTextNodeEngine::addSelectedGlyphs(const QGlyphRun &glyphRun)
                            glyphRun,
                            Selected,
                            Decoration::NoDecoration,
+                           m_underlineStyle,
                            m_textColor,
                            m_backgroundColor,
                            m_decorationColor,
@@ -501,13 +571,13 @@ void QQuickTextNodeEngine::addGlyphsForRanges(const QVarLengthArray<QTextLayout:
 {
     int currentPosition = start;
     int remainingLength = end - start;
-    for (int j=0; j<ranges.size(); ++j) {
-        const QTextLayout::FormatRange &range = ranges.at(j);
+    for (const QTextLayout::FormatRange &range : ranges) {
         if (range.start + range.length > currentPosition
                 && range.start < currentPosition + remainingLength) {
 
             if (range.start > currentPosition) {
                 addGlyphsInRange(currentPosition, range.start - currentPosition,
+                                 QTextCharFormat::NoUnderline,
                                  QColor(), QColor(), QColor(), selectionStart, selectionEnd);
             }
             int rangeEnd = qMin(range.start + range.length, currentPosition + remainingLength);
@@ -524,9 +594,13 @@ void QQuickTextNodeEngine::addGlyphsForRanges(const QVarLengthArray<QTextLayout:
                     ? range.format.underlineColor()
                     : QColor();
 
-            addGlyphsInRange(range.start, rangeEnd - range.start,
-                             rangeColor, rangeBackgroundColor, rangeDecorationColor,
-                             selectionStart, selectionEnd);
+            QTextCharFormat::UnderlineStyle rangeUnderlineStyle = QTextCharFormat::NoUnderline;
+            if (range.format.hasProperty(QTextFormat::TextUnderlineStyle))
+                rangeUnderlineStyle = range.format.underlineStyle();
+
+            addGlyphsInRange(range.start, rangeEnd - range.start, rangeUnderlineStyle,
+                             rangeColor, rangeBackgroundColor,
+                             rangeDecorationColor, selectionStart, selectionEnd);
 
             currentPosition = range.start + range.length;
             remainingLength = end - currentPosition;
@@ -537,13 +611,15 @@ void QQuickTextNodeEngine::addGlyphsForRanges(const QVarLengthArray<QTextLayout:
     }
 
     if (remainingLength > 0) {
-        addGlyphsInRange(currentPosition, remainingLength, QColor(), QColor(), QColor(),
+        addGlyphsInRange(currentPosition, remainingLength, QTextCharFormat::NoUnderline,
+                         QColor(), QColor(), QColor(),
                          selectionStart, selectionEnd);
     }
 
 }
 
 void QQuickTextNodeEngine::addGlyphsInRange(int rangeStart, int rangeLength,
+                                            QTextCharFormat::UnderlineStyle underlineStyle,
                                             const QColor &color, const QColor &backgroundColor, const QColor &decorationColor,
                                             int selectionStart, int selectionEnd)
 {
@@ -565,46 +641,40 @@ void QQuickTextNodeEngine::addGlyphsInRange(int rangeStart, int rangeLength,
         m_decorationColor = decorationColor;
     }
 
+    QTextCharFormat::UnderlineStyle oldUnderlineStyle = m_underlineStyle;
+    m_underlineStyle = underlineStyle;
+
     bool hasSelection = selectionEnd >= 0
             && selectionStart <= selectionEnd;
 
     QTextLine &line = m_currentLine;
     int rangeEnd = rangeStart + rangeLength;
     if (!hasSelection || (selectionStart > rangeEnd || selectionEnd < rangeStart)) {
-        QList<QGlyphRun> glyphRuns = line.glyphRuns(rangeStart, rangeLength);
-        for (int j=0; j<glyphRuns.size(); ++j) {
-            const QGlyphRun &glyphRun = glyphRuns.at(j);
+        const QList<QGlyphRun> glyphRuns = line.glyphRuns(rangeStart, rangeLength);
+        for (const QGlyphRun &glyphRun : glyphRuns)
             addUnselectedGlyphs(glyphRun);
-        }
     } else {
         if (rangeStart < selectionStart) {
             int length = qMin(selectionStart - rangeStart, rangeLength);
-            QList<QGlyphRun> glyphRuns = line.glyphRuns(rangeStart, length);
-            for (int j=0; j<glyphRuns.size(); ++j) {
-                const QGlyphRun &glyphRun = glyphRuns.at(j);
+            const QList<QGlyphRun> glyphRuns = line.glyphRuns(rangeStart, length);
+            for (const QGlyphRun &glyphRun : glyphRuns)
                 addUnselectedGlyphs(glyphRun);
-            }
         }
 
         if (rangeEnd > selectionStart) {
             int start = qMax(selectionStart, rangeStart);
             int length = qMin(selectionEnd - start + 1, rangeEnd - start);
-            QList<QGlyphRun> glyphRuns = line.glyphRuns(start, length);
-
-            for (int j=0; j<glyphRuns.size(); ++j) {
-                const QGlyphRun &glyphRun = glyphRuns.at(j);
+            const QList<QGlyphRun> glyphRuns = line.glyphRuns(start, length);
+            for (const QGlyphRun &glyphRun : glyphRuns)
                 addSelectedGlyphs(glyphRun);
-            }
         }
 
         if (selectionEnd >= rangeStart && selectionEnd < rangeEnd) {
             int start = selectionEnd + 1;
             int length = rangeEnd - selectionEnd - 1;
-            QList<QGlyphRun> glyphRuns = line.glyphRuns(start, length);
-            for (int j=0; j<glyphRuns.size(); ++j) {
-                const QGlyphRun &glyphRun = glyphRuns.at(j);
+            const QList<QGlyphRun> glyphRuns = line.glyphRuns(start, length);
+            for (const QGlyphRun &glyphRun : glyphRuns)
                 addUnselectedGlyphs(glyphRun);
-            }
         }
     }
 
@@ -616,6 +686,8 @@ void QQuickTextNodeEngine::addGlyphsInRange(int rangeStart, int rangeLength,
 
     if (oldColor.isValid())
         m_textColor = oldColor;
+
+    m_underlineStyle = oldUnderlineStyle;
 }
 
 void QQuickTextNodeEngine::addBorder(const QRectF &rect, qreal border,
@@ -627,10 +699,10 @@ void QQuickTextNodeEngine::addBorder(const QRectF &rect, qreal border,
     // Currently we don't support other styles than solid
     Q_UNUSED(borderStyle);
 
-    m_backgrounds.append(qMakePair(QRectF(rect.left(), rect.top(), border, rect.height() + border), color));
-    m_backgrounds.append(qMakePair(QRectF(rect.left() + border, rect.top(), rect.width(), border), color));
-    m_backgrounds.append(qMakePair(QRectF(rect.right(), rect.top() + border, border, rect.height() - border), color));
-    m_backgrounds.append(qMakePair(QRectF(rect.left() + border, rect.bottom(), rect.width(), border), color));
+    m_backgrounds.append(std::make_pair(QRectF(rect.left(), rect.top(), border, rect.height() + border), color));
+    m_backgrounds.append(std::make_pair(QRectF(rect.left() + border, rect.top(), rect.width(), border), color));
+    m_backgrounds.append(std::make_pair(QRectF(rect.right(), rect.top() + border, border, rect.height() - border), color));
+    m_backgrounds.append(std::make_pair(QRectF(rect.left() + border, rect.bottom(), rect.width(), border), color));
 }
 
 void QQuickTextNodeEngine::addFrameDecorations(QTextDocument *document, QTextFrame *frame)
@@ -648,7 +720,7 @@ void QQuickTextNodeEngine::addFrameDecorations(QTextDocument *document, QTextFra
 
     QBrush bg = frame->frameFormat().background();
     if (bg.style() != Qt::NoBrush)
-        m_backgrounds.append(qMakePair(boundingRect, bg.color()));
+        m_backgrounds.append(std::make_pair(boundingRect, bg.color()));
 
     if (!frameFormat.hasProperty(QTextFormat::FrameBorder))
         return;
@@ -691,10 +763,10 @@ size_t qHash(const QQuickTextNodeEngine::BinaryTreeNodeKey &key, size_t seed = 0
     return qHashMulti(seed, key.fontEngine, key.clipNode, key.color, key.selectionState);
 }
 
-void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularNodes,
-                                               QList<BinaryTreeNode *> *imageNodes)
+void QQuickTextNodeEngine::mergeProcessedNodes(QVarLengthArray<BinaryTreeNode *, 8> *regularNodes,
+                                               QVarLengthArray<BinaryTreeNode *, 8> *imageNodes)
 {
-    QHash<BinaryTreeNodeKey, QList<BinaryTreeNode *> > map;
+    QHash<BinaryTreeNodeKey, QVarLengthArray<BinaryTreeNode *, 2> > map;
 
     for (int i = 0; i < m_processedNodes.size(); ++i) {
         BinaryTreeNode *node = m_processedNodes.data() + i;
@@ -705,7 +777,7 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
 
             BinaryTreeNodeKey key(node);
 
-            QList<BinaryTreeNode *> &nodes = map[key];
+            QVarLengthArray<BinaryTreeNode *, 2> &nodes = map[key];
             if (nodes.isEmpty())
                 regularNodes->append(node);
 
@@ -719,7 +791,9 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
         BinaryTreeNode *primaryNode = regularNodes->at(i);
         BinaryTreeNodeKey key(primaryNode);
 
-        const QList<BinaryTreeNode *> &nodes = map.value(key);
+        const auto it = map.constFind(key);
+        Q_ASSERT(it != map.constEnd());
+        const QVarLengthArray<BinaryTreeNode *, 2> &nodes = it.value();
         Q_ASSERT(nodes.first() == primaryNode);
 
         int count = 0;
@@ -728,10 +802,10 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
 
         if (count != primaryNode->glyphRun.glyphIndexes().size()) {
             QGlyphRun &glyphRun = primaryNode->glyphRun;
-            QVector<quint32> glyphIndexes = glyphRun.glyphIndexes();
+            QList<quint32> glyphIndexes = glyphRun.glyphIndexes();
             glyphIndexes.reserve(count);
 
-            QVector<QPointF> glyphPositions = glyphRun.positions();
+            QList<QPointF> glyphPositions = glyphRun.positions();
             glyphPositions.reserve(count);
 
             QRectF glyphBoundingRect = glyphRun.boundingRect();
@@ -742,7 +816,7 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
                 primaryNode->ranges += otherNode->ranges;
                 glyphBoundingRect = glyphBoundingRect.united(otherNode->boundingRect);
 
-                QVector<QPointF> otherPositions = otherNode->glyphRun.positions();
+                QList<QPointF> otherPositions = otherNode->glyphRun.positions();
                 for (int k = 0; k < otherPositions.size(); ++k)
                     glyphPositions += otherPositions.at(k) + (otherNode->position - primaryNode->position);
             }
@@ -758,40 +832,40 @@ void QQuickTextNodeEngine::mergeProcessedNodes(QList<BinaryTreeNode *> *regularN
 }
 
 void QQuickTextNodeEngine::addToSceneGraph(QSGInternalTextNode *parentNode,
-                                            QQuickText::TextStyle style,
-                                            const QColor &styleColor)
+                                           QSGInternalTextNode::RecycleBin *recycleBin,
+                                           QQuickText::TextStyle style,
+                                           const QColor &styleColor)
 {
     if (m_currentLine.isValid())
         processCurrentLine();
 
-    QList<BinaryTreeNode *> nodes;
-    QList<BinaryTreeNode *> imageNodes;
+    QVarLengthArray<BinaryTreeNode *, 8> nodes;
+    QVarLengthArray<BinaryTreeNode *, 8> imageNodes;
     mergeProcessedNodes(&nodes, &imageNodes);
 
     for (int i = 0; i < m_backgrounds.size(); ++i) {
         const QRectF &rect = m_backgrounds.at(i).first;
         const QColor &color = m_backgrounds.at(i).second;
         if (color.alpha() != 0)
-            parentNode->addRectangleNode(rect, color);
+            parentNode->addRectangleNode(rect, color, recycleBin);
     }
 
     // Add all text with unselected color first
     for (int i = 0; i < nodes.size(); ++i) {
         const BinaryTreeNode *node = nodes.at(i);
-        parentNode->addGlyphs(node->position, node->glyphRun, node->color, style, styleColor, nullptr);
+        parentNode->addGlyphs(node->position, node->glyphRun, node->color, recycleBin, style, styleColor, nullptr);
     }
 
     for (int i = 0; i < imageNodes.size(); ++i) {
         const BinaryTreeNode *node = imageNodes.at(i);
         if (node->selectionState == Unselected)
-            parentNode->addImage(node->boundingRect, node->image);
+            parentNode->addImage(node->boundingRect, node->image, recycleBin);
     }
 
-    // Then, prepend all selection rectangles to the tree
     for (int i = 0; i < m_selectionRects.size(); ++i) {
         const QRectF &rect = m_selectionRects.at(i);
         if (m_selectionColor.alpha() != 0)
-            parentNode->addRectangleNode(rect, m_selectionColor);
+            parentNode->addRectangleNode(rect, m_selectionColor, recycleBin);
     }
 
     // Add decorations for each node to the tree.
@@ -802,7 +876,10 @@ void QQuickTextNodeEngine::addToSceneGraph(QSGInternalTextNode *parentNode,
                 ? m_selectedTextColor
                 : textDecoration.color;
 
-        parentNode->addDecorationNode(textDecoration.rect, color);
+        parentNode->addDecorationNode(textDecoration.rect,
+                                      color,
+                                      resolveUnderlineStyle(textDecoration.underlineStyle),
+                                      recycleBin);
     }
 
     // Finally add the selected text on top of everything
@@ -823,46 +900,45 @@ void QQuickTextNodeEngine::addToSceneGraph(QSGInternalTextNode *parentNode,
             const BinaryTreeNode *nextNode = nextNodeIndex == nodes.size() ? 0 : nodes.at(nextNodeIndex);
 
             if (previousNode != nullptr && previousNode->selectionState == Unselected)
-                parentNode->addGlyphs(previousNode->position, previousNode->glyphRun, color, style, styleColor, clipNode);
+                parentNode->addGlyphs(previousNode->position, previousNode->glyphRun, color, recycleBin, style, styleColor, clipNode);
 
             if (nextNode != nullptr && nextNode->selectionState == Unselected)
-                parentNode->addGlyphs(nextNode->position, nextNode->glyphRun, color, style, styleColor, clipNode);
+                parentNode->addGlyphs(nextNode->position, nextNode->glyphRun, color, recycleBin, style, styleColor, clipNode);
 
             // If the previous or next node completely overlaps this one, then we have already drawn the glyphs of
             // this node
             bool drawCurrent = false;
             if (previousNode != nullptr || nextNode != nullptr) {
+                // Return |rangeLength| minus the overlap between |range| and the
+                // ranges of |otherNode|. Only considers nodes from the same text position;
+                // nodes from different positions (e.g. list bullets from a separate
+                // QTextLayout) have coincidental range overlaps that don't represent
+                // actual glyph coverage.
+                auto subtractOverlap = [](int rangeLength, const std::pair<int, int> &range,
+                                          const BinaryTreeNode *otherNode, const QPointF &nodePos) {
+                    if (otherNode->position != nodePos)
+                        return rangeLength;
+                    for (int j = 0; j < otherNode->ranges.size(); ++j) {
+                        const std::pair<int, int> &otherRange = otherNode->ranges.at(j);
+                        if (range.first < otherRange.second && range.second > otherRange.first) {
+                            int start = qMax(range.first, otherRange.first);
+                            int end = qMin(range.second, otherRange.second);
+                            rangeLength -= end - start + 1;
+                            if (rangeLength == 0)
+                                break;
+                        }
+                    }
+                    return rangeLength;
+                };
+
                 for (int i = 0; i < node->ranges.size(); ++i) {
-                    const QPair<int, int> &range = node->ranges.at(i);
+                    const std::pair<int, int> &range = node->ranges.at(i);
 
                     int rangeLength = range.second - range.first + 1;
-                    if (previousNode != nullptr) {
-                        for (int j = 0; j < previousNode->ranges.size(); ++j) {
-                            const QPair<int, int> &otherRange = previousNode->ranges.at(j);
-
-                            if (range.first < otherRange.second && range.second > otherRange.first) {
-                                int start = qMax(range.first, otherRange.first);
-                                int end = qMin(range.second, otherRange.second);
-                                rangeLength -= end - start + 1;
-                                if (rangeLength == 0)
-                                    break;
-                            }
-                        }
-                    }
-
-                    if (nextNode != nullptr && rangeLength > 0) {
-                        for (int j = 0; j < nextNode->ranges.size(); ++j) {
-                            const QPair<int, int> &otherRange = nextNode->ranges.at(j);
-
-                            if (range.first < otherRange.second && range.second > otherRange.first) {
-                                int start = qMax(range.first, otherRange.first);
-                                int end = qMin(range.second, otherRange.second);
-                                rangeLength -= end - start + 1;
-                                if (rangeLength == 0)
-                                    break;
-                            }
-                        }
-                    }
+                    if (previousNode != nullptr)
+                        rangeLength = subtractOverlap(rangeLength, range, previousNode, node->position);
+                    if (nextNode != nullptr && rangeLength > 0)
+                        rangeLength = subtractOverlap(rangeLength, range, nextNode, node->position);
 
                     if (rangeLength > 0) {
                         drawCurrent = true;
@@ -874,18 +950,18 @@ void QQuickTextNodeEngine::addToSceneGraph(QSGInternalTextNode *parentNode,
             }
 
             if (drawCurrent)
-                parentNode->addGlyphs(node->position, node->glyphRun, color, style, styleColor, clipNode);
+                parentNode->addGlyphs(node->position, node->glyphRun, color, recycleBin, style, styleColor, clipNode);
         }
     }
 
     for (int i = 0; i < imageNodes.size(); ++i) {
         const BinaryTreeNode *node = imageNodes.at(i);
         if (node->selectionState == Selected) {
-            parentNode->addImage(node->boundingRect, node->image);
+            parentNode->addImage(node->boundingRect, node->image, recycleBin);
             if (node->selectionState == Selected) {
                 QColor color = m_selectionColor;
                 color.setAlpha(128);
-                parentNode->addRectangleNode(node->boundingRect, color);
+                parentNode->addRectangleNode(node->boundingRect, color, recycleBin);
             }
         }
     }
@@ -897,11 +973,12 @@ void QQuickTextNodeEngine::mergeFormats(QTextLayout *textLayout, QVarLengthArray
     if (textLayout == nullptr)
         return;
 
-    QVector<QTextLayout::FormatRange> additionalFormats = textLayout->formats();
-    for (int i=0; i<additionalFormats.size(); ++i) {
-        QTextLayout::FormatRange additionalFormat = additionalFormats.at(i);
+    const QList<QTextLayout::FormatRange> additionalFormats = textLayout->formats();
+    for (QTextLayout::FormatRange additionalFormat : additionalFormats) {
         if (additionalFormat.format.hasProperty(QTextFormat::ForegroundBrush)
          || additionalFormat.format.hasProperty(QTextFormat::BackgroundBrush)
+         || additionalFormat.format.hasProperty(QTextFormat::TextUnderlineStyle)
+         || additionalFormat.format.hasProperty(QTextFormat::TextUnderlineColor)
          || additionalFormat.format.isAnchor()) {
             // Merge overlapping formats
             if (!mergedFormats->isEmpty()) {
@@ -941,7 +1018,6 @@ void QQuickTextNodeEngine::mergeFormats(QTextLayout *textLayout, QVarLengthArray
                 mergedFormats->append(additionalFormat);
         }
     }
-
 }
 
 /*!
@@ -976,7 +1052,7 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
     }
 
     if (charFormat.background().style() != Qt::NoBrush)
-        m_backgrounds.append(qMakePair(blockBoundingRect, charFormat.background().color()));
+        m_backgrounds.append(std::make_pair(blockBoundingRect, charFormat.background().color()));
 
     if (QTextList *textList = block.textList()) {
         QPointF pos = blockBoundingRect.topLeft();
@@ -1031,7 +1107,6 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
             qreal xoff = fontMetrics.horizontalAdvance(QLatin1Char(' '));
             if (block.textDirection() == Qt::LeftToRight)
                 xoff = -xoff - size.width();
-            setPosition(pos + QPointF(xoff, 0));
 
             QTextLayout layout;
             layout.setFont(font);
@@ -1041,15 +1116,20 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
             line.setPosition(QPointF(0, 0));
             layout.endLayout();
 
+            // Align the marker to the first line's baseline, so it does not float
+            // above taller content such as an inline image or a larger font.
+            const qreal baselineOffset = firstLine.ascent() - line.ascent();
+            setPosition(pos + QPointF(xoff, baselineOffset));
+
             // set the color for the bullets, instead of using the previous QTextBlock's color.
             if (charFormat.foreground().style() == Qt::NoBrush)
                 setTextColor(textColor);
             else
                 setTextColor(charFormat.foreground().color());
 
-            QList<QGlyphRun> glyphRuns = layout.glyphRuns();
-            for (int i=0; i<glyphRuns.size(); ++i)
-                addUnselectedGlyphs(glyphRuns.at(i));
+            const QList<QGlyphRun> glyphRuns = layout.glyphRuns();
+            for (const auto &e : glyphRuns)
+                addUnselectedGlyphs(e);
         }
     }
 
@@ -1110,7 +1190,9 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
                 fragmentEnd += preeditLength;
             }
 #endif
-            if (charFormat.background().style() != Qt::NoBrush || charFormat.hasProperty(QTextFormat::TextUnderlineColor)) {
+            if (charFormat.background().style() != Qt::NoBrush
+                || charFormat.hasProperty(QTextFormat::TextUnderlineColor)
+                || charFormat.hasProperty(QTextFormat::TextUnderlineStyle)) {
                 QTextLayout::FormatRange additionalFormat;
                 additionalFormat.start = textPos - block.position();
                 additionalFormat.length = fragmentEnd - textPos;

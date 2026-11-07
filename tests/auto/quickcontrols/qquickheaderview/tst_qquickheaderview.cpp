@@ -17,6 +17,7 @@
 #include <QtQuickTemplates2/private/qquickheaderview_p.h>
 #include <QtQuickTemplates2/private/qquicklabel_p.h>
 #include <private/qquickheaderview_p_p.h>
+#include <private/qquickheaderviewdelegate_p.h>
 
 using namespace QQuickVisualTestUtils;
 
@@ -213,6 +214,8 @@ class tst_QQuickHeaderView : public QQmlDataTest {
 public:
     tst_QQuickHeaderView();
 
+    QPoint getContextRowAndColumn(const QQuickItem *item) const;
+
 private slots:
     void initTestCase() override;
     void cleanupTestCase();
@@ -229,6 +232,8 @@ private slots:
     void headerData();
     void warnMissingDefaultRole();
     void dragInvalidItemDuringReorder();
+    void horizontalHeaderViewWithListModel_data();
+    void horizontalHeaderViewWithListModel();
     void reorderEmptyModel();
 
 private:
@@ -249,6 +254,14 @@ private:
 tst_QQuickHeaderView::tst_QQuickHeaderView()
     : QQmlDataTest(QT_QMLTEST_DATADIR, FailOnWarningsPolicy::FailOnWarnings)
 {
+}
+
+QPoint tst_QQuickHeaderView::getContextRowAndColumn(const QQuickItem *item) const
+{
+    const auto context = qmlContext(item);
+    const int row = context->contextProperty("row").toInt();
+    const int column = context->contextProperty("column").toInt();
+    return QPoint(column, row);
 }
 
 void tst_QQuickHeaderView::initTestCase()
@@ -396,23 +409,31 @@ void tst_QQuickHeaderView::listModel()
     auto vhv = root->findChild<QQuickVerticalHeaderView *>("verticalHeader");
     QVERIFY(vhv);
 
-    auto hhvCell1 = hhv->childAt(0, 0)->childAt(0, 0)->findChild<QQuickText *>();
+    auto getDelegate = [](QQuickHeaderViewBase *headerView, qreal x,
+                          qreal y) -> QQuickHeaderViewDelegate * {
+        auto *item = headerView->childAt(x, y)->childAt(x, y);
+        return qobject_cast<QQuickHeaderViewDelegate*>(item);
+    };
+
+    auto hhvCell1 = getDelegate(hhv, 0, 0);
     QVERIFY(hhvCell1);
-    QCOMPARE(hhvCell1->property("text"), "AAA");
+    QVERIFY(hhvCell1->contentItem());
+    QCOMPARE(hhvCell1->contentItem()->property("text"), "AAA");
 
-    auto hhvCell2 = hhv->childAt(hhvCell1->width() + 5, 0)->
-                        childAt(hhvCell1->width() + 5, 0)->findChild<QQuickText *>();
+    auto hhvCell2 = getDelegate(hhv, hhvCell1->width() + 5, 0);
     QVERIFY(hhvCell2);
-    QCOMPARE(hhvCell2->property("text"), "BBB");
+    QVERIFY(hhvCell2->contentItem());
+    QCOMPARE(hhvCell2->contentItem()->property("text"), "BBB");
 
-    auto vhvCell1 = vhv->childAt(0, 0)->childAt(0, 0)->findChild<QQuickText *>();
+    auto vhvCell1 = getDelegate(vhv, 0, 0);
     QVERIFY(vhvCell1);
-    QCOMPARE(vhvCell1->property("text"), "111");
+    QVERIFY(vhvCell1->contentItem());
+    QCOMPARE(vhvCell1->contentItem()->property("text"), "111");
 
-    auto vhvCell2 = vhv->childAt(0, vhvCell1->height() + 5)->
-                        childAt(0, vhvCell1->height() + 5)->findChild<QQuickText *>();
+    auto vhvCell2 = getDelegate(vhv, 0, vhvCell1->height() + 5);
     QVERIFY(vhvCell2);
-    QCOMPARE(vhvCell2->property("text"), "222");
+    QVERIFY(vhvCell2->contentItem());
+    QCOMPARE(vhvCell2->contentItem()->property("text"), "222");
 }
 
 // A header shouldn't block events outside of itself.
@@ -473,7 +494,7 @@ void tst_QQuickHeaderView::dragInvalidItemDuringReorder()
     const auto item = hhv->itemAtIndex(hhv->index(0, 0));
     QQuickWindow *itemWindow = item->window();
 
-    QSignalSpy columnMovedSpy(hhv, SIGNAL(columnMoved(int, int, int)));
+    QSignalSpy columnMovedSpy(hhv, SIGNAL(columnMoved(int,int,int)));
     QVERIFY(columnMovedSpy.isValid());
 
     const QPoint localPos = QPoint(item->width() - 5, item->height() - 5);
@@ -490,6 +511,45 @@ void tst_QQuickHeaderView::dragInvalidItemDuringReorder()
     QCOMPARE(columnMovedSpy.size(), 0);
 }
 
+void tst_QQuickHeaderView::horizontalHeaderViewWithListModel_data()
+{
+    QTest::addColumn<QVariant>("model");
+
+    const QStringList stringModel = {"one", "two", "three"};
+
+    QTest::newRow("Number model") << QVariant::fromValue(3);
+    QTest::newRow("List model") << QVariant::fromValue(stringModel);
+}
+
+void tst_QQuickHeaderView::horizontalHeaderViewWithListModel()
+{
+    // Check that HorizontalHeaderView will be transposed when using a list model
+    QFETCH(QVariant, model);
+
+    QQmlComponent component(engine);
+    component.loadUrl(testFileUrl("Window.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    QVERIFY(QTest::qWaitForWindowActive(qobject_cast<QWindow *>(root.data())));
+
+    auto hhv = root->findChild<QQuickHorizontalHeaderView *>("horizontalHeader");
+    QVERIFY(hhv);
+
+    hhv->setModel(model);
+    QVERIFY(QQuickTest::qWaitForPolish(hhv));
+
+    // Check that the list elements are laid out in a row-major order
+    QCOMPARE(hhv->columns(), 3);
+    QCOMPARE(hhv->rows(), 1);
+
+    for (int col = 0; col < 3; ++col) {
+        auto item = hhv->itemAtCell({col, 0});
+        QVERIFY(item);
+        const QPoint contextCell = getContextRowAndColumn(item);
+        QCOMPARE(contextCell, QPoint(0, col));
+    }
+}
+
 void tst_QQuickHeaderView::reorderEmptyModel()
 {
     QQuickApplicationHelper helper(this, QStringLiteral("reorderEmptyModel.qml"));
@@ -501,7 +561,7 @@ void tst_QQuickHeaderView::reorderEmptyModel()
     auto hhv = window->findChild<QQuickHorizontalHeaderView *>("horizontalHeader");
     QVERIFY(hhv);
 
-    QSignalSpy columnMovedSpy(hhv, SIGNAL(columnMoved(int, int, int)));
+    QSignalSpy columnMovedSpy(hhv, SIGNAL(columnMoved(int,int,int)));
     QVERIFY(columnMovedSpy.isValid());
     hhv->moveColumn(0, 1);
     QVERIFY(!columnMovedSpy.isEmpty());

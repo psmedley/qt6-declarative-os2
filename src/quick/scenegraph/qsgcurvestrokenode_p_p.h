@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGCURVESTROKENODE_P_P_H
 #define QSGCURVESTROKENODE_P_P_H
@@ -20,31 +21,51 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 class QSGCurveStrokeNode;
 class QSGCurveStrokeMaterial;
 
 class Q_QUICK_EXPORT QSGCurveStrokeMaterialShader : public QSGMaterialShader
 {
 public:
-    QSGCurveStrokeMaterialShader(int viewCount)
+    enum class Variant { // flags
+        Default = 0,
+        Expanding = 0x01,
+        Derivatives = 0x02,
+        LinearGradient = 0x04,
+        RadialGradient = 0x08,
+        ConicalGradient = 0x10,
+    };
+
+    QSGCurveStrokeMaterialShader(int variant, int viewCount)
     {
-        setShaderFileName(VertexStage,
-                          QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shapestroke.vert.qsb"),
-                          viewCount);
-        setShaderFileName(FragmentStage,
-                          QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shapestroke.frag.qsb"),
-                          viewCount);
+        static constexpr auto baseName = u":/qt-project.org/scenegraph/shaders_ng/shapestroke"_sv;
+
+        setShaderFileName(VertexStage, baseName
+                                  + (variant & int(Variant::LinearGradient) ? u"_lg"_sv : u""_sv)
+                                  + (variant & int(Variant::RadialGradient) ? u"_rg"_sv : u""_sv)
+                                  + (variant & int(Variant::ConicalGradient) ? u"_cg"_sv : u""_sv)
+                                  + (variant & int(Variant::Expanding) ? u"_expanding"_sv : u""_sv)
+                                  + u".vert.qsb"_sv, viewCount);
+        setShaderFileName(FragmentStage, baseName
+                                  + (variant & int(Variant::LinearGradient) ? u"_lg"_sv : u""_sv)
+                                  + (variant & int(Variant::RadialGradient) ? u"_rg"_sv : u""_sv)
+                                  + (variant & int(Variant::ConicalGradient) ? u"_cg"_sv : u""_sv)
+                                  + (variant & int(Variant::Derivatives) ? u"_derivatives"_sv : u""_sv)
+                                  + u".frag.qsb"_sv, viewCount);
     }
 
     bool updateUniformData(RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect) override;
+    void updateSampledImage(RenderState &state, int binding, QSGTexture **texture, QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override;
 };
 
 
 class Q_QUICK_EXPORT QSGCurveStrokeMaterial : public QSGMaterial
 {
 public:
-    QSGCurveStrokeMaterial(QSGCurveStrokeNode *node)
-        : m_node(node)
+    QSGCurveStrokeMaterial(QSGCurveStrokeNode *node, bool strokeExpanding = false)
+        : m_node(node), m_strokeExpanding(strokeExpanding)
     {
         setFlag(Blending, true);
     }
@@ -57,17 +78,11 @@ public:
     }
 
 protected:
-    QSGMaterialType *type() const override
-    {
-        static QSGMaterialType t;
-        return &t;
-    }
-    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode) const override
-    {
-        return new QSGCurveStrokeMaterialShader(viewCount());
-    }
+    QSGMaterialType *type() const override;
+    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode renderMode) const override;
 
     QSGCurveStrokeNode *m_node;
+    bool m_strokeExpanding = false;
 };
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPREVIEWBLACKLIST_H
 #define QQMLPREVIEWBLACKLIST_H
@@ -25,7 +26,9 @@ QT_BEGIN_NAMESPACE
 class QQmlPreviewBlacklist
 {
 public:
+    void blacklist(const QStringList &paths);
     void blacklist(const QString &path);
+    void whitelist(const QStringList &path);
     void whitelist(const QString &path);
     bool isBlacklisted(const QString &path) const;
     void clear();

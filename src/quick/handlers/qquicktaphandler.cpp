@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicktaphandler_p.h"
 #include "qquicksinglepointhandler_p_p.h"
@@ -11,7 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcTapHandler, "qt.quick.handler.tap")
+Q_STATIC_LOGGING_CATEGORY(lcTapHandler, "qt.quick.handler.tap")
 
 quint64 QQuickTapHandler::m_multiTapInterval(0);
 // single tap distance is the same as the drag threshold
@@ -30,7 +31,7 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
 
     Detection of a valid tap gesture depends on \l gesturePolicy.  The default
     value is DragThreshold, which requires the press and release to be close
-    together in both space and time.  In this case, DragHandler is able to
+    together in both space and time.  In this case, TapHandler is able to
     function using only a passive grab, and therefore does not interfere with
     event delivery to any other Items or Input Handlers.  So the default
     gesturePolicy is useful when you want to modify behavior of an existing
@@ -140,7 +141,9 @@ void QQuickTapHandler::handleEventPoint(QPointerEvent *event, QEventPoint &point
     QQuickSinglePointHandler::handleEventPoint(event, point);
 
     // If TapHandler only needs a passive grab, it should not block other items and handlers from reacting.
-    // If the point is accepted, QQuickItemPrivate::localizedTouchEvent() would skip it.
+    // For touch, if the point is accepted, QQuickItemPrivate::localizedTouchEvent() would skip it.
+    // For mouse, keeping accepted=true causes deliverPressOrReleaseEvent() to set handlersOnly=true,
+    // which prevents sibling items with MouseArea from also receiving the press (QTBUG-145896).
     if (isTouch && m_gesturePolicy == DragThreshold)
         point.setAccepted(false);
 }
@@ -225,6 +228,7 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
     \row
         \li \c TapHandler.DragThreshold
             \image pointerHandlers/tapHandlerOverlappingButtons.webp
+                   {Two overlapping Click Me buttons both responding to a single tap}
             Grab on press: \e passive
         \li (the default value) The \l eventPoint must not move significantly.
             If the mouse, finger or stylus moves past the system-wide drag
@@ -257,6 +261,7 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
     \row
         \li \c TapHandler.WithinBounds
             \image pointerHandlers/tapHandlerButtonWithinBounds.webp
+                   {Click Me button canceling tap when mouse moves outside}
             Grab on press: \e exclusive
         \li If the \l eventPoint leaves the bounds of the \c parent Item, the tap
             gesture is canceled. The TapHandler will take the
@@ -268,6 +273,7 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
     \row
         \li \c TapHandler.ReleaseWithinBounds
             \image pointerHandlers/tapHandlerButtonReleaseWithinBounds.webp
+                   {dragging outside a Click Me button and back inside before release}
             Grab on press: \e exclusive
         \li At the time of release (the mouse button is released or the finger
             is lifted), if the \l eventPoint is outside the bounds of the
@@ -283,6 +289,7 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
     \row
         \li \c TapHandler.DragWithinBounds
             \image pointerHandlers/dragReleaseMenu.webp
+                   {Long press showing context menu with top, middle, bottom options}
             Grab on press: \e exclusive
         \li On press, TapHandler takes the
             \l {QPointerEvent::setExclusiveGrabber}{exclusive grab}; after that,
@@ -385,7 +392,7 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QPointerEvent *event,
         if (!cancel && !press && parentContains(point)) {
             if (m_longPressed) {
                 qCDebug(lcTapHandler) << objectName() << "long press threshold" << longPressThreshold() << "exceeded:" << point.timeHeld();
-            } else {
+            } else if (event) {
                 // Assuming here that pointerEvent()->timestamp() is in ms.
                 const quint64 ts = event->timestamp();
                 const quint64 interval = ts - m_lastTapTimestamp;
@@ -454,9 +461,15 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QPointerEvent *event,
 void QQuickTapHandler::onGrabChanged(QQuickPointerHandler *grabber, QPointingDevice::GrabTransition transition,
                                      QPointerEvent *ev, QEventPoint &point)
 {
+    // QQuickPointerHandler::onGrabChanged() calls setActive(false) in many cases.
     QQuickSinglePointHandler::onGrabChanged(grabber, transition, ev, point);
-    bool isCanceled = transition == QPointingDevice::CancelGrabExclusive || transition == QPointingDevice::CancelGrabPassive;
-    if (grabber == this && (isCanceled || point.state() == QEventPoint::Released))
+    // We don't override onActiveChanged(): we could not call setPressed(false) from there anyway.
+    // But ensure that if the TapHandler just got deactivated, it's no longer pressed either.
+    const bool isCanceled = transition == QPointingDevice::CancelGrabExclusive || transition == QPointingDevice::CancelGrabPassive;
+    // But passive grab/ungrab does not change the active state, so that's not a reason to change pressed state either
+    // (i.e. when gesturePolicy == DragThreshold, TapHandler does not become active).
+    const bool passiveGrab = transition == QPointingDevice::GrabPassive || transition == QPointingDevice::UngrabPassive;
+    if (grabber == this && (isCanceled || point.state() == QEventPoint::Released || (!active() && !passiveGrab)))
         setPressed(false, isCanceled, ev, point);
 }
 

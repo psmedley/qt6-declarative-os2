@@ -1,14 +1,27 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpreviewblacklist.h"
 
 QT_BEGIN_NAMESPACE
 
+void QQmlPreviewBlacklist::blacklist(const QStringList &paths)
+{
+    for (const QString &path : paths)
+        blacklist(path);
+}
+
 void QQmlPreviewBlacklist::blacklist(const QString &path)
 {
     if (!path.isEmpty())
         m_root.insert(path, 0);
+}
+
+void QQmlPreviewBlacklist::whitelist(const QStringList &paths)
+{
+    for (const QString &path : paths)
+        whitelist(path);
 }
 
 void QQmlPreviewBlacklist::whitelist(const QString &path)

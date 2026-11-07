@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMFOLDERDIALOG_P_H
 #define QQUICKLABSPLATFORMFOLDERDIALOG_P_H
@@ -19,12 +20,15 @@
 #include <QtCore/qurl.h>
 #include <QtQml/qqml.h>
 
+#if QT_DEPRECATED_SINCE(6, 9)
+
 QT_BEGIN_NAMESPACE
 
 class QQuickLabsPlatformFolderDialog : public QQuickLabsPlatformDialog
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(FolderDialog)
+    QML_ADDED_IN_VERSION(1, 0)
     QML_EXTENDED_NAMESPACE(QFileDialogOptions)
     Q_PROPERTY(QUrl folder READ folder WRITE setFolder NOTIFY folderChanged FINAL)
     Q_PROPERTY(QUrl currentFolder READ currentFolder WRITE setCurrentFolder NOTIFY currentFolderChanged FINAL)
@@ -72,5 +76,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#endif // QT_DEPRECATED_SINCE(6, 9)
 
 #endif // QQUICKLABSPLATFORMFOLDERDIALOG_P_H

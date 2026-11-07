@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicklistview_p.h"
 #include "qquickitemview_p_p.h"
@@ -22,7 +23,7 @@ QT_BEGIN_NAMESPACE
 #define QML_FLICK_SNAPONETHRESHOLD 30
 #endif
 
-Q_LOGGING_CATEGORY(lcEvents, "qt.quick.listview.events")
+Q_STATIC_LOGGING_CATEGORY(lcEvents, "qt.quick.listview.events")
 
 class FxListItemSG;
 
@@ -86,6 +87,7 @@ public:
     void updateInlineSection(FxListItemSG *);
     void updateCurrentSection();
     void updateStickySections();
+    void updateSectionFocusOrder();
 
     qreal headerSize() const override;
     qreal footerSize() const override;
@@ -153,6 +155,8 @@ public:
     bool correctFlick : 1;
     bool inFlickCorrection : 1;
     bool wantedMousePress : 1;
+
+    int snapResizeTargetIndex = -1;
 
     QQuickListViewPrivate()
         : orient(QQuickListView::Vertical)
@@ -375,7 +379,7 @@ public:
         : removedAtIndex(false)
         , backwards(iEnd < iBegin)
     {
-        conn = QObject::connect(model, &QQmlInstanceModel::modelUpdated,
+        conn = QObject::connect(model, &QQmlInstanceModel::modelUpdated, model,
                 [&] (const QQmlChangeSet &changeSet, bool /*reset*/)
         {
             for (const QQmlChangeSet::Change &rem : changeSet.removes()) {
@@ -792,6 +796,9 @@ bool QQuickListViewPrivate::addVisibleItems(qreal fillFrom, qreal fillTo, qreal 
         changed = true;
     }
 
+    if (changed && sectionCriteria)
+        updateSectionFocusOrder();
+
     return changed;
 }
 
@@ -806,6 +813,10 @@ void QQuickListViewPrivate::removeItem(FxViewItem *item)
 #endif
     {
         qCDebug(lcItemViewDelegateLifecycle) << "\treleasing stationary item" << item->index << (QObject *)(item->item);
+        if (auto *att = static_cast<QQuickListViewAttached*>(item->attached)) {
+            releaseSectionItem(att->m_sectionItem);
+            att->m_sectionItem = nullptr;
+        }
         releaseItem(item, reusableFlag);
     }
 }
@@ -913,6 +924,8 @@ void QQuickListViewPrivate::layoutVisibleItems(int fromModelIndex)
 
         updateCurrentSection();
         updateStickySections();
+        if (sectionCriteria)
+            updateSectionFocusOrder();
     }
 }
 
@@ -1184,6 +1197,49 @@ void QQuickListViewPrivate::updateInlineSection(FxListItemSG *listItem)
     }
 }
 
+/*!
+    \internal
+
+    Keeps the Tab/backtab focus order of the section headers and delegate
+    items aligned with their visual (top-to-bottom) order.
+
+    Tab navigation between sibling items follows the contentItem's
+    child-stacking order (see QQuickItemPrivate::nextTabChildItem()), not their
+    visual geometry. Delegate items and their inline section headers are
+    parented to the contentItem in creation order, which need not match the
+    visual order: a section header is created after the delegate item it
+    precedes, and items added while flicking backwards are appended to the
+    child list.
+
+    To make the focus chain follow the visual order, re-stack the visible
+    delegate items and their section headers so that each section header comes
+    immediately before its delegate item. stackAfter() is a no-op when an item
+    is already in place, so this is inexpensive for a stable view. Only items
+    in visibleItems are touched; the header, footer, highlight and sticky
+    section items are left untouched, and z values are unchanged so the visual
+    stacking order is unaffected.
+*/
+void QQuickListViewPrivate::updateSectionFocusOrder()
+{
+    if (!sectionCriteria || visibleItems.isEmpty())
+        return;
+
+    QQuickItem *prev = nullptr;
+    for (FxViewItem *viewItem : std::as_const(visibleItems)) {
+        auto *listItem = static_cast<FxListItemSG *>(viewItem);
+        if (QQuickItem *section = listItem->section()) {
+            if (prev)
+                section->stackAfter(prev);
+            prev = section;
+        }
+        if (QQuickItem *item = listItem->item) {
+            if (prev)
+                item->stackAfter(prev);
+            prev = item;
+        }
+    }
+}
+
 void QQuickListViewPrivate::updateStickySections()
 {
     if (!sectionCriteria || !sectionCriteria->delegate()
@@ -1327,6 +1383,7 @@ void QQuickListViewPrivate::updateSections()
             else
                 prevAtt->setNextSection(QString());
         }
+        updateSectionFocusOrder();
     }
 
     lastVisibleSection = QString();
@@ -1642,6 +1699,7 @@ void QQuickListViewPrivate::fixupPosition()
         fixupY();
     else
         fixupX();
+    snapResizeTargetIndex = -1;
 }
 
 void QQuickListViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExtent)
@@ -1667,6 +1725,22 @@ void QQuickListViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExte
     qreal viewPos = isContentFlowReversed() ? -position()-size() : position();
 
     if (snapMode != QQuickListView::NoSnap && moveReason != QQuickListViewPrivate::SetIndex) {
+        /*
+        There are many ways items can "snap" (align) when a flick by mouse/touch is about to end.
+        The following table describes how things are snapped for a TopToBottom ListView (the
+        behavior of the other orientations can be derived from TopToBottom):
+
+        | header\\range     | No highlight range            | Has a highlight range |
+        |------------------ | ----------------------------- | --------------------- |
+        | No header         | Snaps to ListView top         | Snaps to preferredHighlightBegin position [1] |
+        | InlineHeader      | Snaps to ListView top         | Snaps to preferredHighlightBegin position [1] |
+        | OverlayHeader     | Snaps to header               | Snaps to neither [!] |
+        | PullbackHeader    | Snaps to header/ListView top  | Snaps to preferredHighlightBegin when header is pulled back. Snaps to neither when header is pulled in. |
+
+        Notes:
+        [1]: If there is no item below preferredHighlightBegin, it will snap to preferredHighlightEnd
+        [!]: This is likely not intended behavior
+        */
         qreal tempPosition = isContentFlowReversed() ? -position()-size() : position();
         if (snapMode == QQuickListView::SnapOneItem && moveReason == Mouse) {
             // if we've been dragged < averageSize/2 then bias towards the next item
@@ -1720,8 +1794,16 @@ void QQuickListViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExte
         if (strictHighlightRange)
             updateHighlight();
 
-        FxViewItem *topItem = snapItemAt(tempPosition + snapOffset + highlightRangeStart);
-        FxViewItem *bottomItem = snapItemAt(tempPosition + snapOffset + highlightRangeEnd);
+        FxViewItem *topItem = nullptr;
+        FxViewItem *bottomItem = nullptr;
+        if (snapResizeTargetIndex >= 0) {
+            topItem = visibleItem(snapResizeTargetIndex);
+            bottomItem = topItem;
+        }
+        if (!topItem)
+            topItem = snapItemAt(tempPosition + snapOffset + highlightRangeStart);
+        if (!bottomItem)
+            bottomItem = snapItemAt(tempPosition + snapOffset + highlightRangeEnd);
         if (strictHighlightRange && currentItem) {
             // StrictlyEnforceRange always keeps an item in range
             if (!topItem || (topItem->index != currentIndex && fixupMode == Immediate))
@@ -2074,7 +2156,8 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     \codeline
     \snippet qml/listview/listview.qml classdocs simple
 
-    \image listview-simple.png
+    \image listview-simple.png {ListView showing three contacts with
+           names and phone numbers}
 
     Here, the ListView creates a \c ContactModel component for its model, and a \l Text item
     for its delegate. The view will create a new \l Text component for each item in the model. Notice
@@ -2084,7 +2167,8 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
     into a separate \c contactDelegate component.
 
     \snippet qml/listview/listview.qml classdocs advanced
-    \image listview-highlight.png
+    \image listview-highlight.png {ListView with styled contact items
+           and blue highlight on current selection}
 
     The currently selected item is highlighted with a blue \l Rectangle using the \l highlight property,
     and \c focus is set to \c true to enable keyboard navigation for the list view.
@@ -2154,17 +2238,21 @@ QQuickItemViewAttached *QQuickListViewPrivate::getAttachedObject(const QObject *
             \b ListViews with Qt.Vertical orientation
     \row
         \li Top to bottom
-            \image listview-layout-toptobottom.png
+            \image listview-layout-toptobottom.png {Vertical list with
+                   items 0-4 arranged from top to bottom}
         \li Bottom to top
-            \image listview-layout-bottomtotop.png
+            \image listview-layout-bottomtotop.png {Vertical list with
+                   items 0-4 arranged from bottom to top}
     \header
         \li {2, 1}
             \b ListViews with Qt.Horizontal orientation
     \row
         \li Left to right
-            \image listview-layout-lefttoright.png
+            \image listview-layout-lefttoright.png {Horizontal list with
+                   items 0-4 arranged from left to right}
         \li Right to left
-            \image listview-layout-righttoleft.png
+            \image listview-layout-righttoleft.png {Horizontal list with
+                   items 0-4 arranged from right to left}
     \endtable
 
     \section1 Flickable Direction
@@ -2438,6 +2526,14 @@ QQuickListView::~QQuickListView()
 
     \sa {Stacking Order in ListView}
 */
+
+/*!
+    \qmlproperty enumeration QtQuick::ListView::delegateModelAccess
+    \since 6.10
+
+    \include delegatemodelaccess.qdocinc
+*/
+
 /*!
     \qmlproperty int QtQuick::ListView::currentIndex
     \qmlproperty Item QtQuick::ListView::currentItem
@@ -2452,6 +2548,26 @@ QQuickListView::~QQuickListView()
 
     Note that the position of the current item
     may only be approximate until it becomes visible in the view.
+
+    As \c currentItem needs to work with any delegate, its type is \l{Item}.
+    Often, a \c ListView is however used with exactly one type of delegate.
+    In that case, casting \c currentItem to the delegate's type can help
+    tooling and lead to more efficient code:
+
+    \qml
+    component Message : Item {
+        required property string sender
+        required property string text
+    }
+    ListView {
+        id: messageView
+        delegate: Message {}
+        model: messageModel
+    }
+    Button {
+        text: "Reply to %1".arg((messageView.currentItem) as Message).sender
+    }
+    \endqml
 */
 
 /*!
@@ -2629,9 +2745,11 @@ void QQuickListView::setSpacing(qreal spacing)
     \value ListView.Horizontal  Items are laid out horizontally
     \br
     \inlineimage ListViewHorizontal.png
+        {Three contact cards arranged horizontally: Bill Smith, John Brown, Sam Wise}
     \value ListView.Vertical    (default) Items are laid out vertically
     \br
     \inlineimage listview-highlight.png
+        {Three contact cards stacked vertically: Bill Smith, John Brown, Sam Wise}
 
     \sa {Flickable Direction}
 */
@@ -2850,7 +2968,8 @@ void QQuickListView::setOrientation(QQuickListView::Orientation orientation)
 
     \snippet views/listview/sections.qml 0
 
-    \image qml-listview-sections-example.png
+    \image qml-listview-sections-example.png {ListView with items grouped
+           into sections with light blue header bars}
 
     \note Adding sections to a ListView does not automatically re-order the
     list items by the section criteria.
@@ -3626,6 +3745,26 @@ void QQuickListView::geometryChange(const QRectF &newGeometry, const QRectF &old
         qreal dy = newGeometry.height() - oldGeometry.height();
         setContentY(contentY() - dy);
     }
+
+    // When view-relative delegates resize, the content position becomes
+    // stale and fixup() snaps to the wrong item. Record the current snap
+    // target here; fixup() will use it instead of snapItemAt().
+    // StrictlyEnforceRange is excluded — its fixup() path already forces
+    // currentItem as the snap target.
+    const bool vertical = (d->orient == QQuickListView::Vertical);
+    const qreal oldSize = vertical ? oldGeometry.height() : oldGeometry.width();
+    const qreal newSize = vertical ? newGeometry.height() : newGeometry.width();
+
+    if (d->snapMode == QQuickListView::SnapOneItem
+        && !(d->haveHighlightRange && d->highlightRange == QQuickListView::StrictlyEnforceRange)
+        && !d->visibleItems.isEmpty() && !qFuzzyCompare(oldSize, newSize) && oldSize > 0) {
+        qreal viewPos = d->isContentFlowReversed() ? -d->position() - d->size() : d->position();
+        if (FxViewItem *snapped = d->snapItemAt(viewPos)) {
+            if (snapped->index >= 0)
+                d->snapResizeTargetIndex = snapped->index;
+        }
+    }
+
     QQuickItemView::geometryChange(newGeometry, oldGeometry);
 }
 
@@ -3661,7 +3800,7 @@ qreal QQuickListView::maxXExtent() const
 }
 
 /*!
-    \qmlmethod QtQuick::ListView::incrementCurrentIndex()
+    \qmlmethod void QtQuick::ListView::incrementCurrentIndex()
 
     Increments the current index.  The current index will wrap
     if keyNavigationWraps is true and it is currently at the end.
@@ -3681,7 +3820,7 @@ void QQuickListView::incrementCurrentIndex()
 }
 
 /*!
-    \qmlmethod QtQuick::ListView::decrementCurrentIndex()
+    \qmlmethod void QtQuick::ListView::decrementCurrentIndex()
 
     Decrements the current index.  The current index will wrap
     if keyNavigationWraps is true and it is currently at the beginning.
@@ -3717,7 +3856,7 @@ void QQuickListViewPrivate::updateSectionCriteria()
 bool QQuickListViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &change, ChangeResult *insertResult, QList<FxViewItem *> *addedItems, QList<MovedItem> *movingIntoView)
 {
     Q_Q(QQuickListView);
-#if QT_CONFIG(quick_viewtransitions)
+#if !QT_CONFIG(quick_viewtransitions)
     Q_UNUSED(movingIntoView)
 #endif
     int modelIndex = change.index;
@@ -3943,7 +4082,7 @@ void QQuickListViewPrivate::translateAndTransitionItemsAfter(int afterModelIndex
 #endif
 
 /*!
-    \qmlmethod QtQuick::ListView::positionViewAtIndex(int index, PositionMode mode)
+    \qmlmethod void QtQuick::ListView::positionViewAtIndex(int index, PositionMode mode)
 
     Positions the view such that the \a index is at the position specified by \a mode:
 
@@ -3976,8 +4115,8 @@ void QQuickListViewPrivate::translateAndTransitionItemsAfter(int afterModelIndex
 */
 
 /*!
-    \qmlmethod QtQuick::ListView::positionViewAtBeginning()
-    \qmlmethod QtQuick::ListView::positionViewAtEnd()
+    \qmlmethod void QtQuick::ListView::positionViewAtBeginning()
+    \qmlmethod void QtQuick::ListView::positionViewAtEnd()
 
     Positions the view at the beginning or end, taking into account any header or footer.
 
@@ -4036,7 +4175,7 @@ void QQuickListViewPrivate::translateAndTransitionItemsAfter(int afterModelIndex
 */
 
 /*!
-    \qmlmethod QtQuick::ListView::forceLayout()
+    \qmlmethod void QtQuick::ListView::forceLayout()
 
     Responding to changes in the model is usually batched to happen only once
     per frame. This means that inside script blocks it is possible for the

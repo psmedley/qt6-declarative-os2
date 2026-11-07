@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -10,10 +11,10 @@ T.GroupBox {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding,
+                            implicitContentWidth + leftPadding + rightPadding,
                             implicitLabelWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding)
+                             implicitContentHeight + topPadding + bottomPadding)
 
     topPadding: ((background as NinePatchImage)?.topPadding ?? 0) + (implicitLabelWidth > 0 ? implicitLabelHeight + spacing : 0)
     leftPadding: ((background as NinePatchImage)?.leftPadding ?? 0)

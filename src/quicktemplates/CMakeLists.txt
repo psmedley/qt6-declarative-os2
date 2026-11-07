@@ -17,9 +17,12 @@ qt_internal_add_qml_module(QuickTemplates2
     SOURCES
         qquickabstractbutton.cpp qquickabstractbutton_p.h
         qquickabstractbutton_p_p.h
+        qquickabstractspinbox_p.h
         qquickaction.cpp qquickaction_p.h
         qquickactiongroup.cpp qquickactiongroup_p.h
-        qquickapplicationwindow.cpp qquickapplicationwindow_p.h
+        qquickapplicationwindow.cpp
+        qquickapplicationwindow_p.h
+        qquickapplicationwindow_p_p.h
         qquickbusyindicator.cpp qquickbusyindicator_p.h
         qquickbutton.cpp qquickbutton_p.h
         qquickbutton_p_p.h
@@ -27,6 +30,7 @@ qt_internal_add_qml_module(QuickTemplates2
         qquickcheckbox.cpp qquickcheckbox_p.h
         qquickcheckdelegate.cpp qquickcheckdelegate_p.h
         qquickcontentitem.cpp qquickcontentitem_p.h
+        qquickcontextmenu.cpp qquickcontextmenu_p.h
         qquickcontrol.cpp qquickcontrol_p.h
         qquickcontrol_p_p.h
         qquickdeferredexecute.cpp
@@ -34,12 +38,15 @@ qt_internal_add_qml_module(QuickTemplates2
         qquickdeferredpointer_p_p.h
         qquickdelaybutton.cpp qquickdelaybutton_p.h
         qquickdial.cpp qquickdial_p.h
+        qquickdoublespinbox.cpp qquickdoublespinbox_p.h
         qquickdrawer.cpp qquickdrawer_p.h
         qquickdrawer_p_p.h
         qquickframe.cpp qquickframe_p.h
         qquickframe_p_p.h
         qquickgroupbox.cpp qquickgroupbox_p.h
-        qquickicon.cpp qquickicon_p.h
+        qquickicon.cpp
+        qquickicon_p.h
+        qquickicon_p_p.h
         qquickindicatorbutton_p.cpp qquickindicatorbutton_p.h
         qquickitemdelegate.cpp qquickitemdelegate_p.h
         qquickitemdelegate_p_p.h
@@ -80,6 +87,7 @@ qt_internal_add_qml_module(QuickTemplates2
         qquickscrollbar_p_p.h
         qquickscrollindicator.cpp qquickscrollindicator_p.h
         qquickscrollview.cpp qquickscrollview_p.h
+        qquicksearchfield.cpp qquicksearchfield_p.h
         qquickshortcutcontext.cpp
         qquickshortcutcontext_p_p.h
         qquickslider.cpp qquickslider_p.h
@@ -105,10 +113,13 @@ qt_internal_add_qml_module(QuickTemplates2
         qquicktoolbar.cpp qquicktoolbar_p.h
         qquicktoolbutton.cpp qquicktoolbutton_p.h
         qquicktoolseparator.cpp qquicktoolseparator_p.h
-        qquicktooltip.cpp qquicktooltip_p.h
+        qquicktooltip.cpp
+        qquicktooltip_p.h
+        qquicktooltip_p_p.h
         qquickvelocitycalculator.cpp
         qquickvelocitycalculator_p_p.h
         qtquicktemplates2global.cpp qtquicktemplates2global_p.h
+        qtquicktemplates2math_p.h
     NO_UNITY_BUILD_SOURCES
         qquickpopupitem.cpp # redefinition of 'contentItemName' (from qquickcontrol.cpp)
     DEFINES
@@ -125,7 +136,6 @@ qt_internal_add_qml_module(QuickTemplates2
         Qt::Core
         Qt::Gui
         Qt::Quick
-    OS2_SHORT_NAME Qt6QuiTe
     )
 
 qt_internal_extend_target(QuickTemplates2 CONDITION TARGET Qt::QmlModels
@@ -139,7 +149,12 @@ qt_internal_extend_target(QuickTemplates2 CONDITION TARGET Qt::QmlModels
 
 qt_internal_extend_target(QuickTemplates2 CONDITION QT_FEATURE_accessibility
     SOURCES
+        accessible/qaccessiblequickapplicationwindow.cpp accessible/qaccessiblequickapplicationwindow_p.h
+        accessible/qaccessiblequickcontrol.cpp accessible/qaccessiblequickcontrol_p.h
         accessible/qaccessiblequickpage.cpp accessible/qaccessiblequickpage_p.h
+        accessible/qaccessiblequickpopupitem.cpp accessible/qaccessiblequickpopupitem_p.h
+        accessible/qaccessiblequickscrollbar.cpp accessible/qaccessiblequickscrollbar_p.h
+        accessible/qaccessiblequickslider.cpp accessible/qaccessiblequickslider_p.h
 )
 
 qt_internal_extend_target(QuickTemplates2 CONDITION QT_FEATURE_quicktemplates2_container
@@ -173,6 +188,9 @@ qt_internal_extend_target(QuickTemplates2 CONDITION QT_FEATURE_quick_tableview
         qquickheaderview_p_p.h
         qquickselectionrectangle.cpp qquickselectionrectangle_p.h
         qquickselectionrectangle_p_p.h
+        qquicktableviewdelegate.cpp qquicktableviewdelegate_p.h
+        qquicktableviewdelegate_p_p.h
+        qquickheaderviewdelegate.cpp qquickheaderviewdelegate_p.h
 )
 
 qt_internal_extend_target(QuickTemplates2 CONDITION QT_FEATURE_quick_treeview

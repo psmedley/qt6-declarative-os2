@@ -1,11 +1,13 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickabstractdialog_p.h"
 
 #include <QtCore/qloggingcategory.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/qquickitem.h>
+#include <QtQuick/qquickrendercontrol.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtQuickDialogs2QuickImpl/private/qquickdialogimplfactory_p.h>
 
@@ -88,6 +90,8 @@ Q_LOGGING_CATEGORY(lcDialogs, "qt.quick.dialogs")
     Dialog implementations, set the desired properties, and call \l open().
     Dialog emits \l accepted() or \l rejected() when the user is done with
     the dialog.
+
+    \note This is an internal type that cannot be created in QML.
 */
 
 /*!
@@ -109,8 +113,6 @@ Q_LOGGING_CATEGORY(lcDialogs, "qt.quick.dialogs")
 
     \sa accepted()
 */
-
-Q_DECLARE_LOGGING_CATEGORY(lcDialogs)
 
 QQuickAbstractDialog::QQuickAbstractDialog(QQuickDialogType type, QObject *parent)
     : QObject(parent),
@@ -291,6 +293,40 @@ void QQuickAbstractDialog::setResult(int result)
 
     m_result = result;
     emit resultChanged();
+}
+
+/*!
+    \qmlproperty enumeration QtQuick.Dialogs::Dialog::popupType
+    \since 6.10
+
+    This property can be used to change the \l {QtQuick.Controls::Popup::}{popupType}
+    of the non-native quick dialog.
+
+    The available values are:
+    \value Popup.Item The dialog will appear as an item in the window of the nearest parent item.
+    \value Popup.Window The dialog will appear inside its own window.
+    \value Popup.Native This value is not supported. \c Popup.Window will be used instead.
+
+    \note This property has no effect when using a native dialog.
+*/
+QQuickPopup::PopupType QQuickAbstractDialog::popupType() const
+{
+    return m_popupType;
+}
+
+void QQuickAbstractDialog::setPopupType(QQuickPopup::PopupType popupType)
+{
+    if (m_popupType == popupType)
+        return;
+
+    m_popupType = popupType;
+
+    emit popupTypeChanged();
+}
+
+void QQuickAbstractDialog::resetPopupType()
+{
+    setPopupType(QQuickPopup::Window);
 }
 
 /*!
@@ -525,8 +561,8 @@ QWindow *QQuickAbstractDialog::windowForOpen() const
 {
     if (m_parentWindowExplicitlySet)
         return m_parentWindow;
-    else if (auto parentItem = findParentItem())
-        return parentItem->window();
+    if (auto parentItem = findParentItem())
+        return QQuickItemPrivate::get(parentItem)->renderWindow();
     return m_parentWindow;
 }
 

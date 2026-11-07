@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickevents_p_p.h"
 #include <QtCore/qmap.h>
@@ -100,7 +101,7 @@ Item {
     It contains a bitwise combination of numeric values (the same as in Qt::KeyboardModifier):
 
     \value Qt.NoModifier        No modifier key is pressed.
-    \value Qt.ShiftModifier}    A Shift key on the keyboard is pressed.
+    \value Qt.ShiftModifier     A Shift key on the keyboard is pressed.
     \value Qt.ControlModifier   A Ctrl key on the keyboard is pressed.
     \value Qt.AltModifier       An Alt key on the keyboard is pressed.
     \value Qt.MetaModifier      A Meta key on the keyboard is pressed.

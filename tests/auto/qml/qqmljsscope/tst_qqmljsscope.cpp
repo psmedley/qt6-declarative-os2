@@ -1,7 +1,7 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 
 #include <QtCore/qfileinfo.h>
@@ -69,10 +69,12 @@ class tst_qqmljsscope : public QQmlDataTest
         QQmlJSLogger logger;
         logger.setFilePath(resolvedFile);
         logger.setCode(sourceCode);
+        // some files shadow properties on purpose
+        logger.setCategorySeverity(qmlShadow, QQmlSA::WarningSeverity::Disable);
+        logger.setCategorySeverity(qmlPropertyOverride, QQmlSA::WarningSeverity::Disable);
         logger.setSilent(expectErrorsOrWarnings);
-        QQmlJSScope::Ptr target = QQmlJSScope::create();
-        target->setOwnModuleName(u"HelloModule"_s);
-        QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
+        QQmlJSScope::Ptr target = m_importer.importFile(logger.filePath());
+        QQmlJSImportVisitor visitor(&m_importer, &logger, QDir::cleanPath(resolvedFile + "/.."_L1));
         QQmlJSTypeResolver typeResolver { &m_importer };
         typeResolver.init(&visitor, document->program);
         if (!expectErrorsOrWarnings) {
@@ -90,6 +92,8 @@ private Q_SLOTS:
     void initTestCase() override;
 
     void orderedBindings();
+    void scriptBindingValueType_data();
+    void scriptBindingValueType();
     void signalCreationDifferences();
     void allTypesAvailable();
     void shadowing();
@@ -105,8 +109,11 @@ private Q_SLOTS:
     void groupedPropertiesConsistency();
     void groupedPropertySyntax();
     void attachedProperties();
+    void attachedSignalHandler();
     void scriptIndices();
     void extensions();
+    void reset();
+    void resetFactoryTest();
     void emptyBlockBinding();
     void hasOwnEnumerationKeys();
     void ownModuleName();
@@ -119,6 +126,14 @@ private Q_SLOTS:
     void methodAndSignalSourceLocation();
     void modulePrefixes();
     void javaScriptBuiltinFlag();
+    void isRoot();
+    void idLocation();
+    void inherits();
+    void lineNumber();
+    void ownerOfEnum();
+    void ensureModuleName();
+    void sourceAndBuildTypeAreTheSame();
+    void weakPointers();
 
 public:
     tst_qqmljsscope()
@@ -130,7 +145,7 @@ public:
                           // Note: to be able to import the QQmlJSScopeTests
                           // correctly, we need an additional import path. Use
                           // this application's binary directory as done by
-                          // QQmlImportDatabase
+                          // QQmlTypeLoader
                           QCoreApplication::applicationDirPath(),
                   },
                   nullptr)
@@ -183,6 +198,32 @@ void tst_qqmljsscope::orderedBindings()
     QCOMPARE(std::next(itemsBindingsBegin)->objectType()->baseTypeName(), u"Text"_s);
 }
 
+void tst_qqmljsscope::scriptBindingValueType_data()
+{
+    QTest::addColumn<ScriptBindingValueType>("expectedType");
+
+    QTest::addRow("myInt") << ScriptBindingValueType::ScriptValue_Unknown;
+    QTest::addRow("block") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("alsoABlock") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("lambda") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("namedFunction") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("arrow") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("myUndefined") << ScriptBindingValueType::ScriptValue_Undefined;
+    QTest::addRow("emptyBlock") << ScriptBindingValueType::ScriptValue_Function;
+    QTest::addRow("emptyObject") << ScriptBindingValueType::ScriptValue_Unknown;
+}
+void tst_qqmljsscope::scriptBindingValueType()
+{
+    QFETCH(ScriptBindingValueType, expectedType);
+
+    QQmlJSScope::ConstPtr root = run(u"scriptBindingValueType.qml"_s);
+    QVERIFY(root);
+
+    auto [start, end] = root->ownPropertyBindings(QTest::currentDataTag());
+    QCOMPARE(std::distance(start, end), 1);
+    QCOMPARE(start->scriptValueType(), expectedType);
+}
+
 void tst_qqmljsscope::signalCreationDifferences()
 {
     QQmlJSScope::ConstPtr root = run(u"signalCreationDifferences.qml"_s, true);
@@ -213,7 +254,8 @@ void tst_qqmljsscope::allTypesAvailable()
         };
 
         QQmlJSImporter importer { importPaths, /* resource file mapper */ nullptr };
-        const auto imported = importer.importModule(u"QtQml"_s);
+        const auto imported = importer.importModule(u"QtQml"_s,
+                                                    quint8(QQmlJS::PrecedenceValues::Default));
         QCOMPARE(imported.contextualTypes().context(), QQmlJS::ContextualTypes::QML);
         const auto types = imported.types();
         QVERIFY(types.contains(u"$internal$.QObject"_s));
@@ -266,7 +308,15 @@ void tst_qqmljsscope::componentWrappedObjects()
 
     const auto isGoodType = [](const QQmlJSScope::ConstPtr &type, const QString &propertyName,
                                bool isWrapped) {
-        return type->hasOwnProperty(propertyName)
+        const auto objectNameBindings = type->ownPropertyBindings(u"objectName"_s);
+        if (std::distance(objectNameBindings.first, objectNameBindings.second) != 1)
+            return false;
+
+        const QQmlJSMetaPropertyBinding objectNameBinding = *objectNameBindings.first;
+        if (objectNameBinding.bindingType() != QQmlSA::BindingType::StringLiteral)
+            return false;
+
+        return objectNameBinding.stringValue() == propertyName
                 && type->isWrappedInImplicitComponent() == isWrapped;
     };
 
@@ -348,6 +398,7 @@ void tst_qqmljsscope::groupedProperties()
 
 void tst_qqmljsscope::descriptiveNameOfNull()
 {
+    QQmlJSRegisterContentPool pool;
     QQmlJSRegisterContent nullContent;
     QCOMPARE(nullContent.descriptiveName(), u"(invalid type)"_s);
 
@@ -356,10 +407,10 @@ void tst_qqmljsscope::descriptiveNameOfNull()
     QQmlJSMetaProperty property;
     property.setPropertyName(u"foo"_s);
     property.setTypeName(u"baz"_s);
-    QQmlJSRegisterContent unscoped = QQmlJSRegisterContent::create(
-            stored, property, QQmlJSRegisterContent::InvalidLookupIndex,
-            QQmlJSRegisterContent::InvalidLookupIndex, QQmlJSRegisterContent::ScopeProperty,
-            QQmlJSScope::ConstPtr());
+    QQmlJSRegisterContent unscoped = pool.storedIn(pool.createProperty(
+            property, QQmlJSRegisterContent::InvalidLookupIndex,
+            QQmlJSRegisterContent::InvalidLookupIndex, QQmlJSRegisterContent::Property,
+            QQmlJSRegisterContent()), stored);
     QCOMPARE(unscoped.descriptiveName(), u"(invalid type)::foo with type baz (stored as bar)"_s);
 }
 
@@ -429,7 +480,7 @@ void tst_qqmljsscope::attachedProperties()
             [&](QMultiHash<QString, QQmlJSMetaPropertyBinding> *bindings, qsizetype index) -> void {
         const auto &binding = keysBindings[index];
         QCOMPARE(binding.bindingType(), QQmlSA::BindingType::AttachedProperty);
-        auto keysScope = binding.attachingType();
+        auto keysScope = binding.attachedType();
         QVERIFY(keysScope);
         QCOMPARE(keysScope->accessSemantics(), QQmlJSScope::AccessSemantics::Reference);
         *bindings = keysScope->ownPropertyBindings();
@@ -450,6 +501,27 @@ void tst_qqmljsscope::attachedProperties()
     getBindingsWithinAttached(&bindingsOfBaseType, 1);
     QCOMPARE(bindingsOfBaseType.size(), 1);
     QCOMPARE(value(bindingsOfBaseType, u"priority"_s).bindingType(), QQmlSA::BindingType::Script);
+}
+
+void tst_qqmljsscope::attachedSignalHandler()
+{
+    QQmlJSScope::ConstPtr root = run(u"attachedSignalHandler.qml"_s);
+    QVERIFY(root);
+
+    const auto binding = std::find_if(root->childScopesBegin(), root->childScopesEnd(),
+                                      [](const QQmlJSScope::ConstPtr &child) {
+                                          return child->baseTypeName() == "signalHandler"_L1;
+                                      });
+    QCOMPARE_NE(binding, root->childScopesEnd());
+
+    const auto block = std::find_if(
+            (**binding).childScopesBegin(), (**binding).childScopesEnd(),
+            [](const QQmlJSScope::ConstPtr &child) { return child->baseTypeName() == "block"_L1; });
+    QCOMPARE_NE(block, (**binding).childScopesEnd());
+
+    // note: the event JS identifier is inserted only if the "Keys" basetype of the attached
+    // property was resolved before the creation of the "block" scope.
+    QVERIFY((**block).jsIdentifier("event"_L1));
 }
 
 inline QString getScopeName(const QQmlJSScope::ConstPtr &scope)
@@ -681,10 +753,81 @@ void tst_qqmljsscope::extensions()
     QCOMPARE(childScopes[4]->attachedTypeName(), QString());
     QVERIFY(!childScopes[4]->attachedType());
 
-    auto [owner, ownerKind] = QQmlJSScope::ownerOfProperty(childScopes[4], u"count"_s);
-    QVERIFY(owner);
-    QCOMPARE(ownerKind, QQmlJSScope::ExtensionType);
-    QCOMPARE(owner, childScopes[4]->baseType()->extensionType().scope);
+    {
+        auto [owner, ownerKind] = QQmlJSScope::ownerOfProperty(childScopes[4], u"count"_s);
+        QVERIFY(owner);
+        QCOMPARE(ownerKind, QQmlJSScope::ExtensionType);
+        QCOMPARE(owner, childScopes[4]->baseType()->extensionType().scope);
+    }
+
+    {
+        auto [owner, ownerKind] = QQmlJSScope::ownerOfMethod(childScopes[4], u"myInvokable"_s);
+        QVERIFY(owner);
+        QCOMPARE(ownerKind, QQmlJSScope::ExtensionType);
+        QCOMPARE(owner, childScopes[4]->baseType()->extensionType().scope);
+    }
+
+    QVERIFY(root->property("se").type()->isSelfExtension());
+    QVERIFY(!childScopes[4]->isSelfExtension());
+}
+
+void tst_qqmljsscope::reset()
+{
+    auto scope = QQmlJSScope::create();
+    QVERIFY(!scope.factory());
+
+    scope->setIsArrayScope(true);
+    scope->setBaseTypeName("MyBase"_L1);
+
+    scope->setIsSingleton(true);
+    scope->setOwnModuleName("MyModule"_L1);
+    scope->setInternalName("MyItem"_L1);
+    scope = QQmlJSScope::resetForReparse(scope);
+    // these fields should not get resetted:
+    QVERIFY(scope->isSingleton());
+    QCOMPARE(scope->ownModuleName(), "MyModule"_L1);
+    QCOMPARE(scope->internalName(), "MyItem"_L1);
+
+    // these fields should be resetted:
+    QVERIFY(!scope->isArrayScope());
+    QCOMPARE(scope->baseTypeName(), QString());
+
+    // see if the factory gets resetted
+    using Factory = QDeferredFactory<QQmlJSScope>;
+    QQmlJSImporter importer{ {}, {} };
+    QQmlJSScope::Ptr withFactory{
+        QQmlJSScope::create(),
+        QSharedPointer<Factory>{ new Factory(&importer, {}, testFile("isRoot.qml"_L1), "moduleName"_L1, true) },
+    };
+
+    QQmlJSScope::resetForReparse(withFactory);
+    QVERIFY(!withFactory.factory());
+    // these values should have moved from factory to the scope:
+    QCOMPARE(withFactory->internalName(), "isRoot"_L1);
+    QCOMPARE(withFactory->moduleName(), "moduleName"_L1);
+    QCOMPARE(withFactory->isSingleton(), true);
+}
+
+void tst_qqmljsscope::resetFactoryTest()
+{
+    using Factory = QDeferredFactory<QQmlJSScope>;
+    QQmlJSImporter importer{ { }, { } };
+    QQmlJSScope::Ptr withFactory{
+        QQmlJSScope::create(),
+        QSharedPointer<Factory>{
+                new Factory(&importer, { }, testFile("isRoot.qml"_L1), "moduleName"_L1, true) },
+    };
+
+    QQmlJS::TypeReader fancyTypeReader;
+
+    // set a new importer
+    resetFactory(withFactory, &importer, fancyTypeReader);
+
+    QVERIFY(withFactory.factory());
+    QCOMPARE(withFactory.factory()->filePath(), testFile("isRoot.qml"));
+    QCOMPARE(withFactory.factory()->internalName(), "isRoot"_L1);
+    QCOMPARE(withFactory.factory()->moduleName(), "moduleName"_L1);
+    QCOMPARE(withFactory.factory()->isSingleton(), true);
 }
 
 void tst_qqmljsscope::emptyBlockBinding()
@@ -717,7 +860,7 @@ void tst_qqmljsscope::hasOwnEnumerationKeys()
 void tst_qqmljsscope::ownModuleName()
 {
     const QString moduleName = u"HelloModule"_s;
-    QQmlJSScope::ConstPtr root = run(u"ownModuleName.qml"_s);
+    QQmlJSScope::ConstPtr root = run(u"HelloModule/ownModuleName.qml"_s);
     QVERIFY(root);
     QCOMPARE(root->moduleName(), moduleName);
     QCOMPARE(root->ownModuleName(), moduleName);
@@ -755,7 +898,7 @@ void tst_qqmljsscope::resolvedNonUniqueScopes()
         auto topLevelBindings = root->propertyBindings(u"Component"_s);
         QCOMPARE(topLevelBindings.size(), 1);
         QCOMPARE(topLevelBindings[0].bindingType(), QQmlSA::BindingType::AttachedProperty);
-        auto componentScope = topLevelBindings[0].attachingType();
+        auto componentScope = topLevelBindings[0].attachedType();
         auto componentBindings = componentScope->ownPropertyBindings();
         QCOMPARE(componentBindings.size(), 2);
         auto onCompletedBinding = value(componentBindings, u"onCompleted"_s);
@@ -809,7 +952,7 @@ void tst_qqmljsscope::compilationUnitsAreCompatible()
     QVERIFY2(root, qPrintable(component.errorString()));
     QQmlComponentPrivate *cPriv = QQmlComponentPrivate::get(&component);
     QVERIFY(cPriv);
-    auto unit = cPriv->compilationUnit;
+    auto unit = cPriv->compilationUnit();
     QVERIFY(unit);
     QVERIFY(unit->unitData());
     getRuntimeInfoFromCompilationUnit(unit->unitData(), componentFunctions);
@@ -892,7 +1035,7 @@ void tst_qqmljsscope::attachedTypeResolution()
     const auto &implicitImportDirectory = QQmlJSImportVisitor::implicitImportDirectory(
             logger->filePath(), importer.resourceFileMapper());
     QQmlJSImportVisitor v{
-        QQmlJSScope::create(), &importer, logger.get(), implicitImportDirectory, {}
+        &importer, logger.get(), implicitImportDirectory, {}
     };
 
     PassManagerPtr manager(
@@ -950,7 +1093,7 @@ void tst_qqmljsscope::builtinTypeResolution()
     const auto &implicitImportDirectory = QQmlJSImportVisitor::implicitImportDirectory({}, nullptr);
     QQmlJSLogger logger;
     QQmlJSImportVisitor v{
-        QQmlJSScope::create(), &importer, &logger, implicitImportDirectory, {}
+        &importer, &logger, implicitImportDirectory, {}
     };
 
     PassManagerPtr manager(
@@ -998,7 +1141,6 @@ void tst_qqmljsscope::modulePrefixes()
     logger.setFilePath(url);
     logger.setCode(sourceCode);
 
-    QQmlJSScope::Ptr target = QQmlJSScope::create();
     QmlIR::Document document(url, url, false);
     QQmlJSSaveFunction noop([](auto &&...) { return true; });
     QQmlJSCompileError error;
@@ -1008,7 +1150,7 @@ void tst_qqmljsscope::modulePrefixes()
     if (!error.message.isEmpty())
         return;
 
-    QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
+    QQmlJSImportVisitor visitor(&m_importer, &logger, dataDirectory());
     QQmlJSTypeResolver typeResolver{ &m_importer };
     typeResolver.init(&visitor, document.program);
 
@@ -1025,7 +1167,6 @@ void tst_qqmljsscope::javaScriptBuiltinFlag()
     logger.setFilePath(url);
     logger.setCode(loadFile(url));
 
-    QQmlJSScope::Ptr target = QQmlJSScope::create();
     QmlIR::Document document(url, url, false);
     QQmlJSSaveFunction noop([](auto &&...) { return true; });
     QQmlJSCompileError error;
@@ -1035,7 +1176,7 @@ void tst_qqmljsscope::javaScriptBuiltinFlag()
     if (!error.message.isEmpty())
         return;
 
-    QQmlJSImportVisitor visitor(target, &m_importer, &logger, dataDirectory());
+    QQmlJSImportVisitor visitor( &m_importer, &logger, dataDirectory());
     QQmlJSTypeResolver typeResolver{ &m_importer };
     typeResolver.init(&visitor, document.program);
 
@@ -1043,6 +1184,129 @@ void tst_qqmljsscope::javaScriptBuiltinFlag()
     QVERIFY(typeResolver.mathObject()->isJavaScriptBuiltin()); // JS
     QVERIFY(!typeResolver.typeForName("ComponentType")->isJavaScriptBuiltin()); // QML
     QVERIFY(!typeResolver.varType()->isJavaScriptBuiltin()); // C++
+}
+
+void tst_qqmljsscope::isRoot()
+{
+    auto jsscope = run(u"isRoot.qml"_s, false);
+
+    QVERIFY(jsscope->isFileRootComponent());
+    QVERIFY(jsscope->property(u"isRoot"_s).isValid());
+
+    const auto children = jsscope->childScopes();
+    QCOMPARE(children.size(), 2);
+    for (const auto &child : children) {
+        QVERIFY(!child->isFileRootComponent());
+        QVERIFY(child->property(u"isNotRoot"_s).isValid());
+    }
+}
+
+void tst_qqmljsscope::idLocation()
+{
+    auto jsscope = run(u"idSourceLocation.qml"_s, false);
+    const QQmlJS::SourceLocation actual = jsscope->idSourceLocation();
+    QVERIFY(actual.isValid());
+    QCOMPARE(actual.startLine, 7);
+    QCOMPARE(actual.startColumn, 25);
+    QCOMPARE(actual.length, 10);
+}
+
+void tst_qqmljsscope::inherits()
+{
+    const auto jsscope = run(u"UseTypeWithProperties.qml"_s, false);
+    const auto baseFromCpp = jsscope->baseType();
+
+    QVERIFY(jsscope->inherits(baseFromCpp));
+    QVERIFY(!jsscope->inherits({ }));
+
+    auto empty = QQmlJSScope::create();
+    QVERIFY(!empty->inherits({ }));
+}
+
+void tst_qqmljsscope::lineNumber()
+{
+    const auto jsscope = run(u"UseTypeWithProperties.qml"_s, false);
+    const auto baseFromCpp = jsscope->baseType();
+    QVERIFY(baseFromCpp);
+    QCOMPARE(baseFromCpp->lineNumber(), 13);
+    QCOMPARE(baseFromCpp->property("a").sourceLocation().startLine, 18);
+    QCOMPARE(baseFromCpp->methods("myInvokable").front().sourceLocation().startLine, 26);
+    QCOMPARE(baseFromCpp->enumeration("MyEnum").lineNumber(), 28);
+    QCOMPARE(baseFromCpp->methods("aChanged").front().sourceLocation().startLine, 32);
+    QCOMPARE(baseFromCpp->methods("mySlot").front().sourceLocation().startLine, 34);
+}
+
+void tst_qqmljsscope::ownerOfEnum()
+{
+    const auto root = run("OwnerOfEnum.qml");
+
+    const auto qmlEnum1Owner = QQmlJSScope::ownerOfEnum(root, "QmlEnum1"_L1);
+    QVERIFY(qmlEnum1Owner.scope->filePath().endsWith("OwnerOfEnum.qml"_L1));
+
+    const auto qmlEnum2Owner = QQmlJSScope::ownerOfEnum(root, "QmlEnum2"_L1);
+    QVERIFY(qmlEnum2Owner.scope->filePath().endsWith("OwnerOfEnumBase.qml"_L1));
+
+    const auto cppEnumOwner = QQmlJSScope::ownerOfEnum(root, "CppEnum"_L1);
+    QCOMPARE(cppEnumOwner.scope->internalName(), "CppEnumHolder"_L1);
+    QVERIFY(cppEnumOwner.scope->filePath().endsWith("testtypes.h"_L1));
+}
+
+void tst_qqmljsscope::ensureModuleName()
+{
+    const auto root = run("SimpleModule/build/Main.qml");
+    QCOMPARE(root->moduleName(), "SimpleModule");
+}
+
+void tst_qqmljsscope::sourceAndBuildTypeAreTheSame()
+{
+    const QString build = testFile("SimpleModule/build/");
+
+    std::unique_ptr<QQmlJSResourceFileMapper> mapper(
+            new QQmlJSResourceFileMapper(QStringList() << (build + "resources.qrc")));
+    QQmlJSImporter importer(m_importer.importPaths() << build, mapper.get());
+
+    const auto sourceRoot = importer.importFile(testFile("SimpleModule/Main.qml"));
+    const auto buildRoot = importer.importFile(testFile("SimpleModule/build/Main.qml"));
+    QCOMPARE(sourceRoot, buildRoot);
+}
+
+void tst_qqmljsscope::weakPointers()
+{
+    // linting scenario from QTBUG-146688, where grouped properties types disappeared when linting
+    // these files in exact that order:
+    // HomePage populates all other qml scopes
+    // NavBarForm.ui.qml used to drop data weakly referenced from NewTaskForm to NavBar
+    // NewTask can't find the type weakly referenced from NewTaskForm's "backbutton" property and
+    // emits bogus warnings.
+    std::array filesToLint = {
+        testFile("weakpointers/HomePage.qml"),
+        testFile("weakpointers/NavBarForm.ui.qml"),
+        testFile("weakpointers/NewTask.qml"),
+    };
+
+    // sanity testing: trigger buggy old behavior to prove the tests effectiveness
+    QQmlJSImporter importer(QLibraryInfo::paths(QLibraryInfo::QmlImportsPath), nullptr);
+
+    auto getBackButtonProperty = [&importer, &filesToLint]() -> QQmlJSMetaProperty {
+        const QQmlJSScope::ConstPtr &validScope = importer.importFile(filesToLint.back());
+        if (!validScope->baseType())
+            return { };
+        return validScope->baseType()->property("backButton");
+    };
+    QVERIFY(getBackButtonProperty().isValid());
+    QVERIFY(getBackButtonProperty().type());
+
+    QQmlJSScope::Ptr lastScope;
+    for (const auto &file : filesToLint) {
+        lastScope = importer.importFile(file);
+        QQmlJSScope::resetForReparse(lastScope);
+        resetFactory(lastScope, &importer, { });
+        QVERIFY(lastScope.data());
+    }
+
+    QVERIFY(getBackButtonProperty().isValid());
+    QEXPECT_FAIL("", "ResetForReparse breaks weak references to the resetted scope", Continue);
+    QVERIFY(getBackButtonProperty().type());
 }
 
 QTEST_MAIN(tst_qqmljsscope)

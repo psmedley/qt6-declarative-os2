@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmldebugpluginmanager_p.h"
 #include "qqmldebugconnector_p.h"
@@ -36,7 +37,7 @@ struct QQmlDebugConnectorParams {
             QCoreApplicationPrivate *appD =
                     static_cast<QCoreApplicationPrivate*>(QObjectPrivate::get(qApp));
             if (appD)
-                arguments = appD->qmljsDebugArgumentsString();
+                arguments = appD->qmljs_debug_arguments;
         }
     }
 };
@@ -112,7 +113,7 @@ QQmlDebugConnector *QQmlDebugConnector::instance()
             for (const QPluginParsedMetaData &md : metaData) {
                 const auto keys = md.value(QtPluginMetaDataKeys::MetaData).toMap()
                         .value(QLatin1String("Keys")).toArray();
-                for (const QCborValue key : keys) {
+                for (const QCborValue &key : keys) {
                     QString keyString = key.toString();
                     if (params->services.isEmpty() || params->services.contains(keyString))
                         loadQQmlDebugService(keyString);

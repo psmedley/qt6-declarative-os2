@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 
 import QtQuick
@@ -16,7 +17,7 @@ MessageDialogImpl {
                             control.implicitHeaderWidth,
                             rowLayout.implicitWidth)
     implicitHeight: Math.max(control.implicitBackgroundHeight + control.topInset + control.bottomInset,
-                             control.contentHeight + control.topPadding + control.bottomPadding
+                             control.implicitContentHeight + control.topPadding + control.bottomPadding
                              + (control.implicitHeaderHeight > 0 ? control.implicitHeaderHeight + control.spacing : 0)
                              + (control.implicitFooterHeight > 0 ? control.implicitFooterHeight + control.spacing : 0))
 

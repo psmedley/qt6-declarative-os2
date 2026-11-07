@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <QtQuick/private/qsgcontext_p.h>
 #include <QtQuick/private/qsgtexture_p.h>
@@ -73,7 +74,7 @@ DEFINE_BOOL_CONFIG_OPTION(useElapsedTimerBasedAnimationDriver, QSG_USE_SIMPLE_AN
 
 bool qsg_useConsistentTiming()
 {
-    int use = -1;
+    static int use = -1;
     if (use < 0) {
         use = !qEnvironmentVariableIsEmpty("QSG_FIXED_ANIMATION_STEP") && qgetenv("QSG_FIXED_ANIMATION_STEP") != "no"
             ? 1 : 0;
@@ -146,7 +147,7 @@ public:
     {
         m_time = 0;
         m_timer.start();
-        m_wallTime.restart();
+        m_wallTime.start();
         QAnimationDriver::start();
     }
 
@@ -188,7 +189,7 @@ public:
                 if (m_lag > 10 && m_bad > 2) {
                     m_mode = TimerMode;
                     qCDebug(QSG_LOG_INFO, "animation driver switched to timer mode");
-                    m_wallTime.restart();
+                    m_wallTime.start();
                 }
             } else {
                 m_lag = 0;
@@ -269,7 +270,7 @@ public:
 
     void start() override
     {
-        m_wallTime.restart();
+        m_wallTime.start();
         QAnimationDriver::start();
     }
 
@@ -431,6 +432,11 @@ QSGRendererInterface *QSGContext::rendererInterface(QSGRenderContext *renderCont
     return nullptr;
 }
 
+/*!
+    \class QSGRenderContext
+    \inmodule QtQuick
+    \internal
+*/
 QSGRenderContext::QSGRenderContext(QSGContext *context)
     : m_sg(context)
 {
@@ -506,6 +512,11 @@ QSGDistanceFieldGlyphCache *QSGRenderContext::distanceFieldGlyphCache(const QRaw
 }
 
 void QSGRenderContext::invalidateGlyphCaches()
+{
+
+}
+
+void QSGRenderContext::flushGlyphCaches()
 {
 
 }

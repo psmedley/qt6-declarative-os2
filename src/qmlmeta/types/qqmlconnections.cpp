@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlconnections_p.h"
 
@@ -23,7 +24,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcQmlConnections, "qt.qml.connections")
+Q_STATIC_LOGGING_CATEGORY(lcQmlConnections, "qt.qml.connections")
 
 // This is the equivalent of QQmlBoundSignal for C++ methods as as slots.
 // If a type derived from QQmlConnnections is compiled using qmltc, the
@@ -44,19 +45,21 @@ struct QQmlConnectionSlotDispatcher : public QtPrivate::QSlotObjectBase
     bool enabled = true;
 
     QQmlConnectionSlotDispatcher(
-            QV4::ExecutionEngine *v4, QObject *sender, int signalIndex,
-            QObject *receiver, int slotIndex, bool enabled)
+            QV4::ExecutionEngine *v4, QObject *sender, const QQmlPropertyData &signal,
+            QObject *receiver, const QQmlPropertyData &slot, bool enabled)
         : QtPrivate::QSlotObjectBase(&impl)
         , v4(v4)
         , receiver(receiver)
-        , slotIndex(slotIndex)
+        , slotIndex(slot.coreIndex())
         , enabled(enabled)
     {
-        QMetaMethod signal = sender->metaObject()->method(signalIndex);
-        QQmlMetaObject::methodReturnAndParameterTypes(signal, &signalMetaTypes, nullptr);
+        const QQmlMetaObject senderMeta(sender->metaObject());
+        senderMeta.methodReturnAndParameterTypes(
+                signal, senderMeta.metaObject()->method(signal.coreIndex()), &signalMetaTypes);
 
-        QMetaMethod slot = receiver->metaObject()->method(slotIndex);
-        QQmlMetaObject::methodReturnAndParameterTypes(slot, &slotMetaTypes, nullptr);
+        const QQmlMetaObject receiverMeta(receiver->metaObject());
+        receiverMeta.methodReturnAndParameterTypes(
+                slot, receiverMeta.metaObject()->method(slotIndex), &slotMetaTypes);
     }
 
     template<typename ArgTypeStorage>
@@ -142,7 +145,6 @@ public:
 
 /*!
     \qmltype Connections
-    \nativetype QQmlConnections
     \inqmlmodule QtQml
     \ingroup qtquick-interceptors
     \brief Describes generalized connections to signals.
@@ -390,7 +392,7 @@ void QQmlConnections::connectSignalsToMethods()
 
     QObject *target = this->target();
     QQmlData *ddata = QQmlData::get(this);
-    if (!ddata)
+    if (!ddata || !ddata->propertyCache || !ddata->context || !ddata->context->isValid())
         return;
 
     QV4::ExecutionEngine *engine = ddata->context->engine()->handle();
@@ -409,18 +411,19 @@ void QQmlConnections::connectSignalsToMethods()
 
         QQmlProperty prop(target, propName);
         if (prop.isValid() && (prop.type() & QQmlProperty::SignalProperty)) {
+            QQmlPropertyPrivate *propPrivate = QQmlPropertyPrivate::get(prop);
             QV4::Scope scope(engine);
             QV4::ScopedContext global(scope, engine->rootContext());
 
             if (QQmlVMEMetaObject *vmeMetaObject = QQmlVMEMetaObject::get(this)) {
-                int signalIndex = QQmlPropertyPrivate::get(prop)->signalIndex();
+                const int signalIndex = propPrivate->signalIndex();
                 auto *signal = new QQmlBoundSignal(target, signalIndex, this, qmlEngine(this));
                 signal->setEnabled(d->enabled);
 
                 QV4::Scoped<QV4::JavaScriptFunctionObject> method(
                         scope, vmeMetaObject->vmeMethod(handler->coreIndex()));
 
-                QQmlBoundSignalExpression *expression = ctxtdata
+                QQmlBoundSignalExpression *expression = (ctxtdata && method)
                         ? new QQmlBoundSignalExpression(
                                 target, signalIndex, ctxtdata, this, method->function())
                         : nullptr;
@@ -429,8 +432,7 @@ void QQmlConnections::connectSignalsToMethods()
                 d->boundsignals += signal;
             } else {
                 QQmlConnectionSlotDispatcher *slot = new QQmlConnectionSlotDispatcher(
-                        scope.engine, target, prop.index(),
-                        this, handler->coreIndex(), d->enabled);
+                        scope.engine, target, propPrivate->core, this, *handler, d->enabled);
                 slot->connection = QObjectPrivate::connect(
                         target, prop.index(), slot, Qt::AutoConnection);
                 slot->ref();

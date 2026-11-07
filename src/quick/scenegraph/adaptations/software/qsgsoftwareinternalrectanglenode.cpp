@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgsoftwareinternalrectanglenode_p.h"
 #include <qmath.h>
@@ -11,13 +12,17 @@ QT_BEGIN_NAMESPACE
 QSGSoftwareInternalRectangleNode::QSGSoftwareInternalRectangleNode()
     : m_penWidth(0)
     , m_radius(0)
-    , m_topLeftRadius(-1)
-    , m_topRightRadius(-1)
-    , m_bottomLeftRadius(-1)
-    , m_bottomRightRadius(-1)
+    , m_topLeftRadius(0)
+    , m_topRightRadius(0)
+    , m_bottomLeftRadius(0)
+    , m_bottomRightRadius(0)
+    , m_devicePixelRatio(1)
     , m_vertical(true)
     , m_cornerPixmapIsDirty(true)
-    , m_devicePixelRatio(1)
+    , m_isTopLeftRadiusSet(false)
+    , m_isTopRightRadiusSet(false)
+    , m_isBottomLeftRadiusSet(false)
+    , m_isBottomRightRadiusSet(false)
 {
     m_pen.setJoinStyle(Qt::MiterJoin);
     m_pen.setMiterLimit(0);
@@ -107,7 +112,7 @@ void QSGSoftwareInternalRectangleNode::setGradientStops(const QGradientStops &st
             //Clip stops to only the first below 0.0 and above 1.0
             int below = -1;
             int above = -1;
-            QVector<int> between;
+            QList<int> between;
             for (int i = 0; i < stops.size(); ++i) {
                 if (stops.at(i).first < 0.0) {
                     below = i;
@@ -168,47 +173,87 @@ void QSGSoftwareInternalRectangleNode::setGradientVertical(bool vertical)
 
 void QSGSoftwareInternalRectangleNode::setRadius(qreal radius)
 {
-    if (m_radius != radius) {
-        m_radius = radius;
-        m_cornerPixmapIsDirty = true;
-        markDirty(DirtyMaterial);
-    }
+    if (m_radius == radius)
+        return;
+    m_radius = radius;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
 }
 
 void QSGSoftwareInternalRectangleNode::setTopLeftRadius(qreal radius)
 {
-    if (m_topLeftRadius != radius) {
-        m_topLeftRadius = radius;
-        m_cornerPixmapIsDirty = true;
-        markDirty(DirtyMaterial);
-    }
+    if (m_isTopLeftRadiusSet && m_topLeftRadius == radius)
+        return;
+    m_isTopLeftRadiusSet = true;
+    m_topLeftRadius = radius;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
 }
 
 void QSGSoftwareInternalRectangleNode::setTopRightRadius(qreal radius)
 {
-    if (m_topRightRadius != radius) {
-        m_topRightRadius = radius;
-        m_cornerPixmapIsDirty = true;
-        markDirty(DirtyMaterial);
-    }
+    if (m_isTopRightRadiusSet && m_topRightRadius == radius)
+        return;
+    m_isTopRightRadiusSet = true;
+    m_topRightRadius = radius;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
 }
 
 void QSGSoftwareInternalRectangleNode::setBottomLeftRadius(qreal radius)
 {
-    if (m_bottomLeftRadius != radius) {
-        m_bottomLeftRadius = radius;
-        m_cornerPixmapIsDirty = true;
-        markDirty(DirtyMaterial);
-    }
+    if (m_isBottomLeftRadiusSet && m_bottomLeftRadius == radius)
+        return;
+    m_isBottomLeftRadiusSet = true;
+    m_bottomLeftRadius = radius;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
 }
 
 void QSGSoftwareInternalRectangleNode::setBottomRightRadius(qreal radius)
 {
-    if (m_bottomRightRadius != radius) {
-        m_bottomRightRadius = radius;
-        m_cornerPixmapIsDirty = true;
-        markDirty(DirtyMaterial);
-    }
+    if (m_isBottomRightRadiusSet && m_bottomRightRadius == radius)
+        return;
+    m_isBottomRightRadiusSet = true;
+    m_bottomRightRadius = radius;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
+}
+
+void QSGSoftwareInternalRectangleNode::resetTopLeftRadius()
+{
+    if (!m_isTopLeftRadiusSet)
+        return;
+    m_isTopLeftRadiusSet = false;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
+}
+
+void QSGSoftwareInternalRectangleNode::resetTopRightRadius()
+{
+    if (!m_isTopRightRadiusSet)
+        return;
+    m_isTopRightRadiusSet = false;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
+}
+
+void QSGSoftwareInternalRectangleNode::resetBottomLeftRadius()
+{
+    if (!m_isBottomLeftRadiusSet)
+        return;
+    m_isBottomLeftRadiusSet = false;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
+}
+
+void QSGSoftwareInternalRectangleNode::resetBottomRightRadius()
+{
+    if (!m_isBottomRightRadiusSet)
+        return;
+    m_isBottomRightRadiusSet = false;
+    m_cornerPixmapIsDirty = true;
+    markDirty(DirtyMaterial);
 }
 
 void QSGSoftwareInternalRectangleNode::setAligned(bool /*aligned*/)
@@ -253,19 +298,19 @@ void QSGSoftwareInternalRectangleNode::paint(QPainter *painter)
 
         if (m_radius == 0
             && m_penWidth == 0
-            && m_topLeftRadius <= 0
-            && m_topRightRadius <= 0
-            && m_bottomLeftRadius <= 0
-            && m_bottomRightRadius <= 0) {
+            && !m_isTopLeftRadiusSet
+            && !m_isTopRightRadiusSet
+            && !m_isBottomLeftRadiusSet
+            && !m_isBottomRightRadiusSet) {
             //Non-Rounded Rects without borders (fall back to drawRect)
             //Most common case
             painter->setPen(Qt::NoPen);
             painter->setBrush(m_brush);
             painter->drawRect(m_rect);
-        } else if (m_topLeftRadius < 0
-                   && m_topRightRadius < 0
-                   && m_bottomLeftRadius < 0
-                   && m_bottomRightRadius < 0) {
+        } else if (!m_isTopLeftRadiusSet
+                   && !m_isTopRightRadiusSet
+                   && !m_isBottomLeftRadiusSet
+                   && !m_isBottomRightRadiusSet) {
             //Rounded Rects and Rects with Borders
             //Avoids broken behaviors of QPainter::drawRect/roundedRect
             QPixmap pixmap = QPixmap(qRound(m_rect.width() * m_devicePixelRatio), qRound(m_rect.height() * m_devicePixelRatio));
@@ -298,21 +343,24 @@ void QSGSoftwareInternalRectangleNode::paint(QPainter *painter)
 
     } else {
         //Paint directly
-        if (m_topLeftRadius < 0
-            && m_topRightRadius < 0
-            && m_bottomLeftRadius < 0
-            && m_bottomRightRadius < 0) {
+        if (!m_isTopLeftRadiusSet
+            && !m_isTopRightRadiusSet
+            && !m_isBottomLeftRadiusSet
+            && !m_isBottomRightRadiusSet) {
             paintRectangle(painter, m_rect);
         } else {
             paintRectangleIndividualCorners(painter, m_rect);
         }
     }
-
 }
 
 bool QSGSoftwareInternalRectangleNode::isOpaque() const
 {
-    if (m_radius > 0.0f)
+    if (m_radius > 0.0f
+        || m_topLeftRadius > 0.0f
+        || m_topRightRadius > 0.0f
+        || m_bottomRightRadius > 0.0f
+        || m_bottomLeftRadius > 0.0f)
         return false;
     if (m_color.alpha() < 255)
         return false;
@@ -338,7 +386,6 @@ void QSGSoftwareInternalRectangleNode::paintRectangle(QPainter *painter, const Q
 {
     //Radius should never exceeds half of the width or half of the height
     int radius = qFloor(qMin(qMin(rect.width(), rect.height()) * 0.5, m_radius));
-
     QPainter::RenderHints previousRenderHints = painter->renderHints();
     painter->setRenderHint(QPainter::Antialiasing, false);
 
@@ -463,10 +510,14 @@ void QSGSoftwareInternalRectangleNode::paintRectangleIndividualCorners(QPainter 
     const float w = m_penWidth;
 
     // Radius should never exceeds half of the width or half of the height
-    const float radiusTL = qMin(qMin(rect.width(), rect.height()) * 0.5f, float(m_topLeftRadius < 0. ? m_radius : m_topLeftRadius));
-    const float radiusTR = qMin(qMin(rect.width(), rect.height()) * 0.5f, float(m_topRightRadius < 0. ? m_radius : m_topRightRadius));
-    const float radiusBL = qMin(qMin(rect.width(), rect.height()) * 0.5f, float(m_bottomLeftRadius < 0. ? m_radius : m_bottomLeftRadius));
-    const float radiusBR = qMin(qMin(rect.width(), rect.height()) * 0.5f, float(m_bottomRightRadius < 0 ? m_radius : m_bottomRightRadius));
+    const float radiusTL = qMin(qMin(rect.width(), rect.height()) * 0.5f,
+                                m_isTopLeftRadiusSet ? m_topLeftRadius : m_radius);
+    const float radiusTR = qMin(qMin(rect.width(), rect.height()) * 0.5f,
+                                m_isTopRightRadiusSet ? m_topRightRadius : m_radius);
+    const float radiusBL = qMin(qMin(rect.width(), rect.height()) * 0.5f,
+                                m_isBottomLeftRadiusSet ? m_bottomLeftRadius : m_radius);
+    const float radiusBR = qMin(qMin(rect.width(), rect.height()) * 0.5f,
+                                m_isBottomRightRadiusSet ? m_bottomRightRadius : m_radius);
 
     const float innerRadiusTL = qMin(qMin(rect.width(), rect.height()) * 0.5f, radiusTL - w);
     const float innerRadiusTR = qMin(qMin(rect.width(), rect.height()) * 0.5f, radiusTR - w);

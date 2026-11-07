@@ -1,7 +1,8 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
+#include <QtTest/QSignalSpy>
 #include <QtQuickTest/quicktest.h>
 
 #include <QtQuick/qquickview.h>
@@ -12,6 +13,7 @@
 #include <QtQuick/private/qquicktextinput_p.h>
 
 #include <QtQuickTemplates2/private/qquickselectionrectangle_p.h>
+#include <QtQuickTemplates2/private/qquickcombobox_p.h>
 
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
@@ -20,7 +22,9 @@
 #include <QtQml/qqmlcomponent.h>
 #include <QtQmlModels/private/qqmlobjectmodel_p.h>
 #include <QtQmlModels/private/qqmllistmodel_p.h>
+#include <QtQmlModels/private/qqmlsortfilterproxymodel_p.h>
 
+#include "delegatechoosermodel.h"
 #include "testmodel.h"
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
@@ -104,11 +108,13 @@ private slots:
     void checkColumnWidthProviderInvalidReturnValues();
     void checkColumnWidthProviderNegativeReturnValue();
     void checkColumnWidthProviderNotCallable();
+    void checkColumnWidthProviderUndefinedReturnValue();
     void checkColumnWidthBoundToViewWidth();
     void checkRowHeightWithoutProvider();
     void checkRowHeightProvider();
     void checkRowHeightProviderInvalidReturnValues();
     void checkRowHeightProviderNegativeReturnValue();
+    void checkRowHeightProviderUndefinedReturnValue();
     void checkRowHeightProviderNotCallable();
     void isColumnLoadedAndIsRowLoaded();
     void checkForceLayoutFunction();
@@ -139,6 +145,9 @@ private slots:
     void fillTableViewButNothingMore();
     void checkInitialAttachedProperties_data();
     void checkInitialAttachedProperties();
+    void checkNoAttachedObjectByDefault();
+    void checkAttachedView_data();
+    void checkAttachedView();
     void checkSpacingValues();
     void checkDelegateParent();
     void flick_data();
@@ -153,6 +162,7 @@ private slots:
     void checkIfDelegatesAreReused_data();
     void checkIfDelegatesAreReused();
     void checkIfDelegatesAreReusedAsymmetricTableSize();
+    void verifyThatOnlyRemovedRowsArePooled();
     void checkContextProperties_data();
     void checkContextProperties();
     void checkContextPropertiesQQmlListProperyModel_data();
@@ -231,6 +241,7 @@ private slots:
     void testSelectableStartPosEndPosOutsideView();
     void testSelectableScrollTowardsPos();
     void setCurrentIndexFromSelectionModel();
+    void selectionTrackingSurvivesReentrantCurrentChanged();
     void clearSelectionOnTap_data();
     void clearSelectionOnTap();
     void moveCurrentIndexUsingArrowKeys();
@@ -292,11 +303,20 @@ private slots:
     void editWarning_nonEditableModelItem();
     void attachedPropertiesOnEditDelegate();
     void requiredPropertiesOnEditDelegate();
+    void editWithBuddy();
     void resettingRolesRespected();
     void checkScroll_data();
     void checkScroll();
     void checkRebuildJsModel();
     void invalidateTableInstanceModelContextObject();
+    void transposed();
+
+    void universalModelData();
+    void typedModelData();
+    void requiredModelData();
+
+    void delegateModelAccess_data();
+    void delegateModelAccess();
 
     // Row and column reordering
     void checkVisualRowColumnAfterReorder();
@@ -305,6 +325,9 @@ private slots:
     void checkCellModelIdxAfterReorder();
     void checkEditAfterReorder();
     void checkSelectionAfterReorder();
+
+    void delegateChooserDataChange();
+    void requiredRoleUpdatedAfterProxyModelResort();
 };
 
 tst_QQuickTableView::tst_QQuickTableView()
@@ -326,7 +349,7 @@ void tst_QQuickTableView::cleanupTestCase()
 
 QQuickTableViewAttached *tst_QQuickTableView::getAttachedObject(const QObject *object) const
 {
-    QObject *attachedObject = qmlAttachedPropertiesObject<QQuickTableView>(object);
+    QObject *attachedObject = qmlAttachedPropertiesObject<QQuickTableView>(object, false);
     return static_cast<QQuickTableViewAttached *>(attachedObject);
 }
 
@@ -635,6 +658,23 @@ void tst_QQuickTableView::checkColumnWidthProviderNegativeReturnValue()
         QCOMPARE(fxItem->item->width(), 20);
 }
 
+void tst_QQuickTableView::checkColumnWidthProviderUndefinedReturnValue()
+{
+    // Check that we fall back to use the implicit width of the delegate
+    // items if the columnWidthProvider returns an undefined.
+    LOAD_TABLEVIEW("userowcolumnprovider.qml");
+
+    auto model = TestModelAsVariant(10, 10);
+    view->rootObject()->setProperty("returnUndefinedColumnWidth", true);
+
+    tableView->setModel(model);
+
+    WAIT_UNTIL_POLISHED;
+
+    for (auto fxItem : tableViewPrivate->loadedItems)
+        QCOMPARE(fxItem->item->width(), 20);
+}
+
 void tst_QQuickTableView::checkColumnWidthProviderNotCallable()
 {
     // Check that we fall back to use default columns widths, if you
@@ -744,6 +784,23 @@ void tst_QQuickTableView::checkRowHeightProviderNegativeReturnValue()
 
     auto model = TestModelAsVariant(10, 10);
     view->rootObject()->setProperty("returnNegativeRowHeight", true);
+
+    tableView->setModel(model);
+
+    WAIT_UNTIL_POLISHED;
+
+    for (auto fxItem : tableViewPrivate->loadedItems)
+        QCOMPARE(fxItem->item->height(), 20);
+}
+
+void tst_QQuickTableView::checkRowHeightProviderUndefinedReturnValue()
+{
+    // Check that we fall back to use the implicit height of the delegate
+    // items if the rowHeightProvider return a negative number.
+    LOAD_TABLEVIEW("userowcolumnprovider.qml");
+
+    auto model = TestModelAsVariant(10, 10);
+    view->rootObject()->setProperty("returnUndefinedRowHeight", true);
 
     tableView->setModel(model);
 
@@ -866,7 +923,7 @@ void tst_QQuickTableView::checkForceLayoutInbetweenAddingRowsToModel()
     TestModel model(initialRowCount, 10);
     tableView->setModel(QVariant::fromValue(&model));
 
-    connect(&model, &QAbstractItemModel::rowsInserted, [=](){
+    connect(&model, &QAbstractItemModel::rowsInserted, this, [tableView]() {
         QCOMPARE(tableView->rows(), initialRowCount);
         tableView->forceLayout();
         QCOMPARE(tableView->rows(), initialRowCount + 1);
@@ -1744,6 +1801,44 @@ void tst_QQuickTableView::checkInitialAttachedProperties()
     }
 }
 
+void tst_QQuickTableView::checkAttachedView_data()
+{
+    QTest::addColumn<QString>("table");
+    QTest::newRow("plain") << "plaintableview.qml";
+    QTest::newRow("setting editDelegate") << "editdelegate.qml";
+    QTest::newRow("using attached signals") << "countingtableview.qml";
+}
+
+void tst_QQuickTableView::checkAttachedView()
+{
+    // Check that attached view still works when modifying an attached property
+    // or conncecting to a signal
+    QFETCH(QString, table);
+    LOAD_TABLEVIEW(table);
+
+    tableView->setModel(3);
+
+    WAIT_UNTIL_POLISHED;
+
+    for (auto fxItem : tableViewPrivate->loadedItems) {
+        const auto item = fxItem->item;
+        QCOMPARE(getAttachedObject(item)->view(), tableView);
+    }
+}
+
+void tst_QQuickTableView::checkNoAttachedObjectByDefault()
+{
+    // Check that we don't create an attached object for every
+    // delegate, if the application is not using them.
+    LOAD_TABLEVIEW("tableviewimplicitsize.qml");
+    auto model = TestModelAsVariant(2, 2);
+    tableView->setModel(model);
+    WAIT_UNTIL_POLISHED;
+
+    for (auto fxItem : tableViewPrivate->loadedItems)
+        QVERIFY(!getAttachedObject(fxItem->item));
+}
+
 void tst_QQuickTableView::checkSpacingValues()
 {
     LOAD_TABLEVIEW("tableviewdefaultspacing.qml");
@@ -2563,37 +2658,53 @@ void tst_QQuickTableView::checkRowAndColumnChangedButNotIndex()
 
 void tst_QQuickTableView::checkThatWeAlwaysEmitChangedUponItemReused()
 {
-    // Check that we always emit changes to index when we reuse an item, even
-    // if it doesn't change. This is needed since the model can have changed
-    // row or column count while the item was in the pool, which means that
-    // any data referred to by the index property inside the delegate
-    // will change too. So we need to refresh any bindings to index.
-    // QTBUG-79209
+    // Verify that index, row and column are always re-emitted when an item is
+    // reused, even if the flat index value hasn't changed. This matters because
+    // the model may reset with swapped row and column counts while the item sits
+    // in the pool: the same flat index then maps to a different (row, column) pair,
+    // so all bindings that depend on those properties must be refreshed. QTBUG-79209
     LOAD_TABLEVIEW("checkalwaysemit.qml");
 
-    TestModel model(1, 1);
+    TestModel model(1, 2);
     tableView->setModel(QVariant::fromValue(&model));
-    model.setModelData(QPoint(0, 0), QSize(1, 1), "old value");
+
+    const QPoint modifiedCell{1, 0};
+    const QString text = "Lorem Ipsum"_L1;
+
+    model.setModelData(modifiedCell, QSize(1, 1), text);
 
     WAIT_UNTIL_POLISHED;
 
-    const auto reuseItem = tableViewPrivate->loadedTableItem(QPoint(0, 0))->item;
-    const auto context = qmlContext(reuseItem.data());
+    {
+        // Check that the context properties of the modified cell are as expected
+        const auto item = tableViewPrivate->loadedTableItem(modifiedCell)->item;
+        const auto context = qmlContext(item.data());
+        const int flatIndex = modifiedCell.x() * model.rowCount() + modifiedCell.y();
+        QCOMPARE(flatIndex, 1);
+        QCOMPARE(context->contextProperty("index").toInt(), flatIndex);
+        QCOMPARE(context->contextProperty("row").toInt(), modifiedCell.y());
+        QCOMPARE(context->contextProperty("column").toInt(), modifiedCell.x());
+        QCOMPARE(context->contextProperty("modelDataFromIndex").toString(), text);
+    }
 
-    // Remove the cell/row that has "old value" as model data, and
-    // add a new one right after. The new cell will have the same
-    // index, but with no model data assigned.
-    // This change will not be detected by items in the pool. But since
-    // we emit indexChanged when the item is reused, it will be updated then.
-    model.removeRow(0);
-    model.insertRow(0);
+    // Add a new row at the bottom, below the modified cell. This shouldn't affect
+    // its row and column position, nor the model data fetched from the
+    // modelDataFromIndex() binding. But since the new row changes row and column
+    // count, its flat index changes.
+    model.insertRow(1);
 
     WAIT_UNTIL_POLISHED;
 
-    QCOMPARE(context->contextProperty("index").toInt(), 0);
-    QCOMPARE(context->contextProperty("row").toInt(), 0);
-    QCOMPARE(context->contextProperty("column").toInt(), 0);
-    QCOMPARE(context->contextProperty("modelDataFromIndex").toString(), "");
+    {
+        const auto item = tableViewPrivate->loadedTableItem(modifiedCell)->item;
+        const auto context = qmlContext(item.data());
+        const int flatIndex = modifiedCell.x() * model.rowCount() + modifiedCell.y();
+        QCOMPARE(flatIndex, 2);
+        QCOMPARE(context->contextProperty("index").toInt(), flatIndex);
+        QCOMPARE(context->contextProperty("row").toInt(), modifiedCell.y());
+        QCOMPARE(context->contextProperty("column").toInt(), modifiedCell.x());
+        QCOMPARE(context->contextProperty("modelDataFromIndex").toString(), text);
+    }
 }
 
 void tst_QQuickTableView::checkChangingModelFromDelegate()
@@ -3554,14 +3665,16 @@ void tst_QQuickTableView::checkSyncView_dontRelayoutWhileFlicking()
     // signal. If this signal is emitted as a part of a relayout, rebuildOptions
     // would still be different from RebuildOption::None at that point.
     bool columnFlickedIn = false;
-    connect(tableViewHV, &QQuickTableView::rightColumnChanged, [&] {
+    connect(tableViewHV, &QQuickTableView::rightColumnChanged,
+            this, [&columnFlickedIn, tableViewHVPrivate] {
         columnFlickedIn = true;
         QCOMPARE(tableViewHVPrivate->rebuildOptions, QQuickTableViewPrivate::RebuildOption::None);
     });
 
     // We do the same for vertical flicking
     bool rowFlickedIn = false;
-    connect(tableViewHV, &QQuickTableView::bottomRowChanged, [&] {
+    connect(tableViewHV, &QQuickTableView::bottomRowChanged,
+            this, [&rowFlickedIn, tableViewHVPrivate] {
         rowFlickedIn = true;
         QCOMPARE(tableViewHVPrivate->rebuildOptions, QQuickTableViewPrivate::RebuildOption::None);
     });
@@ -4102,8 +4215,8 @@ void tst_QQuickTableView::positionViewAtCellWithAnimation()
     // Wait for animation to finish
     QVERIFY(tableViewPrivate->positionXAnimation.isRunning());
     QVERIFY(tableViewPrivate->positionYAnimation.isRunning());
-    QTRY_COMPARE(tableViewPrivate->positionXAnimation.isRunning(), false);
-    QTRY_COMPARE(tableViewPrivate->positionYAnimation.isRunning(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionXAnimation.isRunning(), false, 3s);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionYAnimation.isRunning(), false, 3s);
 
     // Check that the cell is now placed in the top left corner
     QVERIFY(tableViewPrivate->loadedItems.contains(serializedIndex));
@@ -4117,7 +4230,7 @@ void tst_QQuickTableView::positionViewAtCellWithAnimation()
     // Wait for animation to finish
     QVERIFY(tableViewPrivate->positionXAnimation.isRunning());
     QVERIFY(!tableViewPrivate->positionYAnimation.isRunning());
-    QTRY_COMPARE(tableViewPrivate->positionXAnimation.isRunning(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionXAnimation.isRunning(), false, 3s);
 
     // Check that the cell is now placed in the top right corner
     QVERIFY(tableViewPrivate->loadedItems.contains(serializedIndex));
@@ -4131,8 +4244,8 @@ void tst_QQuickTableView::positionViewAtCellWithAnimation()
     // Wait for animation to finish
     QVERIFY(tableViewPrivate->positionXAnimation.isRunning());
     QVERIFY(tableViewPrivate->positionYAnimation.isRunning());
-    QTRY_COMPARE(tableViewPrivate->positionXAnimation.isRunning(), false);
-    QTRY_COMPARE(tableViewPrivate->positionYAnimation.isRunning(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionXAnimation.isRunning(), false, 3s);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionYAnimation.isRunning(), false, 3s);
 
     // Check that the cell is now placed in the bottom left corner
     QVERIFY(tableViewPrivate->loadedItems.contains(serializedIndex));
@@ -4146,7 +4259,7 @@ void tst_QQuickTableView::positionViewAtCellWithAnimation()
     // Wait for animation to finish
     QVERIFY(tableViewPrivate->positionXAnimation.isRunning());
     QVERIFY(!tableViewPrivate->positionYAnimation.isRunning());
-    QTRY_COMPARE(tableViewPrivate->positionXAnimation.isRunning(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(tableViewPrivate->positionXAnimation.isRunning(), false, 3s);
 
     // Check that the cell is now placed in the bottom right corner
     QVERIFY(tableViewPrivate->loadedItems.contains(serializedIndex));
@@ -4622,10 +4735,10 @@ void tst_QQuickTableView::leftRightTopBottomProperties_data()
     QTest::addColumn<QMargins>("expectedTable");
     QTest::addColumn<QMargins>("expectedSignalCount");
 
-    QTest::newRow("1") << QPointF(0, 0) << QMargins(0, 0, 5, 7) << QMargins(0, 0, 1, 1);
-    QTest::newRow("2") << QPointF(100, 50) << QMargins(1, 1, 6, 8) << QMargins(1, 1, 2, 2);
-    QTest::newRow("3") << QPointF(220, 120) << QMargins(2, 2, 8, 10) << QMargins(2, 2, 4, 4);
-    QTest::newRow("4") << QPointF(1000, 1000) << QMargins(9, 19, 15, 27) << QMargins(1, 1, 2, 2);
+    QTest::newRow("1") << QPointF(0, 0) << QMargins(0, 0, 5, 7) << QMargins(1, 1, 1, 1);
+    QTest::newRow("2") << QPointF(100, 50) << QMargins(1, 1, 6, 8) << QMargins(2, 2, 2, 2);
+    QTest::newRow("3") << QPointF(220, 120) << QMargins(2, 2, 8, 10) << QMargins(3, 3, 4, 4);
+    QTest::newRow("4") << QPointF(1000, 1000) << QMargins(9, 19, 15, 27) << QMargins(2, 2, 2, 2);
 }
 
 void tst_QQuickTableView::leftRightTopBottomProperties()
@@ -4672,16 +4785,16 @@ void tst_QQuickTableView::leftRightTopBottomUpdatedBeforeSignalEmission()
 
     WAIT_UNTIL_POLISHED;
 
-    connect(tableView, &QQuickTableView::leftColumnChanged, [=]{
+    connect(tableView, &QQuickTableView::leftColumnChanged, this, [tableView] {
         QCOMPARE(tableView->leftColumn(), 1);
     });
-    connect(tableView, &QQuickTableView::rightColumnChanged, [=]{
+    connect(tableView, &QQuickTableView::rightColumnChanged, this, [tableView] {
         QCOMPARE(tableView->rightColumn(), 6);
     });
-    connect(tableView, &QQuickTableView::topRowChanged, [=]{
+    connect(tableView, &QQuickTableView::topRowChanged, this, [tableView] {
         QCOMPARE(tableView->topRow(), 1);
     });
-    connect(tableView, &QQuickTableView::bottomRowChanged, [=]{
+    connect(tableView, &QQuickTableView::bottomRowChanged, this, [tableView] {
         QCOMPARE(tableView->bottomRow(), 8);
     });
 
@@ -4761,12 +4874,12 @@ void tst_QQuickTableView::checkContentSize()
 
 void tst_QQuickTableView::checkSelectionModelWithRequiredSelectedProperty_data()
 {
-    QTest::addColumn<QVector<QPoint>>("selected");
+    QTest::addColumn<QList<QPoint>>("selected");
     QTest::addColumn<QPoint>("toggle");
 
-    QTest::newRow("nothing selected") << QVector<QPoint>() << QPoint(0,0);
-    QTest::newRow("one item selected") << (QVector<QPoint>() << QPoint(0, 0)) << QPoint(1, 1);
-    QTest::newRow("two items selected") << (QVector<QPoint>() << QPoint(1, 1) << QPoint(2, 2)) << QPoint(1, 1);
+    QTest::newRow("nothing selected") << QList<QPoint>() << QPoint(0,0);
+    QTest::newRow("one item selected") << (QList<QPoint>() << QPoint(0, 0)) << QPoint(1, 1);
+    QTest::newRow("two items selected") << (QList<QPoint>() << QPoint(1, 1) << QPoint(2, 2)) << QPoint(1, 1);
 }
 
 void tst_QQuickTableView::checkSelectionModelWithRequiredSelectedProperty()
@@ -4774,7 +4887,7 @@ void tst_QQuickTableView::checkSelectionModelWithRequiredSelectedProperty()
     // Check that if you add a "required property selected" to the delegate,
     // TableView will give it a value upon creation that matches the state
     // in the selection model.
-    QFETCH(QVector<QPoint>, selected);
+    QFETCH(QList<QPoint>, selected);
     QFETCH(QPoint, toggle);
 
     LOAD_TABLEVIEW("tableviewwithselected1.qml");
@@ -5260,6 +5373,66 @@ void tst_QQuickTableView::setCurrentIndexFromSelectionModel()
     WAIT_UNTIL_POLISHED;
     QVERIFY(tableView->itemAtCell(cellAtEnd));
     QVERIFY(tableView->itemAtCell(cellAtEnd)->property(kCurrent).toBool());
+}
+
+void tst_QQuickTableView::selectionTrackingSurvivesReentrantCurrentChanged()
+{
+    // TableView keeps its own bookkeeping (selectionStartCell/selectionEndCell/
+    // selectionFlag) while a drag- or keyboard-driven selection is in progress,
+    // and uses setCurrentIndex() to move the current index as the selection
+    // grows. If the assigned ItemSelectionModel reacts to currentChanged() by
+    // synchronously calling select() on itself (a common and documented
+    // pattern for keeping the current index part of the selection), TableView
+    // used to mistake the resulting, self-triggered selectionChanged() for an
+    // external change, and call cancelSelectionTracking(). That reset
+    // selectionFlag to NoUpdate while the selection was still being tracked,
+    // and the very next call to setSelectionEndPos() would then hit
+    // Q_ASSERT(selectionFlag != QItemSelectionModel::NoUpdate). Check that
+    // extending a selection like this no longer asserts/crashes, and that the
+    // resulting selection is correct.
+    LOAD_TABLEVIEW("tableviewwithselected1.qml");
+
+    TestModel model(10, 10);
+    QItemSelectionModel selectionModel(&model);
+    connect(&selectionModel, &QItemSelectionModel::currentChanged, &selectionModel,
+            [&selectionModel](const QModelIndex &current, const QModelIndex &) {
+        if (current.isValid())
+            selectionModel.select(current, QItemSelectionModel::Select);
+    });
+
+    tableView->setModel(QVariant::fromValue(&model));
+    tableView->setSelectionModel(&selectionModel);
+
+    WAIT_UNTIL_POLISHED;
+
+    const QPoint startCell(2, 2);
+    const QPoint endCell(4, 4);
+    const QQuickItem *startItem = tableView->itemAtCell(startCell);
+    const QQuickItem *endItem = tableView->itemAtCell(endCell);
+    QVERIFY(startItem);
+    QVERIFY(endItem);
+
+    const QPointF startPos(startItem->x() + startItem->width() / 2,
+                           startItem->y() + startItem->height() / 2);
+    const QPointF endPos(endItem->x() + endItem->width() / 2, endItem->y() + endItem->height() / 2);
+
+    // This sequence mirrors what SelectionRectangle does on a pointer drag.
+    // Before the fix, setSelectionEndPos() below would assert.
+    QVERIFY(tableViewPrivate->startSelection(startPos, Qt::NoModifier));
+    tableViewPrivate->setSelectionStartPos(startPos);
+    tableViewPrivate->setSelectionEndPos(endPos);
+
+    for (int y = startCell.y(); y <= endCell.y(); ++y) {
+        for (int x = startCell.x(); x <= endCell.x(); ++x) {
+            const auto failureContext = qScopeGuard([&] {
+                if (QTest::currentTestFailed()) {
+                    qDebug().nospace() << "Failure for expected selected item at position ("
+                                       << x << ", " << y << ")";
+                }
+            });
+            QVERIFY(selectionModel.isSelected(tableView->modelIndex(QPoint(x, y))));
+        }
+    }
 }
 
 void tst_QQuickTableView::clearSelectionOnTap_data()
@@ -7062,7 +7235,7 @@ void tst_QQuickTableView::editUsingEditTriggers_data()
         QTest::newRow("DoubleTapped") << QQuickTableView::EditTriggers(QQuickTableView::DoubleTapped) << interactive;
         QTest::newRow("SelectedTapped") << QQuickTableView::EditTriggers(QQuickTableView::SelectedTapped) << interactive;
         QTest::newRow("EditKeyPressed") << QQuickTableView::EditTriggers(QQuickTableView::EditKeyPressed) << interactive;
-        QTest::newRow("AnyKeyPressed") << QQuickTableView::EditTriggers(QQuickTableView::EditKeyPressed) << interactive;
+        QTest::newRow("AnyKeyPressed") << QQuickTableView::EditTriggers(QQuickTableView::AnyKeyPressed) << interactive;
         QTest::newRow("DoubleTapped | EditKeyPressed")
                 << QQuickTableView::EditTriggers(QQuickTableView::DoubleTapped | QQuickTableView::EditKeyPressed) << interactive;
         QTest::newRow("SingleTapped | AnyKeyPressed")
@@ -7117,7 +7290,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->selectionModel()->currentIndex(), index1);
         const auto editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem1);
-        QVERIFY(editItem1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem1);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
 
         // edit cell 2 (without closing the previous edit session first)
@@ -7125,7 +7298,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->selectionModel()->currentIndex(), index2);
         const auto editItem2 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem2);
-        QVERIFY(editItem2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem2);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index2);
 
         // single tap outside content item should close the editor
@@ -7141,7 +7314,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->selectionModel()->currentIndex(), index1);
         const auto editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem1);
-        QVERIFY(editItem1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem1);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
 
         // edit cell 2 (without closing the previous edit session first)
@@ -7149,7 +7322,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->selectionModel()->currentIndex(), index2);
         const auto editItem2 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem2);
-        QVERIFY(editItem2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem2);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index2);
 
         // single tap outside the edit item should close the editor
@@ -7178,7 +7351,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->selectionModel()->currentIndex(), index1);
         const auto editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem1);
-        QVERIFY(editItem1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem1);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
 
         // tap on a non-selected cell. This should close the editor, and move
@@ -7206,7 +7379,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QTest::keyClick(window, Qt::Key_Return);
         const auto editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem1);
-        QVERIFY(editItem1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem1);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
 
         // Pressing escape should close the editor
@@ -7219,7 +7392,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QTest::keyClick(window, Qt::Key_Enter);
         const auto editItem2 = tableView->property(kEditItem).value<QQuickItem *>();
         QVERIFY(editItem2);
-        QVERIFY(editItem2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(editItem2);
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
 
         // single tap outside the edit item should close the editor
@@ -7237,7 +7410,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
         auto textInput1 = tableView->property(kEditItem).value<QQuickTextInput *>();
         QVERIFY(textInput1);
-        QVERIFY(textInput1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textInput1);
         QCOMPARE(textInput1->text(), "x");
 
         // Pressing escape should close the editor
@@ -7264,7 +7437,7 @@ void tst_QQuickTableView::editUsingEditTriggers()
         QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
         auto textInput2 = tableView->property(kEditItem).value<QQuickTextInput *>();
         QVERIFY(textInput2);
-        QVERIFY(textInput2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textInput2);
         QCOMPARE(textInput2->text(), "1");
 
         if (!(editTriggers & QQuickTableView::SingleTapped)) {
@@ -7355,6 +7528,8 @@ void tst_QQuickTableView::editDelegateComboBox()
     const char kEditIndex[] = "editIndex";
     const char kCommitCount[] = "commitCount";
     const char kComboFocusCount[] = "comboFocusCount";
+    const char kComboEditable[] = "comboBoxEditable";
+    const char kComboBox[] = "comboBox";
 
     WAIT_UNTIL_POLISHED;
 
@@ -7404,6 +7579,33 @@ void tst_QQuickTableView::editDelegateComboBox()
     QTest::keyClick(window, Qt::Key_Enter);
     QCOMPARE(tableView->property(kCommitCount).value<int>(), 3);
     QCOMPARE(tableView->property(kComboFocusCount).value<int>(), 4);
+    QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
+    QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
+
+    // Make the combo in cell 1 editable and edit it. Then transfer focus to the
+    // textfield inside it. Check that when we transfer focus locally _inside_
+    // the edit delegate, it stays open. And that hitting Enter after the focus
+    // transfer still works.
+    tableView->setProperty(kComboEditable, true);
+    tableView->edit(index1);
+    const QQuickItem *comboBox = tableViewPrivate->editItem->property(kComboBox).value<QQuickItem *>();
+    QVERIFY(comboBox);
+    QCOMPARE(qGuiApp->focusObject(), comboBox);
+
+    // Click on the textinput inside the combo to give it focus
+    auto *cellItem = tableView->itemAtIndex(index1);
+    QVERIFY(cellItem);
+    const QPoint localCenterPos = QPoint(comboBox->width() / 2, comboBox->height() / 2);
+    const QPoint centerPos = window->contentItem()->mapFromItem(comboBox, localCenterPos).toPoint();
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centerPos);
+    // Check that focus moved to some other object (the line edit) inside the combo
+    QCOMPARE_NE(qGuiApp->focusObject(), comboBox);
+    QVERIFY(comboBox->isAncestorOf(qobject_cast<QQuickItem *>(qGuiApp->focusObject())));
+
+    // Press Enter to close the editor
+    QTest::keyClick(window, Qt::Key_Enter);
+    QCOMPARE(tableView->property(kCommitCount).value<int>(), 4);
+    QCOMPARE(tableView->property(kComboFocusCount).value<int>(), 5);
     QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
     QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
 }
@@ -7625,7 +7827,7 @@ void tst_QQuickTableView::editAndCloseEditor()
     QCOMPARE(tableView->selectionModel()->currentIndex(), index1);
     const QQuickItem *editItem1 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem1);
-    QVERIFY(editItem1->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(editItem1);
     QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index1);
     QCOMPARE(editItem1->parentItem(), cellItem1);
     QCOMPARE(editItem1->property("editing").toBool(), true);
@@ -7636,7 +7838,7 @@ void tst_QQuickTableView::editAndCloseEditor()
     QCOMPARE(tableView->selectionModel()->currentIndex(), index2);
     const QQuickItem *editItem2 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem2);
-    QVERIFY(editItem2->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(editItem2);
     QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index2);
     QCOMPARE(editItem2->parentItem(), cellItem2);
     QCOMPARE(editItem2->property("editing").toBool(), true);
@@ -7759,7 +7961,7 @@ void tst_QQuickTableView::attachedPropertiesOnEditDelegate()
     QQuickItem *editItem3 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem3);
     const auto attached3 = getAttachedObject(editItem3);
-    QVERIFY(editItem3);
+    QVERIFY(attached3);
     QSignalSpy commitSpy3(attached3, &QQuickTableViewAttached::commit);
 
     QTest::keyClick(window, Qt::Key_Escape);
@@ -7768,20 +7970,37 @@ void tst_QQuickTableView::attachedPropertiesOnEditDelegate()
     QCOMPARE(commitSpy3.count(), 0);
 
     // Repeat once more, but tap outside the edit item.
-    // This should close the edit, but without an accepted signal.
+    // This should close the edit with an accepted signal.
     tableView->edit(index);
     QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index);
     QQuickItem *editItem4 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem4);
     const auto attached4 = getAttachedObject(editItem4);
-    QVERIFY(editItem4);
+    QVERIFY(attached4);
     QSignalSpy commitSpy4(attached4, &QQuickTableViewAttached::commit);
 
     const QPoint tapPos = window->contentItem()->mapFromItem(editItem4, QPointF(-10, -10)).toPoint();
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, tapPos);
     QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
     QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
-    QCOMPARE(commitSpy4.count(), 0);
+    QCOMPARE(commitSpy4.count(), 1);
+
+    // Repeat once more, but transfer focus to a different text input
+    // This should close the edit with an accepted signal.
+    tableView->edit(index);
+    QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index);
+    QQuickItem *editItem5 = tableView->property(kEditItem).value<QQuickItem *>();
+    QVERIFY(editItem5);
+    const auto attached5 = getAttachedObject(editItem5);
+    QVERIFY(attached5);
+    QSignalSpy commitSpy5(attached5, &QQuickTableViewAttached::commit);
+
+    auto *textInput = view->rootObject()->property("textInput").value<QQuickTextInput *>();
+    QVERIFY(textInput);
+    textInput->forceActiveFocus();
+    QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
+    QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
+    QCOMPARE(commitSpy5.count(), 1);
 }
 
 void tst_QQuickTableView::requiredPropertiesOnEditDelegate()
@@ -7818,6 +8037,38 @@ void tst_QQuickTableView::requiredPropertiesOnEditDelegate()
     QCOMPARE(textInput->property("selected").toBool(), true);
     selectionModel.setCurrentIndex(index2, QItemSelectionModel::Select);
     QCOMPARE(textInput->property("current").toBool(), false);
+}
+
+void tst_QQuickTableView::editWithBuddy()
+{
+    // Check that if the model returns a buddy for the index being edited,
+    // the buddy index is what gets edited rather than the requested index.
+    LOAD_TABLEVIEW("editdelegate.qml");
+
+    struct BuddyModel : TestModel {
+        using TestModel::TestModel;
+        QModelIndex buddy(const QModelIndex &index) const override {
+            // Map cell (1, 1) to its buddy at cell (2, 2)
+            if (index.row() == 1 && index.column() == 1)
+                return createIndex(2, 2);
+            return index;
+        }
+    };
+
+    BuddyModel model(4, 4);
+    tableView->setModel(QVariant::fromValue(&model));
+
+    WAIT_UNTIL_POLISHED;
+
+    const QModelIndex requestedIndex = tableView->index(1, 1);
+    const QModelIndex buddyIndex = tableView->index(2, 2);
+
+    tableView->edit(requestedIndex);
+
+    // The edit delegate should have opened on the buddy index, not the requested index
+    QVERIFY(tableViewPrivate->editItem);
+    QCOMPARE(tableViewPrivate->editIndex, buddyIndex);
+    tableView->closeEditor();
 }
 
 void tst_QQuickTableView::resettingRolesRespected()
@@ -7910,12 +8161,408 @@ void tst_QQuickTableView::invalidateTableInstanceModelContextObject()
     QTRY_COMPARE(tableView->rows(), modelData);
 
     bool tableViewDestroyed = false;
-    connect(tableView, &QObject::destroyed, [&] {
+    connect(tableView, &QObject::destroyed, this, [&tableViewDestroyed] {
         tableViewDestroyed = true;
     });
 
     window.reset();
     QTRY_COMPARE(tableViewDestroyed, true);
+}
+
+void tst_QQuickTableView::transposed()
+{
+    // Check that TableView will be transposed if isTransposed is set to true.
+    // This is used by HorizontalHeaderView to be able to use e.g a JavaScript
+    // Array as model.
+    LOAD_TABLEVIEW("plaintableview.qml");
+
+    const QStringList stringModel = {"one", "two", "three"};
+    tableView->setModel(QVariant::fromValue(stringModel));
+    WAIT_UNTIL_POLISHED;
+
+    // First, check that the elements are laid out in a
+    // column-major order when not transposed.
+    QCOMPARE(tableView->columns(), 1);
+    QCOMPARE(tableView->rows(), stringModel.count());
+
+    for (int row = 0; row < 3; ++row) {
+        auto item = tableView->itemAtCell({0, row});
+        QVERIFY(item);
+        const QPoint contextCell = getContextRowAndColumn(item);
+        QCOMPARE(contextCell, QPoint(0, row));
+    }
+
+    // Now transpose the model
+    tableViewPrivate->isTransposed = true;
+    tableView->forceLayout();
+
+    // Check that the elements are laid out in a row-major order
+    QCOMPARE(tableView->columns(), stringModel.count());
+    QCOMPARE(tableView->rows(), 1);
+
+    for (int col = 0; col < 3; ++col) {
+        auto item = tableView->itemAtCell({col, 0});
+        QVERIFY(item);
+        const QPoint contextCell = getContextRowAndColumn(item);
+        QCOMPARE(contextCell, QPoint(0, col));
+    }
+    // Also sanity-check that the old column-major items are removed
+    for (int row = 1; row < 3; ++row)
+        QVERIFY(!tableView->itemAtCell({0, row}));
+}
+
+void tst_QQuickTableView::universalModelData()
+{
+    LOAD_TABLEVIEW("universalModelData.qml");
+
+    for (int i = 0; i < 6; ++i) {
+        tableView->setProperty("n", i);
+
+        WAIT_UNTIL_POLISHED;
+
+        QCOMPARE(QQuickTableViewPrivate::get(tableView)->loadedItems.size(), 1);
+        QObject *delegate
+                = QQuickTableViewPrivate::get(tableView)->loadedItems.begin().value()->item;
+        QVERIFY(delegate);
+
+        QObject *modelItem = delegate->property("modelSelf").value<QObject *>();
+        QVERIFY(modelItem != nullptr);
+        switch (i) {
+        case 0: {
+            // list model with 1 role
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            QCOMPARE(delegate->property("modelDataSelf"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelModelData"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelAnonymous"), QStringLiteral("a"));
+            break;
+        }
+        case 1: {
+            // list model with 2 roles
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelItem));
+            break;
+        }
+        case 2: {
+            // JS array of objects
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+
+            // Do the comparison in QVariantMap. The values get converted back and forth a
+            // few times, making any JavaScript equality comparison impossible.
+            // This is only due to test setup, though.
+            const QVariantMap modelData = delegate->property("modelDataSelf").value<QVariantMap>();
+            QVERIFY(!modelData.isEmpty());
+            QCOMPARE(delegate->property("modelModelData").value<QVariantMap>(), modelData);
+            QCOMPARE(delegate->property("modelAnonymous").value<QVariantMap>(), modelData);
+            break;
+        }
+        case 3: {
+            // string list
+            QVERIFY(!delegate->property("modelA").isValid());
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            QCOMPARE(delegate->property("modelDataSelf"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelModelData"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelAnonymous"), QStringLiteral("a"));
+            break;
+        }
+        case 4: {
+            // single object
+            QCOMPARE(delegate->property("modelA"), QStringLiteral("a"));
+            QCOMPARE(delegate->property("modelDataA"), QStringLiteral("a"));
+            QObject *modelData = delegate->property("modelDataSelf").value<QObject *>();
+            QVERIFY(modelData != nullptr);
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelData));
+            break;
+        }
+        case 5: {
+            // a number
+            QVERIFY(!delegate->property("modelA").isValid());
+            QVERIFY(!delegate->property("modelDataA").isValid());
+            const QVariant modelData = delegate->property("modelDataSelf");
+
+            // This is int on 32bit systems because qsizetype fits into int there.
+            // On 64bit systems it's double because qsizetype doesn't fit into int.
+            if (sizeof(qsizetype) > sizeof(int))
+                QCOMPARE(modelData.metaType(), QMetaType::fromType<double>());
+            else
+                QCOMPARE(modelData.metaType(), QMetaType::fromType<int>());
+
+            QCOMPARE(modelData.value<int>(), 0);
+            QCOMPARE(delegate->property("modelModelData"), modelData);
+            QCOMPARE(delegate->property("modelAnonymous"), modelData);
+            break;
+        }
+        default:
+            QFAIL("wrong model number");
+            break;
+        }
+    }
+}
+
+void tst_QQuickTableView::typedModelData()
+{
+    LOAD_TABLEVIEW("typedModelData.qml");
+    const QUrl url = testFileUrl("typedModelData.qml");
+
+    for (int i = 0; i < 4; ++i) {
+        if (i == 0) {
+            for (int j = 0; j < 2; ++j) {
+                QTest::ignoreMessage(
+                    QtWarningMsg,
+                    "Could not find any constructor for value type QQmlPointFValueType "
+                    "to call with value QVariant(double, 11)");
+            }
+
+            QTest::ignoreMessage(
+                QtWarningMsg,
+                "Could not find any constructor for value type QQmlPointFValueType "
+                "to call with value 11");
+            QTest::ignoreMessage(
+                QtWarningMsg,
+                qPrintable(url.toString() + ":60:9: Unable to assign double to QPointF"));
+            QTest::ignoreMessage(
+                QtWarningMsg,
+                qPrintable(url.toString() + ":59:9: Unable to assign double to QPointF"));
+        }
+
+        tableView->setProperty("n", i);
+
+        WAIT_UNTIL_POLISHED;
+
+        QCOMPARE(QQuickTableViewPrivate::get(tableView)->loadedItems.size(), 1);
+        QObject *delegate
+                = QQuickTableViewPrivate::get(tableView)->loadedItems.begin().value()->item;
+        QVERIFY(delegate);
+
+        const QPointF modelItem = delegate->property("modelSelf").value<QPointF>();
+        switch (i) {
+        case 0: {
+            // list model with 1 role.
+            // Does not work, for the most part, because the model is singular
+            QCOMPARE(delegate->property("modelX"), 11.0);
+            QCOMPARE(delegate->property("modelDataX"), 0.0);
+            QCOMPARE(delegate->property("modelSelf"), QPointF(11.0, 0.0));
+            QCOMPARE(delegate->property("modelDataSelf"), QPointF());
+            QCOMPARE(delegate->property("modelModelData"), QPointF());
+            QCOMPARE(delegate->property("modelAnonymous"), QPointF());
+            break;
+        }
+        case 1: {
+            // list model with 2 roles
+            QCOMPARE(delegate->property("modelX"), 13.0);
+            QCOMPARE(delegate->property("modelDataX"), 13.0);
+            QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelDataSelf"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelItem));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelItem));
+            break;
+        }
+        case 2: {
+            // JS array of objects
+            QCOMPARE(delegate->property("modelX"), 17.0);
+            QCOMPARE(delegate->property("modelDataX"), 17.0);
+
+            const QPointF modelData = delegate->property("modelDataSelf").value<QPointF>();
+            QCOMPARE(modelData, QPointF(17, 18));
+            QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelModelData").value<QPointF>(), modelData);
+            QCOMPARE(delegate->property("modelAnonymous").value<QPointF>(), modelData);
+            break;
+        }
+        case 3: {
+            // single object
+            QCOMPARE(delegate->property("modelX"), 21);
+            QCOMPARE(delegate->property("modelDataX"), 21);
+            const QPointF modelData = delegate->property("modelDataSelf").value<QPointF>();
+            QCOMPARE(modelData, QPointF(21, 22));
+            QCOMPARE(delegate->property("modelSelf"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelModelData"), QVariant::fromValue(modelData));
+            QCOMPARE(delegate->property("modelAnonymous"), QVariant::fromValue(modelData));
+            break;
+        }
+        default:
+            QFAIL("wrong model number");
+            break;
+        }
+    }
+}
+
+void tst_QQuickTableView::requiredModelData()
+{
+    LOAD_TABLEVIEW("requiredModelData.qml")
+
+    for (int i = 0; i < 4; ++i) {
+        tableView->setProperty("n", i);
+
+        WAIT_UNTIL_POLISHED;
+
+        QCOMPARE(QQuickTableViewPrivate::get(tableView)->loadedItems.size(), 1);
+        QObject *delegate
+                = QQuickTableViewPrivate::get(tableView)->loadedItems.begin().value()->item;
+        QVERIFY(delegate);
+        const QVariant a = delegate->property("a");
+        QCOMPARE(a.metaType(), QMetaType::fromType<QString>());
+        QCOMPARE(a.toString(), QLatin1String("a"));
+    }
+}
+
+namespace Model {
+Q_NAMESPACE
+QML_ELEMENT
+enum Kind : qint8
+{
+    None = -1,
+    Singular,
+    List,
+    Array,
+    Object
+};
+Q_ENUM_NS(Kind)
+}
+
+namespace Delegate {
+Q_NAMESPACE
+QML_ELEMENT
+enum Kind : qint8
+{
+    None = -1,
+    Untyped,
+    Typed
+};
+Q_ENUM_NS(Kind)
+}
+
+template<typename Enum>
+const char *enumKey(Enum value) {
+    const QMetaObject *mo = qt_getEnumMetaObject(value);
+    const QMetaEnum metaEnum = mo->enumerator(mo->indexOfEnumerator(qt_getEnumName(value)));
+    return metaEnum.valueToKey(value);
+}
+
+void tst_QQuickTableView::delegateModelAccess_data()
+{
+    QTest::addColumn<QQmlDelegateModel::DelegateModelAccess>("access");
+    QTest::addColumn<Model::Kind>("modelKind");
+    QTest::addColumn<Delegate::Kind>("delegateKind");
+
+    using Access = QQmlDelegateModel::DelegateModelAccess;
+    for (auto access : { Access::Qt5ReadWrite, Access::ReadOnly, Access::ReadWrite }) {
+        for (auto model : { Model::Singular, Model::List, Model::Array, Model::Object }) {
+            for (auto delegate : { Delegate::Untyped, Delegate::Typed }) {
+                QTest::addRow("%s-%s-%s", enumKey(access), enumKey(model), enumKey(delegate))
+                    << access << model << delegate;
+            }
+        }
+    }
+}
+
+void tst_QQuickTableView::delegateModelAccess()
+{
+    static const bool initialized = []() {
+        qmlRegisterNamespaceAndRevisions(&Model::staticMetaObject, "Test", 1);
+        qmlRegisterNamespaceAndRevisions(&Delegate::staticMetaObject, "Test", 1);
+        return true;
+    }();
+    QVERIFY(initialized);
+
+    QFETCH(QQmlDelegateModel::DelegateModelAccess, access);
+    QFETCH(Model::Kind, modelKind);
+    QFETCH(Delegate::Kind, delegateKind);
+
+    const QUrl url = testFileUrl("delegateModelAccess.qml");
+    LOAD_TABLEVIEW("delegateModelAccess.qml");
+
+    QSignalSpy modelChangedSpy(tableView, &QQuickTableView::modelChanged);
+
+    if (delegateKind == Delegate::Untyped && modelKind == Model::Array)
+        QSKIP("Properties of objects in arrays are not exposed as context properties");
+
+    if (access == QQmlDelegateModel::ReadOnly) {
+        const QRegularExpression message(
+                url.toString() + ":[0-9]+: TypeError: Cannot assign to read-only property \"a\"");
+
+        QTest::ignoreMessage(QtWarningMsg, message);
+        if (delegateKind == Delegate::Untyped)
+            QTest::ignoreMessage(QtWarningMsg, message);
+    }
+
+    tableView->setProperty("delegateModelAccess", access);
+    tableView->setProperty("modelIndex", modelKind);
+    tableView->setProperty("delegateIndex", delegateKind);
+
+    WAIT_UNTIL_POLISHED;
+
+    QCOMPARE(QQuickTableViewPrivate::get(tableView)->loadedItems.size(), 1);
+    QObject *delegate = QQuickTableViewPrivate::get(tableView)->loadedItems.begin().value()->item;
+    QVERIFY(delegate);
+
+    const bool modelWritable = access != QQmlDelegateModel::ReadOnly;
+    const bool immediateWritable = (delegateKind == Delegate::Untyped)
+            ? access != QQmlDelegateModel::ReadOnly
+            : access == QQmlDelegateModel::ReadWrite;
+
+    const bool writeShouldPropagate =
+
+            // If we've explicitly asked for the model to be written, it is
+            (access == QQmlDelegateModel::ReadWrite) ||
+
+            // If it's a QAIM or an object, it's implicitly written
+            (modelKind != Model::Kind::Array) ||
+
+            // When writing through the model object from a typed delegate,
+            // (like with DelegateModel).
+            (access == QQmlDelegateModel::Qt5ReadWrite && delegateKind == Delegate::Typed);
+
+    // Only the array is actually updated itself. The other models are pointers
+    const bool writeShouldSignal = modelKind == Model::Kind::Array;
+
+    double expected = 11;
+
+    // Initial setting of the model, signals one update
+    int expectedModelUpdates = 1;
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+
+    if (modelWritable) {
+        expected = 3;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeThroughModel");
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    double aAt0 = -1;
+    QMetaObject::invokeMethod(tableView, "aAt0", Q_RETURN_ARG(double, aAt0));
+    QCOMPARE(aAt0, writeShouldPropagate ? expected : 11);
+
+    if (immediateWritable) {
+        expected = 1;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeImmediate");
+
+    // Writes to required properties always succeed, but might not be propagated to the model
+    QCOMPARE(delegate->property("immediateX").toDouble(),
+             delegateKind == Delegate::Untyped ? expected : 1);
+
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    aAt0 = -1;
+    QMetaObject::invokeMethod(tableView, "aAt0", Q_RETURN_ARG(double, aAt0));
+    QCOMPARE(aAt0, writeShouldPropagate ? expected : 11);
 }
 
 void tst_QQuickTableView::checkVisualRowColumnAfterReorder()
@@ -8124,8 +8771,9 @@ void tst_QQuickTableView::checkCellModelIdxAfterReorder()
 void tst_QQuickTableView::checkEditAfterReorder()
 {
     LOAD_TABLEVIEW("editdelegate.qml"); // gives us 'tableView' variable
-    auto model = TestModelAsVariant(3, 3);
-    tableView->setModel(model);
+
+    TestModel model(3, 3);
+    tableView->setModel(QVariant::fromValue(&model));
 
     WAIT_UNTIL_POLISHED;
 
@@ -8142,11 +8790,10 @@ void tst_QQuickTableView::checkEditAfterReorder()
     QCOMPARE(rowMovedSpy.size(), 2);
 
     // Edit model index (0, 0)
-    const QSharedPointer<TestModel> testModel = model.value<QSharedPointer<TestModel>>();
     const auto cellItem1 = tableView->itemAtCell(QPoint(0, 0));
     QCOMPARE(cellItem1->property("editing").toBool(), false);
 
-    tableView->edit(testModel->index(1, 1));
+    tableView->edit(model.index(1, 1));
     QCOMPARE(cellItem1->property("editing").toBool(), true);
 
     // Close the editor
@@ -8215,6 +8862,155 @@ void tst_QQuickTableView::checkSelectionAfterReorder()
 
     tableViewPrivate->clearSelection();
     QCOMPARE(selectionModel.hasSelection(), false);
+}
+
+void tst_QQuickTableView::delegateChooserDataChange()
+{
+    LOAD_TABLEVIEW("delegatechooser.qml");
+
+    const int rows = 2;
+    const int columns = 2;
+    DelegateChooserModel model{ rows, columns };
+    tableView->setModel(QVariant::fromValue(&model));
+
+    WAIT_UNTIL_POLISHED;
+
+    QCOMPARE(model.choice_delegates_count()[0], rows * columns);
+    QCOMPARE(model.choice_delegates_count()[1], 0);
+
+    model.switchChoice();
+    WAIT_UNTIL_POLISHED;
+
+    QCOMPARE(model.choice_delegates_count()[0], 0);
+    QCOMPARE(model.choice_delegates_count()[1], rows * columns);
+
+    tableView->setModel({ });
+}
+
+void tst_QQuickTableView::verifyThatOnlyRemovedRowsArePooled()
+{
+    // Check that we don't put delegate items above or below a removed or inserted row
+    // into the reuse pool. Instead those items should be unaffected by the model changes
+    // (other than changes to the flat index, row and column).
+    LOAD_TABLEVIEW("plaintableview.qml");
+
+    TestModel model(3, 2);
+    tableView->setModel(QVariant::fromValue(&model));
+
+    WAIT_UNTIL_POLISHED;
+
+    QList<QPointer<QQuickItem>> initialItems;
+    QList<QObject *> pooledObjects;
+    QList<QObject *> reusedObjects;
+
+    // Create a few helper functions that we can use further down in the test.
+    // getItems() returns a list of loaded delegate items that corresponds to
+    // the cells given as argument.
+    auto getItems = [&](const QList<QPoint> &cells) {
+        QList<QPointer<QQuickItem>> result;
+        for (const auto &cell : cells)
+            result.append(tableViewPrivate->loadedTableItem(cell)->item);
+        return result;
+    };
+
+    // Create a function that tracks which objects get pooled or reused, so we
+    // can verify that none of the unrelated cells are affected by the model changes.
+    auto verifyInitialItemsNotPooled = [&]() {
+        for (const auto &item : initialItems) {
+            QVERIFY(!pooledObjects.contains(item.data()));
+            QVERIFY(!reusedObjects.contains(item.data()));
+        }
+    };
+    connect(tableViewPrivate->tableModel, &QQmlInstanceModel::itemPooled,
+            this, [&](int, QObject *obj) { pooledObjects.append(obj); });
+    connect(tableViewPrivate->tableModel, &QQmlInstanceModel::itemReused,
+            this, [&](int, QObject *obj) { reusedObjects.append(obj); });
+
+    // Create a function that verifies that index, row and column context properties on
+    // each initial item reflect the expected values. The row that is below the removed
+    // row will have those updated. The serialized index uses (col * numRows) + row.
+    using Props = std::tuple<int, int, int>; // {index, row, column}
+    auto verifyContextProperties = [&](const QList<Props> &expected) {
+        for (int i = 0; i < initialItems.size(); ++i) {
+            const auto [expIndex, expRow, expColumn] = expected[i];
+            const auto ctx = qmlContext(initialItems[i].data());
+            QCOMPARE(ctx->contextProperty("index").toInt(), expIndex);
+            QCOMPARE(ctx->contextProperty("row").toInt(), expRow);
+            QCOMPARE(ctx->contextProperty("column").toInt(), expColumn);
+        }
+    };
+
+    // Store the items in the rows above and below the row that is about
+    // to be removed. Those items should never be deleted or reused.
+    initialItems = getItems({{0,0}, {1,0}, {0,2}, {1,2}});
+
+    // Remove the row in the center, and verify that the rows
+    // above and below didn't change delegate items.
+    model.removeRow(1);
+    WAIT_UNTIL_POLISHED;
+
+    QCOMPARE(getItems({{0,0}, {1,0}, {0,1}, {1,1}}), initialItems);
+    verifyContextProperties({{0,0,0}, {2,0,1}, {1,1,0}, {3,1,1}});
+    verifyInitialItemsNotPooled();
+
+    // Insert a row in the center, and then verify that the rows
+    // above and below didn't change delegate items.
+    model.insertRow(1);
+    WAIT_UNTIL_POLISHED;
+
+    QCOMPARE(getItems({{0,0}, {1,0}, {0,2}, {1,2}}), initialItems);
+    verifyContextProperties({{0,0,0}, {3,0,1}, {2,2,0}, {5,2,1}});
+    verifyInitialItemsNotPooled();
+}
+
+void tst_QQuickTableView::requiredRoleUpdatedAfterProxyModelResort()
+{
+    // QTBUG-147684:
+    // When a SortFilterProxyModel with dynamicSortFilter re-sorts because of a
+    // setData() call, it emits layoutChanged followed immediately by
+    // dataChanged at the item's new proxy position. The dataChanged handler
+    // runs before the deferred ViewportOnly rebuild and, with delegate model
+    // items still keyed by pre-sort flat indices, updates the wrong delegate.
+    // The rebuild then matches every item back to its correct position, but
+    // the stale or wrong display value was never corrected.
+    LOAD_TABLEVIEW("sfpmRequiredRoleAfterResort.qml");
+
+    auto *sortModel = tableView->model().value<QQmlSortFilterProxyModel *>();
+    QVERIFY(sortModel);
+    auto *sourceModel = view->rootObject()->property("sourceModel").value<TestModel *>();
+    QVERIFY(sourceModel);
+
+    // Fill in values that are already in ascending order so the SFPM does not
+    // re-sort during setup. Each setData() is handled synchronously by
+    // dataChangedCallback() with correct flat indices — no rebuild needed.
+    sourceModel->setModelData(QPoint(0, 0), QSize(1, 1), "1");
+    sourceModel->setModelData(QPoint(0, 1), QSize(1, 1), "2");
+    sourceModel->setModelData(QPoint(0, 2), QSize(1, 1), "3");
+    sourceModel->setModelData(QPoint(0, 3), QSize(1, 1), "4");
+
+    auto displayAt = [&](int col, int row) -> QString {
+        const auto *item = tableView->itemAtCell(QPoint(col, row));
+        return item ? item->property("display").toString() : QString{};
+    };
+
+    QCOMPARE(displayAt(0, 0), "1");
+    QCOMPARE(displayAt(0, 1), "2");
+    QCOMPARE(displayAt(0, 2), "3");
+    QCOMPARE(displayAt(0, 3), "4");
+
+    // Change "1" (source row 0) to "9" so it moves from proxy row 0 to row 3.
+    // The SFPM emits layoutChanged (triggering a deferred ViewportOnly
+    // rebuild) then dataChanged at the new proxy position.
+    sourceModel->setModelData(QPoint(0, 0), QSize(1, 1), "9");
+
+    WAIT_UNTIL_POLISHED;
+
+    // After the rebuild every delegate must display the value at
+    // its current proxy row.
+    QCOMPARE(displayAt(0, 0), "2");
+    QCOMPARE(displayAt(0, 1), "3");
+    QCOMPARE(displayAt(0, 2), "4");
+    QCOMPARE(displayAt(0, 3), "9");
 }
 
 QTEST_MAIN(tst_QQuickTableView)

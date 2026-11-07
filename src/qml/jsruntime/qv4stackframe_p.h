@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4STACKFRAME_H
 #define QV4STACKFRAME_H
 
@@ -56,6 +57,7 @@ struct Q_QML_EXPORT CppStackFrameBase
             ExecutionContext *context;
             QObject *thisObject;
             const QMetaType *metaTypes;
+            const QQmlPrivate::AOTTrackedLocalsStorage *locals;
             void **returnAndArgs;
             bool returnValueIsUndefined;
         };
@@ -131,9 +133,10 @@ struct Q_QML_EXPORT MetaTypesStackFrame : public CppStackFrame
               void **returnAndArgs, const QMetaType *metaTypes, int argc)
     {
         CppStackFrame::init(v4Function, argc, Kind::Meta);
-        CppStackFrameBase::thisObject = thisObject;
         CppStackFrameBase::context = context;
+        CppStackFrameBase::thisObject = thisObject;
         CppStackFrameBase::metaTypes = metaTypes;
+        CppStackFrameBase::locals = nullptr;
         CppStackFrameBase::returnAndArgs = returnAndArgs;
         CppStackFrameBase::returnValueIsUndefined = false;
     }
@@ -154,6 +157,12 @@ struct Q_QML_EXPORT MetaTypesStackFrame : public CppStackFrame
 
     ExecutionContext *context() const { return CppStackFrameBase::context; }
     void setContext(ExecutionContext *context) { CppStackFrameBase::context = context; }
+
+    const QQmlPrivate::AOTTrackedLocalsStorage *locals() const { return CppStackFrameBase::locals; }
+    void setLocals(const QQmlPrivate::AOTTrackedLocalsStorage *locals)
+    {
+        CppStackFrameBase::locals = locals;
+    }
 
     Heap::CallContext *callContext() const
     {

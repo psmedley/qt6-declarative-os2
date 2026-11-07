@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
 /*!
 \page qtqml-documents-scope.html
+\meta {keywords} {qmltopic}
 \title Scope and Naming Resolution
-\brief overview of scope and naming resolution
+\brief overview of scope and naming resolution.
 \ingroup explanations-programminglanguages
 
 QML property bindings, inline functions, and imported JavaScript files all
@@ -23,7 +24,7 @@ In the following example, the \c {addConstant()} method will add 13 to the
 parameter passed just as the programmer would expect irrespective of the
 value of the QML object's \c a and \c b properties.
 
-\code
+\qml
 QtObject {
     property int a: 3
     property int b: 9
@@ -33,19 +34,19 @@ QtObject {
         return b + a;
     }
 }
-\endcode
+\endqml
 
 That QML respects JavaScript's normal scoping rules even applies in bindings.
 This totally evil, abomination of a binding will assign 12 to the QML object's
 \c a property.
 
-\code
+\qml
 QtObject {
     property int a
 
     a: { var a = 12; a; }
 }
-\endcode
+\endqml
 
 Every JavaScript expression, function or file in QML has its own unique
 variable object.  Local variables declared in one will never conflict
@@ -63,7 +64,7 @@ function in the QML document, even those in nested inline components.  The
 following example shows a simple QML file that accesses some enumeration
 values and calls an imported JavaScript function.
 
-\code
+\qml
 import QtQuick 2.0
 import "code.js" as Code
 
@@ -78,7 +79,7 @@ ListView {
         }
     }
 }
-\endcode
+\endqml
 
 \section1 Binding Scope Object
 
@@ -86,11 +87,11 @@ An object which has a \l{Property Binding}{property binding} is known as the
 binding's \e{scope object}.  In the following example, the \l Item object is
 the binding's scope object.
 
-\code
+\qml
 Item {
     anchors.left: parent.left
 }
-\endcode
+\endqml
 
 Bindings have access to the scope object's properties without qualification.
 In the previous example, the binding accesses the \l Item's \c parent property
@@ -112,7 +113,7 @@ meaningfully attaches these properties to the root object in the delegate, any
 sub-object that accesses them must explicitly qualify the root object, as shown
 below.
 
-\code
+\qml
 PathView {
     delegate: Component {
         Rectangle {
@@ -123,7 +124,7 @@ PathView {
         }
     }
 }
-\endcode
+\endqml
 
 If the \l Image object omitted the \c root prefix, it would inadvertently access
 the unset \c {PathView.scale} attached property on itself.
@@ -176,7 +177,7 @@ their ancestors.
 The easiest way to demonstrate this is with inline sub-components whose component
 scopes are implicitly scoped as children of the outer component.
 
-\code
+\qml
 Item {
     property color defaultColor: "blue"
 
@@ -188,7 +189,7 @@ Item {
         }
     }
 }
-\endcode
+\endqml
 
 The component instance hierarchy allows instances of the delegate component
 to access the \c defaultColor property of the \c Item type.  Of course,
@@ -202,7 +203,7 @@ file, it still has access to the \c title property when it is used from within
 the \c TitlePage.  QML is a dynamically scoped language - depending on where it
 is used, the \c title property may resolve differently.
 
-\code
+\qml
 // TitlePage.qml
 import QtQuick 2.0
 Item {
@@ -226,7 +227,7 @@ Text {
     text: "<b>" + title + "</b>"
     font.pixelSize: size
 }
-\endcode
+\endqml
 
 Dynamic scoping is very powerful, but it must be used cautiously to prevent
 the behavior of QML code from becoming difficult to predict.  In general it
@@ -234,7 +235,7 @@ should only be used in cases where the two components are already tightly
 coupled in another way.  When building reusable components, it is preferable
 to use property interfaces, like this:
 
-\code
+\qml
 // TitlePage.qml
 import QtQuick 2.0
 Item {
@@ -263,14 +264,145 @@ Text {
     text: "<b>" + title + "</b>"
     font.pixelSize: size
 }
+\endqml
+
+\section2 Do Not Reference Root Object \c id From Other QML Components
+
+Avoid accessing the \c id of a root object from outside the QML file where
+it is defined. \c id values are only valid within the same document, and relying
+on them from other components breaks encapsulation and component boundaries.
+
+\code
+// Main.qml
+import QtQuick
+
+Item {
+    id: root
+    CustomItem { }
+}
+
+// CustomItem.qml
+import QtQuick
+
+Rectangle {
+    width: root.width
+    height: root.height / 2
+    color: "red"
+}
 \endcode
+
+In the above example, \c root is not declared in \c CustomItem.qml. The code still works
+because \c CustomItem is instantiated in a context where \c root exists, which is
+permitted by QML’s dynamic scoping rules. However, this creates an implicit dependency on
+the outer scope, making the component unreliable and harder to reuse when it is loaded
+dynamically or used in a different context. This pattern can also lead to subtle bugs.
+For example, if another object in the scope chain uses the same \c id, it may shadow the
+expected one, resulting in unexpected behaviour.
+
+To make components reliable and reusable, access external state only through
+explicit properties, property aliases, or signals. Avoid relying on outer-scope
+\c id values.
+
+The following example replaces dynamic scoping with an explicit component API.
+
+\code
+// Main.qml
+import QtQuick
+import QtQuick.Window
+
+Window {
+    id: root
+    width: 400
+    height: 300
+    visible: true
+
+    CustomItem {
+        width: root.width
+        height: root.height
+        boxColor: "blue"
+    }
+}
+
+// CustomItem.qml
+import QtQuick
+
+Item {
+    id: container
+    property alias boxColor: rect.color
+
+    Rectangle {
+        id: rect
+        width: container.width
+        height: container.height / 2
+        color: "red"
+    }
+}
+\endcode
+
+Apply the same rule to all internal objects declared with an \c id inside a component.
+
+\code
+// MyItem.qml
+import QtQuick
+
+Item {
+    Item {
+        id: internalCounter
+        property int count: 5
+    }
+}
+
+// main.qml
+import QtQuick
+
+MyItem {
+    Component.onCompleted: {
+        console.log(internalCounter.count);
+    }
+}
+\endcode
+
+In the above example, accessing the \c id \c internalCounter from another QML file causes a
+\c ReferenceError because an \c id is document-local and cannot be accessed outside the
+QML file in which it is declared.
+
+If an internal object needs to expose state or behaviour, expose it explicitly through properties,
+property aliases, or signals.
+
+The following example exposes the internal state through an explicit component API instead of
+relying on direct access to a document-local \c id.
+
+\code
+// MyItem.qml
+import QtQuick
+
+Item {
+    Item {
+        id: internalCounter
+        property int count: 5
+    }
+    property alias internalCount: internalCounter.count
+}
+
+// main.qml
+import QtQuick
+
+MyItem {
+    Component.onCompleted: {
+        console.log(internalCount);
+    }
+}
+\endcode
+
+This helps maintain clear component boundaries and supports better scalability
+and testability.
 
 \section1 Overridden Properties
 
 QML permits property names defined in an object declaration to be overridden by properties
 declared within another object declaration that extends the first.  For example:
 
-\code
+\qml
 // Displayable.qml
 import QtQuick 2.0
 Item {
@@ -294,7 +426,7 @@ Displayable {
 
     function fullName()  { return title + " " + firstName + " " + lastName }
 }
-\endcode
+\endqml
 
 Here, the name \c title is given to both the heading of the output text for Displayable,
 and also to the honorific title of the Person object.

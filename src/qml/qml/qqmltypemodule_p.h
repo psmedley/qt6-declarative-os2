@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTYPEMODULE_P_H
 #define QQMLTYPEMODULE_P_H
@@ -20,7 +21,7 @@
 #include <QtQml/private/qqmltype_p.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qstring.h>
-#include <QtCore/qversionnumber.h>
+#include <QtCore/qtyperevision.h>
 
 #include <functional>
 

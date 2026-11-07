@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSSHADOWCHECK_P_H
 #define QQMLJSSHADOWCHECK_P_H
@@ -23,13 +24,13 @@ class Q_QMLCOMPILER_EXPORT QQmlJSShadowCheck : public QQmlJSCompilePass
 public:
     QQmlJSShadowCheck(const QV4::Compiler::JSUnitGenerator *jsUnitGenerator,
                       const QQmlJSTypeResolver *typeResolver, QQmlJSLogger *logger,
-                      BasicBlocks basicBlocks, InstructionAnnotations annotations)
+                      const BasicBlocks &basicBlocks, const InstructionAnnotations &annotations)
         : QQmlJSCompilePass(jsUnitGenerator, typeResolver, logger, basicBlocks, annotations)
     {}
 
     ~QQmlJSShadowCheck() = default;
 
-    BlocksAndAnnotations run(const Function *function, QQmlJS::DiagnosticMessage *error);
+    BlocksAndAnnotations run(const Function *function);
 
 private:
     struct ResettableStore {
@@ -52,11 +53,11 @@ private:
 
     enum Shadowability { NotShadowable, Shadowable };
     Shadowability checkShadowing(
-            const QQmlJSRegisterContent &baseType, const QString &propertyName, int baseRegister);
+            QQmlJSRegisterContent baseType, const QString &propertyName, int baseRegister);
 
-    void checkResettable(const QQmlJSRegisterContent &accumulatorIn, int instructionOffset);
+    void checkResettable(QQmlJSRegisterContent accumulatorIn, int instructionOffset);
 
-    Shadowability checkBaseType(const QQmlJSRegisterContent &baseType);
+    Shadowability checkBaseType(QQmlJSRegisterContent baseType);
 
     QList<ResettableStore> m_resettableStores;
     QList<QQmlJSRegisterContent> m_baseTypes;

@@ -25,7 +25,6 @@ qt_internal_add_qml_module(QmlWorkerScript
         ENABLE_JIT_CONSTANT_BLINDING=0
         ENABLE_LLINT=0
         JS_EXPORT_PRIVATE= # special case
-        QT_NO_FOREACH
         QT_NO_INTEGER_EVENT_COORDINATES
         QT_NO_URL_CAST_FROM_STRING
         WTFInvokeCrashHook=qmlWTFInvokeCrashHook
@@ -53,7 +52,6 @@ qt_internal_add_qml_module(QmlWorkerScript
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::QmlPrivate
-    OS2_SHORT_NAME workersn
     )
 
 qt_internal_extend_target(QmlWorkerScript CONDITION disassembler AND ((TEST_architecture_arch STREQUAL "i386") OR (TEST_architecture_arch STREQUAL "x86_64"))
@@ -95,4 +93,9 @@ qt_internal_extend_target(QmlWorkerScript CONDITION GCC AND QT_COMPILER_VERSION_
 # QMAKE_CXXFLAGS_WARN_ON = "-Wno-expansion-to-defined"
 qt_internal_add_docs(QmlWorkerScript
     doc/qtqmlworkerscript.qdocconf
+)
+
+target_sources(QmlWorkerScript
+    PRIVATE
+        doc/src/qmlworkerscript.qdoc
 )

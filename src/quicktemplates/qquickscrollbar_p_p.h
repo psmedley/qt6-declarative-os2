@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSCROLLBAR_P_P_H
 #define QQUICKSCROLLBAR_P_P_H
@@ -80,7 +81,8 @@ public:
     QQuickScrollBar::Policy policy = QQuickScrollBar::AsNeeded;
 };
 
-class QQuickScrollBarAttachedPrivate : public QObjectPrivate, public QQuickItemChangeListener
+class QQuickScrollBarAttachedPrivate : public QObjectPrivate,
+                                       public QSafeQuickItemChangeListener<QQuickScrollBarAttachedPrivate>
 {
 public:
     static QQuickScrollBarAttachedPrivate *get(QQuickScrollBarAttached *attached)

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLAYOUT_P_H
 #define QQUICKLAYOUT_P_H
@@ -174,7 +175,7 @@ class Q_QUICKLAYOUTS_EXPORT QQuickLayoutAttached : public QObject
     Q_PROPERTY(qreal maximumHeight READ maximumHeight WRITE setMaximumHeight NOTIFY maximumHeightChanged FINAL)
     Q_PROPERTY(bool fillHeight READ fillHeight WRITE setFillHeight NOTIFY fillHeightChanged FINAL)
     Q_PROPERTY(bool fillWidth READ fillWidth WRITE setFillWidth NOTIFY fillWidthChanged FINAL)
-    Q_PROPERTY(QQuickLayout::SizePolicy useDefaultSizePolicy READ useDefaultSizePolicy WRITE setUseDefaultSizePolicy NOTIFY useDefaultSizePolicyChanged FINAL REVISION(6, 8))
+    Q_PROPERTY(QQuickLayout::SizePolicy useDefaultSizePolicy READ useDefaultSizePolicy WRITE setUseDefaultSizePolicy NOTIFY useDefaultSizePolicyChanged FINAL)
     Q_PROPERTY(int row READ row WRITE setRow NOTIFY rowChanged FINAL)
     Q_PROPERTY(int column READ column WRITE setColumn NOTIFY columnChanged FINAL)
     Q_PROPERTY(int rowSpan READ rowSpan WRITE setRowSpan NOTIFY rowSpanChanged FINAL)
@@ -220,21 +221,27 @@ public:
     void setMaximumImplicitSize(const QSizeF &sz);
 
     bool fillWidth() const {
-        if (auto *itemPriv = itemForSizePolicy(m_isFillWidthSet)) {
+        bool effectiveFillWidth = m_fillWidth;
+        if (!m_isFillWidthSet && qobject_cast<QQuickLayout *>(item())) {
+            effectiveFillWidth = true;
+        } else if (auto *itemPriv = itemForSizePolicy(m_isFillWidthSet)) {
             QLayoutPolicy::Policy hPolicy = itemPriv->sizePolicy().horizontalPolicy();
-            return hPolicy & QLayoutPolicy::GrowFlag;
+            effectiveFillWidth = (hPolicy & QLayoutPolicy::GrowFlag);
         }
-        return m_fillWidth;
+        return effectiveFillWidth;
     }
     void setFillWidth(bool fill);
     bool isFillWidthSet() const { return m_isFillWidthSet; }
 
     bool fillHeight() const {
-        if (auto *itemPriv = itemForSizePolicy(m_isFillHeightSet)) {
+        bool effectiveFillHeight = m_fillHeight;
+        if (!m_isFillHeightSet && qobject_cast<QQuickLayout *>(item())) {
+            effectiveFillHeight = true;
+        } else if (auto *itemPriv = itemForSizePolicy(m_isFillHeightSet)) {
             QLayoutPolicy::Policy vPolicy = itemPriv->sizePolicy().verticalPolicy();
-            return vPolicy & QLayoutPolicy::GrowFlag;
+            effectiveFillHeight = (vPolicy & QLayoutPolicy::GrowFlag);
         }
-        return m_fillHeight;
+        return effectiveFillHeight;
     }
     void setFillHeight(bool fill);
     bool isFillHeightSet() const { return m_isFillHeightSet; }
@@ -347,7 +354,7 @@ Q_SIGNALS:
     void maximumHeightChanged();
     void fillWidthChanged();
     void fillHeightChanged();
-    Q_REVISION(6, 8) void useDefaultSizePolicyChanged();
+    void useDefaultSizePolicyChanged();
     void leftMarginChanged();
     void topMarginChanged();
     void rightMarginChanged();

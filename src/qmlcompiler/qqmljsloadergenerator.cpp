@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:critical reason:code-generation
 
 #include "qqmljsloadergenerator_p.h"
 
@@ -8,13 +9,11 @@
 #include <QString>
 #include <QStringList>
 #include <QTextStream>
-#include <QVector>
+#include <QList>
 #include <QtEndian>
 #include <QStack>
 #include <QFileInfo>
 #include <QSaveFile>
-
-#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -109,10 +108,11 @@ bool qQmlJSGenerateLoader(const QStringList &compiledFiles, const QString &outpu
             const QString compiledFile = compiledFiles.at(i);
             const QString ns = qQmlJSSymbolNamespaceForPath(compiledFile);
             stream << "namespace " << ns << " { \n";
+            stream << "    extern bool validateLookupSignatures(QQmlEngine *engine, QV4::CompiledData::CompilationUnit *cu);\n";
             stream << "    extern const unsigned char qmlData[];\n";
             stream << "    extern const QQmlPrivate::AOTCompiledFunction aotBuiltFunctions[];\n";
             stream << "    const QQmlPrivate::CachedQmlUnit unit = {\n";
-            stream << "        reinterpret_cast<const QV4::CompiledData::Unit*>(&qmlData), &aotBuiltFunctions[0], nullptr\n";
+            stream << "        reinterpret_cast<const QV4::CompiledData::Unit*>(&qmlData), &aotBuiltFunctions[0], &validateLookupSignatures\n";
             stream << "    };\n";
             stream << "}\n";
         }

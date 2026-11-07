@@ -1,17 +1,22 @@
 // Copyright (C) 2016 Research In Motion.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
-#include <qtest.h>
-#include <QSignalSpy>
-#include <QSortFilterProxyModel>
-#include <QDebug>
 
-#include <QtQml/qqmlengine.h>
-#include <QtQml/qqmlcomponent.h>
-#include <QtQmlModels/private/qqmlinstantiator_p.h>
-#include <QtQml/qqmlcontext.h>
-#include <QtQml/qqmlincubator.h>
-#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include "delegatemodelkinds.h"
 #include "stringmodel.h"
+
+#include <private/qmlutils_p.h>
+#include <private/qqmlinstantiator_p.h>
+
+#include <QtTest/qsignalspy.h>
+#include <QtTest/qtest.h>
+
+#include <QtQml/qqmlcomponent.h>
+#include <QtQml/qqmlcontext.h>
+#include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlincubator.h>
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qsortfilterproxymodel.h>
 
 class tst_qqmlinstantiator: public QQmlDataTest
 {
@@ -38,11 +43,20 @@ private slots:
     void boundDelegateComponent();
 
     void listDataDestruction();
+
+    void setDelegateAfterModel();
+
+    void delegateModelAccess_data();
+    void delegateModelAccess();
+
+    void replaceDelegate();
 };
 
 tst_qqmlinstantiator::tst_qqmlinstantiator()
     : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
+    qmlRegisterNamespaceAndRevisions(&Model::staticMetaObject, "Test", 1);
+    qmlRegisterNamespaceAndRevisions(&Delegate::staticMetaObject, "Test", 1);
 }
 
 void tst_qqmlinstantiator::createNone()
@@ -217,7 +231,7 @@ void tst_qqmlinstantiator::createAndRemove()
         qobject_cast<QQmlInstantiator*>(rootObject->findChild<QObject*>("instantiator1"));
     QVERIFY(instantiator != nullptr);
     model->drop(1);
-    QVector<QString> names;
+    QList<QString> names;
     names << "Beta" << "Gamma" << "Delta";
     for (int i=0; i<3; i++) {
         QObject *object = instantiator->objectAt(i);
@@ -320,6 +334,25 @@ void tst_qqmlinstantiator::listDataDestruction()
     QCOMPARE(o->objectName(), QLatin1String("A"));
 }
 
+void tst_qqmlinstantiator::setDelegateAfterModel()
+{
+    // TODO: We can't do this trick with DelegateModel on Instantiator because Instantiator
+    //       explicitly avoids touching the delegate of a DelegateModel passed in as model.
+    //       That's fine, but inconsistent with other views.
+
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("setDelegateAfterModel.qml");
+    QQmlComponent component(&engine, url);
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    // If the model was lost by setting the delegate, the count would be 0.
+    QCOMPARE(object->property("count").toInt(), 3);
+    object->setProperty("useObjectModel", QVariant::fromValue<bool>(true));
+    QCOMPARE(object->property("count").toInt(), 2);
+}
+
 class SingleBoolItemModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -405,6 +438,132 @@ void tst_qqmlinstantiator::removeDuringModelChange()
     // We should still be alive at this point.
     QCOMPARE(removedSpy.size(), 1);
     QCOMPARE(proxyModel.rowCount(), 0);
+}
+
+template<typename Enum>
+const char *enumKey(Enum value) {
+    const QMetaObject *mo = qt_getEnumMetaObject(value);
+    const QMetaEnum metaEnum = mo->enumerator(mo->indexOfEnumerator(qt_getEnumName(value)));
+    return metaEnum.valueToKey(value);
+}
+
+
+void tst_qqmlinstantiator::delegateModelAccess_data()
+{
+    QTest::addColumn<QQmlDelegateModel::DelegateModelAccess>("access");
+    QTest::addColumn<Model::Kind>("modelKind");
+    QTest::addColumn<Delegate::Kind>("delegateKind");
+    using Access = QQmlDelegateModel::DelegateModelAccess;
+    for (auto access : { Access::Qt5ReadWrite, Access::ReadOnly, Access::ReadWrite }) {
+        for (auto model : { Model::Singular, Model::List, Model::Array, Model::Object }) {
+            for (auto delegate : { Delegate::Untyped, Delegate::Typed }) {
+                QTest::addRow("%s-%s-%s", enumKey(access), enumKey(model), enumKey(delegate))
+                        << access << model << delegate;
+            }
+        }
+    }
+}
+
+void tst_qqmlinstantiator::delegateModelAccess()
+{
+    QFETCH(QQmlDelegateModel::DelegateModelAccess, access);
+    QFETCH(Model::Kind, modelKind);
+    QFETCH(Delegate::Kind, delegateKind);
+
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("delegateModelAccess.qml");
+    QQmlComponent c(&engine, url);
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> object(c.create());
+
+    QQmlInstantiator *instantiator = qobject_cast<QQmlInstantiator *>(object.data());
+    QVERIFY(instantiator);
+
+    QSignalSpy modelChangedSpy(instantiator, &QQmlInstantiator::modelChanged);
+
+    if (delegateKind == Delegate::Untyped && modelKind == Model::Array)
+        QSKIP("Properties of objects in arrays are not exposed as context properties");
+
+    if (access == QQmlDelegateModel::ReadOnly) {
+        const QRegularExpression message(
+                url.toString() + ":[0-9]+: TypeError: Cannot assign to read-only property \"a\"");
+
+        QTest::ignoreMessage(QtWarningMsg, message);
+        if (delegateKind == Delegate::Untyped)
+            QTest::ignoreMessage(QtWarningMsg, message);
+    }
+    object->setProperty("delegateModelAccess", access);
+    object->setProperty("modelIndex", modelKind);
+    object->setProperty("delegateIndex", delegateKind);
+
+    QObject *delegate = instantiator->objectAt(0);
+    QVERIFY(delegate);
+
+    const bool modelWritable = access != QQmlDelegateModel::ReadOnly;
+    const bool immediateWritable = (delegateKind == Delegate::Untyped)
+            ? access != QQmlDelegateModel::ReadOnly
+            : access == QQmlDelegateModel::ReadWrite;
+
+    // Only the array is actually updated itself. The other models are pointers
+    const bool writeShouldSignal = modelKind == Model::Kind::Array;
+
+    double expected = 11;
+
+    // Initial setting of the model, signals one update
+    int expectedModelUpdates = 1;
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+
+    if (modelWritable) {
+        expected = 3;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeThroughModel");
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    if (immediateWritable) {
+        expected = 1;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeImmediate");
+
+    // Writes to required properties always succeed, but might not be propagated to the model
+    QCOMPARE(delegate->property("immediateX").toDouble(),
+             delegateKind == Delegate::Untyped ? expected : 1);
+
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+}
+
+void tst_qqmlinstantiator::replaceDelegate()
+{
+    QTest::failOnWarning();
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("replaceDelegate.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QTest::ignoreMessage(QtWarningMsg, "created");
+    QScopedPointer<QObject> outer(component.create());
+    const QUrl url = outer->property("source").value<QUrl>();
+    QVERIFY(url.isValid());
+    QVERIFY(outer->property("object").value<QObject *>() != nullptr);
+    outer->setProperty("source", QUrl());
+    QVERIFY(outer->property("object").value<QObject *>() == nullptr);
+
+    // Restoring the delegate causes the object to be created only _once_.
+    // See failOnWarning() above.
+    QTest::ignoreMessage(QtWarningMsg, "created");
+    outer->setProperty("source", url);
+    QVERIFY(outer->property("object").value<QObject *>() != nullptr);
 }
 
 QTEST_MAIN(tst_qqmlinstantiator)

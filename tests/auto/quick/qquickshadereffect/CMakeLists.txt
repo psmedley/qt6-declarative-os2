@@ -20,6 +20,7 @@ qt_internal_add_test(tst_qquickshadereffect
         Qt::CorePrivate
         Qt::Gui
         Qt::GuiPrivate
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QuickPrivate
         Qt::QuickTestUtilsPrivate
@@ -44,6 +45,7 @@ set(resources_resource_files
     "data/twoImagesOneShaderEffect.qml"
     "data/testprop.frag"
     "data/testProperties.qml"
+    "data/invisibleUpdate.qml"
 )
 
 qt_internal_add_resource(tst_qquickshadereffect "resources"

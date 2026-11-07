@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick 2.0
 import QtTest 1.1
@@ -110,7 +111,7 @@ Item {
     /*!
         \qmlmethod SignalSpy::clear()
 
-        Clears \l count to 0, resets \l valid to false and clears the \l signalArguments to empty.
+        Clears \l count to \c 0 and \l signalArguments to empty. Does not affect \l valid.
 
         \sa count, wait()
     */

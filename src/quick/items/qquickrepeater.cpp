@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickrepeater_p.h"
 #include "qquickrepeater_p_p.h"
@@ -9,14 +10,16 @@
 #include <private/qqmldelegatemodel_p.h>
 
 #include <QtQml/QQmlInfo>
+#include <QtQml/qqmlcomponent.h>
 
 QT_BEGIN_NAMESPACE
 
 QQuickRepeaterPrivate::QQuickRepeaterPrivate()
     : model(nullptr)
     , ownModel(false)
-    , dataSourceIsObject(false)
     , delegateValidated(false)
+    , explicitDelegate(false)
+    , explicitDelegateModelAccess(false)
     , itemCount(0)
 {
     setTransparentForPositioner(true);
@@ -51,7 +54,8 @@ QQuickRepeaterPrivate::~QQuickRepeaterPrivate()
     \codeline
     \snippet qml/repeaters/repeater.qml simple
 
-    \image repeater-simple.png
+    \image repeater-simple.png {Three yellow rectangles in a row created
+           by Repeater}
 
     A Repeater's \l model can be any of the supported \l {qml-data-models}{data models}.
     Additionally, like delegates for other views, a Repeater delegate can access
@@ -66,7 +70,8 @@ QQuickRepeaterPrivate::~QQuickRepeaterPrivate()
 
     \snippet qml/repeaters/repeater.qml layout
 
-    \image repeater.png
+    \image repeater.png {Row with red rectangle, ten green circles from
+           Repeater, and blue rectangle}
 
 
     \note A Repeater item owns all items it instantiates. Removing or dynamically destroying
@@ -122,6 +127,9 @@ QQuickRepeater::QQuickRepeater(QQuickItem *parent)
 
 QQuickRepeater::~QQuickRepeater()
 {
+    Q_D(QQuickRepeater);
+    QQmlDelegateModelPointer model(d->model);
+    d->disconnectModel(this, &model);
 }
 
 /*!
@@ -146,12 +154,11 @@ QVariant QQuickRepeater::model() const
 {
     Q_D(const QQuickRepeater);
 
-    if (d->dataSourceIsObject) {
-        QObject *o = d->dataSourceAsObject;
-        return QVariant::fromValue(o);
-    }
-
-    return d->dataSource;
+    if (d->ownModel)
+        return static_cast<QQmlDelegateModel *>(d->model.data())->model();
+    if (d->model)
+        return QVariant::fromValue(d->model.data());
+    return QVariant();
 }
 
 void QQuickRepeater::setModel(const QVariant &m)
@@ -161,48 +168,81 @@ void QQuickRepeater::setModel(const QVariant &m)
     if (model.userType() == qMetaTypeId<QJSValue>())
         model = model.value<QJSValue>().toVariant();
 
-    if (d->dataSource == model)
+    QQmlDelegateModelPointer oldModel(d->model);
+    if (d->ownModel) {
+        if (oldModel.delegateModel()->model() == model)
+            return;
+    } else if (QVariant::fromValue(d->model) == model) {
         return;
+    }
 
     clear();
-    if (d->model) {
-        qmlobject_disconnect(d->model, QQmlInstanceModel, SIGNAL(modelUpdated(QQmlChangeSet,bool)),
-                this, QQuickRepeater, SLOT(modelUpdated(QQmlChangeSet,bool)));
-        qmlobject_disconnect(d->model, QQmlInstanceModel, SIGNAL(createdItem(int,QObject*)),
-                this, QQuickRepeater, SLOT(createdItem(int,QObject*)));
-        qmlobject_disconnect(d->model, QQmlInstanceModel, SIGNAL(initItem(int,QObject*)),
-                this, QQuickRepeater, SLOT(initItem(int,QObject*)));
-    }
-    d->dataSource = model;
-    QObject *object = qvariant_cast<QObject*>(model);
-    d->dataSourceAsObject = object;
-    d->dataSourceIsObject = object != nullptr;
-    QQmlInstanceModel *vim = nullptr;
-    if (object && (vim = qobject_cast<QQmlInstanceModel *>(object))) {
+
+    d->disconnectModel(this, &oldModel);
+    d->model = nullptr;
+
+    QObject *object = qvariant_cast<QObject *>(model);
+
+    QQmlDelegateModelPointer newModel(qobject_cast<QQmlInstanceModel *>(object));
+    if (newModel) {
+        if (d->explicitDelegate) {
+            QQmlComponent *delegate = nullptr;
+            if (QQmlDelegateModel *old = oldModel.delegateModel())
+                delegate = old->delegate();
+
+            if (QQmlDelegateModel *delegateModel = newModel.delegateModel()) {
+                delegateModel->setDelegate(delegate);
+            } else if (delegate) {
+                qmlWarning(this) << "Cannot retain explicitly set delegate on non-DelegateModel";
+                d->explicitDelegate = false;
+            }
+        }
+
+        if (d->explicitDelegateModelAccess) {
+            QQmlDelegateModel::DelegateModelAccess access = QQmlDelegateModel::Qt5ReadWrite;
+            if (QQmlDelegateModel *old = oldModel.delegateModel())
+                access = old->delegateModelAccess();
+
+            if (QQmlDelegateModel *delegateModel = newModel.delegateModel()) {
+                delegateModel->setDelegateModelAccess(access);
+            } else if (access != QQmlDelegateModel::Qt5ReadWrite) {
+                qmlWarning(this) << "Cannot retain explicitly set delegate model access "
+                                    "on non-DelegateModel";
+                d->explicitDelegateModelAccess = false;
+            }
+        }
+
         if (d->ownModel) {
-            delete d->model;
+            delete oldModel.instanceModel();
             d->ownModel = false;
         }
-        d->model = vim;
+        d->model = newModel.instanceModel();
+    } else if (d->ownModel) {
+        // d->ownModel can only be set if the old model is a QQmlDelegateModel.
+        Q_ASSERT(oldModel.delegateModel());
+        newModel = oldModel;
+        d->model = newModel.instanceModel();
+        newModel.delegateModel()->setModel(model);
     } else {
-        if (!d->ownModel) {
-            d->model = new QQmlDelegateModel(qmlContext(this));
-            d->ownModel = true;
-            if (isComponentComplete())
-                static_cast<QQmlDelegateModel *>(d->model.data())->componentComplete();
+        newModel = QQmlDelegateModel::createForView(this, d);
+        if (d->explicitDelegate) {
+            QQmlComponent *delegate = nullptr;
+            if (QQmlDelegateModel *old = oldModel.delegateModel())
+                delegate = old->delegate();
+            newModel.delegateModel()->setDelegate(delegate);
         }
-        if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model))
-            dataModel->setModel(model);
+
+        if (d->explicitDelegateModelAccess) {
+            QQmlDelegateModel::DelegateModelAccess access = QQmlDelegateModel::Qt5ReadWrite;
+            if (QQmlDelegateModel *old = oldModel.delegateModel())
+                access = old->delegateModelAccess();
+            newModel.delegateModel()->setDelegateModelAccess(access);
+        }
+
+        newModel.delegateModel()->setModel(model);
     }
-    if (d->model) {
-        qmlobject_connect(d->model, QQmlInstanceModel, SIGNAL(modelUpdated(QQmlChangeSet,bool)),
-                this, QQuickRepeater, SLOT(modelUpdated(QQmlChangeSet,bool)));
-        qmlobject_connect(d->model, QQmlInstanceModel, SIGNAL(createdItem(int,QObject*)),
-                this, QQuickRepeater, SLOT(createdItem(int,QObject*)));
-        qmlobject_connect(d->model, QQmlInstanceModel, SIGNAL(initItem(int,QObject*)),
-                this, QQuickRepeater, SLOT(initItem(int,QObject*)));
-        regenerate();
-    }
+
+    d->connectModel(this, &newModel);
     emit modelChanged();
     emit countChanged();
 }
@@ -220,7 +260,8 @@ void QQuickRepeater::setModel(const QVariant &m)
     \table
     \row
     \li \snippet qml/repeaters/repeater.qml index
-    \li \image repeater-index.png
+    \li \image repeater-index.png {Text items displaying "I'm item 0"
+               through "I'm item 9"}
     \endtable
 
     If the \l model is a \l{QStringList-based model}{string list} or
@@ -231,7 +272,8 @@ void QQuickRepeater::setModel(const QVariant &m)
     \table
     \row
     \li \snippet qml/repeaters/repeater.qml modeldata
-    \li \image repeater-modeldata.png
+    \li \image repeater-modeldata.png {Text items displaying "Data: apples",
+               "Data: oranges", "Data: pears"}
     \endtable
 
     If the \l model is a model object (such as a \l ListModel) the delegate
@@ -254,31 +296,75 @@ QQmlComponent *QQuickRepeater::delegate() const
 void QQuickRepeater::setDelegate(QQmlComponent *delegate)
 {
     Q_D(QQuickRepeater);
-    if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model))
-       if (delegate == dataModel->delegate())
-           return;
+    const auto setExplicitDelegate = [&](QQmlDelegateModel *delegateModel) {
+        if (delegateModel->delegate() == delegate) {
+            d->explicitDelegate = true;
+            return;
+        }
 
-    if (!d->ownModel) {
-        d->model = new QQmlDelegateModel(qmlContext(this));
-        d->ownModel = true;
-    }
-
-    if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
-        dataModel->setDelegate(delegate);
+        const int oldCount = delegateModel->count();
+        delegateModel->setDelegate(delegate);
         regenerate();
-        emit delegateChanged();
+        if (oldCount != delegateModel->count())
+            emit countChanged();
+        d->explicitDelegate = true;
         d->delegateValidated = false;
+    };
+
+    if (!d->model) {
+        if (!delegate) {
+            // Explicitly set a null delegate. We can do this without model.
+            d->explicitDelegate = true;
+            return;
+        }
+
+        setExplicitDelegate(QQmlDelegateModel::createForView(this, d));
+        // The new model is not connected to applyDelegateChange, yet. We only do this once
+        // there is actual data, via an explicit setModel(). So we have to manually emit the
+        // delegateChanged() here.
+        emit delegateChanged();
+        return;
     }
+
+    if (QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel *>(d->model)) {
+        // Disable the warning in applyDelegateChange since the new delegate is also explicit.
+        d->explicitDelegate = false;
+        setExplicitDelegate(delegateModel);
+        return;
+    }
+
+    if (delegate)
+        qmlWarning(this) << "Cannot set a delegate on an explicitly provided non-DelegateModel";
+    else
+        d->explicitDelegate = true; // Explicitly set null delegate always works
 }
 
 /*!
     \qmlproperty int QtQuick::Repeater::count
 
-    This property holds the number of items in the model.
+    This property holds the number of items in the \l model.
 
-    \note The number of items in the model as reported by count may differ from
-    the number of created delegates if the Repeater is in the process of
-    instantiating delegates or is incorrectly set up.
+    The value of \c count does not always match the number of instantiated
+    \l {delegate}{delegates}; use \l itemAt() to check if a delegate at a given
+    index exists. It returns \c null if the delegate is not instantiated.
+
+    \list
+    \li While the Repeater is in the process of instantiating delegates (at
+        startup, or because of \c model changes), the \l itemAdded signal is
+        emitted for each delegate created, and the \c count property changes
+        afterwards.
+    \li If the Repeater is not part of a completed
+        \l {Concepts - Visual Parent in Qt Quick}{visual hierarchy},
+        \c count reflects the model size, but no delegates are created.
+    \li If the Repeater destroys delegates because of \c model changes,
+        the \l itemRemoved() signal is emitted for each, and the \c count
+        property changes afterwards.
+    \li If the Repeater is taken out of the visual hierarchy (for example by
+        setting \c {parent = null}), delegates are destroyed, the \l itemRemoved()
+        signal is emitted for each, but \c count does not change.
+    \endlist
+
+    \sa itemAt(), itemAdded(), itemRemoved()
 */
 int QQuickRepeater::count() const
 {
@@ -370,6 +456,59 @@ void QQuickRepeaterPrivate::requestItems()
     }
 }
 
+void QQuickRepeaterPrivate::connectModel(QQuickRepeater *q, QQmlDelegateModelPointer *model)
+{
+    QQmlInstanceModel *instanceModel = model->instanceModel();
+    if (!instanceModel)
+        return;
+
+    QObject::connect(instanceModel, &QQmlInstanceModel::modelUpdated,
+                     q, &QQuickRepeater::modelUpdated);
+    QObject::connect(instanceModel, &QQmlInstanceModel::createdItem,
+                     q, &QQuickRepeater::createdItem);
+    QObject::connect(instanceModel, &QQmlInstanceModel::initItem,
+                     q, &QQuickRepeater::initItem);
+    if (QQmlDelegateModel *dataModel = model->delegateModel()) {
+        QObjectPrivate::connect(
+                dataModel, &QQmlDelegateModel::delegateChanged,
+                this, &QQuickRepeaterPrivate::applyDelegateChange);
+        QObjectPrivate::connect(
+                dataModel, &QQmlDelegateModel::delegateModelAccessChanged,
+                this, &QQuickRepeaterPrivate::applyDelegateModelAccessChange);
+        if (ownModel) {
+            QObject::connect(dataModel, &QQmlDelegateModel::modelChanged,
+                             q, &QQuickRepeater::modelChanged);
+        }
+    }
+    q->regenerate();
+}
+
+void QQuickRepeaterPrivate::disconnectModel(QQuickRepeater *q, QQmlDelegateModelPointer *model)
+{
+    QQmlInstanceModel *instanceModel = model->instanceModel();
+    if (!instanceModel)
+        return;
+
+    QObject::disconnect(instanceModel, &QQmlInstanceModel::modelUpdated,
+                        q, &QQuickRepeater::modelUpdated);
+    QObject::disconnect(instanceModel, &QQmlInstanceModel::createdItem,
+                        q, &QQuickRepeater::createdItem);
+    QObject::disconnect(instanceModel, &QQmlInstanceModel::initItem,
+                        q, &QQuickRepeater::initItem);
+    if (QQmlDelegateModel *delegateModel = model->delegateModel()) {
+        QObjectPrivate::disconnect(
+                delegateModel, &QQmlDelegateModel::delegateChanged,
+                this, &QQuickRepeaterPrivate::applyDelegateChange);
+        QObjectPrivate::disconnect(
+                delegateModel, &QQmlDelegateModel::delegateModelAccessChanged,
+                this, &QQuickRepeaterPrivate::applyDelegateModelAccessChange);
+        if (ownModel) {
+            QObject::disconnect(delegateModel, &QQmlDelegateModel::modelChanged,
+                                q, &QQuickRepeater::modelChanged);
+        }
+    }
+}
+
 void QQuickRepeater::createdItem(int index, QObject *)
 {
     Q_D(QQuickRepeater);
@@ -407,7 +546,7 @@ void QQuickRepeater::initItem(int index, QObject *object)
         // If the item comes from an ObjectModel, it might be used as
         // ComboBox/Menu/TabBar's contentItem. These types unconditionally cull items
         // that are inserted, so account for that here.
-        if (d->dataSourceIsObject)
+        if (d->model && !d->ownModel)
             QQuickItemPrivate::get(item)->setCulled(false);
         if (index > 0 && d->deletables.at(index-1)) {
             item->stackAfter(d->deletables.at(index-1));
@@ -439,7 +578,7 @@ void QQuickRepeater::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
     }
 
     int difference = 0;
-    QHash<int, QVector<QPointer<QQuickItem> > > moved;
+    QHash<int, QList<QPointer<QQuickItem> > > moved;
     for (const QQmlChangeSet::Change &remove : changeSet.removes()) {
         int index = qMin(remove.index, d->deletables.size());
         int count = qMin(remove.index + remove.count, d->deletables.size()) - index;
@@ -465,7 +604,7 @@ void QQuickRepeater::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
     for (const QQmlChangeSet::Change &insert : changeSet.inserts()) {
         int index = qMin(insert.index, d->deletables.size());
         if (insert.isMove()) {
-            QVector<QPointer<QQuickItem> > items = moved.value(insert.moveId);
+            QList<QPointer<QQuickItem> > items = moved.value(insert.moveId);
             d->deletables = d->deletables.mid(0, index) + items + d->deletables.mid(index);
             QQuickItem *stackBefore = index + items.size() < d->deletables.size()
                     ? d->deletables.at(index + items.size())
@@ -492,6 +631,61 @@ void QQuickRepeater::modelUpdated(const QQmlChangeSet &changeSet, bool reset)
 
     if (difference != 0)
         emit countChanged();
+}
+
+/*!
+    \qmlproperty enumeration QtQuick::Repeater::delegateModelAccess
+    \since 6.10
+
+    \include delegatemodelaccess.qdocinc
+*/
+QQmlDelegateModel::DelegateModelAccess QQuickRepeater::delegateModelAccess() const
+{
+    Q_D(const QQuickRepeater);
+    if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel *>(d->model))
+        return dataModel->delegateModelAccess();
+    return QQmlDelegateModel::Qt5ReadWrite;
+}
+
+void QQuickRepeater::setDelegateModelAccess(
+        QQmlDelegateModel::DelegateModelAccess delegateModelAccess)
+{
+    Q_D(QQuickRepeater);
+    const auto setExplicitDelegateModelAccess = [&](QQmlDelegateModel *delegateModel) {
+        delegateModel->setDelegateModelAccess(delegateModelAccess);
+        d->explicitDelegateModelAccess = true;
+    };
+
+    if (!d->model) {
+        if (delegateModelAccess == QQmlDelegateModel::Qt5ReadWrite) {
+            // Explicitly set delegateModelAccess to Legacy. We can do this without model.
+            d->explicitDelegateModelAccess = true;
+            return;
+        }
+
+        setExplicitDelegateModelAccess(QQmlDelegateModel::createForView(this, d));
+
+        // The new model is not connected to applyDelegateModelAccessChange, yet. We only do this
+        // once there is actual data, via an explicit setModel(). So we have to manually emit the
+        // delegateModelAccessChanged() here.
+        emit delegateModelAccessChanged();
+        return;
+    }
+
+    if (QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel *>(d->model)) {
+        // Disable the warning in applyDelegateModelAccessChange since the new delegate model
+        // access is also explicit.
+        d->explicitDelegateModelAccess = false;
+        setExplicitDelegateModelAccess(delegateModel);
+        return;
+    }
+
+    if (delegateModelAccess == QQmlDelegateModel::Qt5ReadWrite) {
+        d->explicitDelegateModelAccess = true; // Explicitly set null delegate always works
+    } else {
+        qmlWarning(this) << "Cannot set a delegateModelAccess on an explicitly provided "
+                            "non-DelegateModel";
+    }
 }
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTOOLTIP_P_H
 #define QQUICKTOOLTIP_P_H
@@ -15,6 +16,8 @@
 // We mean it.
 //
 
+#include <QtQml/qqmlparserstatus.h>
+#include <QtQuick/private/qquickattachedpropertypropagator_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -49,6 +52,12 @@ public:
 
     static QQuickToolTipAttached *qmlAttachedProperties(QObject *object);
 
+    enum Policy {
+        Automatic,
+        Manual
+    };
+    Q_ENUM(Policy);
+
 Q_SIGNALS:
     void textChanged();
     void delayChanged();
@@ -74,14 +83,20 @@ private:
     Q_DECLARE_PRIVATE(QQuickToolTip)
 };
 
-class Q_QUICKTEMPLATES2_EXPORT QQuickToolTipAttached : public QObject
+class Q_QUICKTEMPLATES2_EXPORT QQuickToolTipAttached
+    : public QtPrivate::QQuickAttachedPropertyPropagator
+    , public QQmlParserStatus
 {
     Q_OBJECT
+    QML_ANONYMOUS
+    Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged FINAL)
     Q_PROPERTY(int delay READ delay WRITE setDelay NOTIFY delayChanged FINAL)
     Q_PROPERTY(int timeout READ timeout WRITE setTimeout NOTIFY timeoutChanged FINAL)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged FINAL)
     Q_PROPERTY(QQuickToolTip *toolTip READ toolTip CONSTANT FINAL)
+    Q_PROPERTY(QQuickToolTip::Policy policy READ policy WRITE setVisiblePolicy
+        RESET resetVisiblePolicy NOTIFY policyChanged FINAL)
 
 public:
     explicit QQuickToolTipAttached(QObject *parent = nullptr);
@@ -100,17 +115,28 @@ public:
 
     QQuickToolTip *toolTip() const;
 
+    QQuickToolTip::Policy policy() const;
+    void setVisiblePolicy(QQuickToolTip::Policy policy);
+    void resetVisiblePolicy();
+
 Q_SIGNALS:
     void textChanged();
     void delayChanged();
     void timeoutChanged();
     void visibleChanged();
+    void policyChanged();
 
 public Q_SLOTS:
     void show(const QString &text, int ms = -1);
     void hide();
 
 private:
+    void attachedParentChange(QQuickAttachedPropertyPropagator *newParent,
+        QQuickAttachedPropertyPropagator *oldParent) override;
+
+    void classBegin() override;
+    void componentComplete() override;
+
     Q_DISABLE_COPY(QQuickToolTipAttached)
     Q_DECLARE_PRIVATE(QQuickToolTipAttached)
 };

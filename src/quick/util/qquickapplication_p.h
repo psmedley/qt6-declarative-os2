@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKAPPLICATION_P_H
 #define QQUICKAPPLICATION_P_H
@@ -69,7 +70,7 @@ private Q_SLOTS:
 
 private:
     Q_DISABLE_COPY(QQuickApplication)
-    QVector<QQuickScreenInfo *> m_screens;
+    std::vector<std::unique_ptr<QQuickScreenInfo>> m_screens;
 };
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSHAPECURVERENDERER_P_H
 #define QQUICKSHAPECURVERENDERER_P_H
@@ -44,17 +45,18 @@ public:
     ~QQuickShapeCurveRenderer() override;
 
     void beginSync(int totalCount, bool *countChanged) override;
-    void setPath(int index, const QQuickPath *path) override;
     void setPath(int index, const QPainterPath &path, QQuickShapePath::PathHints pathHints = {}) override;
     void setStrokeColor(int index, const QColor &color) override;
     void setStrokeWidth(int index, qreal w) override;
+    void setCosmeticStroke(int index, bool c) override;
     void setFillColor(int index, const QColor &color) override;
     void setFillRule(int index, QQuickShapePath::FillRule fillRule) override;
     void setJoinStyle(int index, QQuickShapePath::JoinStyle joinStyle, int miterLimit) override;
     void setCapStyle(int index, QQuickShapePath::CapStyle capStyle) override;
     void setStrokeStyle(int index, QQuickShapePath::StrokeStyle strokeStyle,
-                        qreal dashOffset, const QVector<qreal> &dashPattern) override;
+                        qreal dashOffset, const QList<qreal> &dashPattern) override;
     void setFillGradient(int index, QQuickShapeGradient *gradient) override;
+    void setStrokeGradient(int index, QQuickShapeGradient *gradient) override;
     void setFillTextureProvider(int index, QQuickItem *textureProviderItem) override;
     void setFillTransform(int index, const QSGTransform &transform) override;
     void endSync(bool async) override;
@@ -67,7 +69,7 @@ public:
     void setRootNode(QSGNode *node);
     void clearNodeReferences();
 
-    using NodeList = QVector<QSGCurveAbstractNode *>;
+    using NodeList = QList<QSGCurveAbstractNode *>;
 
     enum DirtyFlag
     {
@@ -98,11 +100,16 @@ private:
 
         bool isStrokeVisible() const
         {
-            return validPenWidth && pen.color().alpha() > 0 && pen.style() != Qt::NoPen;
+            return validPenWidth && pen.style() != Qt::NoPen
+                   && (pen.color().alpha() > 0 || strokeGradientType != QGradient::NoGradient);
         }
 
         QGradient::Type gradientType = QGradient::NoGradient;
         QSGGradientCache::GradientDesc gradient;
+
+        QGradient::Type strokeGradientType = QGradient::NoGradient;
+        QSGGradientCache::GradientDesc strokeGradient;
+
         QSGTransform fillTransform;
         QColor fillColor;
         Qt::FillRule fillRule = Qt::OddEvenFill;
@@ -132,8 +139,8 @@ private:
 
     QQuickItem *m_item;
     QSGNode *m_rootNode = nullptr;
-    QVector<PathData> m_paths;
-    QVector<PathData> m_removedPaths;
+    QList<PathData> m_paths;
+    QList<PathData> m_removedPaths;
     void (*m_asyncCallback)(void *) = nullptr;
     void *m_asyncCallbackData = nullptr;
     static int debugVisualizationFlags;

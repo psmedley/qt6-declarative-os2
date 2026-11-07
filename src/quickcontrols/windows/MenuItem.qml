@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -26,7 +27,7 @@ T.MenuItem {
 
     implicitTextPadding: control.checkable && control.indicator ? control.indicator.width + control.spacing : 0
 
-    contentItem: IconLabel {
+    contentItem: MenuItemIconLabel {
         readonly property real arrowPadding: control.subMenu && control.arrow ? control.arrow.width + control.spacing : 0
         leftPadding: !control.mirrored ? control.textPadding : arrowPadding
         rightPadding: control.mirrored ? control.textPadding : arrowPadding
@@ -40,6 +41,7 @@ T.MenuItem {
         text: control.text
         font: control.font
         color: control.palette.text
+        menuItem: control
     }
 
     arrow: ColorImage {

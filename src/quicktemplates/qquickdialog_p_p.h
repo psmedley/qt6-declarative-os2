@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDIALOG_P_P_H
 #define QQUICKDIALOG_P_P_H
@@ -28,6 +29,15 @@ class Q_QUICKTEMPLATES2_EXPORT QQuickDialogPrivate : public QQuickPopupPrivate
 {
 public:
     Q_DECLARE_PUBLIC(QQuickDialog)
+    QQuickDialogPrivate() {
+        windowFlags = Qt::Dialog;
+#if QT_CONFIG(wayland)
+        extendedWindowType = QNativeInterface::Private::QWaylandWindow::Default;
+#endif
+#if QT_CONFIG(xcb)
+        wmWindowType = QNativeInterface::Private::QXcbWindow::Dialog;
+#endif
+    }
 
     static QQuickDialogPrivate *get(QQuickDialog *dialog)
     {
@@ -40,10 +50,7 @@ public:
     virtual void handleReject();
     virtual void handleClick(QQuickAbstractButton *button);
 
-    Qt::WindowFlags popupWindowType() const override;
-
     int result = 0;
-    QString title;
     QQuickDialogButtonBox *buttonBox = nullptr;
     QPlatformDialogHelper::StandardButtons standardButtons = QPlatformDialogHelper::NoButton;
 };

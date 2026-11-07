@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 #ifndef QQUICKWINDOWMODULE_P_P_H
 #define QQUICKWINDOWMODULE_P_P_H
 
@@ -14,6 +15,7 @@
 // We mean it.
 //
 
+#include "qquickscreen_p.h"
 #include "qquickwindow_p.h"
 #include <QtQml/private/qv4persistent_p.h>
 #include "qquickwindowcontainer_p.h"
@@ -39,6 +41,7 @@ public:
     QObject *visualParent = nullptr;
     QPointer<QQuickWindowContainer> windowContainer;
     qreal z = 0.0;
+    mutable QQuickScreenInfo *screenInfo = nullptr;
 };
 
 QT_END_NAMESPACE

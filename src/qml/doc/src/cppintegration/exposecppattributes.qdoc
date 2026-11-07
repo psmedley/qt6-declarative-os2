@@ -3,7 +3,7 @@
 /*!
 \page qtqml-cppintegration-exposecppattributes.html
 \title Exposing Attributes of C++ Types to QML
-\brief Description of how to expose the attributes of a C++ type to QML
+\brief Description of how to expose the attributes of a C++ type to QML.
 
 QML can easily be extended with functionality defined in C++ code. Due to the
 tight integration of the QML engine with the \l{The Meta-Object System}{Qt
@@ -27,8 +27,8 @@ See \l{qtqml-cppintegration-data.html}{Data Type Conversion Between QML and C++}
 for more details.)
 
 In general, these are accessible from QML regardless of whether a
-QObject-derived class has been \l{Registering C++ types with the QML type
-system}{registered with the QML type system}. However, if a class is to be
+QObject-derived class has been \l{Registering C++ Types with the QML Type
+System}{registered with the QML type system}. However, if a class is to be
 used in a way that requires the engine to access additional type information
 — for example, if the class itself is to be used as a method parameter or
 property, or if one of its enum types is to be used in this way — then the
@@ -41,11 +41,11 @@ their properties and methods are inaccessible.
 
 You can make C++ types from a different module available in your own module by
 adding a dependency to your \l{qt_add_qml_module} call using the \e DEPENDENCIES
-option. You may, for example, want to depend on QtQuick so that your QML-exposed
-C++ types can use \l QColor as method arguments and return values. QtQuick
-exposes \l QColor as a \l {QML Value Types}{value type} \e color. Such
-dependencies may be automatically inferred at run time, but you should not rely
-on this.
+option. You may, for example, want to depend on \l[Cpp]{QtQuick} so that your
+QML-exposed C++ types can use \l QColor as method arguments and return values.
+\l[Cpp]{QtQuick} exposes \l QColor as a \l {QML Value Types}{value type} \e color.
+Such dependencies may be automatically inferred at run time, but you should not
+rely on this.
 
 Also note that a number of the important concepts covered in this document are
 demonstrated in the \l{Writing QML Extensions with C++} tutorial.
@@ -62,7 +62,7 @@ type that is supported by the QML engine.
 
 By default, the engine supports a number of Qt C++ types and can automatically
 convert them as appropriately when used from QML. Additionally, C++ classes
-that are \l{Registering C++ types with the QML type system}{registered} with
+that are \l{Registering C++ Types with the QML Type System}{registered} with
 the QML type system can be used as data types, as can their enums if
 appropriately registered. See \l{qtqml-cppintegration-data.html}{Data Type
 Conversion Between QML and C++} for further information.
@@ -212,11 +212,12 @@ be done with care to ensure that performance doesn't suffer.
 
 The presence of a NOTIFY signal does incur a small overhead. There are cases
 where a property's value is set at object construction time, and does not
-subsequently change. The most common case of this is when a type uses \l
-{Grouped Properties}, and the grouped property object is allocated once, and
-only freed when the object is deleted. In these cases, the CONSTANT
-attribute may be added to the property declaration instead of a NOTIFY
-signal.
+subsequently change. The most common case of this is a read-only property that
+holds a sub-object, typically accessed through
+\l{#Grouped Properties}{grouped property syntax}, where the sub-object is
+allocated once, and only freed when the owner is deleted. In these cases,
+the CONSTANT attribute may be added to the property declaration instead of a
+NOTIFY signal.
 
 The CONSTANT attribute should only be used for properties whose value is set,
 and finalized, only in the class constructor.  All other properties that want
@@ -226,8 +227,8 @@ to be used in bindings should have a NOTIFY signal instead.
 \section2 Properties with Object Types
 
 Object-type properties are accessible from QML providing that the object type
-has been appropriately \l{Registering C++ types with the QML type
-system}{registered} with the QML type system.
+has been appropriately \l{Registering C++ Types with the QML Type
+System}{registered} with the QML type system.
 
 For example, the \c Message type might have a \c body property of type
 \c MessageBody*:
@@ -250,8 +251,8 @@ class MessageBody : public QObject
 }
 \endcode
 
-Suppose the \c Message type was \l{Registering C++ types with the QML type
-system}{registered} with the QML type system, allowing it to be used as an
+Suppose the \c Message type was \l{Registering C++ Types with the QML Type
+System}{registered} with the QML type system, allowing it to be used as an
 object type from QML code:
 
 \qml
@@ -320,16 +321,18 @@ void MessageBoard::append_message(QQmlListProperty<Message> *list, Message *msg)
 \endcode
 
 Note that the template class type for the QQmlListProperty — in this case,
-\c Message — must be \l{Registering C++ types with the QML type system}
+\c Message — must be \l{Registering C++ Types with the QML Type System}
 {registered} with the QML type system.
 
 
 \section2 Grouped Properties
 \keyword Integrating QML and C++ - Grouped Properties
 
-Any read-only object-type property is accessible from QML code as a
-\e {grouped property}. This can be used to expose a group of related
-properties that describe a set of attributes for a type.
+Any property whose type has sub-properties of its own can be manipulated using
+the \l{QML Object Attributes#Grouped Properties}{grouped property syntax}, no
+matter whether that type is a value type such as \c font or an object type.
+Grouped properties are useful to expose a group of related properties that
+describe a set of attributes for a type.
 
 For example, suppose the \c Message::author property was of type
 \c MessageAuthor rather than a simple string, with sub-properties
@@ -362,9 +365,8 @@ private:
 \endcode
 
 The \c author property could be written to using the
-\l{qtqml-syntax-objectattributes.html#grouped-properties}{grouped property
-syntax}
-in QML, like this:
+\l{QML Object Attributes#Grouped Properties}{grouped property syntax} in QML,
+like this:
 
 \qml
 Message {
@@ -373,15 +375,62 @@ Message {
 }
 \endqml
 
-A type that is exposed as a grouped property differs from an \l{Properties with
-Object Types}{object-type property} in that the grouped property is read-only,
-and is initialized to a valid value by the parent object at construction. The
-grouped property's sub-properties may be modified from QML but the grouped
-property object itself will never change, whereas an object-type property may be
-assigned a new object value from QML at any time. Thus, the lifetime of a
-grouped property object is controlled strictly by the C++ parent
-implementation, whereas an object-type property can be freely created and
-destroyed through QML code.
+Since \c author is an \l{Properties with Object Types}{object-type property},
+the grouped assignments do not create the \c MessageAuthor object. They are
+written to whatever object \c Message::author() returns. This has a few
+consequences:
+
+\list
+\li The sub-property names are resolved against the \e declared type of the
+    property, here \c MessageAuthor, not against the type of the object that
+    happens to be stored in it at run time. Different instantiations of
+    \c Message could produce \c author objects of different types. The only
+    thing we can rely on when creating the QML component is the declared type.
+\li The object has to exist when the grouped assignments are applied.
+    Otherwise the engine throws an error along the lines of
+    \c {Cannot set properties on author as it is null}. Creating the object in
+    the owner's constructor, as above, is the simplest way to guarantee this,
+    but a getter that creates the object on first access works just as well.
+\li The lifetime of the object is whatever the C++ implementation makes it.
+    Grouped property syntax neither creates nor destroys objects.
+\endlist
+
+Declaring \c author read-only, as in the example above, additionally prevents
+QML code from replacing the \c MessageAuthor object. If \c author had a
+\c WRITE accessor, you could equally well assign a new object to it:
+
+\qml
+Message {
+    author: MessageAuthor {
+        name: "Alexandra"
+        email: "alexandra@mail.com"
+    }
+}
+\endqml
+
+You cannot combine the two forms for the same property in the same
+object definition. Assigning an object to \c author and also writing
+\c author.name in the same \c Message produces an error. You can subvert that
+by having the grouped property in a different scope. However, doing so produces
+confusing results because now you have two \c MessageAuthor objects, the one
+created by the constructor and the one assigned explicitly. Only binding
+evaluation order determines which one the grouped property applies to.
+
+This means that the good practice is:
+
+\list
+\li Keep objects used as grouped properties read-only.
+\li Avoid grouped property syntax if you also manipulate the base property of
+    the group itself.
+\endlist
+
+For a \l {QML Value Types}{value type} property such as \c font, grouped
+assignments require the property to be writable, since the engine reads the
+value, modifies it, and writes it back. The potential confusion is still a
+problem, though. If you re-assign the whole \c font in place and then manipulate
+the \c font.bold property in a different place, binding evaluation order
+determines which one is done first, and what value of \c bold will result from
+it.
 
 
 \section1 Exposing Methods (Including Qt Slots)
@@ -521,6 +570,12 @@ pragma NativeMethodBehavior: AcceptThisObject
 
 With this line added, the example above will work as expected.
 
+\section2 Overriding toString()
+
+If you provide a Q_INVOKABLE method called \e{toString} (with no arguments), that
+method will be used to convert the object to a string in place of JavaScript's
+native \e{toString} implementation.
+
 \section1 Exposing Signals
 
 Any public \l{Signals & Slots}{signal} of a QObject-derived type is accessible
@@ -546,8 +601,8 @@ signal with a single parameter, \c subject:
  };
 \endcode
 
-If the \c MessageBoard type was \l{Registering C++ types with the QML type
-system}{registered} with the QML type system, then a \c MessageBoard object
+If the \c MessageBoard type was \l{Registering C++ Types with the QML Type
+System}{registered} with the QML type system, then a \c MessageBoard object
 declared in QML could receive the \c newMessagePosted() signal using a signal
 handler named \c onNewMessagePosted, and examine the \c subject parameter
 value:
@@ -568,5 +623,5 @@ Classes may have multiple signals with the same name, but only the final
 signal is accessible as a QML signal. Note that signals with the same name
 but different parameters cannot be distinguished from one another.
 
-
+\sa {qqmlintegration.h}{QML Type Registration Macros}, {Defining QML Types from C++}
 */

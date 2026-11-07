@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qqmljsresourcefilemapper_p.h"
 
@@ -60,7 +61,7 @@ bool QQmlJSResourceFileMapper::isEmpty() const
     return qrcPathToFileSystemPath.isEmpty();
 }
 
-bool QQmlJSResourceFileMapper::isFile(const QString &resourcePath) const
+bool QQmlJSResourceFileMapper::isFile(QStringView resourcePath) const
 {
     for (const auto &entry : qrcPathToFileSystemPath) {
         if (entry.resourcePath == resourcePath)

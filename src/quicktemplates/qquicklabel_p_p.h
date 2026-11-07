@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABEL_P_P_H
 #define QQUICKLABEL_P_P_H
@@ -27,7 +28,8 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickLabelPrivate : public QQuickTextPrivate, public QQuickItemChangeListener
+class Q_AUTOTEST_EXPORT QQuickLabelPrivate : public QQuickTextPrivate,
+                                             public QSafeQuickItemChangeListener<QQuickLabelPrivate>
 #if QT_CONFIG(accessibility)
     , public QAccessible::ActivationObserver
 #endif
@@ -99,7 +101,6 @@ public:
     QLazilyAllocated<ExtraData> extra;
 
     bool resizingBackground = false;
-    QPalette resolvedPalette;
     QQuickDeferredPointer<QQuickItem> background;
 };
 

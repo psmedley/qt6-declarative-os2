@@ -20,6 +20,7 @@
 #include <QFontDatabase>
 #include <QMatrix4x4>
 #include <QQuaternion>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QVector2D>
 #include <QVector3D>
@@ -29,6 +30,9 @@
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <private/qtenvironmentvariables_p.h> // for qTzSet()
 #include <private/qqmlengine_p.h>
+#include <private/qqmlcontextdata_p.h>
+
+using namespace Qt::StringLiterals;
 
 class tst_qqmlqt : public QQmlDataTest
 {
@@ -62,9 +66,11 @@ private slots:
     void openUrlExternally_pragmaLibrary();
 #endif
     void md5();
+    void escapeHtml();
     void createComponent();
     void createComponent_pragmaLibrary();
     void createQmlObject();
+    void createQmlObjectNoCULeak();
     void dateTimeConversion();
     void dateTimeFormatting();
     void dateTimeFormatting_data();
@@ -80,11 +86,13 @@ private slots:
     void resolvedUrl();
     void later_data();
     void later();
+    void laterInvalidatedContext();
     void qtObjectContents();
 
     void timeRoundtrip_data();
     void timeRoundtrip();
 
+    void fontSetsStyleName();
     void fontSetsProperties();
 
 private:
@@ -177,6 +185,7 @@ void tst_qqmlqt::rgba()
     QCOMPARE(qvariant_cast<QColor>(object->property("test4")), QColor());
     QCOMPARE(qvariant_cast<QColor>(object->property("test5")), QColor::fromRgbF(1, 1, 1, 1));
     QCOMPARE(qvariant_cast<QColor>(object->property("test6")), QColor::fromRgbF(0, 0, 0, 0));
+    QCOMPARE(qvariant_cast<QColor>(object->property("test7")), QColor::fromRgbF(0, 0, 0, 0));
 }
 
 void tst_qqmlqt::hsla()
@@ -200,6 +209,7 @@ void tst_qqmlqt::hsla()
     QColor test7 = qvariant_cast<QColor>(object->property("test7"));
     QCOMPARE(test7, QColor::fromHslF(-1, 0, 0.5, 1));
     QCOMPARE(test7.hslHue(), -1.0f);
+    QCOMPARE(qvariant_cast<QColor>(object->property("test8")), QColor::fromHslF(0, 0, 0, 0));
 }
 
 void tst_qqmlqt::hsva()
@@ -223,6 +233,7 @@ void tst_qqmlqt::hsva()
     QColor test7 = qvariant_cast<QColor>(object->property("test7"));
     QCOMPARE(test7, QColor::fromHsvF(-1, 0, 0.5, 1));
     QCOMPARE(test7.hsvHue(), -1.0f);
+    QCOMPARE(qvariant_cast<QColor>(object->property("test8")), QColor::fromHsvF(0, 0, 0, 0));
 }
 
 void tst_qqmlqt::colorEqual()
@@ -685,6 +696,22 @@ void tst_qqmlqt::md5()
     QCOMPARE(object->property("test2").toString(), QLatin1String(QCryptographicHash::hash("Hello World", QCryptographicHash::Md5).toHex()));
 }
 
+void tst_qqmlqt::escapeHtml()
+{
+    QQmlComponent component(&engine, testFileUrl("escapeHtml.qml"));
+
+    QString warning1 = component.url().toString() + ":4: Error: Insufficient arguments";
+    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
+
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(object != nullptr);
+
+    QCOMPARE(object->property("test2").toString(), QString("<>&\"").toHtmlEscaped());
+    QCOMPARE(object->property("test3").toString(), QString("<script>alert('XSS')</script>").toHtmlEscaped());
+    QCOMPARE(object->property("test4").toString(), QString("Normal text").toHtmlEscaped());
+    QCOMPARE(object->property("test5").toString(), QString("").toHtmlEscaped());
+}
+
 void tst_qqmlqt::createComponent()
 {
     {
@@ -713,6 +740,23 @@ void tst_qqmlqt::createComponent()
     }
 }
 
+void tst_qqmlqt::createQmlObjectNoCULeak()
+{
+    QQmlComponent component(&engine, testFileUrl("createQmlObjectNoCULeak.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(object);
+    object->setProperty("createCount", -1);
+    auto oldCompilationUnitCount = engine.handle()->compilationUnits().size();
+    for (int i = 0; i < 10; ++i) {
+        object->setProperty("createCount", i);
+        // spin the event loop, so that the object is destroyed in time
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
+    }
+    // only the last compilation unit is still referenced
+    QCOMPARE_EQ(engine.handle()->compilationUnits().size(), oldCompilationUnitCount);
+}
+
 void tst_qqmlqt::createComponent_pragmaLibrary()
 {
     // Currently, just loading createComponent_lib.qml causes crash on some platforms
@@ -733,7 +777,7 @@ void tst_qqmlqt::createQmlObject()
     QString warning4 = component.url().toString()+ ":9: TypeError: Passing incompatible arguments to C++ functions from JavaScript is not allowed.";
     QString warning5 = component.url().toString()+ ":8: Error: Too many arguments";
     QString warning6 = "RunTimeError:  Qt.createQmlObject(): failed to create object: \n    " + testFileUrl("inline").toString() + ":3:16: Cannot assign object type QObject with no default method";
-    QString warning7 = "Could not convert argument 1 at";
+    QString warning7 = "Could not convert argument 1 from 0 to QObject*";
     QString warning8 = "expression for noParent@";
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warning1));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning2));
@@ -826,11 +870,11 @@ void tst_qqmlqt::dateTimeFormatting()
         << "formatting.qml:36: Error: Unable to determine callable overload"
         << "formatting.qml:39: Error: Unable to determine callable overload"
         << "formatting.qml:42: Error: Unable to determine callable overload"
-        << "Could not convert argument 1 at"
+        << "Could not convert argument 1 from \\[object Object\\] to QLocale"
         << "expression for err_date2@"
-        << "Could not convert argument 1 at"
+        << "Could not convert argument 1 from \\[object Object\\] to QLocale"
         << "expression for err_time2@"
-        << "Could not convert argument 1 at"
+        << "Could not convert argument 1 from \\[object Object\\] to QLocale"
         << "expression for err_dateTime2@";
 
     for (const QString &warning : std::as_const(warnings))
@@ -911,11 +955,11 @@ void tst_qqmlqt::dateTimeFormattingVariants()
     warnings << "formatting.qml:36: Error: Unable to determine callable overload."
              << "formatting.qml:39: Error: Unable to determine callable overload."
              << "formatting.qml:42: Error: Unable to determine callable overload."
-             << "Could not convert argument 1 at"
+             << "Could not convert argument 1 from \\[object Object\\] to QLocale"
              << "expression for err_date2@"
-             << "Could not convert argument 1 at"
+             << "Could not convert argument 1 from \\[object Object\\] to QLocale"
              << "expression for err_time2@"
-             << "Could not convert argument 1 at"
+             << "Could not convert argument 1 from \\[object Object\\] to QLocale"
              << "expression for err_dateTime2@";
 
     for (const QString &warning : std::as_const(warnings))
@@ -1114,7 +1158,7 @@ void tst_qqmlqt::dateTimeFormattingWithLocale()
     auto dateString = o->property("dateString").toString();
     QCOMPARE(dateString, QLocale("de_DE").toString(date, QLocale::ShortFormat));
 
-    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Could not convert argument 1 at"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Could not convert argument 1 from null to QLocale"));
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("invalidUsage@"));
     QTest::ignoreMessage(
                 QtWarningMsg,
@@ -1139,28 +1183,104 @@ void tst_qqmlqt::isQtObject()
 
 void tst_qqmlqt::btoa()
 {
-    QQmlComponent component(&engine, testFileUrl("btoa.qml"));
+    const QUrl url = testFileUrl("btoa.qml");
+    QQmlComponent component(&engine, url);
 
-    QString warning1 = component.url().toString() + ":4: Error: Insufficient arguments";
-    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            "Qt.btoa(string): This method is deprecated. "
+            "Its output differs from the common Web API. "
+            "Use the overloads that take array-likes.");
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression("btoa.qml:4: Error: Unable to determine callable overload."));
 
     QScopedPointer<QObject> object(component.create());
     QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test2").toString(), QString("SGVsbG8gd29ybGQh"));
+    QCOMPARE(object->property("test3").toString(), QString("SGVsbG8gd29ybGQh"));
+
+    QCOMPARE(
+            object->property("better"),
+            QByteArray("R0lGODdhAQABAPAAAP8AAAAAACwAAAAAAQABAAACAkQBADs="));
+
+    QCOMPARE(
+            object->property("better2"),
+            QByteArray("R0lGODdhAQABAPAAAP8AAAAAACwAAAAAAQABAAACAkQBADs="));
+
+    QVariant result;
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":25: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad1", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
+
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":29: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad2", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
+
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":33: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad3", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
 }
 
 void tst_qqmlqt::atob()
 {
-    QQmlComponent component(&engine, testFileUrl("atob.qml"));
+    const QUrl url = testFileUrl("atob.qml");
+    QQmlComponent component(&engine, url);
 
-    QString warning1 = component.url().toString() + ":4: Error: Insufficient arguments";
-    QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            "Qt.atob(string): This method is deprecated. "
+            "Its output differs from the common Web API. "
+            "Use the overloads that take array-likes.");
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression("atob.qml:4: Error: Unable to determine callable overload."));
 
     QScopedPointer<QObject> object(component.create());
     QVERIFY(object != nullptr);
 
+    const quint8 bytes[] = {
+        0x47, 0x49, 0x46, 0x38, 0x37, 0x61, 0x01,
+        0x00, 0x01, 0x00, 0xF0, 0x00, 0x00, 0xFF,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3B
+    };
+
     QCOMPARE(object->property("test2").toString(), QString("Hello world!"));
+    QCOMPARE(object->property("test3").toString(), QString("Hello world!"));
+
+    QCOMPARE(
+            object->property("better"),
+            QByteArray(reinterpret_cast<const char *>(bytes), sizeof(bytes)));
+    QCOMPARE(
+            object->property("better2"),
+            QByteArray(reinterpret_cast<const char *>(bytes), sizeof(bytes)));
+
+    QVariant result;
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":29: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad1", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
+
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":33: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad2", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
+
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":37: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad3", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
+
+    QTest::ignoreMessage(
+            QtWarningMsg, qPrintable(url.toString() + ":41: Error: Invalid character"));
+    QMetaObject::invokeMethod(object.data(), "bad4", Q_RETURN_ARG(QVariant, result));
+    QVERIFY(!result.isValid());
 }
 
 void tst_qqmlqt::fontFamilies()
@@ -1212,9 +1332,9 @@ void tst_qqmlqt::resolvedUrl()
     QCOMPARE(object->property("isObject").toBool(), true);
 
     QCOMPARE(qvariant_cast<QUrl>(object->property("resolvedHere")),
-             dataDirectoryUrl().resolved(QStringLiteral("somewhere.qml")));
+             dataDirectoryUrl().resolved(QUrl{u"somewhere.qml"_s}));
     QCOMPARE(qvariant_cast<QUrl>(object->property("resolvedThere")),
-             dataDirectoryUrl().resolved(QStringLiteral("Other/somewhere.qml")));
+             dataDirectoryUrl().resolved(QUrl{u"Other/somewhere.qml"_s}));
 
     QVariant unresolved = object->property("unresolvedUrl");
     QCOMPARE(unresolved.metaType(), QMetaType::fromType<QUrl>());
@@ -1319,6 +1439,52 @@ void tst_qqmlqt::later()
             QCOMPARE(root->property(qPrintable(propNames.at(i))), values.at(i));
         }
     }
+}
+
+//  a function scheduled via Qt.callLater() may have the QQmlContextData it (or one of its parent
+//  contexts) lives in invalidated before the queued call is serviced. The invalidation is
+//  artificial here, but it seems to be possible with pure QML using a Loader
+void tst_qqmlqt::laterInvalidatedContext()
+{
+    QQmlEngine engine;
+
+    // A C++-created context has no compilation unit, and - as long as no name is
+    // ever resolved against it - no property-name cache either.
+    QScopedPointer<QQmlContext> context(new QQmlContext(engine.rootContext()));
+
+    QQmlComponent component(&engine);
+    component.setData(
+            "import QtQml\n"
+            "QtObject {\n"
+            "    function arm() {\n"
+            // The closure is unguarded (its immediate scope is this CallContext,
+            // not a QmlContext, so QQmlDelayedCallQueue installs no object guard)
+            // and references a free name, forcing a lookup that walks up into the
+            // soon-to-be-invalidated parent context.
+            "        Qt.callLater(function() { return someUnresolvableName; });\n"
+            "    }\n"
+            "}\n",
+            QUrl("LaterInvalidContext.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> root(component.create(context.data()));
+    QVERIFY(root);
+    QMetaObject::invokeMethod(root.data(), "arm");
+
+    // Invalidate the context subtree the way QQuickLoader::clear() does: detach
+    // the engine but keep the objects and the parent-context links alive.
+    QQmlContextData::get(context.data())->clearContextRecursively();
+
+    // Service the queued Qt.callLater(). Before the fix this dereferenced the
+    // null engine in QQmlContextData::initPropertyNames(); now the lookup must
+    // fail gracefully.
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            QRegularExpression(
+                    "ReferenceError: someUnresolvableName is not defined "
+                    "\\(exception occurred during delayed function evaluation\\)"));
+    QCoreApplication::processEvents();
+    // should not crash
 }
 
 void tst_qqmlqt::qtObjectContents()
@@ -1475,6 +1641,18 @@ void tst_qqmlqt::timeRoundtrip()
     // any perturbation (e.g. by DST effects) from converting from QTime to V4's Date and back
     // again.
     QCOMPARE(tp.m_getTime, tp.m_putTime);
+}
+
+void tst_qqmlqt::fontSetsStyleName() {
+    QQmlComponent component(&engine, testFileUrl("qtbug_125495.qml"));
+
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(object != nullptr);
+
+    QFont f;
+    f.setStyleName("Some Style");
+
+    QCOMPARE(qvariant_cast<QFont>(object->property("fontProperty")), f);
 }
 
 void tst_qqmlqt::fontSetsProperties() {

@@ -7,6 +7,11 @@
 
 set(qml_files
     "OpacityMask.qml"
+    "TextEditingContextMenu.qml"
+)
+
+set_source_files_properties(TextEditingContextMenu.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.11"
 )
 
 qt_internal_add_qml_module(QuickControls2ImagineStyleImpl
@@ -14,8 +19,11 @@ qt_internal_add_qml_module(QuickControls2ImagineStyleImpl
     VERSION "${PROJECT_VERSION}"
     CLASS_NAME QtQuickControls2ImagineStyleImplPlugin
     PLUGIN_TARGET qtquickcontrols2imaginestyleimplplugin
+    NO_PRIVATE_MODULE
     QML_FILES
         ${qml_files}
+    DEPENDENCIES
+        QtQuick/auto
     IMPORTS
         QtQuick.Controls.impl/auto
     DEFINES
@@ -28,7 +36,6 @@ qt_internal_add_qml_module(QuickControls2ImagineStyleImpl
         Qt::QuickControls2ImplPrivate
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    OS2_SHORT_NAME QuCoImSI
 )
 
 qt_internal_add_shaders(QuickControls2ImagineStyleImpl "qtquickcontrols2imaginestyleimplplugin_shaders"

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLLISTMODEL_H
 #define QQMLLISTMODEL_H
@@ -102,13 +103,14 @@ private:
 
     QV4::ExecutionEngine *engine() const;
 
-    inline bool canMove(int from, int to, int n) const { return !(from+n > count() || to+n > count() || from < 0 || to < 0 || n < 0); }
+    bool canMove(int from, int to, int n) const;
 
     mutable QQmlListModelWorkerAgent *m_agent;
     mutable QV4::ExecutionEngine *m_engine;
     QQmlRefPointer<QV4::ExecutableCompilationUnit> m_compilationUnit;
     bool m_mainThread;
     bool m_primary;
+    bool m_ownAgent = false;
 
     bool m_dynamicRoles;
 
@@ -116,8 +118,8 @@ private:
     ListModel *m_listModel;
     std::unique_ptr<QPropertyNotifier> translationChangeHandler;
 
-    QVector<class DynamicRoleModelNode *> m_modelObjects;
-    QVector<QString> m_roles;
+    QList<class DynamicRoleModelNode *> m_modelObjects;
+    QList<QString> m_roles;
 
     struct ElementSync
     {
@@ -125,13 +127,13 @@ private:
         DynamicRoleModelNode *target = nullptr;
         int srcIndex = -1;
         int targetIndex = -1;
-        QVector<int> changedRoles;
+        QList<int> changedRoles;
     };
 
     static bool sync(QQmlListModel *src, QQmlListModel *target);
     static QQmlListModel *createWithOwner(QQmlListModel *newOwner);
 
-    void emitItemsChanged(int index, int count, const QVector<int> &roles);
+    void emitItemsChanged(int index, int count, const QList<int> &roles);
     void emitItemsAboutToBeInserted(int index, int count);
     void emitItemsInserted();
 
@@ -140,7 +142,6 @@ private:
     void updateTranslations();
 };
 
-// ### FIXME
 class QQmlListElement : public QObject
 {
     Q_OBJECT
@@ -176,9 +177,10 @@ private:
     // returns true if a role was set
     bool applyProperty(
             const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit,
-            const QV4::CompiledData::Binding *binding, ListModel *model, int outterElementIndex);
+            const QV4::CompiledData::Binding *binding, ListModel *model, QQmlListModel *owner,
+            int outterElementIndex);
 
-    static bool definesEmptyList(const QString &);
+    static bool definesEmptyList(QStringView s);
 
     QString listElementTypeName;
 };

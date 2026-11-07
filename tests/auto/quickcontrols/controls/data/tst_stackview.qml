@@ -455,7 +455,7 @@ TestCase {
         // Passing the wrong type to a strongly-typed function results in an exception.
         let exceptionThrown = false
         try {
-            ignoreWarning(/Could not convert argument 0 at/)
+            ignoreWarning(/Could not convert argument 0 from QObject.* to QQmlComponent\\*/)
             const stackTraceLineCount = 5
             for (let i = 0; i < stackTraceLineCount; ++i)
                 ignoreWarning(/.*@.*qml/)
@@ -534,7 +534,7 @@ TestCase {
 
      // Escape special Regexp characters with a '\' (backslash) prefix so that \a str can be
      // used as a Regexp pattern.
-    function escapeRegExp(str: string) {
+    function escapeRegExp(str: string): string {
         // "$&" is the last matched substring
         return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     }
@@ -1223,11 +1223,11 @@ TestCase {
         verify(control)
 
         ignoreWarning("QQmlComponent: Component is not ready")
-        ignoreWarning(/QML StackView: push: .*non-existent.qml:-1 No such file or directory/)
+        ignoreWarning(/QML StackView: push: .*non-existent.qml: No such file or directory/)
         control.push(Qt.resolvedUrl("non-existent.qml"))
 
         ignoreWarning("QQmlComponent: Component is not ready")
-        ignoreWarning(/QML StackView: replace: .*non-existent.qml:-1 No such file or directory/)
+        ignoreWarning(/QML StackView: replace: .*non-existent.qml: No such file or directory/)
         control.replace(Qt.resolvedUrl("non-existent.qml"))
 
         ignoreWarning(/QML StackView: push: invalid url: x:\/\/\[v\]/)

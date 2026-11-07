@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLBUILTINS_H
 #define QQMLBUILTINS_H
@@ -212,6 +213,14 @@ struct QQmlQVariantMapForeign
     Q_GADGET
     QML_ANONYMOUS
     QML_FOREIGN(QVariantMap)
+    QML_EXTENDED_JAVASCRIPT(Object)
+};
+
+struct QQmlQVariantHashForeign
+{
+    Q_GADGET
+    QML_ANONYMOUS
+    QML_FOREIGN(QVariantHash)
     QML_EXTENDED_JAVASCRIPT(Object)
 };
 

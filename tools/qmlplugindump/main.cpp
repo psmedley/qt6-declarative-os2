@@ -31,6 +31,7 @@
 #include <QtCore/private/qmetaobject_p.h>
 #include <QtQmlTypeRegistrar/private/qqmljsstreamwriter_p.h>
 #include <QtQml/private/qqmlsignalnames_p.h>
+#include <QtQml/qqmlcomponent.h>
 
 #include <QRegularExpression>
 #include <iostream>
@@ -141,12 +142,13 @@ void collectReachableMetaObjects(QObject *object, QSet<const QMetaObject *> *met
     }
 }
 
-void collectReachableMetaObjects(QQmlEnginePrivate *engine, const QQmlType &ty, QSet<const QMetaObject *> *metas,  const QmlVersionInfo& info)
+void collectReachableMetaObjects(
+        QQmlTypeLoader *typeLoader, const QQmlType &ty, QSet<const QMetaObject *> *metas,
+        const QmlVersionInfo& info)
 {
     collectReachableMetaObjects(ty.baseMetaObject(), metas, info, ty.isExtendedType());
-    if (ty.attachedPropertiesType(engine) && matchingImportUri(ty, info)) {
-        collectReachableMetaObjects(ty.attachedPropertiesType(engine), metas, info);
-    }
+    if (ty.attachedPropertiesType(typeLoader) && matchingImportUri(ty, info))
+        collectReachableMetaObjects(ty.attachedPropertiesType(typeLoader), metas, info);
 }
 
 /* When we dump a QMetaObject, we want to list all the types it is exported as.
@@ -196,13 +198,14 @@ QByteArray convertToId(const QMetaObject *mo)
 
 
 // Collect all metaobjects for types registered with qmlRegisterType() without parameters
-void collectReachableMetaObjectsWithoutQmlName(QQmlEnginePrivate *engine, QSet<const QMetaObject *>& metas,
-                                               QMap<QString, QList<QQmlType>> &compositeTypes, const QmlVersionInfo &info) {
+void collectReachableMetaObjectsWithoutQmlName(
+        QQmlTypeLoader *typeLoader, QSet<const QMetaObject *>& metas,
+        QMap<QString, QList<QQmlType>> &compositeTypes, const QmlVersionInfo &info) {
     const auto qmlAllTypes = QQmlMetaType::qmlAllTypes();
     for (const QQmlType &ty : qmlAllTypes) {
         if (!metas.contains(ty.baseMetaObject())) {
             if (!ty.isComposite()) {
-                collectReachableMetaObjects(engine, ty, &metas, info);
+                collectReachableMetaObjects(typeLoader, ty, &metas, info);
             } else if (matchingImportUri(ty, info)) {
                 compositeTypes[ty.elementName()].append(ty);
             }
@@ -210,13 +213,10 @@ void collectReachableMetaObjectsWithoutQmlName(QQmlEnginePrivate *engine, QSet<c
     }
 }
 
-QSet<const QMetaObject *> collectReachableMetaObjects(QQmlEngine *engine,
-                                                      QSet<const QMetaObject *> &noncreatables,
-                                                      QSet<const QMetaObject *> &singletons,
-                                                      QMap<QString, QList<QQmlType>> &compositeTypes,
-                                                      const QmlVersionInfo &info,
-                                                      const QList<QQmlType> &skip = QList<QQmlType>()
-                                                      )
+QSet<const QMetaObject *> collectReachableMetaObjects(
+        QQmlEngine *engine, QSet<const QMetaObject *> &noncreatables,
+        QSet<const QMetaObject *> &singletons, QMap<QString, QList<QQmlType>> &compositeTypes,
+        const QmlVersionInfo &info, const QList<QQmlType> &skip = QList<QQmlType>())
 {
     QSet<const QMetaObject *> metas;
     metas.insert(&Qt::staticMetaObject);
@@ -232,7 +232,7 @@ QSet<const QMetaObject *> collectReachableMetaObjects(QQmlEngine *engine,
         if (!ty.isComposite()) {
             if (const QMetaObject *mo = ty.baseMetaObject())
                 qmlTypesByCppName[mo->className()].insert(ty);
-            collectReachableMetaObjects(QQmlEnginePrivate::get(engine), ty, &metas, info);
+            collectReachableMetaObjects(QQmlTypeLoader::get(engine), ty, &metas, info);
         } else {
             compositeTypes[ty.elementName()].append(ty);
         }
@@ -301,7 +301,7 @@ QSet<const QMetaObject *> collectReachableMetaObjects(QQmlEngine *engine,
         }
     }
 
-    collectReachableMetaObjectsWithoutQmlName(QQmlEnginePrivate::get(engine), metas, compositeTypes, info);
+    collectReachableMetaObjectsWithoutQmlName(QQmlTypeLoader::get(engine), metas, compositeTypes, info);
 
     return metas;
 }
@@ -534,7 +534,8 @@ public:
         QByteArray attachedTypeId;
     };
 
-    void dump(QQmlEnginePrivate *engine, const QMetaObject *meta, bool isUncreatable, bool isSingleton)
+    void dump(QQmlTypeLoader *typeLoader, const QMetaObject *meta,
+              bool isUncreatable, bool isSingleton)
     {
         qml->writeStartObject("Component");
 
@@ -542,12 +543,12 @@ public:
         qml->writeStringBinding("name", QUtf8StringView(id));
 
         // collect type information
-        QVector<QmlTypeInfo> typeInfo;
+        QList<QmlTypeInfo> typeInfo;
         const auto types = qmlTypesByCppName.value(meta->className());
         for (const QQmlType &type : types) {
             const QMetaObject *extendedObject = type.extensionFunction() ? type.metaObject() : nullptr;
             QByteArray attachedTypeId;
-            if (const QMetaObject *attachedType = type.attachedPropertiesType(engine)) {
+            if (const QMetaObject *attachedType = type.attachedPropertiesType(typeLoader)) {
                 // Can happen when a type is registered that returns itself as attachedPropertiesType()
                 // because there is no creatable type to attach to.
                 if (attachedType != meta)
@@ -759,11 +760,11 @@ private:
         qml->writeStartObject("Enum");
         qml->writeStringBinding("name", QUtf8StringView(e.name()));
 
-        QList<QPair<QAnyStringView, int>> namesValues;
+        QList<std::pair<QAnyStringView, int>> namesValues;
         const int keyCount = e.keyCount();
         namesValues.reserve(keyCount);
         for (int index = 0; index < keyCount; ++index)
-            namesValues.append(qMakePair(QUtf8StringView(e.key(index)), e.value(index)));
+            namesValues.append(std::make_pair(QUtf8StringView(e.key(index)), e.value(index)));
 
         qml->writeEnumObjectLiteralBinding("values", namesValues);
         qml->writeEndObject();
@@ -1354,7 +1355,8 @@ int main(int argc, char *argv[])
     if (relocatable)
         dumper.setRelocatableModuleUri(pluginImportUri);
     for (const QMetaObject *meta : std::as_const(nameToMeta)) {
-        dumper.dump(QQmlEnginePrivate::get(&engine), meta, uncreatableMetas.contains(meta), singletonMetas.contains(meta));
+        dumper.dump(QQmlTypeLoader::get(&engine), meta, uncreatableMetas.contains(meta),
+                    singletonMetas.contains(meta));
     }
 
     QMap<QString, QList<QQmlType>>::const_iterator iter = compositeTypes.constBegin();

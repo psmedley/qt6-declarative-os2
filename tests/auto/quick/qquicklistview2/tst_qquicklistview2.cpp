@@ -1,13 +1,17 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include "delegatemodelkinds.h"
+
+#include <QtTest/QTest>
+#include <QtQmlModels/private/qqmlobjectmodel_p.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/private/qquickitemview_p_p.h>
 #include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuickTest/QtQuickTest>
 #include <QStringListModel>
 #include <QQmlApplicationEngine>
+#include <QtQml/QQmlComponent>
 
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
@@ -70,11 +74,24 @@ private slots:
     void bindingDirectlyOnPositionInHeaderAndFooterDelegates();
 
     void clearObjectListModel();
+    void gadgetModelSections();
     void visibleBoundToCountGreaterThanZero();
+
+    void setDelegateAfterModel();
+
+    void delegateModelAccess_data();
+    void delegateModelAccess();
+    void removeAndDestroyObjectModelItem_data();
+    void removeAndDestroyObjectModelItem();
+
+    void fastMouseWheel();
+
+    void snapOneItemResize_data();
+    void snapOneItemResize();
 
 private:
     void flickWithTouch(QQuickWindow *window, const QPoint &from, const QPoint &to);
-    QScopedPointer<QPointingDevice> touchDevice = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
+    std::unique_ptr<QPointingDevice> touchscreen{QTest::createTouchDevice()};
 };
 
 tst_QQuickListView2::tst_QQuickListView2()
@@ -477,14 +494,14 @@ void tst_QQuickListView2::tapDelegateDuringFlicking() // QTBUG-103832
     QCOMPARE(listView->property("releasedDelegates").toList().size(), 0);
 
     // press a delegate during flicking (at y > 501 + 100, so likely delegate 6)
-    QTest::touchEvent(&window, touchDevice.data()).press(0, {100, 100});
+    QTest::touchEvent(&window, touchscreen.get()).press(0, {100, 100});
     QQuickTouchUtils::flush(&window);
     // The press will stop listView from flicking, but it will still be "moving", which
     // means that the user is still interacting with it
     QVERIFY(!listView->isFlicking());
     QVERIFY(!listView->isDragging());
     QVERIFY(listView->isMoving());
-    QTest::touchEvent(&window, touchDevice.data()).release(0, {100, 100});
+    QTest::touchEvent(&window, touchscreen.get()).release(0, {100, 100});
     QQuickTouchUtils::flush(&window);
     // Releasing while "flicking" is false will stop the flicking
     // session, and set "moving" to false
@@ -554,38 +571,38 @@ void tst_QQuickListView2::flickDuringFlicking() // QTBUG-103832
 
     // flick again during flicking, and make sure that it doesn't jump back to the first delegate,
     // but flicks incrementally further from the position at that time
-    QTest::touchEvent(&window, touchDevice.data()).press(0, {100, 400});
+    QTest::touchEvent(&window, touchscreen.get()).press(0, {100, 400});
     QQuickTouchUtils::flush(&window);
     qCDebug(lcTests) << "second press: contentY" << posBeforeSecondFlick << "->" << listView->contentY();
     qCDebug(lcTests) << "pressed delegates" << listView->property("pressedDelegates").toList();
     QVERIFY(listView->contentY() >= posBeforeSecondFlick);
 
     QTest::qWait(20);
-    QTest::touchEvent(&window, touchDevice.data()).move(0, {100, 300});
+    QTest::touchEvent(&window, touchscreen.get()).move(0, {100, 300});
     QQuickTouchUtils::flush(&window);
     qCDebug(lcTests) << "first move after second press: contentY" << posBeforeSecondFlick << "->" << listView->contentY();
     QVERIFY(listView->contentY() >= posBeforeSecondFlick);
 
     QTest::qWait(20);
-    QTest::touchEvent(&window, touchDevice.data()).move(0, {100, 200});
+    QTest::touchEvent(&window, touchscreen.get()).move(0, {100, 200});
     QQuickTouchUtils::flush(&window);
     qCDebug(lcTests) << "second move after second press: contentY" << posBeforeSecondFlick << "->" << listView->contentY();
     QVERIFY(listView->contentY() >= posBeforeSecondFlick + 100);
 
-    QTest::touchEvent(&window, touchDevice.data()).release(0, {100, 100});
+    QTest::touchEvent(&window, touchscreen.get()).release(0, {100, 100});
 }
 
 void tst_QQuickListView2::flickWithTouch(QQuickWindow *window, const QPoint &from, const QPoint &to)
 {
-    QTest::touchEvent(window, touchDevice.data()).press(0, from, window);
+    QTest::touchEvent(window, touchscreen.get()).press(0, from, window);
     QQuickTouchUtils::flush(window);
 
     QPoint diff = to - from;
     for (int i = 1; i <= 8; ++i) {
-        QTest::touchEvent(window, touchDevice.data()).move(0, from + i * diff / 8, window);
+        QTest::touchEvent(window, touchscreen.get()).move(0, from + i * diff / 8, window);
         QQuickTouchUtils::flush(window);
     }
-    QTest::touchEvent(window, touchDevice.data()).release(0, to, window);
+    QTest::touchEvent(window, touchscreen.get()).release(0, to, window);
     QQuickTouchUtils::flush(window);
 }
 
@@ -1036,6 +1053,7 @@ void tst_QQuickListView2::isCurrentItem_NoRegressionWithDelegateModelGroups()
     // Press left arrow key -> Item 1 should become current, Item 3 should not
     // be current anymore. After a previous fix of QTBUG-86744 it was working
     // incorrectly - see QTBUG-98315
+    QVERIFY(QTest::qWaitForWindowActive(window.get()));
     QTest::keyPress(window.get(), Qt::Key_Left);
 
     QTRY_COMPARE(item0->property("isCurrent").toBool(), true);
@@ -1328,6 +1346,17 @@ void tst_QQuickListView2::clearObjectListModel()
     QVERIFY(!list.itemAtIndex(0));
 }
 
+void tst_QQuickListView2::gadgetModelSections()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("gadgetlist.qml")));
+    QQuickListView *listview = qobject_cast<QQuickListView*>(window.rootObject());
+    QTRY_VERIFY(listview);
+    QVERIFY(QQuickTest::qWaitForPolish(listview));
+    QCOMPARE(listview->count(), 4);
+    QCOMPARE(listview->currentSection(), "small");
+}
+
 void tst_QQuickListView2::visibleBoundToCountGreaterThanZero()
 {
     QQuickView window;
@@ -1343,6 +1372,338 @@ void tst_QQuickListView2::visibleBoundToCountGreaterThanZero()
     // Using the TRY variant here as well is necessary.
     QTRY_COMPARE_GT_WITH_TIMEOUT(countChangedSpy.count(), 1, oneSecondInMs);
     QVERIFY(listView->isVisible());
+}
+
+void tst_QQuickListView2::setDelegateAfterModel()
+{
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("setDelegateAfterModel.qml");
+    QQmlComponent component(&engine, url);
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    // If the model was lost by setting the delegate, the count would be 0.
+    QCOMPARE(object->property("count").toInt(), 3);
+
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            qPrintable(url.toString() + ":17:5: QML ListView: Cannot retain explicitly set "
+                                        "delegate on non-DelegateModel"));
+    object->setProperty("useObjectModel", QVariant::fromValue<bool>(true));
+    QCOMPARE(object->property("count").toInt(), 2);
+
+    // The old model must not mess with the view anymore.
+    QTest::failOnWarning(qPrintable(url.toString() + ":17:5: QML ListView: Explicitly set delegate "
+                                                     "is externally overridden"));
+    QMetaObject::invokeMethod(object.data(), "plantDelegate");
+    QCOMPARE(object->property("count").toInt(), 4);
+}
+
+template<typename Enum>
+const char *enumKey(Enum value) {
+    const QMetaObject *mo = qt_getEnumMetaObject(value);
+    const QMetaEnum metaEnum = mo->enumerator(mo->indexOfEnumerator(qt_getEnumName(value)));
+    return metaEnum.valueToKey(value);
+}
+
+void tst_QQuickListView2::delegateModelAccess_data()
+{
+    QTest::addColumn<QQmlDelegateModel::DelegateModelAccess>("access");
+    QTest::addColumn<Model::Kind>("modelKind");
+    QTest::addColumn<Delegate::Kind>("delegateKind");
+
+    using Access = QQmlDelegateModel::DelegateModelAccess;
+    for (auto access : { Access::Qt5ReadWrite, Access::ReadOnly, Access::ReadWrite }) {
+        for (auto model : { Model::Singular, Model::List, Model::Array, Model::Object }) {
+            for (auto delegate : { Delegate::Untyped, Delegate::Typed }) {
+                QTest::addRow("%s-%s-%s", enumKey(access), enumKey(model), enumKey(delegate))
+                    << access << model << delegate;
+            }
+        }
+    }
+}
+
+void tst_QQuickListView2::delegateModelAccess()
+{
+    QFETCH(QQmlDelegateModel::DelegateModelAccess, access);
+    QFETCH(Model::Kind, modelKind);
+    QFETCH(Delegate::Kind, delegateKind);
+
+    QQmlEngine engine;
+    const QUrl url = testFileUrl("delegateModelAccess.qml");
+    QQmlComponent c(&engine, url);
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> object(c.create());
+
+    QQuickListView *listView = qobject_cast<QQuickListView *>(object.data());
+    QVERIFY(listView);
+
+    QSignalSpy modelChangedSpy(listView, &QQuickItemView::modelChanged);
+
+    if (delegateKind == Delegate::Untyped && modelKind == Model::Array)
+        QSKIP("Properties of objects in arrays are not exposed as context properties");
+
+    if (access == QQmlDelegateModel::ReadOnly) {
+        const QRegularExpression message(
+                url.toString() + ":[0-9]+: TypeError: Cannot assign to read-only property \"a\"");
+
+        QTest::ignoreMessage(QtWarningMsg, message);
+        if (delegateKind == Delegate::Untyped)
+            QTest::ignoreMessage(QtWarningMsg, message);
+    }
+    object->setProperty("delegateModelAccess", access);
+    object->setProperty("modelIndex", modelKind);
+    object->setProperty("delegateIndex", delegateKind);
+
+    listView->setCurrentIndex(0);
+    QObject *delegate = listView->itemAtIndex(0);
+    QVERIFY(delegate);
+
+    const bool modelWritable = access != QQmlDelegateModel::ReadOnly;
+    const bool immediateWritable = (delegateKind == Delegate::Untyped)
+            ? access != QQmlDelegateModel::ReadOnly
+            : access == QQmlDelegateModel::ReadWrite;
+
+    // Only the array is actually updated itself. The other models are pointers
+    const bool writeShouldSignal = modelKind == Model::Kind::Array;
+
+    double expected = 11;
+
+    // Initial setting of the model, signals one update
+    int expectedModelUpdates = 1;
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+
+    if (modelWritable) {
+        expected = 3;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeThroughModel");
+    QCOMPARE(delegate->property("immediateX").toDouble(), expected);
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+
+    if (immediateWritable) {
+        expected = 1;
+        if (writeShouldSignal)
+            ++expectedModelUpdates;
+    }
+
+    QMetaObject::invokeMethod(delegate, "writeImmediate");
+
+    // Writes to required properties always succeed, but might not be propagated to the model
+    QCOMPARE(delegate->property("immediateX").toDouble(),
+             delegateKind == Delegate::Untyped ? expected : 1);
+
+    QCOMPARE(delegate->property("modelX").toDouble(), expected);
+    QCOMPARE(modelChangedSpy.count(), expectedModelUpdates);
+}
+
+enum RemovalPolicy {
+    RemoveAndDestroy,
+    OnlyDestroy
+};
+
+void tst_QQuickListView2::removeAndDestroyObjectModelItem_data()
+{
+    QTest::addColumn<QString>("qmlFilePath");
+    QTest::addColumn<RemovalPolicy>("removalPolicy");
+
+    QTest::addRow("remove and destroy, no transitions")
+        << "removeAndDestroyObjectModelItem.qml" << RemoveAndDestroy;
+    QTest::addRow("destroy, no transitions")
+        << "removeAndDestroyObjectModelItem.qml" << OnlyDestroy;
+    QTest::addRow("remove and destroy, transitions")
+        << "removeAndDestroyObjectModelItemWithTransitions.qml" << RemoveAndDestroy;
+    QTest::addRow("destroy, transitions")
+        << "removeAndDestroyObjectModelItemWithTransitions.qml" << OnlyDestroy;
+}
+
+// QTBUG-46798, QTBUG-133256
+void tst_QQuickListView2::removeAndDestroyObjectModelItem()
+{
+    QFETCH(QString, qmlFilePath);
+    QFETCH(RemovalPolicy, removalPolicy);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl(qmlFilePath)));
+
+    QQuickListView *listView = qobject_cast<QQuickListView*>(window.rootObject());
+    QVERIFY(listView);
+
+    auto *objectModel = listView->model().value<QQmlObjectModel *>();
+    QVERIFY(objectModel);
+    QPointer<QObject> firstItem = objectModel->get(0);
+    QVERIFY(firstItem);
+    // Shouldn't crash.
+    if (removalPolicy == RemoveAndDestroy)
+        objectModel->remove(0);
+    firstItem->deleteLater();
+    QTRY_VERIFY(!firstItem);
+
+    // Now try moving the view. It also shouldn't crash.
+    if (removalPolicy == RemoveAndDestroy) {
+        if (QQuickTest::qIsPolishScheduled(listView))
+            QVERIFY(QQuickTest::qWaitForPolish(listView));
+    }
+    listView->positionViewAtEnd();
+}
+
+void tst_QQuickListView2::fastMouseWheel()
+{
+    QScopedPointer<QQuickView> window(createView());
+    QTRY_VERIFY(window);
+    window->setSource(testFileUrl("qtbug134502.qml"));
+    window->resize(640, 480);
+    window->show();
+    QQuickViewTestUtils::moveMouseAway(window.data());
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+    auto sendWheelEvent = [](QQuickView *window, const QPoint &angleDelta, quint64 timestamp) {
+        QPoint pos(100, 100);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), angleDelta, Qt::NoButton,
+                          Qt::NoModifier, Qt::NoScrollPhase, false);
+        event.setAccepted(false);
+        event.setTimestamp(timestamp);
+        QGuiApplication::sendEvent(window, &event);
+    };
+
+    QQuickListView *listview = findItem<QQuickListView>(window->rootObject(), "objects");
+    QTRY_VERIFY(listview != nullptr);
+
+    QGuiApplication::styleHints()->setWheelScrollLines(60);
+    sendWheelEvent(window.data(), QPoint(0, -120), 100);
+    QTRY_VERIFY(listview->isMoving() == false);
+    sendWheelEvent(window.data(), QPoint(0, -120), 132);
+    QTRY_VERIFY(listview->isMoving() == false);
+    sendWheelEvent(window.data(), QPoint(0, -240), 194);
+    QTRY_VERIFY(listview->isMoving() == false);
+}
+
+void tst_QQuickListView2::snapOneItemResize_data()
+{
+    QTest::addColumn<int>("orientation");
+    QTest::addColumn<int>("layoutDirection");
+    QTest::addColumn<int>("verticalLayoutDirection");
+    QTest::addColumn<int>("initialIndex");
+    QTest::addColumn<QSize>("initialSize");
+    QTest::addColumn<QSize>("resizedSize");
+    QTest::addColumn<bool>("restoreSize");
+
+    // Vertical, top-to-bottom
+    QTest::newRow("vertical-index-0")
+            << int(QQuickListView::Vertical) << int(Qt::LeftToRight)
+            << int(QQuickItemView::TopToBottom) << 0 << QSize(320, 200) << QSize(320, 400) << false;
+    QTest::newRow("vertical") << int(QQuickListView::Vertical) << int(Qt::LeftToRight)
+                              << int(QQuickItemView::TopToBottom) << 1 << QSize(320, 200)
+                              << QSize(320, 400) << false;
+    QTest::newRow("vertical-index-3-restore")
+            << int(QQuickListView::Vertical) << int(Qt::LeftToRight)
+            << int(QQuickItemView::TopToBottom) << 3 << QSize(320, 100) << QSize(320, 400) << true;
+
+    // Vertical, bottom-to-top
+    QTest::newRow("vertical-bottom-to-top")
+            << int(QQuickListView::Vertical) << int(Qt::LeftToRight)
+            << int(QQuickItemView::BottomToTop) << 1 << QSize(320, 200) << QSize(320, 400) << false;
+
+    // Horizontal, left-to-right
+    QTest::newRow("horizontal") << int(QQuickListView::Horizontal) << int(Qt::LeftToRight)
+                                << int(QQuickItemView::TopToBottom) << 1 << QSize(200, 320)
+                                << QSize(400, 320) << false;
+    QTest::newRow("horizontal-index-5")
+            << int(QQuickListView::Horizontal) << int(Qt::LeftToRight)
+            << int(QQuickItemView::TopToBottom) << 5 << QSize(320, 320) << QSize(640, 320) << false;
+
+    // Horizontal, right-to-left
+    QTest::newRow("horizontal-rtl")
+            << int(QQuickListView::Horizontal) << int(Qt::RightToLeft)
+            << int(QQuickItemView::TopToBottom) << 1 << QSize(200, 320) << QSize(400, 320) << false;
+    QTest::newRow("horizontal-rtl-restore")
+            << int(QQuickListView::Horizontal) << int(Qt::RightToLeft)
+            << int(QQuickItemView::TopToBottom) << 2 << QSize(200, 320) << QSize(400, 320) << true;
+}
+
+void tst_QQuickListView2::snapOneItemResize()
+{
+    QFETCH(int, orientation);
+    QFETCH(int, layoutDirection);
+    QFETCH(int, verticalLayoutDirection);
+    QFETCH(int, initialIndex);
+    QFETCH(QSize, initialSize);
+    QFETCH(QSize, resizedSize);
+    QFETCH(bool, restoreSize);
+
+    QScopedPointer<QQuickView> window(createView());
+    window->resize(initialSize);
+    window->setResizeMode(QQuickView::SizeRootObjectToView);
+    QQuickVisualTestUtils::moveMouseAway(window.data());
+
+    window->setSource(testFileUrl("snapPositioningOnResize.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickListView *listview = qobject_cast<QQuickListView *>(window->rootObject());
+    QTRY_VERIFY(listview != nullptr);
+    QCOMPARE(listview->snapMode(), QQuickListView::SnapOneItem);
+
+    listview->setOrientation(static_cast<QQuickListView::Orientation>(orientation));
+    listview->setLayoutDirection(static_cast<Qt::LayoutDirection>(layoutDirection));
+    listview->setVerticalLayoutDirection(
+            static_cast<QQuickItemView::VerticalLayoutDirection>(verticalLayoutDirection));
+    QVERIFY(QQuickTest::qWaitForPolish(listview));
+
+    const bool isHorizontal = orientation == QQuickListView::Horizontal;
+
+    listview->positionViewAtIndex(initialIndex, QQuickListView::Beginning);
+    QVERIFY(QQuickTest::qWaitForPolish(listview));
+
+    const qreal contentBefore = isHorizontal ? listview->contentX() : listview->contentY();
+
+    // --- Resize ---
+    window->resize(resizedSize);
+    if (isHorizontal)
+        QTRY_COMPARE(qRound(listview->width()), resizedSize.width());
+    else
+        QTRY_COMPARE(qRound(listview->height()), resizedSize.height());
+    QVERIFY(QQuickTest::qWaitForPolish(listview));
+
+    {
+        const qreal contentAfter = isHorizontal ? listview->contentX() : listview->contentY();
+        if (initialIndex > 0) {
+            // The visible item must not jump back to origin
+            QVERIFY2(qAbs(contentAfter) > 1,
+                     qPrintable(QString("content position jumped to %1 after resize (was %2)")
+                                        .arg(contentAfter)
+                                        .arg(contentBefore)));
+        } else {
+            QVERIFY2(qAbs(contentAfter) < 1,
+                     qPrintable(QString("index-0 content position drifted to %1 after resize")
+                                        .arg(contentAfter)));
+        }
+    }
+
+    // --- Restore ---
+    if (restoreSize) {
+        window->resize(initialSize);
+        if (isHorizontal)
+            QTRY_COMPARE(qRound(listview->width()), initialSize.width());
+        else
+            QTRY_COMPARE(qRound(listview->height()), initialSize.height());
+        QVERIFY(QQuickTest::qWaitForPolish(listview));
+
+        const qreal contentRestored = isHorizontal ? listview->contentX() : listview->contentY();
+        if (initialIndex > 0) {
+            QVERIFY2(qAbs(contentRestored) > 1,
+                     qPrintable(QString("content position jumped to %1 after restore (was %2)")
+                                        .arg(contentRestored)
+                                        .arg(contentBefore)));
+        }
+    }
 }
 
 QTEST_MAIN(tst_QQuickListView2)

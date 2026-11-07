@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:dataparser
 
 #include "qqmljslexer_p.h"
 #include "qqmljsengine_p.h"
@@ -19,6 +20,7 @@
 
 QT_BEGIN_NAMESPACE
 using namespace QQmlJS;
+using namespace Qt::StringLiterals;
 
 static inline int regExpFlagFromChar(const QChar &ch)
 {
@@ -62,6 +64,24 @@ bool Lexer::qmlMode() const
 QString Lexer::code() const
 {
     return _code;
+}
+
+std::optional<DiagnosticMessage> Lexer::illegalFileLengthError() const
+{
+    Q_ASSERT(_currentOffset >= 0);
+
+    constexpr bool quint32IsBigger = sizeof(qsizetype) <= sizeof(quint32);
+    using BiggerInt = std::conditional_t<quint32IsBigger, quint32, qsizetype>;
+    using SmallerInt = std::conditional_t<!quint32IsBigger, quint32, qsizetype>;
+
+    const BiggerInt codeLength = BiggerInt(_currentOffset) + BiggerInt(_code.size());
+    const BiggerInt maxLength = BiggerInt(std::numeric_limits<SmallerInt>::max());
+    if (codeLength < maxLength)
+        return {};
+
+    constexpr int limit = quint32IsBigger ? 2 : 4;
+    return DiagnosticMessage{ u"File exceeds maximum length (%1GB)."_s.arg(limit), QtCriticalMsg,
+                              SourceLocation{ 0, 1, 1, 1 } };
 }
 
 void Lexer::setCode(const QString &code, int lineno, bool qmlMode,
@@ -926,12 +946,12 @@ again:
                 scanChar();
             }
 
-            _tokenLength = _codePtr - _tokenStartPtr - 1;
-
+            const auto token = QStringView(_tokenStartPtr, _codePtr - 1);
+            _tokenLength = token.size();
             int kind = T_IDENTIFIER;
 
             if (!identifierWithEscapeChars)
-                kind = classify(_tokenStartPtr, _tokenLength, parseModeFlags());
+                kind = classify(token, parseModeFlags());
 
             if (_engine) {
                 if (kind == T_IDENTIFIER && identifierWithEscapeChars)
@@ -952,7 +972,7 @@ again:
 
 int Lexer::scanString(ScanStringMode mode)
 {
-    QChar quote = (mode == TemplateContinuation) ? QChar(TemplateHead) : QChar(mode);
+    const char16_t quote = mode == TemplateContinuation ? TemplateHead : mode;
     // we actually use T_STRING_LITERAL also for multiline strings, should we want to
     // change that we should set it to:
     //     _state.tokenKind == T_PARTIAL_SINGLE_QUOTE_STRING_LITERAL ||
@@ -1599,6 +1619,7 @@ static const int uriTokens[] = {
     QQmlJSGrammar::T_DO,
     QQmlJSGrammar::T_ELSE,
     QQmlJSGrammar::T_FALSE,
+    QQmlJSGrammar::T_FINAL,
     QQmlJSGrammar::T_FINALLY,
     QQmlJSGrammar::T_FOR,
     QQmlJSGrammar::T_FUNCTION,
@@ -1620,7 +1641,19 @@ static const int uriTokens[] = {
     QQmlJSGrammar::T_WHILE,
     QQmlJSGrammar::T_CONST,
     QQmlJSGrammar::T_DEBUGGER,
-    QQmlJSGrammar::T_RESERVED_WORD,
+    QQmlJSGrammar::T_ENUM,
+    QQmlJSGrammar::T_PACKAGE,
+    QQmlJSGrammar::T_ABSTRACT,
+    QQmlJSGrammar::T_INTERFACE,
+    QQmlJSGrammar::T_IMPLEMENTS,
+    QQmlJSGrammar::T_PUBLIC,
+    QQmlJSGrammar::T_PROTECTED,
+    QQmlJSGrammar::T_PRIVATE,
+    QQmlJSGrammar::T_NATIVE,
+    QQmlJSGrammar::T_VOLATILE,
+    QQmlJSGrammar::T_TRANSIENT,
+    QQmlJSGrammar::T_SYNCHRONIZED,
+    QQmlJSGrammar::T_THROWS,
     QQmlJSGrammar::T_WITH,
 
     QQmlJSGrammar::EOF_SYMBOL

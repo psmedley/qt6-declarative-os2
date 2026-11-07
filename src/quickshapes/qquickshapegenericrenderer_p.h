@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSHAPEGENERICRENDERER_P_H
 #define QQUICKSHAPEGENERICRENDERER_P_H
@@ -42,7 +43,8 @@ public:
         DirtyFillGradient = 0x08,
         DirtyFillTransform = 0x10,
         DirtyFillTexture = 0x20,
-        DirtyList = 0x40 // only for accDirty
+        DirtyList = 0x40, // only for accDirty
+        DirtyStrokeGradient = 0x80,
     };
 
     QQuickShapeGenericRenderer(QQuickItem *item)
@@ -51,25 +53,28 @@ public:
           m_rootNode(nullptr),
           m_accDirty(0),
           m_asyncCallback(nullptr),
-          m_asyncCallbackData(nullptr)
+          m_asyncCallbackData(nullptr),
+          m_rhiBackendInitialized(false),
+          m_supportsElementIndexUint(true)
     { }
     ~QQuickShapeGenericRenderer();
 
     void beginSync(int totalCount, bool *countChanged) override;
-    void setPath(int index, const QQuickPath *path) override;
     void setPath(int index, const QPainterPath &path, QQuickShapePath::PathHints pathHints = {}) override;
     void setStrokeColor(int index, const QColor &color) override;
     void setStrokeWidth(int index, qreal w) override;
+    void setCosmeticStroke(int index, bool c) override;
     void setFillColor(int index, const QColor &color) override;
     void setFillRule(int index, QQuickShapePath::FillRule fillRule) override;
     void setJoinStyle(int index, QQuickShapePath::JoinStyle joinStyle, int miterLimit) override;
     void setCapStyle(int index, QQuickShapePath::CapStyle capStyle) override;
     void setStrokeStyle(int index, QQuickShapePath::StrokeStyle strokeStyle,
-                        qreal dashOffset, const QVector<qreal> &dashPattern) override;
+                        qreal dashOffset, const QList<qreal> &dashPattern) override;
     void setFillGradient(int index, QQuickShapeGradient *gradient) override;
+    void setStrokeGradient(int index, QQuickShapeGradient *gradient) override;
     void setFillTextureProvider(int index, QQuickItem *textureProviderItem) override;
     void setFillTransform(int index, const QSGTransform &transform) override;
-    void setTriangulationScale(qreal scale) override;
+    void setTriangulationScale(int index, qreal scale) override;
     void endSync(bool async) override;
     void setAsyncCallback(void (*)(void *), void *) override;
     Flags flags() const override { return SupportsAsync; }
@@ -80,9 +85,9 @@ public:
     void setRootNode(QQuickShapeGenericNode *node);
 
     struct Color4ub { unsigned char r, g, b, a; };
-    typedef QVector<QSGGeometry::ColoredPoint2D> VertexContainerType;
-    typedef QVector<QSGGeometry::TexturedPoint2D> TexturedVertexContainerType;
-    typedef QVector<quint32> IndexContainerType;
+    typedef QList<QSGGeometry::ColoredPoint2D> VertexContainerType;
+    typedef QList<QSGGeometry::TexturedPoint2D> TexturedVertexContainerType;
+    typedef QList<quint32> IndexContainerType;
 
     static void triangulateFill(const QPainterPath &path,
                                 const Color4ub &fillColor,
@@ -103,13 +108,16 @@ private:
 
     struct ShapePathData {
         float strokeWidth;
+        float triangulationScale;
         QPen pen;
         Color4ub strokeColor = { uchar(0), uchar(0), uchar(0), uchar(0) };
         Color4ub fillColor = { uchar(0), uchar(0), uchar(0), uchar(0) };
         Qt::FillRule fillRule;
         QPainterPath path;
         FillGradientType fillGradientActive;
+        FillGradientType strokeGradientActive;
         QSGGradientCache::GradientDesc fillGradient;
+        QSGGradientCache::GradientDesc strokeGradient;
         QQuickItem *fillTextureProviderItem = nullptr;
         QSGTransform fillTransform;
         VertexContainerType fillVertices;
@@ -129,11 +137,12 @@ private:
     QQuickItem *m_item;
     QSGRendererInterface::GraphicsApi m_api;
     QQuickShapeGenericNode *m_rootNode;
-    QVector<ShapePathData> m_sp;
+    QList<ShapePathData> m_sp;
     int m_accDirty;
     void (*m_asyncCallback)(void *);
     void *m_asyncCallbackData;
-    float m_triangulationScale = 1.0;
+    bool m_rhiBackendInitialized;
+    bool m_supportsElementIndexUint;
 };
 
 class QQuickShapeFillRunnable : public QObject, public QRunnable
@@ -200,7 +209,7 @@ public:
     void activateMaterial(QQuickWindow *window, Material m);
 
     // shadow data for custom materials
-    QSGGradientCache::GradientDesc m_fillGradient;
+    QSGGradientCache::GradientDesc m_gradient;
     QSGTextureProvider *m_fillTextureProvider = nullptr;
     QSGTransform m_fillTransform;
     void preprocess() override;

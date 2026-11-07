@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDOMEXTERNALITEMS_P_H
 #define QQMLDOMEXTERNALITEMS_P_H
@@ -60,14 +61,16 @@ public:
     bool iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const override
     {
         bool cont = OwningItem::iterateDirectSubpaths(self, visitor);
-        cont = cont && self.dvValueLazyField(visitor, Fields::canonicalFilePath, [this]() {
+        cont = cont && self.invokeVisitorOnLazyField(visitor, Fields::canonicalFilePath, [this]() {
             return canonicalFilePath();
         });
-        cont = cont
-                && self.dvValueLazyField(visitor, Fields::isValid, [this]() { return isValid(); });
+        cont = cont && self.invokeVisitorOnLazyField(visitor, Fields::isValid, [this]() {
+            return isValid();
+        });
         if (!code().isNull())
-            cont = cont
-                    && self.dvValueLazyField(visitor, Fields::code, [this]() { return code(); });
+            cont = cont && self.invokeVisitorOnLazyField(visitor, Fields::code, [this]() {
+                return code();
+            });
         return cont;
     }
 
@@ -255,7 +258,7 @@ public:
     void addModuleImport(const QString &uri, const QString &version, const QString &module);
 
 private:
-    void writeOutDirectives(OutWriter &lw) const;
+    void writeOutDirectives(const DomItem &, OutWriter &lw) const;
 
     /*
     Entities with Legacy prefix are here to support formatting of the discouraged
@@ -277,7 +280,7 @@ private:
 
     struct LegacyPragmaLibrary
     {
-        void writeOut(OutWriter &lw) const;
+        void writeOut(const DomItem &, OutWriter &lw) const;
     };
 
     struct LegacyImport
@@ -287,7 +290,7 @@ private:
         QString version; // used for module import
         QString asIdentifier; // .import ... as T_Identifier
 
-        void writeOut(OutWriter &lw) const;
+        void writeOut(const DomItem &, OutWriter &lw) const;
     };
 
     class LegacyDirectivesCollector : public QQmlJS::Directives
@@ -356,7 +359,7 @@ public:
     {
         QStringList nameEls = component.name().split(QChar::fromLatin1('.'));
         QString key = nameEls.mid(1).join(QChar::fromLatin1('.'));
-        return insertUpdatableElementInMultiMap(Path::Field(Fields::components), lazyMembers().m_components,
+        return insertUpdatableElementInMultiMap(Path::fromField(Fields::components), lazyMembers().m_components,
                                                 key, component, option, cPtr);
     }
 
@@ -389,7 +392,7 @@ public:
                                               : i.importId.split(QChar::fromLatin1('.'))),
                         Paths::qmlDirPath(path));
         }
-        return Path::Field(Fields::imports).index(idx);
+        return Path::fromField(Fields::imports).withIndex(idx);
     }
     std::shared_ptr<QQmlJS::Engine> engine() const { return m_engine; }
     RegionComments &comments() { return lazyMembers().m_comments; }
@@ -404,7 +407,7 @@ public:
         auto &members = lazyMembers();
         int idx = members.m_pragmas.size();
         members.m_pragmas.append(pragma);
-        return Path::Field(Fields::pragmas).index(idx);
+        return Path::fromField(Fields::pragmas).withIndex(idx);
     }
     ImportScope &importScope() { return lazyMembers().m_importScope; }
     const ImportScope &importScope() const { return lazyMembers().m_importScope; }
@@ -453,7 +456,7 @@ private:
         std::shared_ptr<QQmlJSTypeResolver> m_typeResolver;
         QQmlJSTypeResolverDependencies m_typeResolverDependencies;
     };
-    friend class QQmlDomAstCreator;
+    friend class QQmlDomAstCreatorBase;
     AST::UiProgram *m_ast; // avoid? would make moving away from it easier
     std::shared_ptr<Engine> m_engine;
     QQmlJSScope::ConstPtr m_handleForPopulation;
@@ -528,7 +531,7 @@ public:
     {
         for (const Export &e : comp.exports())
             addExport(e);
-        return insertUpdatableElementInMultiMap(Path::Field(u"components"), m_components,
+        return insertUpdatableElementInMultiMap(Path::fromField(u"components"), m_components,
                                                 comp.name(), comp, option, cPtr);
     }
     const QMultiMap<QString, Export> &exports() const & { return m_exports; }
@@ -538,7 +541,7 @@ public:
         index_type i = m_exports.values(e.typeName).size();
         m_exports.insert(e.typeName, e);
         addUri(e.uri, e.version.majorVersion);
-        return canonicalPath().field(Fields::exports).index(i);
+        return canonicalPath().withField(Fields::exports).withIndex(i);
     }
 
     const QMap<QString, QSet<int>> &uris() const & { return m_uris; }
@@ -589,7 +592,7 @@ public:
     void setRootComponent(const GlobalComponent &ob)
     {
         m_rootComponent = ob;
-        m_rootComponent.updatePathFromOwner(Path::Field(Fields::rootComponent));
+        m_rootComponent.updatePathFromOwner(Path::fromField(Fields::rootComponent));
     }
 
 private:

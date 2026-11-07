@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
@@ -18,8 +19,6 @@ T.RoundButton {
 
     icon.width: 24
     icon.height: 24
-    icon.color: control.checked || control.highlighted ? control.palette.brightText :
-                control.flat && !control.down ? (control.visualFocus ? control.palette.highlight : control.palette.windowText) : control.palette.buttonText
 
     contentItem: IconLabel {
         spacing: control.spacing
@@ -27,10 +26,12 @@ T.RoundButton {
         display: control.display
 
         icon: control.icon
+        defaultIconColor: control.checked || control.highlighted ? control.palette.brightText
+            : control.flat && !control.down ? (control.visualFocus ? control.palette.highlight
+            : control.palette.windowText) : control.palette.buttonText
         text: control.text
         font: control.font
-        color: control.checked || control.highlighted ? control.palette.brightText :
-               control.flat && !control.down ? (control.visualFocus ? control.palette.highlight : control.palette.windowText) : control.palette.buttonText
+        color: defaultIconColor
     }
 
     background: Rectangle {
@@ -41,7 +42,16 @@ T.RoundButton {
         visible: !control.flat || control.down || control.checked || control.highlighted
         color: Color.blend(control.checked || control.highlighted ? control.palette.dark : control.palette.button,
                                                                     control.palette.mid, control.down ? 0.5 : 0.0)
-        border.color: control.palette.highlight
-        border.width: control.visualFocus ? 2 : 0
+        border.color: {
+            if (control.visualFocus)
+                return control.palette.highlight
+            else if (Qt.styleHints.accessibility.contrastPreference === Qt.HighContrast)
+                return Color.blend(control.palette.text, control.palette.dark,
+                                   control.enabled ? 0.0 : 0.3)
+            else
+                return control.palette.windowText
+        }
+        border.width: control.visualFocus ? 2 :
+                      (Qt.styleHints.accessibility.contrastPreference == Qt.HighContrast) ? 1 : 0
     }
 }

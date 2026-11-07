@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickplatformfontdialog_p.h"
 
@@ -7,8 +8,10 @@
 #include <QtGui/qwindow.h>
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlinfo.h>
+#include <QtQml/qqmlcomponent.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtQuickTemplates2/private/qquickdialog_p.h>
+#include <QtQuickTemplates2/private/qquickdialog_p_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p_p.h>
 #include <QtQuickTemplates2/private/qquickpopupanchors_p.h>
 
@@ -16,7 +19,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcQuickPlatformFontDialog, "qt.quick.dialogs.quickplatformfontdialog")
+Q_STATIC_LOGGING_CATEGORY(lcQuickPlatformFontDialog, "qt.quick.dialogs.quickplatformfontdialog")
 
 /*!
     \class QQuickPlatformFontDialog
@@ -118,13 +121,14 @@ bool QQuickPlatformFontDialog::show(Qt::WindowFlags flags, Qt::WindowModality mo
 
     auto popupPrivate = QQuickPopupPrivate::get(m_dialog);
     popupPrivate->getAnchors()->setCenterIn(m_dialog->parentItem());
+    popupPrivate->setPopupWindowFlags(flags);
 
     QSharedPointer<QFontDialogOptions> options = QPlatformFontDialogHelper::options();
     m_dialog->setTitle(options->windowTitle());
     m_dialog->setOptions(options);
 
     m_dialog->init();
-
+    m_dialog->setWindowModality(modality);
     m_dialog->open();
     return true;
 }

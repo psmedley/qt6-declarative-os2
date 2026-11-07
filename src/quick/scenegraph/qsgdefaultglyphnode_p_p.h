@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGDEFAULTGLYPHNODE_P_P_H
 #define QSGDEFAULTGLYPHNODE_P_P_H
@@ -57,7 +58,7 @@ public:
     QSGRhiTextureGlyphCache *rhiGlyphCache() const;
 
     void populate(const QPointF &position,
-                  const QVector<quint32> &glyphIndexes, const QVector<QPointF> &glyphPositions,
+                  const QList<quint32> &glyphIndexes, const QList<QPointF> &glyphPositions,
                   QSGGeometry *geometry, QRectF *boundingRect, QPointF *baseLine,
                   const QMargins &margins = QMargins(0, 0, 0, 0));
 

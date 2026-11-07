@@ -5,7 +5,7 @@
 
 if (NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
     cmake_minimum_required(VERSION 3.16)
-    project(tst_sanity LANGUAGES C CXX ASM)
+    project(tst_sanity LANGUAGES C CXX)
     find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
 endif()
 
@@ -19,7 +19,7 @@ list(APPEND test_data ${test_data_glob})
 #####################################################################
 
 add_library(QuickControlsSanityPlugin STATIC quickcontrolssanity.h quickcontrolssanity.cpp)
-target_link_libraries(QuickControlsSanityPlugin PRIVATE Qt::QmlCompilerPrivate)
+target_link_libraries(QuickControlsSanityPlugin PRIVATE Qt::QmlLintPrivate)
 qt_autogen_tools_initial_setup(QuickControlsSanityPlugin)
 target_compile_definitions(QuickControlsSanityPlugin PRIVATE QT_STATICPLUGIN)
 
@@ -43,6 +43,7 @@ qt_internal_add_test(tst_sanity
         Qt::QuickTestUtilsPrivate
         Qt::TestPrivate
         Qt::QmlCompilerPrivate
+        Qt::QmlLintPrivate
         QuickControlsSanityPlugin
     TESTDATA ${test_data}
 )

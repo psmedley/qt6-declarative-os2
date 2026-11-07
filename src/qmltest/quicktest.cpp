@@ -1,49 +1,43 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "quicktest_p.h"
+
+#include "qtestoptions_p.h"
 #include "quicktestresult_p.h"
+
 #include <QtTest/qtestsystem.h>
 #include <QtTest/private/qtestcrashhandler_p.h>
-#include "qtestoptions_p.h"
-#include <QtQml/qqml.h>
-#include <QtQml/qqmlengine.h>
-#include <QtQml/qqmlcontext.h>
-#include <QtQuick/private/qquickitem_p.h>
-#include <QtQuick/private/qquickwindow_p.h>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickwindow.h>
-#include <QtQml/qjsvalue.h>
-#include <QtQml/qjsengine.h>
-#include <QtQml/qqmlpropertymap.h>
 #include <QtQuick/private/qquickitem_p.h>
-#include <QtQuick/qquickitem.h>
-#include <qopengl.h>
-#include <QtCore/qurl.h>
-#include <QtCore/qfileinfo.h>
+#include <QtQuick/private/qquickwindow_p.h>
+#include <QtQml/qqml.h>
+#include <QtQml/qqmlcontext.h>
+#include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlfileselector.h>
+#include <QtQml/qqmlpropertymap.h>
+#include <QtQml/private/qqmlcomponent_p.h>
+#include <QtQml/private/qv4resolvedtypereference_p.h>
+#include <QtCore/qdebug.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qdiriterator.h>
-#include <QtCore/qfile.h>
-#include <QtCore/qdebug.h>
 #include <QtCore/qeventloop.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
 #include <QtCore/qtextstream.h>
 #include <QtCore/qtimer.h>
-#include <QtGui/qtextdocument.h>
-#include <stdio.h>
-#include <QtGui/QGuiApplication>
+#include <QtCore/qtranslator.h>
+#include <QtCore/qurl.h>
+#include <QtGui/qguiapplication.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformintegration.h>
-#include <QtCore/QTranslator>
-#include <QtTest/QSignalSpy>
-#include <QtQml/QQmlFileSelector>
 
 #ifdef Q_OS_ANDROID
-#include <QtCore/QStandardPaths>
+#  include <android/androidtestutils_p.h>
 #endif
-
-#include <private/qqmlcomponent_p.h>
-#include <private/qv4resolvedtypereference_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -287,8 +281,6 @@ void maybeInvokeSetupMethod(QObject *setupObject, const char *member, Args &&...
     }
 }
 
-using namespace QV4::CompiledData;
-
 class TestCaseCollector
 {
 public:
@@ -305,7 +297,7 @@ public:
 
         if (component.isReady()) {
             QQmlRefPointer<QV4::ExecutableCompilationUnit> rootCompilationUnit
-                    = QQmlComponentPrivate::get(&component)->compilationUnit;
+                    = QQmlComponentPrivate::get(&component)->compilationUnit();
             TestCaseEnumerationResult result = enumerateTestCases(
                     rootCompilationUnit->baseCompilationUnit().data());
             m_testCases = result.testCases + result.finalizedPartialTestCases();
@@ -351,6 +343,8 @@ private:
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit,
             const QV4::CompiledData::Object *object = nullptr)
     {
+        using namespace QV4::CompiledData;
+
         QQmlType testCaseType;
         for (quint32 i = 0, count = compilationUnit->importCount(); i < count; ++i) {
             const Import *import = compilationUnit->importAt(i);
@@ -375,13 +369,20 @@ private:
         if (object->hasFlag(QV4::CompiledData::Object::IsInlineComponentRoot))
             return result;
 
-        if (const auto superTypeUnit = compilationUnit->resolvedType(object->inheritedTypeNameIndex)
-                                               ->compilationUnit()) {
+        if (const auto superType
+                = compilationUnit->resolvedType(object->inheritedTypeNameIndex)->type();
+                    superType.isComposite() || superType.isInlineComponentType()) {
+
+            // Reset fragment, so that we don't run into problems with inline components
+            QUrl baseUrl = superType.sourceUrl();
+            baseUrl.setFragment(QString());
+
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
-            if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
+            if (testCaseType.isValid() && baseUrl == testCaseType.sourceUrl()) {
                 result.isTestCase = true;
-            else if (superTypeUnit->url() != compilationUnit->url()) { // urls are the same for inline component, avoid infinite recursion
-                result = enumerateTestCases(superTypeUnit);
+            } else if (baseUrl != compilationUnit->url()) {
+                // base urls are the same for inline component, avoid infinite recursion
+                result = enumerateTestCases(QQmlMetaType::obtainCompilationUnit(baseUrl));
             }
 
             if (result.isTestCase) {
@@ -433,14 +434,6 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
     return quick_test_main_with_setup(argc, argv, name, sourceDir, nullptr);
 }
 
-#ifdef Q_OS_ANDROID
-static QFile androidExitCodeFile()
-{
-    const QString testHome = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
-    return QFile(testHome + "/qtest_last_exit_code");
-}
-#endif
-
 int quick_test_main_with_setup(int argc, char **argv, const char *name, const char *sourceDir, QObject *setup)
 {
     QScopedPointer<QCoreApplication> app;
@@ -448,7 +441,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
         app.reset(new QGuiApplication(argc, argv));
 
 #ifdef Q_OS_ANDROID
-    androidExitCodeFile().remove();
+    clearAndroidExitCode();
 #endif
 
     if (setup)
@@ -518,19 +511,19 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
             testPath = s;
     }
 
-#if defined(Q_OS_ANDROID) || defined(Q_OS_INTEGRITY)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_INTEGRITY) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
             if (testPath.isEmpty())
                     testPath = QLatin1String(":/");
 #endif
 
     if (testPath.isEmpty()) {
         QDir current = QDir::current();
-#if defined(Q_OS_WIN) || defined(Q_OS_OS2)
+#ifdef Q_OS_WIN
         // Skip release/debug subfolders
         if (!current.dirName().compare(QLatin1String("Release"), Qt::CaseInsensitive)
             || !current.dirName().compare(QLatin1String("Debug"), Qt::CaseInsensitive))
             current.cdUp();
-#endif // Q_OS_WIN || Q_OS_OS2
+#endif // Q_OS_WIN
         testPath = current.absolutePath();
     }
     QStringList files;
@@ -715,17 +708,52 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
     const int exitCode = QuickTestResult::exitCode();
 
 #ifdef Q_OS_ANDROID
-    QFile exitCodeFile = androidExitCodeFile();
-    if (exitCodeFile.open(QIODevice::WriteOnly)) {
-        exitCodeFile.write(qPrintable(QString::number(exitCode)));
-    } else {
-        qWarning("Failed to open %s for writing test exit code: %s",
-                 qPrintable(exitCodeFile.fileName()), qPrintable(exitCodeFile.errorString()));
-    }
+    writeAndroidExitCode(exitCode);
 #endif
 
     // Return the number of failures as the exit code.
     return exitCode;
+}
+
+/*!
+    \macro QVERIFY_ACTIVE_FOCUS(item)
+    \relates QQuickTest
+    \since 6.10
+
+    Checks whether the \a item (which must be derived from \l QQuickItem) has
+    \l {QQuickItem::activeFocus}{active focus}. If it does, execution
+    continues. If not, a failure is recorded in the test log and the test won't
+    be executed further. The failure message contains focus-specific
+    information that is relevant for diagnosing the cause of the failure.
+
+    \include macro-usage-limitation.qdocinc
+*/
+
+/*!
+    \macro QTRY_VERIFY_ACTIVE_FOCUS(item)
+    \relates QQuickTest
+    \since 6.10
+
+    This macro does the same check as \l QVERIFY_ACTIVE_FOCUS with \a item, but
+    repeatedly, until either the condition becomes true or the timeout (in
+    milliseconds) is reached. Between each evaluation, events will be
+    processed. If the timeout is reached, a failure is recorded in the test log
+    and the test won't be executed further.
+
+    \include macro-usage-limitation.qdocinc
+*/
+
+QByteArray QQuickTest::Private::qActiveFocusFailureMessage(const QQuickItem *item)
+{
+    QByteArray message;
+    QDebug debug(&message);
+    const QQuickWindow *window = item->window();
+    const QString activeFocusItemStr = window
+        ? QDebug::toString(window->activeFocusItem()) : QStringLiteral("(unknown; item has no window)");
+    debug.nospace() << "item: " << item
+        << " focusPolicy: " << static_cast<Qt::FocusPolicy>(item->focusPolicy());
+    debug.noquote() << " window's activeFocusItem: " << activeFocusItemStr;
+    return message;
 }
 
 QT_END_NAMESPACE

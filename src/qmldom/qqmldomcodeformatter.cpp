@@ -1,12 +1,13 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmldomcodeformatter_p.h"
 
 #include <QLoggingCategory>
 #include <QMetaEnum>
 
-static Q_LOGGING_CATEGORY(formatterLog, "qt.qmldom.formatter", QtWarningMsg);
+Q_STATIC_LOGGING_CATEGORY(formatterLog, "qt.qmldom.formatter", QtWarningMsg);
 
 QT_BEGIN_NAMESPACE
 namespace QQmlJS {
@@ -124,6 +125,9 @@ bool FormatPartialStatus::tryInsideExpression(bool alsoExpression)
         break;
     case QQmlJSGrammar::T_FUNCTION:
         newState = StateType::FunctionStart;
+        break;
+    case QQmlJSGrammar::T_ARROW:
+        newState = StateType::LambdaStart;
         break;
     case QQmlJSGrammar::T_QUESTION:
         newState = StateType::TernaryOp;
@@ -258,6 +262,7 @@ void FormatPartialStatus::handleTokens()
             case QQmlJSGrammar::T_IDENTIFIER:
                 enter(StateType::ObjectdefinitionOrJs);
                 continue;
+            case QQmlJSGrammar::T_PRAGMA:
             case QQmlJSGrammar::T_IMPORT:
                 enter(StateType::TopQml);
                 continue;
@@ -273,6 +278,9 @@ void FormatPartialStatus::handleTokens()
 
         case StateType::TopQml:
             switch (kind) {
+            case QQmlJSGrammar::T_PRAGMA:
+                enter(StateType::PragmaStart);
+                break;
             case QQmlJSGrammar::T_IMPORT:
                 enter(StateType::ImportStart);
                 break;
@@ -302,6 +310,48 @@ void FormatPartialStatus::handleTokens()
                     turnInto(StateType::TopJs);
                     continue;
                 }
+            }
+            break;
+
+        case StateType::PragmaStart:
+            switch (kind) {
+            case QQmlJSGrammar::T_IDENTIFIER:
+                turnInto(StateType::PragmaMaybeValue);
+                break;
+            default:
+                leave();
+                continue;
+            }
+            break;
+        case StateType::PragmaMaybeValue:
+            switch (kind) {
+            case QQmlJSGrammar::T_COLON:
+                turnInto(StateType::PragmaValue);
+                break;
+            default:
+                leave();
+                continue;
+            }
+            break;
+        case StateType::PragmaValue:
+            switch (kind) {
+            case QQmlJSGrammar::T_IDENTIFIER:
+            case QQmlJSGrammar::T_STRING_LITERAL:
+                turnInto(StateType::PragmaMaybeMoreValues);
+                break;
+            default:
+                leave();
+                continue;
+            }
+            break;
+        case StateType::PragmaMaybeMoreValues:
+            switch (kind) {
+            case QQmlJSGrammar::T_COMMA:
+                turnInto(StateType::PragmaValue);
+                break;
+            default:
+                leave();
+                continue;
             }
             break;
 
@@ -475,12 +525,14 @@ void FormatPartialStatus::handleTokens()
                 enter(StateType::BindingAssignment);
                 break; // oops, was a binding
             case QQmlJSGrammar::T_VAR:
-            case QQmlJSGrammar::T_IDENTIFIER:
                 enter(StateType::PropertyName);
                 break;
             default:
-                if (Token::lexKindIsIdentifier(kind) && tokenText(currentToken) == u"list") {
+                bool kindIsIdentifier = Token::lexKindIsIdentifier(kind);
+                if (kindIsIdentifier && tokenText(currentToken) == u"list") {
                     enter(StateType::PropertyListOpen);
+                } else if (kindIsIdentifier) {
+                    enter(StateType::PropertyName);
                 } else {
                     leave(true);
                     continue;
@@ -620,9 +672,21 @@ void FormatPartialStatus::handleTokens()
             }
             break;
 
+        case StateType::LambdaStart:
+            switch (kind) {
+            case QQmlJSGrammar::T_LBRACE:
+                turnInto(StateType::JsblockOpen);
+                break;
+            default:
+                turnInto(StateType::Expression);
+            }
+            break;
+
         case StateType::TypeAnnotation:
             switch (kind) {
             case QQmlJSGrammar::T_IDENTIFIER:
+            case QQmlJSGrammar::T_VOID:
+            case QQmlJSGrammar::T_VAR:
             case QQmlJSGrammar::T_DOT:
                 break;
             case QQmlJSGrammar::T_LT:
@@ -1289,6 +1353,7 @@ void FormatPartialStatus::defaultOnEnter(StateType newState, int *indentDepth,
         }
         break;
 
+    case StateType::LambdaStart:
     case StateType::FunctionStart:
         // align to the beginning of the line
         *savedIndentDepth = *indentDepth = column(tokenAt(0).begin());

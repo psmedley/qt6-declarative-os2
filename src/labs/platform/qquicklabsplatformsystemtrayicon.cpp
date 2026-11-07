@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicklabsplatformsystemtrayicon_p.h"
 #include "qquicklabsplatformmenu_p.h"
@@ -26,7 +27,7 @@ QT_BEGIN_NAMESPACE
     Many desktop platforms provide a special system tray or notification area,
     where applications can display icons and notification messages.
 
-    \image qtlabsplatform-systemtrayicon.png
+    \image {qtlabsplatform-systemtrayicon.png} {System tray icon}
 
     The following example shows how to create a system tray icon, and how to make
     use of the \l activated() signal:
@@ -48,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
     SystemTrayIcon can have a menu that opens when the icon is activated.
 
-    \image qtlabsplatform-systemtrayicon-menu.png
+    \image {qtlabsplatform-systemtrayicon-menu.png} {System tray icon with menu}
 
     The following example illustrates how to assign a \l Menu to a system tray icon:
 
@@ -70,7 +71,7 @@ QT_BEGIN_NAMESPACE
 
     SystemTrayIcon can display notification messages.
 
-    \image qtlabsplatform-systemtrayicon-message.png
+    \image {qtlabsplatform-systemtrayicon-message.png} {System tray icon message popup}
 
     The following example presents how to show a notification message using
     \l showMessage(), and how to make use of the \l messageClicked() signal:
@@ -130,7 +131,7 @@ QT_BEGIN_NAMESPACE
     \sa showMessage()
 */
 
-Q_LOGGING_CATEGORY(qtLabsPlatformTray, "qt.labs.platform.tray")
+Q_STATIC_LOGGING_CATEGORY(qtLabsPlatformTray, "qt.labs.platform.tray")
 
 QQuickLabsPlatformSystemTrayIcon::QQuickLabsPlatformSystemTrayIcon(QObject *parent)
     : QObject(parent),

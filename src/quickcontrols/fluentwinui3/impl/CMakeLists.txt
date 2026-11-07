@@ -7,8 +7,31 @@
 set(qml_files
     "ButtonBackground.qml"
     "CheckIndicator.qml"
+    "CopyAction.qml"
+    "CutAction.qml"
+    "DeleteAction.qml"
+    "FocusFrame.qml"
+    "PasteAction.qml"
     "RadioIndicator.qml"
+    "RedoAction.qml"
+    "SelectAllAction.qml"
     "SwitchIndicator.qml"
+    "StyleImage.qml"
+    "TextEditingContextMenu.qml"
+    "UndoAction.qml"
+)
+
+set_source_files_properties(
+    CopyAction.qml
+    CutAction.qml
+    DeleteAction.qml
+    PasteAction.qml
+    RedoAction.qml
+    SelectAllAction.qml
+    TextEditingContextMenu.qml
+    UndoAction.qml
+    PROPERTIES
+        QT_QML_SOURCE_VERSIONS "6.11"
 )
 
 qt_internal_add_qml_module(QuickControls2FluentWinUI3StyleImpl
@@ -21,9 +44,12 @@ qt_internal_add_qml_module(QuickControls2FluentWinUI3StyleImpl
     PLUGIN_TARGET qtquickcontrols2fluentwinui3styleimplplugin
     SOURCES
         qquickfluentwinui3focusstroke_p.h qquickfluentwinui3focusstroke.cpp
+        qquickfluentwinui3focusframe_p.h qquickfluentwinui3focusframe.cpp
+        qquickfluentwinui3styleimplglobal_p.h
     QML_FILES
         ${qml_files}
     DEFINES
+        QT_BUILD_QUICKCONTROLS2FLUENTWINUI3STYLEIMPL_LIB
         QT_NO_CAST_FROM_ASCII
         QT_NO_CAST_TO_ASCII
     LIBRARIES
@@ -33,5 +59,5 @@ qt_internal_add_qml_module(QuickControls2FluentWinUI3StyleImpl
         Qt::QmlPrivate
         Qt::Quick
         Qt::QuickPrivate
-    OS2_SHORT_NAME Qt6QCFWI
+        Qt::QuickTemplates2Private
 )

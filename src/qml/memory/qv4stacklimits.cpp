@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:low-level-memory-management
 
 #include <private/qv4stacklimits_p.h>
 #include <private/qobject_p.h>
@@ -7,15 +8,12 @@
 
 #include <QtCore/qfile.h>
 
-#if defined(Q_OS_UNIXLIKE)
+#if defined(Q_OS_UNIX)
 #  include <pthread.h>
 #endif
 
 #ifdef Q_OS_WIN
 #  include <QtCore/qt_windows.h>
-#elif defined(Q_OS_OS2)
-#define INCL_DOS
-#include <os2.h>
 #elif defined(Q_OS_FREEBSD_KERNEL) || defined(Q_OS_OPENBSD)
 #  include <pthread_np.h>
 #elif defined(Q_OS_LINUX)
@@ -32,6 +30,7 @@
 #  include <sys/procfs.h>
 #  include <sys/types.h>
 #  include <unistd.h>
+#  include <fcntl.h>
 #elif defined(Q_OS_INTEGRITY)
 #  include <INTEGRITY.h>
 #elif defined(Q_OS_VXWORKS)
@@ -73,35 +72,11 @@ enum StackDefaults : qsizetype {
 #endif
 };
 
-// We may not be able to take the negative of the type
-// used to represent stack size, but we can always add
-// or subtract it to/from a quint8 pointer.
-
-template<typename Size>
-static void *incrementStackPointer(void *base, Size amount)
-{
-#if Q_STACK_GROWTH_DIRECTION > 0
-    return static_cast<quint8 *>(base) + amount;
-#else
-    return static_cast<quint8 *>(base) - amount;
-#endif
-}
-
-template<typename Size>
-static void *decrementStackPointer(void *base, Size amount)
-{
-#if Q_STACK_GROWTH_DIRECTION > 0
-    return static_cast<quint8 *>(base) - amount;
-#else
-    return static_cast<quint8 *>(base) + amount;
-#endif
-}
-
-static StackProperties createStackProperties(void *base, qsizetype size = PlatformStackSize)
+static StackProperties createStackProperties(void *base, qsizetype size = PlatformStackSize, qsizetype margin = PlatformSafetyMargin)
 {
     return StackProperties {
         base,
-        incrementStackPointer(base, size - PlatformSafetyMargin),
+        incrementStackPointer(base, size - margin),
         incrementStackPointer(base, size),
     };
 }
@@ -177,18 +152,6 @@ StackProperties stackProperties()
     return createStackProperties(stackBase, qsizetype(stackBase - stackLimit));
 }
 
-#elif defined(Q_OS_OS2)
-
-StackProperties stackProperties()
-{
-    PTIB ptib;
-    DosGetInfoBlocks(&ptib, NULL);
-    // tib_pstacklimit is the high stack address - just what we need.
-    quint8 *stackLimit = reinterpret_cast<quint8 *>(ptib->tib_pstacklimit);
-    quint8 *stackBase = reinterpret_cast<quint8 *>(ptib->tib_pstack);
-    return createStackProperties(stackBase, qsizetype(stackBase - stackLimit - 0x1000 * 2));
-}
-
 #elif defined(Q_OS_OPENBSD)
 
 StackProperties stackProperties()
@@ -256,7 +219,8 @@ StackProperties stackProperties()
 {
     TASK_DESC taskDescription;
     taskInfoGet(taskIdSelf(), &taskDescription);
-    return createStackProperties(taskDescription.td_pStackBase, taskDescription.td_stackSize);
+    return createStackProperties(taskDescription.td_pStackBase, taskDescription.td_stackSize,
+                                 taskDescription.td_stackSize / 8);
 }
 
 #else

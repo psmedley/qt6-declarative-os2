@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPROPERTY_H
 #define QQMLPROPERTY_H
@@ -22,7 +23,7 @@ class QQmlPropertyPrivate;
 class Q_QML_EXPORT QQmlProperty
 {
     Q_GADGET
-    QML_ANONYMOUS
+    QML_VALUE_TYPE(qmlProperty)
 
     Q_PROPERTY(QObject *object READ object CONSTANT FINAL)
     Q_PROPERTY(QString name READ name CONSTANT FINAL)

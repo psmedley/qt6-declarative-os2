@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMENUITEM_P_H
 #define QQUICKLABSPLATFORMMENUITEM_P_H
@@ -35,6 +36,7 @@ class QQuickLabsPlatformMenuItem : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(MenuItem)
+    QML_ADDED_IN_VERSION(1, 0)
     QML_EXTENDED_NAMESPACE(QPlatformMenuItem)
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QQuickLabsPlatformMenu *menu READ menu NOTIFY menuChanged FINAL)
@@ -117,7 +119,7 @@ Q_SIGNALS:
     void textChanged();
     void shortcutChanged();
     void fontChanged();
-    Q_REVISION(2, 1) void iconChanged();
+    Q_REVISION(1, 1) void iconChanged();
 
 protected:
     void classBegin() override;

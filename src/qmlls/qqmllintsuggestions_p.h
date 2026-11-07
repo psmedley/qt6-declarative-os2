@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QMLLINTSUGGESTIONS_P_H
 #define QMLLINTSUGGESTIONS_P_H
@@ -15,8 +16,8 @@
 // We mean it.
 //
 
-#include "qlanguageserver_p.h"
-#include "qqmlcodemodel_p.h"
+#include <private/qlanguageserver_p.h>
+#include <private/qqmlcodemodelmanager_p.h>
 
 #include <chrono>
 #include <optional>
@@ -29,18 +30,14 @@ struct LastLintUpdate
     std::optional<std::chrono::steady_clock::time_point> invalidUpdatesSince;
 };
 
-class QmlLintSuggestions : public QLanguageServerModule
+class QmlLintSuggestions : public QObject
 {
     Q_OBJECT
 public:
-    QmlLintSuggestions(QLanguageServer *server, QmlLsp::QQmlCodeModel *codeModel);
+    QmlLintSuggestions(QLanguageServer *server, QmlLsp::QQmlCodeModelManager *codeModelManager);
 
-    QString name() const override { return QLatin1StringView("QmlLint Suggestions"); }
 public Q_SLOTS:
-    void diagnose(const QByteArray &uri);
-    void registerHandlers(QLanguageServer *server, QLanguageServerProtocol *protocol) override;
-    void setupCapabilities(const QLspSpecification::InitializeParams &clientInfo,
-                           QLspSpecification::InitializeResult &) override;
+    void diagnose(const QByteArray &uri, UpdatePolicy policy);
 
 private:
     struct VersionedDocument
@@ -58,14 +55,14 @@ private:
 
     using VersionToDiagnose = std::variant<VersionedDocument, TryAgainLater, NoDocumentAvailable>;
 
-    VersionToDiagnose chooseVersionToDiagnose(const QByteArray &url);
-    VersionToDiagnose chooseVersionToDiagnoseHelper(const QByteArray &url);
+    VersionToDiagnose chooseVersionToDiagnose(const QByteArray &url, UpdatePolicy policy);
+    VersionToDiagnose chooseVersionToDiagnoseHelper(const QByteArray &url, UpdatePolicy policy);
     void diagnoseHelper(const QByteArray &uri, const VersionedDocument &document);
 
     QMutex m_mutex;
     QHash<QByteArray, LastLintUpdate> m_lastUpdate;
     QLanguageServer *m_server;
-    QmlLsp::QQmlCodeModel *m_codeModel;
+    QmlLsp::QQmlCodeModelManager *m_codeModelManager;
 };
 } // namespace QmlLsp
 QT_END_NAMESPACE

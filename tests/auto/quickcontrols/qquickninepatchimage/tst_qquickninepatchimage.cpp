@@ -84,7 +84,6 @@ void tst_qquickninepatchimage::ninePatch()
     QQuickView view(testFileUrl("ninepatchimage.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickImage *ninePatchImage = qobject_cast<QQuickImage *>(view.rootObject());
@@ -92,7 +91,9 @@ void tst_qquickninepatchimage::ninePatch()
     ninePatchImage->setSource(testFileUrl("foo.9.png"));
     ninePatchImage->setSize(size);
 
-    const QImage ninePatchImageGrab = grabItemToImage(ninePatchImage).scaled(size * dpr);
+    QImage ninePatchImageGrab = grabItemToImage(ninePatchImage).scaled(size * dpr);
+    // grabItemToImage() may have device's DPR as metadata, override it to setGlobalFactor()'s DPR.
+    ninePatchImageGrab.setDevicePixelRatio(dpr);
 
     // Generate an image to compare against the actual 9-patch image.
     QImage generatedImage(size * dpr, ninePatchImageGrab.format());
@@ -116,6 +117,8 @@ void tst_qquickninepatchimage::ninePatch()
     // Bottom-left
     painter.drawImage(0, generatedPaintedSize.height() - blueRectPaintedSize.height(), blueRect);
 
+    // This test fails when running with the offscreen and minimal platform plugins,
+    // so we can't use SKIP_IF_NO_WINDOW_GRAB here.
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
@@ -140,7 +143,6 @@ void tst_qquickninepatchimage::padding()
     QQuickView view(testFileUrl("ninepatchimage.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickImage *ninePatchImage = qobject_cast<QQuickImage *>(view.rootObject());
@@ -182,7 +184,6 @@ void tst_qquickninepatchimage::inset()
     QQuickView view(testFileUrl("ninepatchimage.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickImage *ninePatchImage = qobject_cast<QQuickImage *>(view.rootObject());
@@ -229,7 +230,6 @@ void tst_qquickninepatchimage::implicitSize()
     QQuickView view(testFileUrl("ninepatchimage.qml"));
     QCOMPARE(view.status(), QQuickView::Ready);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QQuickImage *ninePatchImage = qobject_cast<QQuickImage *>(view.rootObject());

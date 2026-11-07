@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 pragma ComponentBehavior: Bound
 
@@ -43,6 +44,8 @@ T.ComboBox {
     }
 
     contentItem: T.TextField {
+        implicitHeight: contentHeight + topPadding + bottomPadding
+
         topPadding: 4
         leftPadding: 4 - control.padding
         rightPadding: 4 - control.padding
@@ -61,6 +64,10 @@ T.ComboBox {
         selectionColor: control.palette.highlight
         selectedTextColor: control.palette.highlightedText
         verticalAlignment: Text.AlignVCenter
+
+        ContextMenu.menu: TextEditingContextMenu {
+            editor: parent
+        }
 
         background: PaddedRectangle {
             clip: true
@@ -116,6 +123,7 @@ T.ComboBox {
         topMargin: 6
         bottomMargin: 6
         padding: 1
+        font: control.font
         palette: control.palette
 
         contentItem: ListView {

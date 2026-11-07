@@ -1,5 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
+
 #ifndef QQMLIRBUILDER_P_H
 #define QQMLIRBUILDER_P_H
 
@@ -31,6 +33,7 @@ class QQmlPropertyCache;
 class QQmlContextData;
 class QQmlTypeNameCache;
 struct QQmlIRLoader;
+class QTypeRevision;
 
 namespace QmlIR {
 
@@ -64,32 +67,6 @@ struct PoolList
         if (!last)
             last = first;
         ++count;
-    }
-
-    template <typename Sortable, typename Base, Sortable Base::*sortMember>
-    T *findSortedInsertionPoint(T *item) const
-    {
-        T *insertPos = nullptr;
-
-        for (T *it = first; it; it = it->next) {
-            if (!(it->*sortMember <= item->*sortMember))
-                break;
-            insertPos = it;
-        }
-
-        return insertPos;
-    }
-
-    void insertAfter(T *insertionPoint, T *item) {
-        if (!insertionPoint) {
-            prepend(item);
-        } else if (insertionPoint == last) {
-            append(item);
-        } else {
-            item->next = insertionPoint->next;
-            insertionPoint->next = item;
-            ++count;
-        }
     }
 
     T *unlink(T *before, T *item) {
@@ -265,6 +242,25 @@ struct Binding : public QV4::CompiledData::Binding
     Binding *next;
 };
 
+// we support one or two '.' in the enum phrase:
+// * <TypeName>.<EnumValue>
+// * <TypeName>.<ScopedEnumName>.<EnumValue>
+inline int qualifiedEnumDot(QStringView source)
+{
+    if (source.isEmpty() || !source.front().isUpper())
+        return -1;
+
+    // reject any "complex" expression (even simple arithmetic) by excluding everything that is not
+    // part of a valid identifier or a dot
+    for (const QChar c : source) {
+        if (!(c.isLetterOrNumber() || c == u'.' || c == u'_' || c.isSpace()))
+            return -1;
+    }
+
+    const qsizetype dot = source.indexOf(u'.');
+    return (dot  == -1 || dot == source.size() - 1) ?  -1 : dot;
+}
+
 struct InlineComponent : public QV4::CompiledData::InlineComponent
 {
     InlineComponent *next;
@@ -283,8 +279,9 @@ struct RequiredPropertyExtraData : public QV4::CompiledData::RequiredPropertyExt
 struct Function
 {
     QV4::CompiledData::Location location;
-    int nameIndex;
-    quint32 index; // index in parsedQML::functions
+    quint32 nameIndex : 31;
+    quint32 isQmlFunction : 1;
+    quint32 index = 0; // index in parsedQML::functions
     QQmlJS::FixedPoolArray<Parameter> formals;
     QV4::CompiledData::ParameterType returnType;
 
@@ -338,6 +335,7 @@ public:
     const RequiredPropertyExtraData *requiredPropertyExtraData() const {return requiredPropertyExtraDatas->first; }
     int requiredPropertyExtraDataCount() const { return requiredPropertyExtraDatas->count; }
     void simplifyRequiredProperties();
+    void sortAliasDependencies(const Document *doc, QList<QQmlJS::DiagnosticMessage> *errors);
 
     PoolList<Binding>::Iterator bindingsBegin() const { return bindings->begin(); }
     PoolList<Binding>::Iterator bindingsEnd() const { return bindings->end(); }
@@ -366,6 +364,8 @@ public:
     QString appendSignal(Signal *signal);
     QString appendProperty(Property *prop, const QString &propertyName, bool isDefaultProperty, const QQmlJS::SourceLocation &defaultToken, QQmlJS::SourceLocation *errorLocation);
     QString appendAlias(Alias *prop, const QString &aliasName, bool isDefaultProperty, const QQmlJS::SourceLocation &defaultToken, QQmlJS::SourceLocation *errorLocation);
+    void setFirstAlias(Alias *alias) { aliases->first = alias; }
+
     void appendFunction(QmlIR::Function *f);
     void appendInlineComponent(InlineComponent *ic);
     void appendRequiredPropertyExtraData(RequiredPropertyExtraData *extraData);
@@ -373,7 +373,6 @@ public:
     QString appendBinding(Binding *b, bool isListBinding);
     Binding *findBinding(quint32 nameIndex) const;
     Binding *unlinkBinding(Binding *before, Binding *binding) { return bindings->unlink(before, binding); }
-    void insertSorted(Binding *b);
     QString bindingAsString(Document *doc, int scriptIndex) const;
 
     PoolList<CompiledFunctionOrExpression> *functionsAndExpressions;
@@ -463,6 +462,9 @@ struct Q_QML_COMPILER_EXPORT Pragma
 
 struct Q_QML_COMPILER_EXPORT Document
 {
+    // disable it explicitly, it's implicitly deleted because of the Engine::_pool
+    Q_DISABLE_COPY_MOVE(Document)
+
     Document(const QString &fileName, const QString &finalUrl, bool debugMode);
     QString code;
     QQmlJS::Engine jsParserEngine;
@@ -470,7 +472,7 @@ struct Q_QML_COMPILER_EXPORT Document
     QList<const QV4::CompiledData::Import *> imports;
     QList<Pragma*> pragmas;
     QQmlJS::AST::UiProgram *program;
-    QVector<Object*> objects;
+    QList<Object*> objects;
     QV4::Compiler::JSUnitGenerator jsGenerator;
 
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> javaScriptCompilationUnit;
@@ -506,21 +508,15 @@ struct Q_QML_COMPILER_EXPORT IRBuilder : public QQmlJS::AST::Visitor
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlCodeGenerator)
 public:
-    IRBuilder(const QSet<QString> &illegalNames);
+    IRBuilder();
     bool generateFromQml(const QString &code, const QString &url, Document *output);
 
     using QQmlJS::AST::Visitor::visit;
     using QQmlJS::AST::Visitor::endVisit;
 
-    bool visit(QQmlJS::AST::UiArrayMemberList *ast) override;
     bool visit(QQmlJS::AST::UiImport *ast) override;
     bool visit(QQmlJS::AST::UiPragma *ast) override;
-    bool visit(QQmlJS::AST::UiHeaderItemList *ast) override;
-    bool visit(QQmlJS::AST::UiObjectInitializer *ast) override;
-    bool visit(QQmlJS::AST::UiObjectMemberList *ast) override;
-    bool visit(QQmlJS::AST::UiParameterList *ast) override;
     bool visit(QQmlJS::AST::UiProgram *) override;
-    bool visit(QQmlJS::AST::UiQualifiedId *ast) override;
     bool visit(QQmlJS::AST::UiArrayBinding *ast) override;
     bool visit(QQmlJS::AST::UiObjectBinding *ast) override;
     bool visit(QQmlJS::AST::UiObjectDefinition *ast) override;
@@ -564,8 +560,8 @@ public:
     QStringView textRefAt(const QQmlJS::SourceLocation &first,
                          const QQmlJS::SourceLocation &last) const;
 
-    void setBindingValue(QV4::CompiledData::Binding *binding, QQmlJS::AST::Statement *statement,
-                         QQmlJS::AST::Node *parentNode);
+    virtual void setBindingValue(QV4::CompiledData::Binding *binding,
+                                 QQmlJS::AST::Statement *statement, QQmlJS::AST::Node *parentNode);
     void tryGeneratingTranslationBinding(QStringView base, QQmlJS::AST::ArgumentList *args, QV4::CompiledData::Binding *binding);
 
     void appendBinding(QQmlJS::AST::UiQualifiedId *name, QQmlJS::AST::Statement *value,
@@ -579,6 +575,9 @@ public:
                        int objectIndex, bool isListItem = false, bool isOnAssignment = false);
 
     bool appendAlias(QQmlJS::AST::UiPublicMember *node);
+
+    enum class IsQmlFunction { Yes, No };
+    virtual void registerFunctionExpr(QQmlJS::AST::FunctionExpression *fexp, IsQmlFunction);
 
     Object *bindingsTarget() const;
 
@@ -598,16 +597,15 @@ public:
     static bool isStatementNodeScript(QQmlJS::AST::Statement *statement);
     static bool isRedundantNullInitializerForPropertyDeclaration(Property *property, QQmlJS::AST::Statement *statement);
 
-    QString sanityCheckFunctionNames(Object *obj, const QSet<QString> &illegalNames, QQmlJS::SourceLocation *errorLocation);
+    QString sanityCheckFunctionNames(Object *obj, QQmlJS::SourceLocation *errorLocation);
 
     QList<QQmlJS::DiagnosticMessage> errors;
 
-    QSet<QString> illegalNames;
     QSet<QString> inlineComponentsNames;
 
     QList<const QV4::CompiledData::Import *> _imports;
     QList<Pragma*> _pragmas;
-    QVector<Object*> _objects;
+    QList<Object*> _objects;
 
     QV4::CompiledData::TypeReferenceMap _typeReferences;
 
@@ -632,13 +630,13 @@ private:
 
 struct Q_QML_COMPILER_EXPORT JSCodeGen : public QV4::Compiler::Codegen
 {
-    JSCodeGen(Document *document, const QSet<QString> &globalNames,
+    JSCodeGen(Document *document,
               QV4::Compiler::CodegenWarningInterface *iface =
                       QV4::Compiler::defaultCodegenWarningInterface(),
               bool storeSourceLocations = false);
 
     // Returns mapping from input functions to index in IR::Module::functions / compiledData->runtimeFunctions
-    QVector<int>
+    QList<int>
     generateJSCodeForFunctionsAndBindings(const QList<CompiledFunctionOrExpression> &functions);
 
     bool generateRuntimeFunctions(QmlIR::Object *object);

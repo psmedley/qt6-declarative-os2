@@ -10,6 +10,7 @@
 #include <QQmlExpression>
 #include <private/qqmlcontext_p.h>
 #include <private/qqmlguardedcontextdata_p.h>
+#include <private/qqmldata_p.h>
 #include <private/qv4qmlcontext_p.h>
 #include <private/qv4object_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
@@ -53,6 +54,9 @@ private slots:
 
     void numericContextProperty();
     void gcDeletesContextObject();
+
+    void childContexts();
+    void contextDataCompilationUnitSetter();
 
 private:
     QQmlEngine engine;
@@ -857,7 +861,7 @@ static bool buildObjectList(QQmlContext *ctxt)
         // not, then the connect() below is likely to fail.
         if (deletedObjects.contains(object) && deletedObjects[object] == object->objectName())
             return false;
-        QObject::connect(object, &QObject::destroyed, [object]() {
+        QObject::connect(object, &QObject::destroyed, object, [object]() {
             object->setObjectName(QString::number(deletedObjects.size()));
             deletedObjects.insert(object, object->objectName());
         });
@@ -897,7 +901,7 @@ void tst_qqmlcontext::outerContextObject()
     });
     timer.start();
 
-    QTRY_VERIFY(iterations >= 100);
+    QTRY_VERIFY_WITH_TIMEOUT(iterations >= 100, 2s);
 }
 
 void tst_qqmlcontext::contextObjectHierarchy()
@@ -916,7 +920,7 @@ void tst_qqmlcontext::contextObjectHierarchy()
     for (const QObject *child : root->children())
         QVERIFY(QQmlData::get(child)->outerContext != nullptr);
 
-    connect(root.data(), &QObject::destroyed, [&root]() {
+    connect(root.get(), &QObject::destroyed, this, [&root]() {
         for (const QObject *child : root->children())
             QCOMPARE(QQmlData::get(child)->outerContext, nullptr);
     });
@@ -1005,6 +1009,86 @@ void tst_qqmlcontext::gcDeletesContextObject()
 
     QTRY_VERIFY(contextObject.isNull());
     QCOMPARE(context->contextObject(), nullptr);
+}
+
+void tst_qqmlcontext::childContexts()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("contextHierarchy.qml"));
+
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+
+    QVERIFY(!o.isNull());
+
+    QQmlContext *context = qmlContext(o.data());
+    QVERIFY(context);
+    QCOMPARE(context->contextObject(), o.data());
+
+    QList<QQmlContext *> childContexts = context->childContexts();
+    QCOMPARE(childContexts.length(), 5);
+
+    QCOMPARE(context->findObjectRecursively("outer"), o.data());
+    QCOMPARE(context->findObjectsRecursively("outer"), QList<QObject *>({o.data()}));
+
+    QVERIFY(context->findObjectRecursively("middle") != nullptr);
+    QCOMPARE(context->findObjectsRecursively("middle").size(), 5);
+
+    QVERIFY(context->findObjectRecursively("inner") != nullptr);
+    QCOMPARE(context->findObjectsRecursively("inner").size(), 25);
+}
+
+void tst_qqmlcontext::contextDataCompilationUnitSetter()
+{
+    QQmlEngine engine;
+    QQmlComponent component1(&engine, testFileUrl("Simple.qml"));
+    QVERIFY2(component1.isReady(), qPrintable(component1.errorString()));
+    QScopedPointer<QObject> obj1(component1.create());
+    QVERIFY(obj1);
+
+    QQmlComponent component2(&engine, testFileUrl("Simple2.qml"));
+    QVERIFY2(component2.isReady(), qPrintable(component2.errorString()));
+    QScopedPointer<QObject> obj2(component2.create());
+    QVERIFY(obj2);
+
+    QQmlData *ddata1 = QQmlData::get(obj1.data());
+    QVERIFY(ddata1);
+    auto contextData1 = ddata1->outerContext;
+    auto context1 = contextData1->asQQmlContext();
+
+    QVERIFY(context1);
+
+    QQmlData *ddata2 = QQmlData::get(obj2.data());
+    QVERIFY(ddata2);
+    auto contextData2 = ddata2->outerContext;
+    auto context2 = contextData2->asQQmlContext();
+    QVERIFY(context2);
+
+    QCOMPARE(context1->contextProperty("self"), QVariant::fromValue(obj1.data()));
+    QCOMPARE(context1->contextProperty("self2"), QVariant());
+
+    QCOMPARE(context2->contextProperty("self2"), QVariant::fromValue(obj2.data()));
+    QCOMPARE(context2->contextProperty("self"), QVariant());
+
+    auto cu1 = contextData1->typeCompilationUnit();
+    QVERIFY(cu1);
+    auto cu2 = contextData2->typeCompilationUnit();
+    QVERIFY(cu2);
+
+    contextData1->setTypeCompilationUnit(cu2);
+    QCOMPARE(contextData1->typeCompilationUnit(), cu2);
+
+    contextData2->setTypeCompilationUnit(cu1);
+    QCOMPARE(contextData2->typeCompilationUnit(), cu1);
+
+    // We don't automatically get the ID values set because the context doesn't
+    // know how the old unit's ID values map to the new unit's ID values. The
+    // ID values need to be re-added separately.
+
+    QCOMPARE(context1->contextProperty("self").value<QObject *>(), nullptr);
+    QCOMPARE(context1->contextProperty("self2").value<QObject *>(), nullptr);
+    QCOMPARE(context2->contextProperty("self").value<QObject *>(), nullptr);
+    QCOMPARE(context2->contextProperty("self2").value<QObject *>(), nullptr);
 }
 
 QTEST_MAIN(tst_qqmlcontext)

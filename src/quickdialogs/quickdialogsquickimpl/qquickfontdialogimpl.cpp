@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickfontdialogimpl_p.h"
 #include "qquickfontdialogimpl_p_p.h"
@@ -11,7 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcAttachedProperty, "qt.quick.dialogs.quickfontdialogimpl.attachedOrWarn")
+Q_STATIC_LOGGING_CATEGORY(lcAttachedProperty, "qt.quick.dialogs.quickfontdialogimpl.attachedOrWarn")
 
 QQuickFontDialogImplPrivate::QQuickFontDialogImplPrivate()
 {
@@ -43,7 +44,6 @@ void QQuickFontDialogImplPrivate::handleClick(QQuickAbstractButton *button)
 QQuickFontDialogImpl::QQuickFontDialogImpl(QObject *parent)
     : QQuickDialog(*(new QQuickFontDialogImplPrivate), parent)
 {
-    setPopupType(QQuickPopup::Window);
 }
 
 QQuickFontDialogImplAttached *QQuickFontDialogImpl::qmlAttachedProperties(QObject *object)
@@ -145,6 +145,18 @@ void QQuickFontDialogImpl::focusOutEvent(QFocusEvent *event)
         return;
 
     attached->clearSearch();
+}
+
+void QQuickFontDialogImpl::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &data)
+{
+    Q_D(QQuickFontDialogImpl);
+    QQuickDialog::itemChange(change, data);
+
+    if (change != QQuickItem::ItemVisibleHasChanged || !isComponentComplete() || !data.boolValue)
+        return;
+
+    if (QQuickFontDialogImplAttached *attached = d->attachedOrWarn(); attached && attached->buttonBox())
+        attached->buttonBox()->forceActiveFocus(Qt::OtherFocusReason);
 }
 
 QQuickFontDialogImplAttached::QQuickFontDialogImplAttached(QObject *parent)

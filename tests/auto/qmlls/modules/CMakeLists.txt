@@ -7,6 +7,10 @@ if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
     find_package(Qt6BuildInternals REQUIRED COMPONENTS STANDALONE_TEST)
 endif()
 
+add_subdirectory(documentSymbolProvider)
+add_subdirectory(progressSupport)
+add_subdirectory(codeActionProvider)
+
 file(GLOB_RECURSE test_data_glob
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     data)
@@ -23,6 +27,7 @@ qt_internal_add_test(tst_qmlls_modules
         QT_DEPRECATED_WARNINGS
         QT_QMLTEST_DATADIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
         QT_QMLFORMATTEST_DATADIR="${CMAKE_CURRENT_SOURCE_DIR}/../../qml/qmlformat/data"
+        BUILD_DIRECTORY_FOR_QMLLS_BUILD_INI=\"${CMAKE_BINARY_DIR}\"_L1
     LIBRARIES
         Qt::Core
         Qt::QmlDomPrivate

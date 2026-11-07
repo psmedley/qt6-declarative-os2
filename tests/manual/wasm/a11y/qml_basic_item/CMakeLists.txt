@@ -4,7 +4,7 @@
 
 if (NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
     cmake_minimum_required(VERSION 3.16)
-    project(textManual LANGUAGES C CXX ASM)
+    project(textManual LANGUAGES C CXX)
     find_package(Qt6BuildInternals COMPONENTS STANDALONE_TEST)
 endif()
 
@@ -33,11 +33,11 @@ set(qmake_immediate_resource_files
 )
 
 add_custom_command(
-    TARGET qml_basic_item PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
+    TARGET qml_basic_item
+    PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_CURRENT_SOURCE_DIR}/basic_items.html
             ${CMAKE_CURRENT_BINARY_DIR}/basic_items.html
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/basic_items.html
 )
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g0 -O3")

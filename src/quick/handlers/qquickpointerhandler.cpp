@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpointerhandler_p.h"
 #include "qquickpointerhandler_p_p.h"
@@ -13,9 +14,8 @@
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcPointerHandlerDispatch, "qt.quick.handler.dispatch")
-Q_LOGGING_CATEGORY(lcPointerHandlerGrab, "qt.quick.handler.grab")
-Q_LOGGING_CATEGORY(lcPointerHandlerActive, "qt.quick.handler.active")
-Q_DECLARE_LOGGING_CATEGORY(lcHandlerParent)
+Q_STATIC_LOGGING_CATEGORY(lcPointerHandlerGrab, "qt.quick.handler.grab")
+Q_STATIC_LOGGING_CATEGORY(lcPointerHandlerActive, "qt.quick.handler.active")
 
 /*!
     \qmltype PointerHandler
@@ -29,7 +29,11 @@ Q_DECLARE_LOGGING_CATEGORY(lcHandlerParent)
     events from any kind of pointing device (touch, mouse or graphics tablet).
 */
 
-/*! \internal
+/*!
+    \class QQuickPointerHandler
+    \inmodule QtQuick
+    \internal
+
     So far we only offer public QML API for Pointer Handlers, but we expect
     in some future version of Qt to have public C++ API as well. This will open
     up the possibility to instantiate handlers in custom items (which we should
@@ -84,6 +88,7 @@ QQuickPointerHandler::~QQuickPointerHandler()
      The default value is 0.
 
      \image pointerHandlerMargin.png
+            {Rectangle with surrounding margin area for extended touch detection}
 */
 qreal QQuickPointerHandler::margin() const
 {
@@ -98,6 +103,11 @@ void QQuickPointerHandler::setMargin(qreal pointDistanceThreshold)
         return;
 
     d->m_margin = pointDistanceThreshold;
+    if (auto *parent = parentItem()) {
+        QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parent);
+        // invalidate the cache: the new max margin may depend on this and other handlers
+        itemPriv->extra.value().biggestPointerHandlerMarginCache = -1;
+    }
     emit marginChanged();
 }
 
@@ -216,8 +226,21 @@ void QQuickPointerHandler::resetCursorShape()
     d->cursorSet = false;
     if (auto *parent = parentItem()) {
         QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parent);
-        itemPriv->hasCursorHandler = false;
-        itemPriv->setHasCursorInChild(itemPriv->hasCursor);
+        // Only clear hasCursorHandler if no other handler on this item still has cursorShape set.
+        // Multiple handlers with cursorShape are valid (e.g. two HoverHandlers for different devices).
+        bool otherHandlerHasCursor = false;
+        if (itemPriv->hasPointerHandlers()) {
+            for (QQuickPointerHandler *h : itemPriv->extra->pointerHandlers) {
+                if (h != this && h->isCursorShapeExplicitlySet()) {
+                    otherHandlerHasCursor = true;
+                    break;
+                }
+            }
+        }
+        if (!otherHandlerHasCursor) {
+            itemPriv->hasCursorHandler = false;
+            itemPriv->setHasCursorInChild(itemPriv->hasCursor);
+        }
     }
     emit cursorShapeChanged();
 }
@@ -356,18 +379,21 @@ bool QQuickPointerHandler::approveGrabTransition(QPointerEvent *event, const QEv
                          (existingItemGrabber->keepTouchGrab() && QQuickDeliveryAgentPrivate::isTouchEvent(event)))) {
                     allowed = false;
                     // If the handler wants to steal the exclusive grab from an Item, the Item can usually veto
-                    // by having its keepMouseGrab flag set.  But an exception is if that Item is a parent that
-                    // normally filters events (such as a Flickable): it needs to be possible for e.g. a
-                    // DragHandler to operate on an Item inside a Flickable.  Flickable is aggressive about
-                    // grabbing on press (for fear of missing updates), but DragHandler uses a passive grab
-                    // at first and then expects to be able to steal the grab later on.  It cannot respect
-                    // Flickable's wishes in that case, because then it would never have a chance.
-                    if (existingItemGrabber->keepMouseGrab() &&
-                            existingItemGrabber->filtersChildMouseEvents() && existingItemGrabber->isAncestorOf(parentItem())) {
+                    // by having its keepMouseGrab or keepTouchGrab flag set. But if the handler wants to
+                    // steal from an ancestor Item (e.g. a Flickable), allow it: it needs to be able to function
+                    // despite the ancestor's keep-grab flags. Flickable is aggressive about grabbing on press
+                    // (for fear of missing updates), but handlers inside it use passive grabs first and expect
+                    // to steal later.  Note: we check isAncestorOf rather than filtersChildMouseEvents() because
+                    // the ancestor may temporarily disable filtering (e.g. TableView disables it during resize drag setup)
+                    // while still holding an exclusive grab that would otherwise block the handler.
+                    if (existingItemGrabber->isAncestorOf(parentItem())) {
                         Q_ASSERT(da);
-                        if (isTouchMouse && point.id() == da->touchMouseId) {
-                            qCDebug(lcPointerHandlerGrab) << this << "steals touchpoint" << point.id()
-                                << "despite parent touch-mouse grabber with keepMouseGrab=true" << existingItemGrabber;
+                        if ((existingItemGrabber->keepMouseGrab() &&
+                             (QQuickDeliveryAgentPrivate::isMouseEvent(event) || (isTouchMouse && point.id() == da->touchMouseId))) ||
+                            (existingItemGrabber->keepTouchGrab() && QQuickDeliveryAgentPrivate::isTouchEvent(event))) {
+                            qCDebug(lcPointerHandlerGrab) << this << "steals from ancestor"
+                                << existingItemGrabber << "despite keep-grab flags"
+                                << existingItemGrabber->keepMouseGrab() << existingItemGrabber->keepTouchGrab();
                             allowed = true;
                         }
                     }
@@ -463,14 +489,17 @@ void QQuickPointerHandler::classBegin()
 
 /*!
     Overridden from QQmlParserStatus to ensure that parentItem() sets its
-    cursor if this handler's \l cursorShape property has been set.
+    cursor if this handler's \l cursorShape property has been set, and that
+    this handler is added to the parent item. If it was declared as a named property
+    rather than declared directly inside an Item, data_append() will miss adding it.
 */
 void QQuickPointerHandler::componentComplete()
 {
     Q_D(const QQuickPointerHandler);
-    if (d->cursorSet) {
-        if (auto *parent = parentItem()) {
-            QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parent);
+    if (auto *parent = parentItem()) {
+        QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(parent);
+        itemPriv->addPointerHandler(this);
+        if (d->cursorSet) {
             itemPriv->hasCursorHandler = true;
             itemPriv->setHasCursorInChild(true);
         }
@@ -499,6 +528,9 @@ QPointerEvent *QQuickPointerHandler::currentEvent()
 */
 bool QQuickPointerHandler::setExclusiveGrab(QPointerEvent *ev, const QEventPoint &point, bool grab)
 {
+    // If the handler loses its grab because its window is deactivated, there's no QPointerEvent.
+    if (!ev)
+        return true;
     if ((grab && ev->exclusiveGrabber(point) == this) || (!grab && ev->exclusiveGrabber(point) != this))
         return true;
     // TODO m_hadKeepMouseGrab m_hadKeepTouchGrab
@@ -545,7 +577,7 @@ QPointF QQuickPointerHandler::eventPos(const QEventPoint &point) const
 */
 bool QQuickPointerHandler::parentContains(const QEventPoint &point) const
 {
-    return parentContains(point.scenePosition());
+    return parentContains(point.position(), point.scenePosition());
 }
 
 /*!
@@ -556,7 +588,7 @@ bool QQuickPointerHandler::parentContains(const QEventPoint &point) const
     is not called.) As a precheck, it's also required that the window contains
     \a scenePosition mapped to global coordinates, if parentItem() is in a window.
 */
-bool QQuickPointerHandler::parentContains(const QPointF &scenePosition) const
+bool QQuickPointerHandler::parentContains(const QPointF &localPosition, const QPointF &scenePosition) const
 {
     if (QQuickItem *par = parentItem()) {
         if (par->window()) {
@@ -567,11 +599,11 @@ bool QQuickPointerHandler::parentContains(const QPointF &scenePosition) const
             if (!windowGeometry.contains(screenPosition))
                 return false;
         }
-        QPointF p = par->mapFromScene(scenePosition);
         qreal m = margin();
         if (m > 0)
-            return p.x() >= -m && p.y() >= -m && p.x() <= par->width() + m && p.y() <= par->height() + m;
-        return par->contains(p);
+            return localPosition.x() >= -m && localPosition.y() >= -m &&
+                    localPosition.x() <= par->width() + m && localPosition.y() <= par->height() + m;
+        return par->contains(localPosition);
     } else if (parent() && parent()->inherits("QQuick3DModel")) {
         // If the parent is from Qt Quick 3D, assume that
         // bounds checking was already done, as part of picking.
@@ -581,10 +613,17 @@ bool QQuickPointerHandler::parentContains(const QPointF &scenePosition) const
 }
 
 /*!
-     \qmlproperty bool QtQuick::PointerHandler::enabled
+    \qmlproperty bool QtQuick::PointerHandler::enabled
 
-     If a PointerHandler is disabled, it will reject all events
-     and no signals will be emitted.
+    If a PointerHandler is disabled, it will reject all events
+    and no signals will be emitted.
+
+    If a PointerHandler's \l parent is \l {Item::enabled}{disabled},
+    the handler will also be effectively disabled, even when the \c enabled
+    property remains \c true.
+
+    \note HoverHandler behaves differently: see the documentation of its
+    \l {HoverHandler::}{enabled} property for more information.
 */
 bool QQuickPointerHandler::enabled() const
 {
@@ -868,6 +907,11 @@ void QQuickPointerHandler::handlePointerEventImpl(QPointerEvent *event)
     emitted when the grab is stolen by a different Pointer Handler or Item.
 */
 
+/*!
+    \class QQuickPointerHandlerPrivate
+    \inmodule QtQuick
+    \internal
+*/
 QQuickPointerHandlerPrivate::QQuickPointerHandlerPrivate()
   : grabPermissions(QQuickPointerHandler::CanTakeOverFromItems |
                       QQuickPointerHandler::CanTakeOverFromHandlersOfDifferentType |
@@ -931,7 +975,7 @@ bool QQuickPointerHandlerPrivate::dragOverThreshold(const QEventPoint &point) co
             dragOverThreshold(delta.y(), Qt::YAxis, point));
 }
 
-QVector<QObject *> &QQuickPointerHandlerPrivate::deviceDeliveryTargets(const QInputDevice *device)
+QList<QObject *> &QQuickPointerHandlerPrivate::deviceDeliveryTargets(const QInputDevice *device)
 {
     return QQuickDeliveryAgentPrivate::deviceExtra(device)->deliveryTargets;
 }

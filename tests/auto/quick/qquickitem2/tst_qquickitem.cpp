@@ -8,6 +8,10 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQuick/qquickitemgrabresult.h>
 #include <QtQuick/qquickview.h>
+#include <QtCore/qscopeguard.h>
+#include <QtGui/qscreen.h>
+#include <QtGui/private/qguiapplication_p.h>
+#include <QtGui/private/qhighdpiscaling_p.h>
 #include <QtGui/private/qinputmethod_p.h>
 #include <QtQuick/private/qquickloader_p.h>
 #include <QtQuick/private/qquickpalette_p.h>
@@ -15,6 +19,7 @@
 #include <QtQuick/private/qquicktextinput_p.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQuick/private/qquickanchors_p.h>
+#include <QtQuick/private/qquicktranslate_p.h>
 #include <QtGui/qstylehints.h>
 #include <private/qquickitem_p.h>
 #include <private/qv4qobjectwrapper_p.h>
@@ -127,6 +132,9 @@ private slots:
     void isAncestorOf();
 
     void grab();
+    void grabIsItemSizeInDevicePixels();
+    void grabFromQmlIsItemSizeInDevicePixels();
+    void grabMapsItemUnitsToDevicePixels();
 
     void colorGroup();
     void paletteAllocated();
@@ -149,6 +157,7 @@ private slots:
     void embeddedInWidgetsFocus();
 #endif
     void gcIntegration();
+    void focusWorksAfterEnablingRootItem();
 
 private:
     QQmlEngine engine;
@@ -412,7 +421,7 @@ void tst_QQuickItem::activeFocusOnTab()
     // original: button12
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button12");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // Tab: button12->sub2
     {
@@ -422,7 +431,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "sub2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // Tab: sub2->button21
@@ -433,7 +442,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button21");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // Tab: button21->button22
@@ -444,7 +453,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button22");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // Tab: button22->edit
@@ -455,7 +464,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "edit");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
     // BackTab: edit->button22
     {
@@ -465,7 +474,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button22");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
     // BackTab: button22->button21
     {
@@ -475,7 +484,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button21");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button21->sub2
@@ -486,7 +495,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "sub2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: sub2->button12
@@ -497,7 +506,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button12");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button12->button11
@@ -508,7 +517,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "button11");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button11->edit
@@ -519,7 +528,7 @@ void tst_QQuickItem::activeFocusOnTab()
 
         item = findItem<QQuickItem>(window->rootObject(), "edit");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -542,7 +551,7 @@ void tst_QQuickItem::activeFocusOnTab2()
     // original: button12
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button12");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // BackTab: button12->button11
     {
@@ -552,7 +561,7 @@ void tst_QQuickItem::activeFocusOnTab2()
 
         item = findItem<QQuickItem>(window->rootObject(), "button11");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button11->edit
@@ -563,7 +572,7 @@ void tst_QQuickItem::activeFocusOnTab2()
 
         item = findItem<QQuickItem>(window->rootObject(), "edit");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -586,7 +595,7 @@ void tst_QQuickItem::activeFocusOnTab3()
     // original: button1
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // 4 Tabs: button1->button2, through a repeater
     {
@@ -598,7 +607,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 Tabs: button2->button3, through a row
@@ -611,7 +620,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 Tabs: button3->button4, through a flow
@@ -624,7 +633,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 Tabs: button4->button5, through a focusscope
@@ -638,7 +647,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button5");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 Tabs: button5->button6, through a focusscope
@@ -652,7 +661,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button6");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 5 Tabs: button6->button7, through a focusscope
@@ -666,7 +675,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button7");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button7->button6, through a focusscope
@@ -680,7 +689,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button6");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 Tabs: button6->button7, through a focusscope
@@ -694,7 +703,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button7");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button7->button6, through a focusscope
@@ -708,7 +717,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button6");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button6->button5, through a focusscope(parent is activeFocusOnTab: false)
@@ -721,7 +730,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button5");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button5->button4, through a focusscope(parent is activeFocusOnTab: false)
@@ -734,7 +743,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button4->button3, through a flow
@@ -747,7 +756,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button3->button2, through a row
@@ -760,7 +769,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // 4 BackTabs: button2->button1, through a repeater
@@ -773,7 +782,7 @@ void tst_QQuickItem::activeFocusOnTab3()
 
         item = findItem<QQuickItem>(window->rootObject(), "button1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -797,7 +806,7 @@ void tst_QQuickItem::activeFocusOnTab4()
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button11");
     item->setActiveFocusOnTab(true);
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // Tab: button11->button21
     QKeyEvent key(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier, "", false, 1);
@@ -806,7 +815,7 @@ void tst_QQuickItem::activeFocusOnTab4()
 
     item = findItem<QQuickItem>(window->rootObject(), "button21");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     delete window;
 }
@@ -828,7 +837,7 @@ void tst_QQuickItem::activeFocusOnTab5()
     // original: button11 in sub1
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button11");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     QQuickItem *item2 = findItem<QQuickItem>(window->rootObject(), "sub1");
     item2->setActiveFocusOnTab(true);
@@ -840,7 +849,7 @@ void tst_QQuickItem::activeFocusOnTab5()
 
     item = findItem<QQuickItem>(window->rootObject(), "button21");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     delete window;
 }
@@ -862,7 +871,7 @@ void tst_QQuickItem::activeFocusOnTab6()
     // original: button12
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button12");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // Tab: button12->edit
     {
@@ -872,7 +881,7 @@ void tst_QQuickItem::activeFocusOnTab6()
 
         item = findItem<QQuickItem>(window->rootObject(), "edit");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: edit->button12
@@ -883,7 +892,7 @@ void tst_QQuickItem::activeFocusOnTab6()
 
         item = findItem<QQuickItem>(window->rootObject(), "button12");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button12->button11
@@ -894,7 +903,7 @@ void tst_QQuickItem::activeFocusOnTab6()
 
         item = findItem<QQuickItem>(window->rootObject(), "button11");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button11->edit
@@ -905,7 +914,7 @@ void tst_QQuickItem::activeFocusOnTab6()
 
         item = findItem<QQuickItem>(window->rootObject(), "edit");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -928,7 +937,7 @@ void tst_QQuickItem::activeFocusOnTab7()
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "button1");
     QVERIFY(item);
     item->forceActiveFocus();
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // Tab: button1->button1
     {
@@ -936,7 +945,7 @@ void tst_QQuickItem::activeFocusOnTab7()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(!key.isAccepted());
 
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // BackTab: button1->button1
@@ -945,7 +954,7 @@ void tst_QQuickItem::activeFocusOnTab7()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(!key.isAccepted());
 
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -964,7 +973,7 @@ void tst_QQuickItem::activeFocusOnTab8()
 
     QQuickItem *content = window->contentItem();
     QVERIFY(content);
-    QVERIFY(content->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(content);
 
     QQuickItem *button1 = findItem<QQuickItem>(window->rootObject(), "button1");
     QVERIFY(button1);
@@ -980,7 +989,7 @@ void tst_QQuickItem::activeFocusOnTab8()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(button1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(button1);
     }
 
     // Tab: button1->button2
@@ -989,7 +998,7 @@ void tst_QQuickItem::activeFocusOnTab8()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(button2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(button2);
         QVERIFY(!button1->hasActiveFocus());
     }
 
@@ -999,7 +1008,7 @@ void tst_QQuickItem::activeFocusOnTab8()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(button1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(button1);
         QVERIFY(!button2->hasActiveFocus());
     }
 
@@ -1022,7 +1031,7 @@ void tst_QQuickItem::activeFocusOnTab9()
 
     QQuickItem *content = window->contentItem();
     QVERIFY(content);
-    QVERIFY(content->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(content);
 
     QQuickItem *textinput1 = findItem<QQuickItem>(window->rootObject(), "textinput1");
     QVERIFY(textinput1);
@@ -1031,7 +1040,7 @@ void tst_QQuickItem::activeFocusOnTab9()
 
     QVERIFY(!textinput1->hasActiveFocus());
     textinput1->forceActiveFocus();
-    QVERIFY(textinput1->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textinput1);
 
     // Tab: textinput1->textedit1
     {
@@ -1039,7 +1048,7 @@ void tst_QQuickItem::activeFocusOnTab9()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textedit1);
     }
 
     // BackTab: textedit1->textinput1
@@ -1048,7 +1057,7 @@ void tst_QQuickItem::activeFocusOnTab9()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textinput1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textinput1);
     }
 
     // BackTab: textinput1->textedit1
@@ -1057,7 +1066,7 @@ void tst_QQuickItem::activeFocusOnTab9()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textedit1);
     }
 
     delete window;
@@ -1079,7 +1088,7 @@ void tst_QQuickItem::activeFocusOnTab10()
 
     QQuickItem *content = window->contentItem();
     QVERIFY(content);
-    QVERIFY(content->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(content);
 
     QQuickItem *textinput1 = findItem<QQuickItem>(window->rootObject(), "textinput1");
     QVERIFY(textinput1);
@@ -1092,7 +1101,7 @@ void tst_QQuickItem::activeFocusOnTab10()
 
     QVERIFY(!textinput1->hasActiveFocus());
     textinput1->forceActiveFocus();
-    QVERIFY(textinput1->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textinput1);
 
     // Tab: textinput1->textinput2
     {
@@ -1100,7 +1109,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textinput2);
     }
 
     // Tab: textinput2->textedit1
@@ -1109,7 +1118,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textedit1);
     }
 
     // BackTab: textedit1->textinput2
@@ -1118,7 +1127,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textinput2);
     }
 
     // BackTab: textinput2->textinput1
@@ -1127,7 +1136,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textinput1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textinput1);
     }
 
     // BackTab: textinput1->textedit2
@@ -1136,7 +1145,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textedit2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textedit2);
     }
 
     // BackTab: textedit2->textedit1
@@ -1145,7 +1154,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textedit1->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textedit1);
     }
 
     // BackTab: textedit1->textinput2
@@ -1154,7 +1163,7 @@ void tst_QQuickItem::activeFocusOnTab10()
         QGuiApplication::sendEvent(window, &key);
         QVERIFY(key.isAccepted());
 
-        QVERIFY(textinput2->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textinput2);
     }
 
     delete window;
@@ -1383,7 +1392,7 @@ void tst_QQuickItem::nextItemInFocusChainWrap()
         const auto nextPrev = QQuickItemPrivate::nextPrevItemInTabFocusChain(activeFocusItem, forward, wrap);
         QCOMPARE(nextPrev, expectedFocusChain.at(i));
         QTest::keyClick(&window, tabKey);
-        QTRY_VERIFY(nextPrev->hasActiveFocus());
+        QTRY_VERIFY_ACTIVE_FOCUS(nextPrev);
         activeFocusItem = window.activeFocusItem();
     }
     QCOMPARE(activeFocusItem, expectedFocusChain.last());
@@ -1416,7 +1425,7 @@ void tst_QQuickItem::tabFence()
     window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
-    QVERIFY(window->rootObject()->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(window->rootObject());
 
     const char *rootTabFocusChain[] = {
           "input1", "input2", "input3", "input1", nullptr
@@ -1432,7 +1441,7 @@ void tst_QQuickItem::tabFence()
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "input11");
     item->setFocus(true);
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     const char *fence1TabFocusChain[] = {
           "input12", "input13", "input11", "input12", nullptr
@@ -1455,7 +1464,7 @@ void tst_QQuickItem::qtbug_50516()
     window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
-    QVERIFY(window->rootObject()->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(window->rootObject());
 
     QQuickItem *contentItem = window->rootObject();
     QQuickItem *next = contentItem->nextItemInFocusChain(true);
@@ -1500,7 +1509,7 @@ void tst_QQuickItem::qtbug_50516_2()
     window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
-    QVERIFY(window->rootObject()->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(window->rootObject());
 
     QQuickItem *contentItem = window->rootObject();
     QQuickItem *next = contentItem->nextItemInFocusChain(true);
@@ -1526,7 +1535,7 @@ void tst_QQuickItem::focusableItemReparentedToLoadedComponent() // QTBUG-89736
 
     // click to focus
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
-    QTRY_VERIFY(textInput->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(textInput);
 
     // unload and reload
     auto component = loader->sourceComponent();
@@ -1537,7 +1546,7 @@ void tst_QQuickItem::focusableItemReparentedToLoadedComponent() // QTBUG-89736
 
     // click to focus again
     QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, {10, 10});
-    QTRY_VERIFY(textInput->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(textInput);
 }
 
 void tst_QQuickItem::keys()
@@ -1836,7 +1845,7 @@ void tst_QQuickItem::keysim()
     QCOMPARE(QGuiApplication::focusWindow(), window);
 
     QVERIFY(window->rootObject());
-    QVERIFY(window->rootObject()->hasFocus() && window->rootObject()->hasActiveFocus());
+    QVERIFY(window->rootObject()->hasFocus() && window->rootObject());
 
     QQuickTextInput *input = window->rootObject()->findChild<QQuickTextInput*>();
     QVERIFY(input);
@@ -2120,7 +2129,7 @@ void tst_QQuickItem::keyNavigation()
 
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(window->rootObject(), "verify",
@@ -2135,7 +2144,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // down
@@ -2146,7 +2155,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // left
@@ -2157,7 +2166,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // up
@@ -2168,7 +2177,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // tab
@@ -2179,7 +2188,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // backtab
@@ -2190,7 +2199,7 @@ void tst_QQuickItem::keyNavigation()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -2223,7 +2232,7 @@ void tst_QQuickItem::keyNavigation_RightToLeft()
 
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(window->rootObject(), "verify",
@@ -2238,7 +2247,7 @@ void tst_QQuickItem::keyNavigation_RightToLeft()
 
         item = findItem<QQuickItem>(window->rootObject(), "item2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // left
@@ -2249,7 +2258,7 @@ void tst_QQuickItem::keyNavigation_RightToLeft()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -2268,7 +2277,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     // Set item 2 to not visible
     item = findItem<QQuickItem>(window->rootObject(), "item2");
@@ -2284,7 +2293,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // tab
@@ -2295,7 +2304,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
         item = findItem<QQuickItem>(window->rootObject(), "item3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // backtab
@@ -2306,7 +2315,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     //Set item 3 to not visible
@@ -2323,7 +2332,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // backtab
@@ -2334,7 +2343,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -2358,7 +2367,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(window->rootObject(), "verify",
@@ -2373,7 +2382,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // back to item1
@@ -2384,7 +2393,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // down
@@ -2395,7 +2404,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // move to item4
@@ -2406,7 +2415,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // left
@@ -2417,7 +2426,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // back to item4
@@ -2428,7 +2437,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // up
@@ -2439,7 +2448,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item2");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // back to item4
@@ -2450,7 +2459,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // tab
@@ -2461,7 +2470,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item1");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // back to item4
@@ -2472,7 +2481,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item4");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     // backtab
@@ -2483,7 +2492,7 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
 
         item = findItem<QQuickItem>(window->rootObject(), "item3");
         QVERIFY(item);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
     }
 
     delete window;
@@ -2504,7 +2513,7 @@ void tst_QQuickItem::keyNavigation_implicitDestroy()
     // process events is necessary to trigger upcoming memory access violation
     QTest::qWait(0);
 
-    QVERIFY(root->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(root);
 
     QKeyEvent keyPress = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
     QGuiApplication::sendEvent(&view, &keyPress); // <-- access violation happens here
@@ -2529,7 +2538,7 @@ void tst_QQuickItem::keyNavigation_focusReason()
     // install event filter on first item
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
     item->installEventFilter(&focusEventFilter);
 
     //install event filter on second item
@@ -2571,7 +2580,7 @@ void tst_QQuickItem::keyNavigation_focusReason()
         QCOMPARE(focusEventFilter.lastFocusReason, Qt::TabFocusReason);
 
         item->setFocus(true, Qt::OtherFocusReason);
-        QVERIFY(item->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(item);
         QCOMPARE(focusEventFilter.lastFocusReason, Qt::OtherFocusReason);
     }
 
@@ -2593,12 +2602,12 @@ void tst_QQuickItem::keyNavigation_loop()
 
     QQuickItem *item = findItem<QQuickItem>(window->rootObject(), "item1");
     QVERIFY(item);
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     QKeyEvent key = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
     QGuiApplication::sendEvent(window, &key);
     QVERIFY(key.isAccepted());
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
 
     delete window;
 }
@@ -2777,7 +2786,8 @@ void tst_QQuickItem::mapCoordinates()
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
     QCOMPARE(result.value<QPointF>(), -QPointF(150,150) + QPointF(x, y));
 
-    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 at.*");
+    QRegularExpression warning1 = QRegularExpression(
+        ".*Could not convert argument 0 from 1122 to const QQuickItem\\*.*");
     QRegularExpression warning2 = QRegularExpression(".*checkMapA.*Invalid@.*");
 
     QTest::ignoreMessage(QtWarningMsg, warning1);
@@ -2850,7 +2860,7 @@ void tst_QQuickItem::mapCoordinatesRect()
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y), Q_ARG(QVariant, width), Q_ARG(QVariant, height)));
     QCOMPARE(result.value<QRectF>(), qobject_cast<QQuickItem*>(a)->mapRectFromScene(QRectF(x, y, width, height)));
 
-    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 at.*");
+    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 from 1122 to const QQuickItem\\*.*");
     QRegularExpression warning2 = QRegularExpression(".*checkMapA.*Invalid@.*");
 
     QTest::ignoreMessage(QtWarningMsg, warning1);
@@ -3308,6 +3318,14 @@ struct TestListener : public QQuickItemChangeListener
     {
         record(item, QQuickItemPrivate::Rotation);
     }
+    void itemScaleChanged(QQuickItem *item) override
+    {
+        record(item, QQuickItemPrivate::Scale);
+    }
+    void itemTransformChanged(QQuickItem *item, QQuickItem *transformedItem) override
+    {
+        record(item, QQuickItemPrivate::Matrix, QVariant::fromValue(transformedItem));
+    }
     void itemImplicitWidthChanged(QQuickItem *item) override
     {
         record(item, QQuickItemPrivate::ImplicitWidth);
@@ -3371,19 +3389,23 @@ void tst_QQuickItem::changeListener()
 
     item->setImplicitWidth(10);
     QCOMPARE(itemListener.count(QQuickItemPrivate::ImplicitWidth), 1);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 1);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Geometry), 1);
     QCOMPARE(itemListener.value(QQuickItemPrivate::Geometry), QVariant(QRectF(0,0,0,0)));
 
     item->setImplicitHeight(20);
     QCOMPARE(itemListener.count(QQuickItemPrivate::ImplicitHeight), 1);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 2);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Geometry), 2);
     QCOMPARE(itemListener.value(QQuickItemPrivate::Geometry), QVariant(QRectF(0,0,10,0)));
 
     item->setWidth(item->width() + 30);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 3);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Geometry), 3);
     QCOMPARE(itemListener.value(QQuickItemPrivate::Geometry), QVariant(QRectF(0,0,10,20)));
 
     item->setHeight(item->height() + 40);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 4);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Geometry), 4);
     QCOMPARE(itemListener.value(QQuickItemPrivate::Geometry), QVariant(QRectF(0,0,40,20)));
 
@@ -3391,10 +3413,25 @@ void tst_QQuickItem::changeListener()
     QCOMPARE(itemListener.count(QQuickItemPrivate::Opacity), 1);
 
     item->setRotation(90);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 5);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Rotation), 1);
 
+    item->setScale(2);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 6);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Scale), 1);
+
     item->setParentItem(window.contentItem());
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 7);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Parent), 1);
+
+    auto itemTransform = new QQuickTranslate(item);
+    itemTransform->setX(1);
+    auto list = item->transform();
+    list.append(&list, itemTransform);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 8);
+
+    itemTransform->setX(2);
+    QCOMPARE(itemListener.count(QQuickItemPrivate::Matrix), 9);
 
     item->setVisible(false);
     QCOMPARE(itemListener.count(QQuickItemPrivate::Visibility), 1);
@@ -3448,98 +3485,119 @@ void tst_QQuickItem::changeListener()
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // QTBUG-54732: all listeners should get invoked even if they remove themselves while iterating the listeners
-    QList<TestListener *> listeners;
+    std::array<TestListener *, 5> listeners;
+    auto sweeper = QScopeGuard([&listeners]() { qDeleteAll(listeners); });
     for (int i = 0; i < 5; ++i)
-        listeners << new TestListener(true);
+        listeners[i] = new TestListener(true);
 
     // itemVisibilityChanged x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Visibility);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setVisible(false);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Visibility), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemRotationChanged x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Rotation);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setRotation(90);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Rotation), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
+    // itemScaleChanged x 5
+    for (TestListener *listener : listeners)
+        QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Scale);
+    QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
+    parent->setScale(0.5);
+    for (TestListener *listener : listeners)
+        QCOMPARE(listener->count(QQuickItemPrivate::Scale), 1);
+    QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
+
+    // itemTransformChanged x 5
+    for (TestListener *listener : listeners)
+        QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Matrix);
+    QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
+    parent->setX(parent->x() + 1);
+    for (TestListener *listener : listeners) {
+        QCOMPARE(listener->count(QQuickItemPrivate::Matrix), 1);
+        QCOMPARE(listener->value(QQuickItemPrivate::Matrix), QVariant::fromValue(parent));
+    }
+    QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
+
     // itemOpacityChanged x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Opacity);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setOpacity(0.5);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Opacity), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemChildAdded() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Children);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     child1 = new QQuickItem(parent);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Children), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemParentChanged() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(child1)->addItemChangeListener(listener, QQuickItemPrivate::Parent);
     QCOMPARE(QQuickItemPrivate::get(child1)->changeListeners.size(), listeners.size());
     child1->setParentItem(nullptr);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Parent), 1);
     QCOMPARE(QQuickItemPrivate::get(child1)->changeListeners.size(), 0);
 
     // itemImplicitWidthChanged() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::ImplicitWidth);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setImplicitWidth(parent->implicitWidth() + 1);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::ImplicitWidth), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemImplicitHeightChanged() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::ImplicitHeight);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setImplicitHeight(parent->implicitHeight() + 1);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::ImplicitHeight), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemGeometryChanged() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Geometry);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     parent->setWidth(parent->width() + 1);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Geometry), 1);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemChildRemoved() x 5
     child1->setParentItem(parent);
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Children);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     delete child1;
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Children), 2);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), 0);
 
     // itemDestroyed() x 5
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QQuickItemPrivate::get(parent)->addItemChangeListener(listener, QQuickItemPrivate::Destroyed);
     QCOMPARE(QQuickItemPrivate::get(parent)->changeListeners.size(), listeners.size());
     delete parent;
-    for (TestListener *listener : std::as_const(listeners))
+    for (TestListener *listener : listeners)
         QCOMPARE(listener->count(QQuickItemPrivate::Destroyed), 1);
 }
 
@@ -3789,7 +3847,7 @@ void tst_QQuickItem::contains()
     QVERIFY(root);
 
     // Ensure that we don't get extra hover events delivered on the side.
-    QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverEnabled = false;
+    QQuickWindowPrivate::get(&window)->deliveryAgentPrivate()->frameSynchronousHoverInterval = -1;
     // Flush out any mouse events that might be queued up
     qGuiApp->processEvents();
 
@@ -3865,6 +3923,9 @@ void tst_QQuickItem::grab()
     QVERIFY(root);
     QQuickItem *item = root->findChild<QQuickItem *>("myItem");
     QVERIFY(item);
+
+    // The actual grabbed item size can be different, depending on DPR.
+    const auto dpr = view.screen()->devicePixelRatio();
 #if QT_CONFIG(opengl)
     { // Default size (item is 100x100)
         QSharedPointer<QQuickItemGrabResult> result = item->grabToImage();
@@ -3873,7 +3934,9 @@ void tst_QQuickItem::grab()
         QVERIFY(!result->url().isEmpty());
         QImage image = result->image();
         QCOMPARE(image.pixel(0, 0), qRgb(255, 0, 0));
-        QCOMPARE(image.pixel(99, 99), qRgb(0, 0, 255));
+        // Take DPR into account
+        const QPoint bottomRight = QPoint(99, 99) * dpr;
+        QCOMPARE(image.pixel(bottomRight), qRgb(0, 0, 255));
     }
 
     { // Smaller size
@@ -3884,9 +3947,167 @@ void tst_QQuickItem::grab()
         QVERIFY(!result->url().isEmpty());
         QImage image = result->image();
         QCOMPARE(image.pixel(0, 0), qRgb(255, 0, 0));
-        QCOMPARE(image.pixel(49, 49), qRgb(0, 0, 255));
+        // Take DPR into account
+        const QPoint bottomRight = QPoint(49, 49) * dpr;
+        QCOMPARE(image.pixel(bottomRight), qRgb(0, 0, 255));
     }
 #endif
+    {
+        // Make sure that we do not deadlock when calling getters in the
+        // slot connected to the ready() signal.
+        QSharedPointer<QQuickItemGrabResult> result = item->grabToImage();
+        QImage capturedImage;
+        QUrl capturedUrl;
+        connect(result.data(), &QQuickItemGrabResult::ready, result.data(),
+                [result, &capturedImage, &capturedUrl]() {
+                    capturedImage = result->image();
+                    capturedUrl = result->url();
+                });
+        QTRY_VERIFY(!capturedImage.isNull());
+        QVERIFY(!capturedUrl.isEmpty());
+    }
+}
+
+void tst_QQuickItem::grabIsItemSizeInDevicePixels()
+{
+#if !QT_CONFIG(highdpiscaling)
+    QSKIP("This test requires high-DPI scaling support");
+#endif
+
+    if (QGuiApplication::platformName() == QLatin1String("minimal")
+        || QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        QSKIP("Skipping due to grabToImage not functional on minimal/offscreen platforms");
+    }
+
+    constexpr qreal dpr = 1.5;
+    constexpr int pixelWidth = 595;
+    constexpr int pixelHeight = 511;
+
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QHighDpiScaling::setGlobalFactor(dpr / screen->devicePixelRatio());
+    QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    const auto restoreScaling = qScopeGuard([]{
+        QHighDpiScaling::setGlobalFactor(1);
+        QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    });
+    QCOMPARE(screen->devicePixelRatio(), dpr);
+
+    QQuickView view;
+    view.setInitialProperties({{ "dpr", dpr },
+                               { "pixelWidth", pixelWidth },
+                               { "pixelHeight", pixelHeight }});
+    view.setSource(testFileUrl("devicePixelStripes.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QCOMPARE(view.effectiveDevicePixelRatio(), dpr);
+
+    QQuickItem *target = view.rootObject()->findChild<QQuickItem *>("target");
+    QVERIFY(target);
+
+    QSharedPointer<QQuickItemGrabResult> result = target->grabToImage();
+    QVERIFY(!result.isNull());
+    QSignalSpy spy(result.data(), SIGNAL(ready()));
+    QTRY_VERIFY(spy.size() > 0);
+
+    QCOMPARE(result->image().size(), QSize(pixelWidth, pixelHeight));
+}
+
+void tst_QQuickItem::grabFromQmlIsItemSizeInDevicePixels()
+{
+#if !QT_CONFIG(highdpiscaling)
+    QSKIP("This test requires high-DPI scaling support");
+#endif
+
+    if (QGuiApplication::platformName() == QLatin1String("minimal")
+        || QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        QSKIP("Skipping due to grabToImage not functional on minimal/offscreen platforms");
+    }
+
+    constexpr qreal dpr = 1.5;
+    constexpr int pixelWidth = 595;
+    constexpr int pixelHeight = 511;
+
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QHighDpiScaling::setGlobalFactor(dpr / screen->devicePixelRatio());
+    QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    const auto restoreScaling = qScopeGuard([]{
+        QHighDpiScaling::setGlobalFactor(1);
+        QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    });
+    QCOMPARE(screen->devicePixelRatio(), dpr);
+
+    QQuickView view;
+    view.setInitialProperties({{ "dpr", dpr },
+                               { "pixelWidth", pixelWidth },
+                               { "pixelHeight", pixelHeight }});
+    view.setSource(testFileUrl("devicePixelStripes.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QCOMPARE(view.effectiveDevicePixelRatio(), dpr);
+
+    QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "grabTargetFromQml"));
+
+    QTRY_VERIFY(view.rootObject()->property("grabResult").value<QObject *>());
+
+    auto *grabbed = qobject_cast<QQuickItemGrabResult *>(
+            view.rootObject()->property("grabResult").value<QObject *>());
+    QVERIFY(grabbed);
+    QCOMPARE(grabbed->image().size(), QSize(pixelWidth, pixelHeight));
+}
+
+void tst_QQuickItem::grabMapsItemUnitsToDevicePixels()
+{
+#if !QT_CONFIG(highdpiscaling)
+    QSKIP("This test requires high-DPI scaling support");
+#endif
+
+    if (QGuiApplication::platformName() == QLatin1String("minimal")
+        || QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        QSKIP("Skipping due to grabToImage not functional on minimal/offscreen platforms");
+    }
+
+    constexpr qreal dpr = 1.5;
+    constexpr int pixelWidth = 595;
+    constexpr int pixelHeight = 511;
+
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QHighDpiScaling::setGlobalFactor(dpr / screen->devicePixelRatio());
+    QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    const auto restoreScaling = qScopeGuard([]{
+        QHighDpiScaling::setGlobalFactor(1);
+        QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    });
+    QCOMPARE(screen->devicePixelRatio(), dpr);
+
+    QQuickView view;
+    view.setInitialProperties({{ "dpr", dpr },
+                               { "pixelWidth", pixelWidth },
+                               { "pixelHeight", pixelHeight }});
+    view.setSource(testFileUrl("devicePixelStripes.qml"));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    if (view.rendererInterface()->graphicsApi() == QSGRendererInterface::Software)
+        QSKIP("The software backend rasterises with its own rounding");
+
+    QQuickItem *target = view.rootObject()->findChild<QQuickItem *>("target");
+    QVERIFY(target);
+
+    QSharedPointer<QQuickItemGrabResult> result = target->grabToImage();
+    QVERIFY(!result.isNull());
+    QSignalSpy spy(result.data(), SIGNAL(ready()));
+    QTRY_VERIFY(spy.size() > 0);
+
+    const QImage image = result->image();
+    QCOMPARE(image.size(), QSize(pixelWidth, pixelHeight));
+
+    const int row = pixelHeight / 2;
+    int transitions = 0;
+    for (int x = 1; x < pixelWidth; ++x) {
+        if (image.pixel(x, row) != image.pixel(x - 1, row))
+            ++transitions;
+    }
+    QCOMPARE(transitions, pixelWidth - 1);
 }
 
 void tst_QQuickItem::isAncestorOf()
@@ -4185,7 +4406,7 @@ void tst_QQuickItem::viewport()
 void tst_QQuickItem::qobject_castOnDestruction()
 {
     QQuickItem item;
-    QObject::connect(&item, &QObject::destroyed, [](QObject *object)
+    QObject::connect(&item, &QObject::destroyed, this, [](QObject *object)
     {
         QVERIFY(!qobject_cast<QQuickItem *>(object));
         QVERIFY(!dynamic_cast<QQuickItem *>(object));
@@ -4369,7 +4590,7 @@ void tst_QQuickItem::lastFocusChangeReason()
 
     // window activation -> ActiveWindowFocusReason
     QVERIFY(item->hasFocus());
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
     if (itemPrivate->lastFocusChangeReason() != Qt::ActiveWindowFocusReason
      && QStringList{"windows", "offscreen"}.contains(QGuiApplication::platformName())) {
         QEXPECT_FAIL("", "On Windows and offscreen platforms, window activation does not set focus reason", Continue);
@@ -4394,34 +4615,34 @@ void tst_QQuickItem::lastFocusChangeReason()
     QCOMPARE(itemPrivate->lastFocusChangeReason(), Qt::OtherFocusReason);
 
     QVERIFY(item->hasFocus());
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
     QCOMPARE(itemPrivate->lastFocusChangeReason(), Qt::OtherFocusReason);
 
     // tab focus -> TabFocusReason
     QTest::keyClick(window.get(), Qt::Key_Tab);
     QVERIFY(customText->hasFocus());
-    QVERIFY(customText->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(customText);
     QCOMPARE(qApp->focusObject(), customText);
     QCOMPARE(customTextPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
     QCOMPARE(itemPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window.get(), Qt::Key_Tab);
     QVERIFY(customItem->hasFocus());
-    QVERIFY(customItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(customItem);
     QCOMPARE(qApp->focusObject(), customItem);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
     QCOMPARE(customTextPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window.get(), Qt::Key_Tab);
     QVERIFY(hyperlink->hasFocus());
-    QVERIFY(hyperlink->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(hyperlink);
     QCOMPARE(qApp->focusObject(), hyperlink);
     QCOMPARE(hyperlinkPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
     QCOMPARE(customTextPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window.get(), Qt::Key_Tab);
     QVERIFY(item->hasFocus());
-    QVERIFY(item->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(item);
     QCOMPARE(itemPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
     QCOMPARE(hyperlinkPrivate->lastFocusChangeReason(), Qt::TabFocusReason);
 
@@ -4444,20 +4665,20 @@ void tst_QQuickItem::lastFocusChangeReason()
     // click focus -> MouseFocusReason
     QTest::mouseClick(window.get(), Qt::LeftButton, {}, itemCenter(customItem));
     QVERIFY(customItem->hasFocus());
-    QVERIFY(customItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(customItem);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
     QCOMPARE(customTextPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 
     QTest::mouseClick(window.get(), Qt::LeftButton, {}, itemCenter(hyperlink));
     QVERIFY(hyperlink->hasFocus());
-    QVERIFY(hyperlink->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(hyperlink);
     QCOMPARE(hyperlinkPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 
     QTest::mouseClick(window.get(), Qt::LeftButton, {}, itemCenter(customText));
     QCOMPARE(textInputChild, textInputChild);
     QVERIFY(textInputChild->hasFocus());
-    QVERIFY(textInputChild->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInputChild);
     QCOMPARE(textInputChildPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
     QCOMPARE(hyperlinkPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 
@@ -4468,14 +4689,14 @@ void tst_QQuickItem::lastFocusChangeReason()
     QTest::touchEvent(window.get(), touchDevice.get()).press(0, itemCenter(customItem));
     QTest::touchEvent(window.get(), touchDevice.get()).release(0, itemCenter(customItem));
     QVERIFY(customItem->hasFocus());
-    QVERIFY(customItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(customItem);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
     QCOMPARE(textInputChildPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 
     QTest::touchEvent(window.get(), touchDevice.get()).press(0, itemCenter(hyperlink));
     QTest::touchEvent(window.get(), touchDevice.get()).release(0, itemCenter(hyperlink));
     QVERIFY(hyperlink->hasFocus());
-    QVERIFY(hyperlink->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(hyperlink);
     QCOMPARE(hyperlinkPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 
@@ -4484,7 +4705,7 @@ void tst_QQuickItem::lastFocusChangeReason()
                            QPoint(), QPoint(0, 10), Qt::NoButton, Qt::NoModifier,
                            Qt::NoScrollPhase, false);
     QGuiApplication::sendEvent(customItem, &wheelEvent);
-    QVERIFY(customItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(customItem);
     QCOMPARE(customItemPrivate->lastFocusChangeReason(), Qt::MouseFocusReason);
 }
 
@@ -4512,7 +4733,7 @@ void tst_QQuickItem::focusInScopeChanges()
     QSignalSpy textInputActiveFocusSpy(textInput, SIGNAL(activeFocusChanged(bool)));
 
     // The window's content item will have activeFocus if window is focused
-    QTRY_VERIFY(window->contentItem()->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(window->contentItem());
 
     QVERIFY(!focusScope->hasActiveFocus());
     QVERIFY(!rect->hasActiveFocus());
@@ -4537,7 +4758,7 @@ void tst_QQuickItem::focusInScopeChanges()
     QCOMPARE(rectActiveFocusSpy.size(), 2);
     QVERIFY(!rect->hasActiveFocus());
     QCOMPARE(textInputActiveFocusSpy.size(), 1);
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 }
 
 #ifdef QT_WIDGETS_LIB
@@ -4590,10 +4811,10 @@ void tst_QQuickItem::embeddedInWidgetsFocus()
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab);
     QTRY_VERIFY(container->hasFocus());
     QVERIFY(QTest::qWaitForWindowFocused(quickView));
-    QVERIFY(rect1->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(rect1);
 
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab);
-    QTRY_VERIFY(rect2->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(rect2);
 
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab);
     QVERIFY(QTest::qWaitForWindowFocused(root.windowHandle()));
@@ -4604,10 +4825,10 @@ void tst_QQuickItem::embeddedInWidgetsFocus()
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab, Qt::ShiftModifier);
     QTRY_VERIFY(container->hasFocus());
     QVERIFY(QTest::qWaitForWindowFocused(quickView));
-    QVERIFY(rect2->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(rect2);
 
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab, Qt::ShiftModifier);
-    QVERIFY(rect1->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(rect1);
 
     QTest::keyClick(QGuiApplication::focusWindow(), Qt::Key_Tab, Qt::ShiftModifier);
     QVERIFY(QTest::qWaitForWindowFocused(root.windowHandle()));
@@ -4657,6 +4878,39 @@ void tst_QQuickItem::gcIntegration()
     QVERIFY(!child->parent());
     gc(*v4);
     QVERIFY(!observer);
+}
+
+void tst_QQuickItem::focusWorksAfterEnablingRootItem() // QTBUG-135624
+{
+    QQmlEngine e;
+    QQmlComponent comp(&e);
+    comp.loadUrl(testFileUrl("DisabledRootItemWithTextInput.qml"));
+    QQuickWindow *window = qobject_cast<QQuickWindow *>(comp.create());
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowFocused(window));
+
+    QList<QQuickItem *> childItems = window->contentItem()->childItems();
+    QVERIFY(!childItems.isEmpty());
+    QQuickTextInput *textInput = qobject_cast<QQuickTextInput *>(childItems.first());
+    QVERIFY(textInput);
+
+    // Should be set to false in the QML file
+    QCOMPARE(window->contentItem()->isEnabled(), false);
+    QCOMPARE(textInput->hasFocus(), false);
+
+    // The click won't do anything when the item is effectively disabled
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, textInput->mapToScene(textInput->boundingRect().center()).toPoint());
+    QCOMPARE(textInput->hasFocus(), false);
+    QCOMPARE(window->activeFocusItem(), nullptr);
+
+    // Enable the root item and verify that focus works normally
+    window->contentItem()->setEnabled(true);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, textInput->mapToScene(textInput->boundingRect().center()).toPoint());
+    QTRY_COMPARE(textInput->hasFocus(), true);
+    QCOMPARE(window->activeFocusItem(), textInput);
+    textInput->clear();
+    QTest::keyClick(window, Qt::Key_A);
+    QTRY_COMPARE(textInput->text(), "a");
 }
 
 QTEST_MAIN(tst_QQuickItem)

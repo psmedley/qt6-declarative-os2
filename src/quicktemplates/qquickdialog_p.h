@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDIALOG_P_H
 #define QQUICKDIALOG_P_H
@@ -103,6 +104,8 @@ Q_SIGNALS:
 protected:
     QQuickDialog(QQuickDialogPrivate &dd, QObject *parent);
 
+    virtual void itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &data) override;
+
 #if QT_CONFIG(accessibility)
     QAccessible::Role accessibleRole() const override;
     void accessibilityActiveChanged(bool active) override;
@@ -111,6 +114,31 @@ protected:
 private:
     Q_DISABLE_COPY(QQuickDialog)
     Q_DECLARE_PRIVATE(QQuickDialog)
+};
+
+// The dialog options are registered here because they conceptually belong to QPlatformDialogHelper
+// used as extension above. They may not be used QtQuick.Templates itself, but not registering them
+// here would cause every downstream module that uses them to produce a redundant registration.
+
+struct QColorDialogOptionsForeign
+{
+    Q_GADGET
+    QML_ANONYMOUS
+    QML_FOREIGN_NAMESPACE(QColorDialogOptions)
+};
+
+struct QFileDialogOptionsForeign
+{
+    Q_GADGET
+    QML_ANONYMOUS
+    QML_FOREIGN_NAMESPACE(QFileDialogOptions)
+};
+
+struct QFontDialogOptionsForeign
+{
+    Q_GADGET
+    QML_ANONYMOUS
+    QML_FOREIGN_NAMESPACE(QFontDialogOptions)
 };
 
 QT_END_NAMESPACE

@@ -3,14 +3,13 @@
 
 #ifndef TST_QMLDOMCODEFORMATTER_H
 #define TST_QMLDOMCODEFORMATTER_H
-#include <QtQmlDom/private/qqmldomlinewriter_p.h>
-#include <QtQmlDom/private/qqmldomindentinglinewriter_p.h>
+#include <QtQmlDom/private/qqmldomlinewriterfactory_p.h>
 #include <QtQmlDom/private/qqmldomoutwriter_p.h>
 #include <QtQmlDom/private/qqmldomitem_p.h>
 #include <QtQmlDom/private/qqmldomtop_p.h>
 #include <QtQmlDom/private/qqmldomreformatter_p.h>
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QCborValue>
 #include <QDebug>
 #include <QLibraryInfo>
@@ -26,30 +25,6 @@ class TestReformatter : public QObject
     Q_OBJECT
 public:
 private:
-    // TODO Move to a dedicated LineWriter factory / LineWriter API ?
-    enum class LineWriterType { Default, Indenting };
-    std::unique_ptr<LineWriter> getLineWriter(const SinkF &innerSink,
-                                              const LineWriterOptions &lwOptions)
-    {
-        return lwOptions.maxLineLength > 0
-                ? getLineWriter(LineWriterType::Indenting, innerSink, lwOptions)
-                : getLineWriter(LineWriterType::Default, innerSink, lwOptions);
-    }
-
-    std::unique_ptr<LineWriter> getLineWriter(LineWriterType type, const SinkF &innerSink,
-                                              const LineWriterOptions &lwOptions)
-    {
-        switch (type) {
-        case LineWriterType::Indenting:
-            return std::make_unique<IndentingLineWriter>(innerSink, QLatin1String("*testStream*"),
-                                                         lwOptions);
-        default:
-            return std::make_unique<LineWriter>(innerSink, QLatin1String("*testStream*"),
-                                                lwOptions);
-        }
-        Q_UNREACHABLE_RETURN(nullptr);
-    }
-
     // "Unix" LineWriter (with '\n' line endings) is used by default,
     // under the assumption that line endings are properly tested in lineWriter() test.
     static LineWriterOptions defaultLineWriterOptions()
@@ -76,7 +51,7 @@ private:
     {
         QString resultStr;
         QTextStream res(&resultStr);
-        auto lwPtr = getLineWriter([&res](QStringView s) { res << s; }, lwOptions);
+        auto lwPtr = createLineWriter([&res](QStringView s) { res << s; }, {}, lwOptions);
         assert(lwPtr);
         OutWriter ow(*lwPtr);
 
@@ -89,76 +64,6 @@ private:
     }
 
 private slots:
-    void reindent_data()
-    {
-        QTest::addColumn<QString>("inFile");
-        QTest::addColumn<QString>("outFile");
-
-        QTest::newRow("file1") << QStringLiteral(u"file1.qml") << QStringLiteral(u"file1.qml");
-        QTest::newRow("file1 unindented")
-                << QStringLiteral(u"file1Unindented.qml") << QStringLiteral(u"file1.qml");
-    }
-
-    void reindent()
-    {
-        QFETCH(QString, inFile);
-        QFETCH(QString, outFile);
-
-        QFile fIn(QLatin1String(QT_QMLTEST_DATADIR) + QLatin1String("/reformatter/") + inFile);
-        if (!fIn.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qWarning() << "could not open file" << inFile;
-            return;
-        }
-        QFile fOut(QLatin1String(QT_QMLTEST_DATADIR) + QLatin1String("/reformatter/") + outFile);
-        if (!fOut.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qWarning() << "could not open file" << outFile;
-            return;
-        }
-        QTextStream in(&fIn);
-        QTextStream out(&fOut);
-        QString resultStr;
-        QTextStream res(&resultStr);
-        QString line = in.readLine();
-        IndentingLineWriter lw([&res](QStringView s) { res << s; }, QLatin1String("*testStream*"));
-        QList<SourceLocation *> sourceLocations;
-        while (!line.isNull()) {
-            SourceLocation *loc = new SourceLocation;
-            sourceLocations.append(loc);
-            lw.write(line, loc);
-            lw.write(u"\n");
-            line = in.readLine();
-        }
-        lw.eof();
-        res.flush();
-        QString fullRes = resultStr;
-        res.seek(0);
-        line = out.readLine();
-        QString resLine = res.readLine();
-        int iLoc = 0;
-        int nextLoc = 0;
-        while (!line.isNull() && !resLine.isNull()) {
-            QCOMPARE(resLine, line);
-            if (iLoc == nextLoc && iLoc < sourceLocations.size()) {
-                QString l2 =
-                        fullRes.mid(sourceLocations[iLoc]->offset, sourceLocations[iLoc]->length);
-                if (!l2.contains(QLatin1Char('\n'))) {
-                    QCOMPARE(l2, line);
-                } else {
-                    qDebug() << "skip checks of multiline location (line was split)" << l2;
-                    iLoc -= l2.count(QLatin1Char('\n'));
-                }
-                ++nextLoc;
-            } else {
-                qDebug() << "skip multiline recover";
-            }
-            ++iLoc;
-            line = out.readLine();
-            resLine = res.readLine();
-        }
-        QCOMPARE(resLine.isNull(), line.isNull());
-        for (auto sLoc : sourceLocations)
-            delete sLoc;
-    }
 
     void lineByLineReformatter_data()
     {
@@ -168,9 +73,14 @@ private slots:
         LineWriterOptions defaultOptions;
         LineWriterOptions noReorderOptions;
         noReorderOptions.attributesSequence = LineWriterOptions::AttributesSequence::Preserve;
+        LineWriterOptions withMaxLineLengthOptions;
+        withMaxLineLengthOptions.maxLineLength = 80;
 
         QTest::newRow("file1") << QStringLiteral(u"file1.qml")
                                << QStringLiteral(u"file1Reformatted.qml") << defaultOptions;
+        QTest::newRow("file1 unindented")
+                << QStringLiteral(u"file1Unindented.qml") << QStringLiteral(u"file1Reformatted.qml")
+                << defaultOptions;
 
         QTest::newRow("file2") << QStringLiteral(u"file2.qml")
                                << QStringLiteral(u"file2Reformatted.qml") << defaultOptions;
@@ -198,10 +108,66 @@ private slots:
         QTest::newRow("file1NoReorder")
                 << QStringLiteral(u"file1.qml") << QStringLiteral(u"file1Reformatted2.qml")
                 << noReorderOptions;
+        {
+            // line break width tests
+            LineWriterOptions lwOptions;
+            lwOptions.maxLineLength = 40;
+            QTest::newRow("linebreakBinding")
+                    << QStringLiteral(u"linebreakAfterColon.qml")
+                    << QStringLiteral(u"linebreakAfterColonReformatted.qml") << lwOptions;
+            QTest::newRow("linebreakPrePostIncDec")
+                    << QStringLiteral(u"linebreakPrePostIncDec.qml")
+                    << QStringLiteral(u"linebreakPrePostIncDecReformatted.qml") << lwOptions;
+            QTest::newRow("linebreakArrayTypes")
+                    << QStringLiteral(u"linebreakArray.qml")
+                    << QStringLiteral(u"linebreakArrayReformatted.qml") << lwOptions;
+            QTest::newRow("linebreakBasicFunction")
+                    << QStringLiteral(u"linebreakFunction.qml")
+                    << QStringLiteral(u"linebreakFunctionReformatted.qml") << lwOptions;
+            QTest::newRow("linebreakBinaryOp")
+                    << QStringLiteral(u"linebreakBinaryOp.qml")
+                    << QStringLiteral(u"linebreakBinaryOpReformattedWidth40.qml") << lwOptions;
+
+            lwOptions.maxLineLength = 60;
+            QTest::newRow("linebreakBinaryOp")
+                    << QStringLiteral(u"linebreakBinaryOp.qml")
+                    << QStringLiteral(u"linebreakBinaryOpReformattedWidth60.qml") << lwOptions;
+            QTest::newRow("linebreakArrowFunctions")
+                    << QStringLiteral(u"arrowFunctions.qml")
+                    << QStringLiteral(u"arrowFunctionsReformatted.qml") << lwOptions;
+        }
+        QTest::newRow("nonInitializedPropertyInComponent")
+                << "nonInitializedPropertyInComponent.qml"
+                << "nonInitializedPropertyInComponent.formatted.qml"
+                << defaultOptions;
         QTest::newRow("fromAsIdentifier")
                 << "fromAsIdentifier.qml"
                 << "fromAsIdentifier.formatted.qml"
                 << defaultOptions;
+        QTest::newRow("listMisformattedAsProperty")
+                << "listMisformattedAsProperty.qml"
+                << "listMisformattedAsProperty.formatted.qml"
+                << defaultOptions;
+        QTest::newRow("pragmaQmlFileIndents")
+                << "pragmaQmlFileIndents.qml"
+                << "pragmaQmlFileIndents.formatted.qml"
+                << defaultOptions;
+        QTest::newRow("pragmaQmlFileIndents2")
+                << "pragmaQmlFileIndents2.qml"
+                << "pragmaQmlFileIndents2.formatted.qml"
+                << defaultOptions;
+        QTest::newRow("pragmaQmlFileIndents3")
+                << "pragmaQmlFileIndents3.qml"
+                << "pragmaQmlFileIndents3.formatted.qml"
+                << defaultOptions;
+        QTest::newRow("pragmaQmlFileIndents4")
+                << "pragmaQmlFileIndents4.qml"
+                << "pragmaQmlFileIndents4.formatted.qml"
+                << defaultOptions;
+        QTest::newRow("functionSpecialIdentifierTypeAnnotation")
+                << "functionSpecialIdentifierTypeAnnotation.qml"
+                << "functionSpecialIdentifierTypeAnnotation.formatted.qml"
+                << withMaxLineLengthOptions;
     }
 
     void lineByLineReformatter()
@@ -218,6 +184,7 @@ private slots:
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
         QString testFilePath = baseDir + QLatin1Char('/') + inFile;
+        QVERIFY(QFile(testFilePath).exists());
         DomItem tFile;
         envPtr->loadBuiltins();
         envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFilePath),
@@ -238,10 +205,7 @@ private slots:
         QString fullRes = resultStr;
         res.seek(0);
         QFile fOut(baseDir + QLatin1Char('/') + outFile);
-        if (!fOut.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qWarning() << "could not open file" << outFile;
-            return;
-        }
+        QVERIFY(fOut.open(QIODevice::ReadOnly | QIODevice::Text));
         QTextStream out(&fOut);
         QString line = out.readLine();
         QString resLine = res.readLine();
@@ -323,6 +287,7 @@ private slots:
                 QQmlJS::Dom::DomEnvironment::Option::SingleThreaded
                         | QQmlJS::Dom::DomEnvironment::Option::NoDependencies);
         QString testFilePath = baseDir + QLatin1Char('/') + inFile;
+        QVERIFY(QFile(testFilePath).exists());
         DomItem tFile;
         envPtr->loadBuiltins();
         envPtr->loadFile(FileToLoad::fromFileSystem(envPtr, testFilePath),
@@ -341,10 +306,7 @@ private slots:
         QString fullRes = resultStr;
         res.seek(0);
         QFile fOut(baseDir + QLatin1Char('/') + outFile);
-        if (!fOut.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qWarning() << "could not open file" << outFile;
-            return;
-        }
+        QVERIFY(fOut.open(QIODevice::ReadOnly | QIODevice::Text));
         QTextStream out(&fOut);
         QString line = out.readLine();
         QString resLine = res.readLine();
@@ -465,6 +427,13 @@ private slots:
                 << QStringLiteral(u"function *g(a,b){}") << QStringLiteral(u"function* g(a, b) {}");
         QTest::newRow("AnonymousGenerator") << QStringLiteral(u"let g=function * (a,b){}")
                                             << QStringLiteral(u"let g = function* (a, b) {}");
+        QTest::newRow("yield") << QStringLiteral(u"let g=function*(a,b){yield a;}")
+                               << QStringLiteral(u"let g = function* (a, b) {\nyield a;\n}");
+        QTest::newRow("yield*") << QStringLiteral(u"let g=function*(a,b){yield*a;}")
+                                << QStringLiteral(u"let g = function* (a, b) {\nyield* a;\n}");
+        QTest::newRow("yield*NoSemicolon")
+                << QStringLiteral(u"let g=function*(a,b){yield*a}")
+                << QStringLiteral(u"let g = function* (a, b) {\nyield* a;\n}");
     }
 
     // https://262.ecma-international.org/7.0/#prod-HoistableDeclaration
@@ -474,6 +443,68 @@ private slots:
         QFETCH(QString, expectedFormattedDeclaration);
 
         QString formattedDeclaration = formatJSCode(declarationToBeFormatted);
+
+        QCOMPARE(formattedDeclaration, expectedFormattedDeclaration);
+    }
+
+    void typeAnnotations_data()
+    {
+        QTest::addColumn<QString>("declarationToBeFormatted");
+        QTest::addColumn<QString>("expectedFormattedDeclaration");
+
+        QTest::newRow("Function") << u"function a(a:date,b:int):real{}"_s
+                                  << u"function a(a: date, b: int): real {}"_s;
+        // note: we need to wrap the lambda in `()`, otherwise its invalid JS
+        QTest::newRow("AnonymousFunction") << u"(function (a:date,b:int):real{})"_s
+                                           << u"(function (a: date, b: int): real {})"_s;
+
+        // note: generator can't have return type annotations
+        QTest::newRow("Generator_lhs_star")
+                << u"function* g(a:date,b:int){}"_s << u"function* g(a: date, b: int) {}"_s;
+        QTest::newRow("Generator_rhs_star")
+                << u"function *g(a:int,b:date){}"_s << u"function* g(a: int, b: date) {}"_s;
+        QTest::newRow("list") << u"function a(a:list<date>,b:list<int>):list<real>{}"_s
+                              << u"function a(a: list<date>, b: list<int>): list<real> {}"_s;
+
+        QTest::newRow("comments")
+                << u"function a(a/*1*/:/*2*/list/*3*/</*4*/date/*5*/>/*6*/,/*7*/b/*8*/:/*9*/int/*10*/){}"_s
+                << u"function a(a/*1*/:/*2*/list/*3*/</*4*/date/*5*/>/*6*/,/*7*/b/*8*/:/*9*/int/*10*/) {}"_s;
+
+        QTest::newRow("comments2")
+                << u"function a(a: Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/){}"_s
+                << u"function a(a: Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/) {}"_s;
+
+        QTest::newRow("commentsOnReturnType") << u"function a()/*1*/:/*2*/real/*3*/{}"_s
+                                              << u"function a()/*1*/:/*2*/real/*3*/ {}"_s;
+        QTest::newRow("commentsOnReturnType2")
+                << u"function a():Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/{}"_s
+                << u"function a(): Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/ {}"_s;
+        QTest::newRow("commentsOnListReturnType")
+                << u"function a():/*2*/list/*3*/</*4*/Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/>/*17*/{}"_s
+                << u"function a():/*2*/list/*3*/</*4*/Q/*10*/./*11*/W/*12*/./*13*/E/*14*/./*15*/R/*16*/>/*17*/ {}"_s;
+        QTest::newRow("commentsOnCall1")
+                << u"f/*1*/(/*2*/a/*3*/,/*4*/b/*5*/,/*6*/c/*7*/)"_s
+                << u"f/*1*/(/*2*/a/*3*/,/*4*/b/*5*/,/*6*/c/*7*/)"_s;
+        QTest::newRow("commentsOnCall2")
+                << u"f(a, // 1\n"_s
+                   u"  b, // 2\n"_s
+                   u"  c)"_s
+                << u"f(a, // 1\n"_s
+                   u"  b, // 2\n"_s
+                   u"  c)"_s;
+        QTest::newRow("commentsOnCallWithSpread")
+                << u"f(/*1*/.../*2*/a/*3*/,/*4*/.../*5*/b)"_s
+                << u"f(/*1*/.../*2*/a/*3*/,/*4*/.../*5*/b)"_s;
+    }
+
+    void typeAnnotations()
+    {
+        QFETCH(QString, declarationToBeFormatted);
+        QFETCH(QString, expectedFormattedDeclaration);
+
+        // type annotations only exist in qml files, not in JS or JS module files
+        const QString formattedDeclaration = formatPlainJS(
+                declarationToBeFormatted, ScriptExpression::ExpressionType::BindingExpression);
 
         QCOMPARE(formattedDeclaration, expectedFormattedDeclaration);
     }
@@ -675,27 +706,27 @@ private slots:
         QTest::addColumn<QString>("expectedFormattedMethod");
 
         // ObjectInitializer
-        QTest::newRow("ObjGetter") << QStringLiteral(u"const o={get a(){},}")
-                                   << QStringLiteral(u"const o = {\nget a(){}\n}");
-        QTest::newRow("ObjSetter") << QStringLiteral(u"const o={set a(a){},}")
-                                   << QStringLiteral(u"const o = {\nset a(a){}\n}");
+        QTest::newRow("ObjGetter") << QStringLiteral(u"const o={get a() {},}")
+                                   << QStringLiteral(u"const o = {\nget a() {}\n}");
+        QTest::newRow("ObjSetter") << QStringLiteral(u"const o={set a(a) {},}")
+                                   << QStringLiteral(u"const o = {\nset a(a) {}\n}");
         QTest::newRow("ComputedObjPropertyGetter")
-                << QStringLiteral(u"const o={get [a+b](){},}")
-                << QStringLiteral(u"const o = {\nget [a + b](){}\n}");
+                << QStringLiteral(u"const o={get [a+b]() {},}")
+                << QStringLiteral(u"const o = {\nget [a + b]() {}\n}");
 
         // Generator
         QTest::newRow("ObjPropertyGenerator")
-                << QStringLiteral(u"const o={*a(){1+1;},}")
-                << QStringLiteral(u"const o = {\n*a(){\n1 + 1;\n}\n}");
+                << QStringLiteral(u"const o={*a() {1+1;},}")
+                << QStringLiteral(u"const o = {\n*a() {\n1 + 1;\n}\n}");
         QTest::newRow("ComputedClassPropertyGenerator")
-                << QStringLiteral(u"class A{*[a+b](){}}")
-                << QStringLiteral(u"class A {\n*[a + b](){}\n}");
+                << QStringLiteral(u"class A{*[a+b]() {}}")
+                << QStringLiteral(u"class A {\n*[a + b]() {}\n}");
 
         // ClassDefinitions
-        QTest::newRow("ClassGetter") << QStringLiteral(u"class A{get a(){}}")
-                                     << QStringLiteral(u"class A {\nget a(){}\n}");
-        QTest::newRow("ClassSetter") << QStringLiteral(u"class A{set a(a){}}")
-                                     << QStringLiteral(u"class A {\nset a(a){}\n}");
+        QTest::newRow("ClassGetter") << QStringLiteral(u"class A{get a() {}}")
+                                     << QStringLiteral(u"class A {\nget a() {}\n}");
+        QTest::newRow("ClassSetter") << QStringLiteral(u"class A{set a(a) {}}")
+                                     << QStringLiteral(u"class A {\nset a(a) {}\n}");
     }
 
     // https://262.ecma-international.org/7.0/#sec-method-definitions
@@ -756,6 +787,11 @@ private slots:
         QTest::newRow("StatementWithMultipleEmptyLinesAndPreCommentOnNextStatement")
                 << QStringLiteral(u"a=1;\n\n\n\n\n\n\n\n//\nb=1;")
                 << QStringLiteral(u"a = 1;\n\n//\nb = 1;");
+        QTest::newRow("ForLoopWithMultipleVarDeclarations")
+                << QStringLiteral("function bla() {"
+                                  "for (let i = 0, j = 1; i < j; ++i) {}}")
+                << QStringLiteral("function bla() {\n"
+                                  "for (let i = 0, j = 1; i < j; ++i) {}\n}");
     }
 
     void statementList()
@@ -765,6 +801,141 @@ private slots:
 
         QString formattedCode = formatJSCode(codeToBeFormatted);
 
+        QCOMPARE(formattedCode, expectedFormattedCode);
+    }
+
+    void comments_data()
+    {
+        QTest::addColumn<QString>("codeToBeFormatted");
+        QTest::addColumn<QString>("expectedFormattedCode");
+
+        QTest::newRow("MultipleCommentsAtTheEnd")
+                << QStringLiteral(u"a=1/*a*/ //abc\n/*b*/")
+                << QStringLiteral(u"a = 1/*a*/ //abc\n/*b*/");
+
+        QTest::newRow("emptyClassBody") << QStringLiteral(u"/*1*/class/*2*/ A/*3*/{/*4*/}/*5*/")
+                                        << QStringLiteral(u"/*1*/class/*2*/ A/*3*/{/*4*/}/*5*/");
+        QTest::newRow("classBody") << QStringLiteral(u"/*1*/class /*2*/ A/*3*/{/*4*/constructor(){}/*5*/}/*6*/")
+                                   << QStringLiteral(u"/*1*/class /*2*/ A/*3*/{/*4*/\nconstructor() {}/*5*/\n}/*6*/");
+
+        QTest::newRow("AroundEmptyFunction")
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/{/*9*/}/*10*/"_s
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/{/*9*/}/*10*/"_s;
+        QTest::newRow("AroundFunction")
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/{/*9*/ "
+                   u"return 42 /*10*/}/*11*/"_s
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/"
+                   u"{/*9*/\nreturn 42; /*10*/\n}/*11*/"_s;
+        QTest::newRow("AroundFunctionDouble")
+                << u"/*1a*//*1b*/function/*2a*//*2b*/ "
+                   u"a/*3a*//*3b*/(/*4a*//*4b*/a/*5a*//*5b*/,/*6a*//*6b*/b/*7a*//*7b*/)/"
+                   u"*8a*//*8b*/{/*9a*//*9b*/ return 42 /*10a*//*10b*/}/*11a*//*11b*/"_s
+                << u"/*1a*//*1b*/function/*2a*//*2b*/ "
+                   u"a/*3a*//*3b*/(/*4a*//*4b*/a/*5a*//*5b*/,"
+                   u"/*6a*//*6b*/b/*7a*//*7b*/)/*8a*//*8b*/{/*9a*//*9b*/\nreturn "
+                   u"42; /*10a*//*10b*/\n}/*11a*//*11b*/"_s;
+
+        QTest::newRow("AroundAnonymous")
+                << u"const x = /*1*/function/*2*/(/*3*/a/*4*/,/*5*/b/*6*/)/*7*/{/*8*/ "
+                   u"return 42 /*9*/}/*10*/"_s
+                << u"const x = /*1*/function/*2*/(/*3*/a/*4*/,/*5*/b/*6*/)/*7*/{/*8*/\nreturn 42; /*9*/\n}/*10*/"_s;
+
+        QTest::newRow("AroundArrowFunction")
+                << u"const x = /*1*/(/*2*/a/*3*/,/*4*/b/*5*/)/*6*/ => /*7*/ {/*8*/ return 42 /*9*/}/*10*/"_s
+                << u"const x = /*1*/(/*2*/a/*3*/,/*4*/b/*5*/)/*6*/ => /*7*/ {/*8*/\nreturn 42; /*9*/\n}/*10*/"_s;
+
+        QTest::newRow("AroundArrowFunction2")
+                << u"const x = /*1*/(/*2*/a/*3*/, /*4*/b/*5*/)/*6*/ => /*7*/42/*8*/"_s
+                << u"const x = /*1*/(/*2*/a/*3*/, /*4*/b/*5*/)/*6*/ => /*7*/42/*8*/"_s;
+
+        QTest::newRow("spacing1")
+                << u"let x = 1"_s
+                << u"let x = 1"_s;
+        QTest::newRow("spacing2")
+                << u"let     x  =    1"_s
+                << u"let x = 1"_s;
+        QTest::newRow("spacing3")
+                << u"let     x  =  /**/  1"_s
+                << u"let x =  /**/  1"_s;
+        QTest::newRow("spacing4")
+                << u"let     x  = 1       // aa"_s
+                << u"let x = 1       // aa"_s;
+        QTest::newRow("spacing5")
+                << u"function f(a=1,b){}"_s
+                << u"function f(a = 1, b) {}"_s;
+        QTest::newRow("spacing6")
+                << u"/**/    function/**/f(/**/a = /* */1, b/**/ ) {}"_s
+                << u"/**/    function/**/f(/**/a = /* */1, b/**/ ) {}"_s;
+
+        QTest::newRow("while") << u"while (false) /* while */ { // while\n }"_s
+                               << u"while (false) /* while */ { // while\n }"_s;
+        QTest::newRow("while2") << u"while (false) /* while */ { let b = 0; }"_s
+                                << u"while (false) /* while */ {\nlet b = 0;\n}"_s;
+        QTest::newRow("while3") << u"while /* while */ (false) /* while */ { }"_s
+                                << u"while /* while */ (false) /* while */ {}"_s;
+        QTest::newRow("while4") << u"while (false /* false */) /* while */ { } // after while"_s
+                                << u"while (false /* false */) /* while */ {} // after while"_s;
+        QTest::newRow("for") << u"for (let i = 0; i < 0; i++) /* for */ { }"_s
+                             << u"for (let i = 0; i < 0; i++) /* for */ {}"_s;
+
+        QTest::newRow("do-while") << uR"(do /* do */ {
+                } while (false); // test
+
+                    // before if
+                if (true)   {
+                    // the true clause
+                } // after if block
+                else {
+                })"_s << uR"(do /* do */ {} while (false) // test
+
+                    // before if
+                if (true) {
+                    // the true clause
+                } // after if block
+                else {})"_s;
+
+        QTest::newRow("if-else-blocks-1") << uR"(if(true) {
+                } // after if block
+                else {
+                        // else comment
+                } // after else block)"_s << uR"(if (true) {} // after if block
+                else {
+                        // else comment
+                } // after else block)"_s;
+
+        QTest::newRow("if-else-blocks2") << uR"(if (true) {
+                        // the true clause
+                    let a = 10;
+                    // another comment
+                } else {
+                    // the else clause
+                    // another comment
+                })"_s << uR"(if (true) {
+                        // the true clause
+                    let a = 10;
+                    // another comment
+                } else {
+                    // the else clause
+                    // another comment
+                })"_s;
+        QTest::newRow("blocks") << uR"(if (false) /*1*/ { /*2*/ // 3
+                /*4*/
+
+
+                //4
+                }//5)"_s << uR"(if (false) /*1*/ { /*2*/ // 3
+                /*4*/
+
+                //4
+                }//5)"_s;
+    }
+
+    void comments()
+    {
+        QFETCH(QString, codeToBeFormatted);
+        QFETCH(QString, expectedFormattedCode);
+
+        QString formattedCode = formatJSCode(codeToBeFormatted);
         QCOMPARE(formattedCode, expectedFormattedCode);
     }
 

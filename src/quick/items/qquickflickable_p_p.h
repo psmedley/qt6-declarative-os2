@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKFLICKABLE_P_P_H
 #define QQUICKFLICKABLE_P_P_H
@@ -28,13 +29,18 @@
 #include <private/qquicktransitionmanager_p_p.h>
 #include <private/qpodvector_p.h>
 
+#if QT_CONFIG(accessibility)
+#  include <QElapsedTimer>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QQuickFlickableVisibleArea;
 class QQuickTransition;
 class QQuickFlickableReboundTransition;
 
-class Q_QUICK_EXPORT QQuickFlickablePrivate : public QQuickItemPrivate, public QQuickItemChangeListener
+class Q_QUICK_EXPORT QQuickFlickablePrivate : public QQuickItemPrivate,
+                                              public QSafeQuickItemChangeListener<QQuickFlickablePrivate>
 {
     Q_DECLARE_PUBLIC(QQuickFlickable)
 
@@ -185,13 +191,14 @@ public:
     QQuickTimeLine timeline;
     bool hMoved : 1;
     bool vMoved : 1;
-    bool stealMouse : 1;
+    bool stealGrab : 1;
     bool pressed : 1;
     bool scrollingPhase : 1;
     bool interactive : 1;
     bool calcVelocity : 1;
     bool pixelAligned : 1;
     bool syncDrag : 1;
+    Qt::MouseButtons acceptedButtons = Qt::LeftButton;
     QElapsedTimer timer;
     qint64 lastPosTime;
     qint64 lastPressTime;
@@ -229,6 +236,7 @@ public:
     void handlePressEvent(QPointerEvent *);
     void handleMoveEvent(QPointerEvent *);
     void handleReleaseEvent(QPointerEvent *);
+    bool buttonsAccepted(const QSinglePointEvent *event);
 
     void maybeBeginDrag(qint64 currentTimestamp, const QPointF &pressPosn,
                         Qt::MouseButtons buttons = Qt::NoButton);
@@ -238,13 +246,17 @@ public:
 
     QVector2D firstPointLocalVelocity(QPointerEvent *event);
     qint64 computeCurrentTime(QInputEvent *event) const;
-    qreal devicePixelRatio() const;
 
     // flickableData property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
     static qsizetype data_count(QQmlListProperty<QObject> *);
     static QObject *data_at(QQmlListProperty<QObject> *, qsizetype);
     static void data_clear(QQmlListProperty<QObject> *);
+
+#if QT_CONFIG(accessibility)
+private:
+    QElapsedTimer m_scrollEventTimer;
+#endif
 };
 
 class Q_QUICK_EXPORT QQuickFlickableVisibleArea : public QObject

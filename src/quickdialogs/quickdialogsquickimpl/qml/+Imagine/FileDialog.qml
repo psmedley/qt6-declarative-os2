@@ -1,10 +1,10 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import Qt.labs.folderlistmodel
 import QtQuick
 import QtQuick.Templates as T
-import QtQuick.Controls.impl
 import QtQuick.Controls.Imagine
 import QtQuick.Controls.Imagine.impl
 import QtQuick.Dialogs.quickimpl
@@ -18,12 +18,12 @@ FileDialogImpl {
     // Can't set implicitWidth of the NinePatchImage background, so we do it here.
     implicitWidth: Math.max(600,
                             implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding,
+                            implicitContentWidth + leftPadding + rightPadding,
                             implicitHeaderWidth,
                             implicitFooterWidth)
     implicitHeight: Math.max(400,
                              implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding
+                             implicitContentHeight + topPadding + bottomPadding
                              + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
                              + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
@@ -57,16 +57,19 @@ FileDialogImpl {
 
         footer: DialogButtonBox {
             standardButtons: DialogButtonBox.Yes | DialogButtonBox.No
+            defaultStandardButton: DialogButtonBox.Yes
         }
     }
 
     FileDialogImpl.buttonBox: buttonBox
+    FileDialogImpl.filterLabel: filterLabel
     FileDialogImpl.nameFiltersComboBox: nameFiltersComboBox
     FileDialogImpl.fileDialogListView: fileDialogListView
     FileDialogImpl.breadcrumbBar: breadcrumbBar
     FileDialogImpl.fileNameLabel: fileNameLabel
     FileDialogImpl.fileNameTextField: fileNameTextField
     FileDialogImpl.overwriteConfirmationDialog: overwriteConfirmationDialog
+    FileDialogImpl.sideBar: sideBar
 
     background: NinePatchImage {
         source: Imagine.url + "dialog-background"
@@ -82,6 +85,7 @@ FileDialogImpl {
         spacing: 12
 
         Label {
+            objectName: "dialogTitleBarLabel"
             text: control.title
             elide: Label.ElideRight
             font.bold: true
@@ -115,33 +119,46 @@ FileDialogImpl {
             Layout.leftMargin: 16
             Layout.rightMargin: 16
             Layout.fillWidth: true
-            Layout.maximumWidth: parent.width - 28
+            Layout.maximumWidth: parent.width - 32
         }
     }
 
-    contentItem: ListView {
-        id: fileDialogListView
-        objectName: "fileDialogListView"
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
+    contentItem: SplitView {
+        id: contentLayout
 
-        ScrollBar.vertical: ScrollBar {}
-
-        model: FolderListModel {
-            folder: control.currentFolder
-            nameFilters: control.selectedNameFilter.globs
-            showDirsFirst: PlatformTheme.themeHint(PlatformTheme.ShowDirectoriesFirst)
-            sortCaseSensitive: false
-        }
-        delegate: DialogsImpl.FileDialogDelegate {
-            objectName: "fileDialogDelegate" + index
-            width: ListView.view.width
-            highlighted: ListView.isCurrentItem
+        contentHeight: sideBar.implicitHeight
+        DialogsImpl.SideBar {
+            id: sideBar
             dialog: control
-            fileDetailRowWidth: nameFiltersComboBox.width
+            SplitView.minimumWidth: 50
+            SplitView.maximumWidth: contentLayout.width / 2
+        }
 
-            KeyNavigation.backtab: breadcrumbBar
-            KeyNavigation.tab: fileNameTextField.visible ? fileNameTextField : nameFiltersComboBox
+        ListView {
+            id: fileDialogListView
+            objectName: "fileDialogListView"
+            SplitView.fillWidth: true
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ScrollBar.vertical: ScrollBar {}
+
+            model: FolderListModel {
+                folder: control.currentFolder
+                nameFilters: control.selectedNameFilter.globs
+                showDirsFirst: PlatformTheme.themeHint(PlatformTheme.ShowDirectoriesFirst)
+                sortCaseSensitive: false
+            }
+            delegate: DialogsImpl.FileDialogDelegate {
+                objectName: "fileDialogDelegate" + index
+                width: ListView.view.width
+                highlighted: ListView.isCurrentItem
+                dialog: control
+                fileDetailRowWidth: nameFiltersComboBox.width
+
+                KeyNavigation.backtab: breadcrumbBar
+                KeyNavigation.tab: fileNameTextField.visible ? fileNameTextField : nameFiltersComboBox
+            }
         }
     }
 
@@ -166,6 +183,7 @@ FileDialogImpl {
         }
 
         Label {
+            id: filterLabel
             text: qsTr("Filter")
 
             Layout.column: 0

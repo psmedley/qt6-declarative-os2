@@ -16,6 +16,7 @@
 //
 
 #include <QtCore/qhash.h>
+#include <QtCore/qcache.h>
 #include <QtGui/qbrush.h>
 
 #include <QtQuick/qtquickexports.h>
@@ -41,9 +42,9 @@ struct Q_QUICK_EXPORT QSGGradientCacheKey
 
 inline size_t qHash(const QSGGradientCacheKey &v, size_t seed = 0)
 {
-    size_t h = seed + v.spread;
-    for (int i = 0; i < 3 && i < v.stops.size(); ++i)
-        h += v.stops[i].second.rgba();
+    size_t h = qHash(size_t(v.spread), seed);
+    for (int i = 0; i < 2 && i < v.stops.size(); ++i)
+        h = qHash(v.stops[i].first, qHash(v.stops[i].second.rgba64(), h));
     return h;
 }
 
@@ -57,14 +58,55 @@ public:
         QPointF b; // end (L) or focal point (R)
         qreal v0; // center radius (R) or start angle (C)
         qreal v1; // focal radius (R)
+
+        int compare(const GradientDesc &other) const {
+            if (int d = a.x() - other.a.x())
+                return d;
+            if (int d = a.y() - other.a.y())
+                return d;
+            if (int d = b.x() - other.b.x())
+                return d;
+            if (int d = b.y() - other.b.y())
+                return d;
+
+            if (int d = v0 - other.v0)
+                return d;
+            if (int d = v1 - other.v1)
+                return d;
+
+            if (int d = spread - other.spread)
+                return d;
+
+            if (int d = stops.size() - other.stops.size())
+                return d;
+
+            for (int i = 0; i < stops.size(); ++i) {
+                if (int d = stops[i].first - other.stops[i].first)
+                    return d;
+                if (int d = stops[i].second.rgba() - other.stops[i].second.rgba())
+                    return d;
+            }
+
+            return 0;
+        }
     };
 
+    QSGGradientCache();
     ~QSGGradientCache();
     static QSGGradientCache *cacheForRhi(QRhi *rhi);
     QSGTexture *get(const QSGGradientCacheKey &grad);
 
 private:
-    QHash<QSGGradientCacheKey, QSGPlainTexture *> m_textures;
+    void setTextureData(QSGPlainTexture *tx, const QSGGradientCacheKey &grad);
+
+    struct IndexHolder {
+        ~IndexHolder() { if (freeIndex && idx >= 0) *freeIndex = idx; }
+        qsizetype idx = -1;
+        qsizetype *freeIndex = nullptr;
+    };
+    QList<QSGPlainTexture *> m_textures;
+    QCache<QSGGradientCacheKey, IndexHolder> m_cache;
+    qsizetype m_freeIndex = -1;
 };
 
 QT_END_NAMESPACE

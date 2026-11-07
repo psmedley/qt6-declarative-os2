@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <private/qsgadaptationlayer_p.h>
 #include "qquickcanvasitem_p.h"
@@ -16,6 +17,7 @@
 #include <qqmlinfo.h>
 #include <private/qqmlengine_p.h>
 #include <QtCore/QBuffer>
+#include <QtCore/QDir>
 #include <QtCore/qdatetime.h>
 
 #include <private/qv4value_p.h>
@@ -792,7 +794,7 @@ QSGTextureProvider *QQuickCanvasItem::textureProvider() const
 }
 
 /*!
-    \qmlmethod object QtQuick::Canvas::getContext(string contextId, ... args)
+    \qmlmethod Context2D QtQuick::Canvas::getContext(string contextId, ... args)
 
     Returns a drawing context, or \c null if no context is available.
 
@@ -878,7 +880,7 @@ void QQuickCanvasItem::requestAnimationFrame(QQmlV4FunctionPtr args)
 }
 
 /*!
-    \qmlmethod QtQuick::Canvas::cancelRequestAnimationFrame(int handle)
+    \qmlmethod void QtQuick::Canvas::cancelRequestAnimationFrame(int handle)
 
     This function will cancel the animation callback referenced by \a handle.
 */
@@ -898,7 +900,7 @@ void QQuickCanvasItem::cancelRequestAnimationFrame(QQmlV4FunctionPtr args)
 
 
 /*!
-    \qmlmethod QtQuick::Canvas::requestPaint()
+    \qmlmethod void QtQuick::Canvas::requestPaint()
 
     Request the entire visible region be re-drawn.
 
@@ -911,7 +913,7 @@ void QQuickCanvasItem::requestPaint()
 }
 
 /*!
-    \qmlmethod QtQuick::Canvas::markDirty(rect area)
+    \qmlmethod void QtQuick::Canvas::markDirty(rect area)
 
     Marks the given \a area as dirty, so that when this area is visible the
     canvas renderer will redraw it. This will trigger the \c paint signal.
@@ -954,8 +956,13 @@ void QQuickCanvasItem::checkAnimationCallbacks()
 bool QQuickCanvasItem::save(const QString &filename, const QSizeF &imageSize) const
 {
     Q_D(const QQuickCanvasItem);
-    QUrl url = d->baseUrl.resolved(QUrl::fromLocalFile(filename));
-    return toImage(QRectF(QPointF(0, 0), imageSize)).save(url.toLocalFile());
+    QString localFile = filename;
+    if (QDir::isRelativePath(filename)) {
+        QUrl url;
+        url.setPath(filename); // `filename` may contain # or % characters
+        localFile = d->baseUrl.resolved(url).toLocalFile();
+    }
+    return toImage(QRectF(QPointF(0, 0), imageSize)).save(localFile);
 }
 
 QQmlRefPointer<QQuickCanvasPixmap> QQuickCanvasItem::loadedPixmap(const QUrl& url, QSizeF sourceSize)
@@ -977,7 +984,7 @@ QQmlRefPointer<QQuickCanvasPixmap> QQuickCanvasItem::loadedPixmap(const QUrl& ur
 */
 
 /*!
-    \qmlmethod QtQuick::Canvas::loadImage(url image, size sourceSize = undefined)
+    \qmlmethod void QtQuick::Canvas::loadImage(url image, size sourceSize = undefined)
 
     Loads the given \a image asynchronously.
 
@@ -1013,7 +1020,7 @@ void QQuickCanvasItem::loadImage(const QUrl& url, QSizeF sourceSize)
     }
 }
 /*!
-    \qmlmethod QtQuick::Canvas::unloadImage(url image)
+    \qmlmethod void QtQuick::Canvas::unloadImage(url image)
 
     Unloads the \a image.
 
@@ -1030,7 +1037,7 @@ void QQuickCanvasItem::unloadImage(const QUrl& url)
 }
 
 /*!
-    \qmlmethod QtQuick::Canvas::isImageError(url image)
+    \qmlmethod bool QtQuick::Canvas::isImageError(url image)
 
     Returns \c true if the \a image failed to load, \c false otherwise.
 
@@ -1045,8 +1052,8 @@ bool QQuickCanvasItem::isImageError(const QUrl& url) const
 }
 
 /*!
-  \qmlmethod QtQuick::Canvas::isImageLoading(url image)
-  Returns true if the \a image is currently loading.
+  \qmlmethod bool QtQuick::Canvas::isImageLoading(url image)
+  Returns \c true if the \a image is currently loading.
 
   \sa loadImage()
 */
@@ -1058,8 +1065,8 @@ bool QQuickCanvasItem::isImageLoading(const QUrl& url) const
         && d->pixmaps.value(fullPathUrl)->pixmap()->isLoading();
 }
 /*!
-  \qmlmethod QtQuick::Canvas::isImageLoaded(url image)
-  Returns true if the \a image is successfully loaded and ready to use.
+  \qmlmethod bool QtQuick::Canvas::isImageLoaded(url image)
+  Returns \c true if the \a image is successfully loaded and ready to use.
 
   \sa loadImage()
 */

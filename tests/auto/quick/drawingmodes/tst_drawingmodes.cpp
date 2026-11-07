@@ -104,8 +104,13 @@ protected:
 QSGGeometry::DrawingMode DrawingModeItem::drawingMode;
 
 bool tst_drawingmodes::hasPixelAround(const QImage &fb, int centerX, int centerY) {
-    for (int x = centerX - 2; x <= centerX + 2; ++x) {
-        for (int y = centerY - 2; y <= centerY + 2; ++y) {
+    qreal dpr = fb.devicePixelRatio();
+    int scaledX = qRound(centerX * dpr);
+    int scaledY = qRound(centerY * dpr);
+    for (int x = scaledX - 2; x <= scaledX + 2; ++x) {
+        for (int y = scaledY - 2; y <= scaledY + 2; ++y) {
+            if (x < 0 || y < 0 || x >= fb.width() || y >= fb.height())
+                continue;
             if (fb.pixel(x, y) == red)
                 return true;
         }
@@ -129,6 +134,9 @@ void tst_drawingmodes::points()
     if (QGuiApplication::primaryScreen()->depth() < 24)
         QSKIP("This test does not work at display depths < 24");
 
+    // Contrary to what b1d0136192b7451788dee79c865dede02438f96e says,
+    // this test fails when running with the offscreen platform plugin,
+    // so we can't use SKIP_IF_NO_WINDOW_GRAB; here.
     if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Skipping due to grabWindow not functional on offscreen/minimal platforms");
@@ -177,8 +185,7 @@ void tst_drawingmodes::lines()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 135, 70));
     QVERIFY(hasPixelAround(fb, 175, 100));
@@ -208,8 +215,7 @@ void tst_drawingmodes::lineStrip()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 135, 70));
     QVERIFY(hasPixelAround(fb, 150, 50));
@@ -244,8 +250,7 @@ void tst_drawingmodes::lineLoop()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 135, 70));
     QVERIFY(hasPixelAround(fb, 135, 130));
@@ -277,8 +282,7 @@ void tst_drawingmodes::triangles()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 150, 75));
     QVERIFY(!hasPixelAround(fb, 162, 100));
@@ -306,8 +310,7 @@ void tst_drawingmodes::triangleStrip()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 150, 75));
     QVERIFY(hasPixelAround(fb, 162, 100));
@@ -337,8 +340,7 @@ void tst_drawingmodes::triangleFan()
 
     QImage fb = runTest("DrawingModes.qml");
 
-    QCOMPARE(fb.width(), 200);
-    QCOMPARE(fb.height(), 200);
+    QCOMPARE(fb.deviceIndependentSize(), QSizeF(200, 200));
 
     QVERIFY(hasPixelAround(fb, 150, 75));
     QVERIFY(hasPixelAround(fb, 162, 100));

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLENGINE_P_H
 #define QQMLENGINE_P_H
@@ -22,10 +23,11 @@
 #include <private/qjsengine_p.h>
 #include <private/qjsvalue_p.h>
 #include <private/qpodvector_p.h>
+#include <private/qqmlcontextdata_p.h>
 #include <private/qqmldirparser_p.h>
 #include <private/qqmlimport_p.h>
 #include <private/qqmlmetatype_p.h>
-#include <private/qqmlnotifier_p.h>
+#include <private/qqmlnotifierendpoint_p.h>
 #include <private/qqmlproperty_p.h>
 #include <private/qqmltypeloader_p.h>
 #include <private/qqmlvaluetype_p.h>
@@ -38,7 +40,6 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qmutex.h>
-#include <QtCore/qpair.h>
 #include <QtCore/qpointer.h>
 #include <QtCore/qproperty.h>
 #include <QtCore/qstack.h>
@@ -101,7 +102,6 @@ class Q_QML_EXPORT QQmlEnginePrivate : public QJSEnginePrivate
 {
     Q_DECLARE_PUBLIC(QQmlEngine)
 public:
-    explicit QQmlEnginePrivate(QQmlEngine *q) : importDatabase(q), typeLoader(q) {}
     ~QQmlEnginePrivate() override;
 
     void init();
@@ -129,8 +129,6 @@ public:
     QQmlDelayedError *erroredBindings = nullptr;
     int inProgressCreations = 0;
 
-    QV4::ExecutionEngine *v4engine() const { return q_func()->handle(); }
-
 #if QT_CONFIG(qml_worker_script)
     QThread *workerScriptEngine = nullptr;
 #endif
@@ -138,24 +136,14 @@ public:
     QUrl baseUrl;
 
     QQmlObjectCreator *activeObjectCreator = nullptr;
-#if QT_CONFIG(qml_network)
-    QNetworkAccessManager *createNetworkAccessManager(QObject *parent) const;
-    QNetworkAccessManager *getNetworkAccessManager() const;
-    mutable QNetworkAccessManager *networkAccessManager = nullptr;
-    mutable QQmlNetworkAccessManagerFactory *networkAccessManagerFactory = nullptr;
-#endif
+
     mutable QRecursiveMutex imageProviderMutex;
     QHash<QString,QSharedPointer<QQmlImageProviderBase> > imageProviders;
     QSharedPointer<QQmlImageProviderBase> imageProvider(const QString &providerId) const;
 
-    QList<QQmlAbstractUrlInterceptor *> urlInterceptors;
-
     int scarceResourcesRefCount = 0;
     void referenceScarceResources();
     void dereferenceScarceResources();
-
-    QQmlImportDatabase importDatabase;
-    QQmlTypeLoader typeLoader;
 
     QString offlineStoragePath;
 
@@ -172,9 +160,6 @@ public:
     // These methods may be called from any thread
     QString offlineStorageDatabaseDirectory() const;
 
-    bool isTypeLoaded(const QUrl &url) const;
-    bool isScriptLoaded(const QUrl &url) const;
-
     template <typename T>
     T singletonInstance(const QQmlType &type);
 
@@ -187,13 +172,14 @@ public:
     static void warning(QQmlEnginePrivate *, const QQmlError &);
     static void warning(QQmlEnginePrivate *, const QList<QQmlError> &);
 
-    inline static QV4::ExecutionEngine *getV4Engine(QQmlEngine *e);
     inline static QQmlEnginePrivate *get(QQmlEngine *e);
     inline static const QQmlEnginePrivate *get(const QQmlEngine *e);
+    inline static QQmlEngine *get(QQmlEnginePrivate *p);
+    inline static const QQmlEngine *get(const QQmlEnginePrivate *p);
+    inline static QQmlEnginePrivate *get(QV4::ExecutionEngine *e);
+
     inline static QQmlEnginePrivate *get(QQmlContext *c);
     inline static QQmlEnginePrivate *get(const QQmlRefPointer<QQmlContextData> &c);
-    inline static QQmlEngine *get(QQmlEnginePrivate *p);
-    inline static QQmlEnginePrivate *get(QV4::ExecutionEngine *e);
 
     static QList<QQmlError> qmlErrorFromDiagnostics(const QString &fileName, const QList<QQmlJS::DiagnosticMessage> &diagnosticMessages);
 
@@ -201,8 +187,6 @@ public:
     static void activateDesignerMode();
 
     static std::atomic<bool> qml_debugging_enabled;
-
-    mutable QMutex networkAccessManagerMutex;
 
     QQmlGadgetPtrWrapper *valueTypeInstance(QMetaType type)
     {
@@ -226,10 +210,25 @@ public:
                                 QObject *thisObject, int argc = 0, void **args = nullptr,
                                 QMetaType *types = nullptr);
     QV4::ExecutableCompilationUnit *compilationUnitFromUrl(const QUrl &url);
+
     QQmlRefPointer<QQmlContextData>
-    createInternalContext(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit,
-                          const QQmlRefPointer<QQmlContextData> &parentContext,
-                          int subComponentIndex, bool isComponentRoot);
+    createBareContext(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit,
+                      const QQmlRefPointer<QQmlContextData> &parentContext, int subComponentIndex)
+    {
+        Q_ASSERT(unit);
+
+        QQmlRefPointer<QQmlContextData> context = QQmlContextData::createRefCounted(parentContext);
+        context->setInternal(true);
+        context->setImports(unit->typeNameCache());
+        context->initFromTypeCompilationUnit(unit, subComponentIndex);
+        return context;
+    }
+
+    QQmlRefPointer<QQmlContextData>
+    createComponentRootContext(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit,
+                               const QQmlRefPointer<QQmlContextData> &parentContex,
+                               int subComponentIndex);
+
     static void setInternalContext(QObject *This, const QQmlRefPointer<QQmlContextData> &context,
                                    QQmlContextData::QmlObjectKind kind)
     {
@@ -320,18 +319,10 @@ inline void QQmlEnginePrivate::dereferenceScarceResources()
     // expression must have completed.  We can safely release the
     // scarce resources.
     if (Q_LIKELY(scarceResourcesRefCount == 0)) {
-        QV4::ExecutionEngine *engine = v4engine();
-        if (Q_UNLIKELY(!engine->scarceResources.isEmpty())) {
+        if (Q_UNLIKELY(!v4Engine->scarceResources.isEmpty())) {
             cleanupScarceResources();
         }
     }
-}
-
-QV4::ExecutionEngine *QQmlEnginePrivate::getV4Engine(QQmlEngine *e)
-{
-    Q_ASSERT(e);
-
-    return e->handle();
 }
 
 QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlEngine *e)
@@ -391,25 +382,40 @@ T QQmlEnginePrivate::singletonInstance(const QQmlType &type) {
     return qobject_cast<T>(singletonInstance<QJSValue>(type).toQObject());
 }
 
+class QQmlComponentPrivate;
 struct LoadHelper final : QQmlTypeLoader::Blob
 {
-    LoadHelper(QQmlTypeLoader *loader, QAnyStringView uri);
-
-    struct ResolveTypeResult
-    {
-        enum Status { NoSuchModule, ModuleFound } status;
-        QQmlType type;
+public:
+    enum class ResolveTypeResult {
+        NoSuchModule,
+        ModuleFound
     };
 
-    ResolveTypeResult resolveType(QAnyStringView typeName);
+    LoadHelper(
+            QQmlTypeLoader *loader, QAnyStringView uri, QAnyStringView typeName,
+            QQmlTypeLoader::Mode mode);
+
+    QQmlType type() const { return m_type; }
+    QQmlTypeLoader::Mode mode() const { return m_mode; }
+    ResolveTypeResult resolveTypeResult() const { return m_resolveTypeResult; }
+
+    void registerCallback(QQmlComponentPrivate *callback);
+    void unregisterCallback(QQmlComponentPrivate *callback);
 
 protected:
-    void dataReceived(const SourceCodeData &) final { Q_UNREACHABLE(); }
+    void done() final;
+    void completed() final;
+    void dataReceived(const SourceCodeData &) final;
     void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *) final { Q_UNREACHABLE(); }
 
 private:
     bool couldFindModule() const;
     QString m_uri;
+    QString m_typeName;
+    QQmlType m_type;
+    QQmlComponentPrivate *m_callback = nullptr;
+    QQmlTypeLoader::Mode m_mode = QQmlTypeLoader::Synchronous;
+    ResolveTypeResult m_resolveTypeResult = ResolveTypeResult::NoSuchModule;
 };
 
 

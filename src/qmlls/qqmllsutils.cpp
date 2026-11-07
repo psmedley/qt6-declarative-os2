@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmllsutils_p.h"
 
@@ -17,21 +18,17 @@
 #include <QtQmlCompiler/private/qqmljsutils_p.h>
 
 #include <algorithm>
-#include <iterator>
 #include <memory>
 #include <optional>
-#include <set>
-#include <stack>
-#include <type_traits>
+#include <queue>
 #include <utility>
-#include <variant>
-
-using namespace QQmlJS::Dom;
-using namespace Qt::StringLiterals;
 
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(QQmlLSUtilsLog, "qt.languageserver.utils")
+
+using namespace QQmlJS::Dom;
+using namespace Qt::StringLiterals;
 
 namespace QQmlLSUtils {
 QString qualifiersFrom(const DomItem &el)
@@ -259,7 +256,7 @@ handlePropertyDefinitionAndBindingOverlap(const QList<ItemLocation> &items, qsiz
         // sanity check: is it the definition of the current binding? check if they both have their
         // ':' at the same location
         if (propertyDefinitionColon.isValid() && propertyDefinitionColon == smallestColon
-            && offsetInFile < smallestColon.offset) {
+            && offsetInFile < smallestColon.begin()) {
             return smallestPropertyDefinition;
         }
     }
@@ -285,16 +282,16 @@ static QList<ItemLocation> filterItemsFromTextLocation(const QList<ItemLocation>
     filteredItems.append(*smallest);
 
     const QQmlJS::SourceLocation smallestLoc = smallest->fileLocation->info().fullRegion;
-    const quint32 smallestBegin = smallestLoc.begin();
-    const quint32 smallestEnd = smallestLoc.end();
+    const qsizetype smallestBegin = smallestLoc.begin();
+    const qsizetype smallestEnd = smallestLoc.end();
 
     for (auto it = items.begin(); it != items.end(); it++) {
         if (it == smallest)
             continue;
 
         const QQmlJS::SourceLocation itLoc = it->fileLocation->info().fullRegion;
-        const quint32 itBegin = itLoc.begin();
-        const quint32 itEnd = itLoc.end();
+        const qsizetype itBegin = itLoc.begin();
+        const qsizetype itEnd = itLoc.end();
         if (itBegin == smallestEnd || smallestBegin == itEnd) {
             filteredItems.append(*it);
         }
@@ -333,11 +330,7 @@ QList<ItemLocation> itemsFromTextLocation(const DomItem &file, int line, int cha
 
     enum ComparisonOption { Normal, ExcludePositionAfterLast };
     auto containsTarget = [targetPos](QQmlJS::SourceLocation l, ComparisonOption c) {
-        if constexpr (sizeof(qsizetype) <= sizeof(quint32)) {
-            return l.begin() <= quint32(targetPos) && quint32(targetPos) < l.end() + (c == Normal ? 1 : 0) ;
-        } else {
-            return l.begin() <= targetPos && targetPos < l.end() + (c == Normal ? 1 : 0);
-        }
+        return l.begin() <= targetPos && targetPos < l.end() + (c == Normal ? 1 : 0);
     };
     if (containsTarget(t->info().fullRegion, Normal)) {
         ItemLocation loc;
@@ -365,7 +358,7 @@ QList<ItemLocation> itemsFromTextLocation(const DomItem &file, int line, int cha
 
         auto subEls = iLoc.fileLocation->subItems();
         for (auto it = subEls.begin(); it != subEls.end(); ++it) {
-            auto subLoc = std::static_pointer_cast<AttachedInfoT<FileLocations>>(it.value());
+            auto subLoc = it.value();
             Q_ASSERT(subLoc);
 
             if (containsTarget(subLoc->info().fullRegion, comparisonOption)) {
@@ -737,10 +730,12 @@ static QStringList namesOfPossibleUsages(const QString &name,
 }
 
 template<typename Predicate>
-QQmlJSScope::ConstPtr findDefiningScopeIf(QQmlJSScope::ConstPtr referrerScope, Predicate &&check)
+QQmlJSScope::ConstPtr findDefiningScopeIf(
+        const QQmlJSScope::ConstPtr &referrerScope, Predicate &&check)
 {
     QQmlJSScope::ConstPtr result;
-    QQmlJSUtils::searchBaseAndExtensionTypes(referrerScope, [&](QQmlJSScope::ConstPtr scope) {
+    QQmlJSUtils::searchBaseAndExtensionTypes(
+            referrerScope, [&](const QQmlJSScope::ConstPtr &scope) {
         if (check(scope)) {
             result = scope;
             return true;
@@ -831,9 +826,9 @@ static FieldFilter filterForFindUsages()
 {
     FieldFilter filter{ {},
                         {
-                                { QString(), QString::fromUtf16(Fields::propertyInfos) },
-                                { QString(), QString::fromUtf16(Fields::defaultPropertyName) },
-                                { QString(), QString::fromUtf16(Fields::get) },
+                                { QString(), Fields::propertyInfos.toString() },
+                                { QString(), Fields::defaultPropertyName.toString() },
+                                { QString(), Fields::get.toString() },
                         } };
     return filter;
 };
@@ -1143,7 +1138,7 @@ propertyFromReferrerScope(const QQmlJSScope::ConstPtr &referrerScope, const QStr
             switch (options) {
             case ResolveOwnerType:
                 return ExpressionType{ propertyName,
-                                       findDefiningScopeForProperty(current, propertyName),
+                                       findDefiningScopeForProperty(current, resolved->name),
                                        resolved->type };
             case ResolveActualTypeForFieldMemberExpression:
                 return ExpressionType{ propertyName, property.type(), resolved->type };
@@ -1164,17 +1159,15 @@ static std::optional<ExpressionType>
 propertyBindingFromReferrerScope(const QQmlJSScope::ConstPtr &referrerScope, const QString &name,
                                  ResolveOptions options, QQmlJSTypeResolver *resolverForIds)
 {
-    auto bindings = referrerScope->propertyBindings(name);
+    const auto bindings = referrerScope->propertyBindings(name);
     if (bindings.isEmpty())
         return {};
 
-    const auto binding = bindings.front();
-
-    if ((binding.bindingType() != QQmlSA::BindingType::AttachedProperty)
-        && (binding.bindingType() != QQmlSA::BindingType::GroupProperty))
+    const auto binding = bindings.begin();
+    const auto bindingType = binding->bindingType();
+    const bool bindingIsAttached = bindingType == QQmlSA::BindingType::AttachedProperty;
+    if (!bindingIsAttached && bindingType != QQmlSA::BindingType::GroupProperty)
         return {};
-
-    const bool bindingIsAttached = binding.bindingType() == QQmlSA::BindingType::AttachedProperty;
 
     // Generalized grouped properties, like Bindings or PropertyChanges, for example, have bindings
     // starting in an id (like `someId.someProperty: ...`).
@@ -1184,23 +1177,22 @@ propertyBindingFromReferrerScope(const QQmlJSScope::ConstPtr &referrerScope, con
         if (!resolverForIds)
             return {};
 
-        QQmlJSRegisterContent fromId = resolverForIds->scopedType(
-                referrerScope, name, QQmlJSRegisterContent::InvalidLookupIndex,
-                AssumeComponentsAreBound);
-        if (fromId.variant() == QQmlJSRegisterContent::ObjectById)
-            return ExpressionType{ name, fromId.type(), QmlObjectIdIdentifier };
-
-        return ExpressionType{ name, {}, QmlObjectIdIdentifier };
+        return ExpressionType {
+            name,
+            resolverForIds->typeForId(referrerScope, name,
+                                      QQmlJSScopesByIdOption::AssumeComponentsAreBound),
+            QmlObjectIdIdentifier
+        };
     }
 
     const auto typeIdentifier =
-            bindingIsAttached ? AttachedTypeIdentifier : GroupedPropertyIdentifier;
+            bindingIsAttached ? AttachedTypeIdentifierInBindingTarget : GroupedPropertyIdentifier;
 
-    const auto getScope = [&bindingIsAttached, &binding]() -> QQmlJSScope::ConstPtr {
+    const auto getScope = [bindingIsAttached, binding]() -> QQmlJSScope::ConstPtr {
         if (bindingIsAttached)
-            return binding.attachingType();
+            return binding->attachedType();
 
-        return binding.groupType();
+        return binding->groupType();
     };
 
     switch (options) {
@@ -1224,7 +1216,8 @@ propertyBindingFromReferrerScope(const QQmlJSScope::ConstPtr &referrerScope, con
     Finds the scope within the special elements like Connections,
     PropertyChanges, Bindings or AnchorChanges.
 */
-static QQmlJSScope::ConstPtr findScopeOfSpecialItems(QQmlJSScope::ConstPtr scope, const DomItem &item)
+static QQmlJSScope::ConstPtr findScopeOfSpecialItems(
+        const QQmlJSScope::ConstPtr &scope, const DomItem &item)
 {
     if (!scope)
         return {};
@@ -1235,7 +1228,7 @@ static QQmlJSScope::ConstPtr findScopeOfSpecialItems(QQmlJSScope::ConstPtr scope
                                         u"QQuickAnchorChanges"_s};
 
     const auto special = QQmlJSUtils::searchBaseAndExtensionTypes(
-            scope, [&specialItems](QQmlJSScope::ConstPtr visitedScope) {
+            scope, [&specialItems](const QQmlJSScope::ConstPtr &visitedScope) {
                 const auto typeName = visitedScope->internalName();
                 if (specialItems.contains(typeName))
                     return true;
@@ -1269,18 +1262,16 @@ static QQmlJSScope::ConstPtr findScopeOfSpecialItems(QQmlJSScope::ConstPtr scope
             return {};
 
         // Note: It does not have to be an ID. It can be a property.
-        return resolver->containedType(resolver->scopedType(scope, targetName));
-    } else {
-        if (item.internalKind() == DomType::Binding &&
-            item.field(Fields::bindingType).value().toInteger() == int(BindingType::OnBinding)) {
-                // Binding on sth : {} syntax
-                // Target scope is the current scope
-                return scope;
-        }
-        return scope->parentScope();
+        return resolver->scopedType(scope, targetName);
     }
 
-    return {};
+    if (item.internalKind() == DomType::Binding &&
+        item.field(Fields::bindingType).value().toInteger() == int(BindingType::OnBinding)) {
+            // Binding on sth : {} syntax
+            // Target scope is the current scope
+            return scope;
+    }
+    return scope->parentScope();
 }
 
 /*!
@@ -1320,8 +1311,11 @@ resolveTypeName(const std::shared_ptr<QQmlJSTypeResolver> &resolver, const QStri
     if (fieldMemberAccessName.isEmpty() || !fieldMemberAccessName.front().isLower())
         return ExpressionType{ name, scope, QmlComponentIdentifier };
 
-    return ExpressionType{ name, options == ResolveOwnerType ? scope : scope->attachedType(),
-                           IdentifierType::AttachedTypeIdentifier };
+    if (scope->attachedType()) {
+        return ExpressionType{ name, options == ResolveOwnerType ? scope : scope->attachedType(),
+                               IdentifierType::AttachedTypeIdentifier };
+    }
+    return {};
 }
 
 static std::optional<ExpressionType> resolveFieldMemberExpressionType(const DomItem &item,
@@ -1341,9 +1335,12 @@ static std::optional<ExpressionType> resolveFieldMemberExpressionType(const DomI
         if (owner->type == JavaScriptIdentifier) {
             return ExpressionType{ name, {}, JavaScriptIdentifier };
         } else if (owner->type == QualifiedModuleIdentifier) {
-            auto resolver = item.fileObject().as<QmlFile>()->typeResolver();
-            if (auto scope = resolveTypeName(resolver, u"%1.%2"_s.arg(*owner->name, name), item,
-                                             options)) {
+            const QmlFile *qmlFile = item.fileObject().as<QmlFile>();
+            if (!qmlFile)
+                return {};
+            if (auto scope = resolveTypeName(
+                        qmlFile->typeResolver(), u"%1.%2"_s.arg(*owner->name, name), item,
+                        options)) {
                 // remove the qualified module name from the type name
                 scope->name = name;
                 return scope;
@@ -1366,15 +1363,18 @@ static std::optional<ExpressionType> resolveFieldMemberExpressionType(const DomI
         // Enumerations should live under the root element scope of the file that defines the enum,
         // therefore use the DomItem to find the root element of the qml file instead of directly
         // using owner->semanticScope.
-        const auto scope = item.goToFile(owner->semanticScope->filePath())
-                                   .rootQmlObject(GoTo::MostLikely)
-                                   .semanticScope();
-        if (scope->hasEnumerationKey(name)) {
-            return ExpressionType{ name, scope, EnumeratorValueIdentifier };
-        }
-        // Or it is a enum name <TypeName>.<EnumName>.<EnumValue>
-        else if (scope->hasEnumeration(name)) {
-            return ExpressionType{ name, scope, EnumeratorIdentifier };
+        if (const auto scope = owner->semanticScope->isComposite()
+                    ? item.goToFile(owner->semanticScope->filePath())
+                              .rootQmlObject(GoTo::MostLikely)
+                              .semanticScope()
+                    : owner->semanticScope) {
+            if (scope->hasEnumerationKey(name)) {
+                return ExpressionType{ name, scope, EnumeratorValueIdentifier };
+            }
+            // Or it is a enum name <TypeName>.<EnumName>.<EnumValue>
+            else if (scope->hasEnumeration(name)) {
+                return ExpressionType{ name, scope, EnumeratorIdentifier };
+            }
         }
 
         // check inline components <TypeName>.<InlineComponentName>
@@ -1492,6 +1492,15 @@ resolveSignalHandlerParameterType(const DomItem &parameterDefinition, const QStr
     }
 }
 
+/*!
+\internal
+resolve an identifier in the same order the QML engine would, that is:
+* first check for local JS variables (`let x = ...`)
+* then check for ids
+* then check for properties
+* then check for methods
+* then check for properties and methods of the global object
+ */
 static std::optional<ExpressionType> resolveIdentifierExpressionType(const DomItem &item,
                                                                      ResolveOptions options)
 {
@@ -1501,7 +1510,7 @@ static std::optional<ExpressionType> resolveIdentifierExpressionType(const DomIt
 
     const QString name = item.field(Fields::identifier).value().toString();
 
-    if (DomItem definitionOfItem = findJSIdentifierDefinition(item, name)) {
+    if (const DomItem definitionOfItem = findJSIdentifierDefinition(item, name)) {
         Q_ASSERT_X(!definitionOfItem.semanticScope().isNull()
                             && definitionOfItem.semanticScope()->ownJSIdentifier(name),
                     "QQmlLSUtils::findDefinitionOf",
@@ -1523,21 +1532,33 @@ static std::optional<ExpressionType> resolveIdentifierExpressionType(const DomIt
     if (!referrerScope)
         return {};
 
-    // check if its a method
-    if (auto scope = methodFromReferrerScope(referrerScope, name, options))
-        return scope;
+    const auto qmlFile = item.containingFile().ownerAs<QmlFile>();
+    if (!qmlFile)
+        return {};
 
-    const auto resolver = item.containingFile().ownerAs<QmlFile>()->typeResolver();
+    const auto resolver = qmlFile->typeResolver();
     if (!resolver)
         return {};
 
+    // check if its an id
+    if (const QQmlJSScope::ConstPtr fromId =
+        resolver->typeForId(referrerScope, name, QQmlJSScopesByIdOption::AssumeComponentsAreBound)) {
+        return ExpressionType{ name, fromId, QmlObjectIdIdentifier };
+    }
+
     // check if its found as a property binding
-    if (auto scope = propertyBindingFromReferrerScope(referrerScope, name, options, resolver.get()))
+    if (const auto scope = propertyBindingFromReferrerScope(
+                referrerScope, name, options, resolver.get())) {
         return *scope;
+    }
 
     // check if its an (unqualified) property
-    if (auto scope = propertyFromReferrerScope(referrerScope, name, options))
+    if (const auto scope = propertyFromReferrerScope(referrerScope, name, options))
         return *scope;
+
+    // check if its a method
+    if (auto scope = methodFromReferrerScope(referrerScope, name, options))
+        return scope;
 
     if (resolver->seenModuleQualifiers().contains(name))
         return ExpressionType{ name, {}, QualifiedModuleIdentifier };
@@ -1545,13 +1566,8 @@ static std::optional<ExpressionType> resolveIdentifierExpressionType(const DomIt
     if (const auto scope = resolveTypeName(resolver, name, item, options))
         return scope;
 
-    // check if its an id
-    QQmlJSRegisterContent fromId =
-            resolver->scopedType(referrerScope, name, QQmlJSRegisterContent::InvalidLookupIndex,
-                                 AssumeComponentsAreBound);
-    if (fromId.variant() == QQmlJSRegisterContent::ObjectById)
-        return ExpressionType{ name, fromId.type(), QmlObjectIdIdentifier };
-
+    // the global object doesn't have properties and methods with the same name, therefore the
+    // order in which we resolve methods and properties on the global object doesn't matter
     const QQmlJSScope::ConstPtr jsGlobal = resolver->jsGlobalObject();
     // check if its a JS global method
     if (auto scope = methodFromReferrerScope(jsGlobal, name, options)) {
@@ -1572,7 +1588,7 @@ static std::optional<ExpressionType>
 resolveSignalOrPropertyExpressionType(const QString &name, const QQmlJSScope::ConstPtr &scope,
                                       ResolveOptions options)
 {
-    auto signalOrProperty = resolveNameInQmlScope(name, scope);
+    const auto signalOrProperty = resolveNameInQmlScope(name, scope);
     if (!signalOrProperty)
         return {};
 
@@ -1659,7 +1675,8 @@ std::optional<ExpressionType> resolveExpressionType(const QQmlJS::Dom::DomItem &
             if (name == u"id")
                 return ExpressionType{ name, owner.value(), QmlObjectIdIdentifier };
 
-            if (QQmlJSScope::ConstPtr targetScope = findScopeOfSpecialItems(owner.value(), item)) {
+            if (const QQmlJSScope::ConstPtr targetScope
+                    = findScopeOfSpecialItems(owner.value(), item)) {
                 const auto signalOrProperty = resolveNameInQmlScope(name, targetScope);
                 if (!signalOrProperty)
                     return {};
@@ -1726,13 +1743,13 @@ std::optional<ExpressionType> resolveExpressionType(const QQmlJS::Dom::DomItem &
         return ExpressionType{ {}, item.semanticScope(), LambdaMethodIdentifier };
     }
     case DomType::MethodInfo: {
-        auto object = item.as<MethodInfo>();
+        const auto object = item.as<MethodInfo>();
         if (object && object->semanticScope()) {
             std::optional<QQmlJSScope::ConstPtr> scope = object->semanticScope();
             if (!scope)
                 return {};
 
-            if (QQmlJSScope::ConstPtr targetScope =
+            if (const QQmlJSScope::ConstPtr targetScope =
                         findScopeOfSpecialItems(scope.value()->parentScope(), item)) {
                 const auto signalOrProperty = resolveNameInQmlScope(object->name, targetScope);
                 if (!signalOrProperty)
@@ -1752,11 +1769,11 @@ std::optional<ExpressionType> resolveExpressionType(const QQmlJS::Dom::DomItem &
 
             // in case scope is the semantic scope for the function bodies: grab the owner's scope
             // this happens for all methods but not for signals (they do not have a body)
-            if (scope.value()->scopeType() == QQmlJSScope::ScopeType::JSFunctionScope)
+            if (QQmlSA::isFunctionScope(scope.value()->scopeType()))
                 scope = scope.value()->parentScope();
 
-            if (auto result = resolveSignalOrPropertyExpressionType(object->name, scope.value(),
-                                                                    options)) {
+            if (const auto result = resolveSignalOrPropertyExpressionType(
+                        object->name, scope.value(), options)) {
                 return result;
             }
             qDebug(QQmlLSUtilsLog) << "QQmlLSUtils::resolveExpressionType() could not resolve the"
@@ -1777,7 +1794,7 @@ std::optional<ExpressionType> resolveExpressionType(const QQmlJS::Dom::DomItem &
         */
         const auto scope = item.qmlObject().semanticScope();
         const auto name = item.field(Fields::value).value().toString();
-        if (QQmlJSScope::ConstPtr targetScope = findScopeOfSpecialItems(scope, item)) {
+        if (const QQmlJSScope::ConstPtr targetScope = findScopeOfSpecialItems(scope, item)) {
             const auto signalOrProperty = resolveNameInQmlScope(name, targetScope);
             if (!signalOrProperty)
                 return {};
@@ -1797,32 +1814,38 @@ std::optional<ExpressionType> resolveExpressionType(const QQmlJS::Dom::DomItem &
     }
     case DomType::EnumItem: {
         const QString enumValue = item.field(Fields::name).value().toString();
-         QQmlJSScope::ConstPtr referrerScope = item.rootQmlObject(GoTo::MostLikely).semanticScope();
-         if (!referrerScope->hasEnumerationKey(enumValue))
-             return {};
-         switch (options) {
-             // special case: use the owner's scope here, as enums do not have their own
-             // QQmlJSScope.
-         case ResolveActualTypeForFieldMemberExpression:
-         case ResolveOwnerType:
-             return ExpressionType{ enumValue,
-                                    findDefiningScopeForEnumerationKey(referrerScope, enumValue),
-                                    EnumeratorValueIdentifier };
+        const QQmlJSScope::ConstPtr referrerScope
+                = item.rootQmlObject(GoTo::MostLikely).semanticScope();
+        if (!referrerScope->hasEnumerationKey(enumValue))
+            return {};
+        switch (options) {
+            // special case: use the owner's scope here, as enums do not have their own
+            // QQmlJSScope.
+        case ResolveActualTypeForFieldMemberExpression:
+        case ResolveOwnerType:
+            return ExpressionType {
+                enumValue,
+                findDefiningScopeForEnumerationKey(referrerScope, enumValue),
+                EnumeratorValueIdentifier
+            };
          }
          Q_UNREACHABLE_RETURN({});
     }
     case DomType::EnumDecl: {
         const QString enumName = item.field(Fields::name).value().toString();
-        QQmlJSScope::ConstPtr referrerScope = item.rootQmlObject(GoTo::MostLikely).semanticScope();
+        const QQmlJSScope::ConstPtr referrerScope
+                = item.rootQmlObject(GoTo::MostLikely).semanticScope();
         if (!referrerScope->hasEnumeration(enumName))
             return {};
         switch (options) {
         // special case: use the owner's scope here, as enums do not have their own QQmlJSScope.
         case ResolveActualTypeForFieldMemberExpression:
         case ResolveOwnerType:
-            return ExpressionType{ enumName,
-                                   findDefiningScopeForEnumeration(referrerScope, enumName),
-                                   EnumeratorIdentifier };
+            return ExpressionType {
+                enumName,
+                findDefiningScopeForEnumeration(referrerScope, enumName),
+                EnumeratorIdentifier
+            };
         }
 
         Q_UNREACHABLE_RETURN({});
@@ -1901,6 +1924,43 @@ DomItem sourceLocationToDomItem(const DomItem &file, const QQmlJS::SourceLocatio
 }
 
 static std::optional<Location>
+findEnumDefinitionOf(const DomItem &file, QQmlJS::SourceLocation location, const QString &name)
+{
+    const DomItem enumeration = [&file, &location, &name]() -> DomItem {
+        const DomItem enumerations = QQmlLSUtils::sourceLocationToDomItem(file, location)
+                                             .qmlObject()
+                                             .component()
+                                             .field(Fields::enumerations);
+        const QSet<QString> enumerationNames = enumerations.keys();
+        for (const QString &enumName : enumerationNames) {
+            const DomItem currentKey = enumerations.key(enumName).index(0);
+            if (enumName == name)
+                return currentKey;
+            const DomItem values = currentKey.field(Fields::values);
+            for (int i = 0, end = values.size(); i < end; ++i) {
+                const DomItem currentValue = values.index(i);
+                if (currentValue.field(Fields::name).value().toStringView() == name)
+                    return currentValue;
+            }
+        }
+        return {};
+    }();
+
+    auto fileLocation = FileLocations::treeOf(enumeration);
+
+    if (!fileLocation)
+        return {};
+
+    auto regions = fileLocation->info().regions;
+
+    if (auto it = regions.constFind(IdentifierRegion); it != regions.constEnd()) {
+        return Location::tryFrom(enumeration.canonicalFilePath(), *it, file);
+    }
+
+    return {};
+}
+
+static std::optional<Location>
 findMethodDefinitionOf(const DomItem &file, QQmlJS::SourceLocation location, const QString &name)
 {
     DomItem owner = QQmlLSUtils::sourceLocationToDomItem(file, location).qmlObject();
@@ -1938,7 +1998,69 @@ findPropertyDefinitionOf(const DomItem &file, QQmlJS::SourceLocation propertyDef
     return {};
 }
 
-std::optional<Location> findDefinitionOf(const DomItem &item)
+static QQmlJS::SourceLocation sourceLocationOrDefault(const QQmlJS::SourceLocation &location)
+{
+    return location.startLine == 0 ? QQmlJS::s_documentOrigin : location;
+}
+
+static std::optional<Location> createCppTypeLocation(const QString &fileName,
+                                                     const QStringList &headerLocations,
+                                                     const QQmlJS::SourceLocation &location)
+{
+    const TextPosition endPosition{ static_cast<int>(location.startLine) + 1, 1 };
+    const QFileInfo filePathInfo(fileName);
+    if (filePathInfo.isAbsolute() && filePathInfo.exists())
+        return Location{ fileName, location, endPosition };
+
+    const QString filePath = findFilePathFromFileName(headerLocations, fileName, { });
+    if (filePath.isEmpty()) {
+        qCWarning(QQmlLSUtilsLog) << "Couldn't find file '%1'."_L1.arg(fileName);
+        return {};
+    }
+
+    return Location{ filePath, location, endPosition };
+}
+
+/*!
+\internal
+Note that C++ types with foreign can have 2 locations for the definition: one where the
+QML(_NAMED|)_ELEMENT macro is used and the second is the type targeted by QML_FOREIGN.
+*/
+static QList<Location> findDefinitionOfType(const QQmlJSScope::ConstPtr &scope, const DomItem &item,
+                                            const QStringList &headerDirectories)
+{
+    if (!scope)
+        return {};
+    if (scope->isComposite()) {
+        if (const auto result =
+                    Location::tryFrom(scope->filePath(), scope->sourceLocation(), item)) {
+            return { *result };
+        }
+    }
+    QList<Location> result;
+    auto locationOfTypeOrForeign = createCppTypeLocation(
+            scope->filePath(), headerDirectories, sourceLocationOrDefault(scope->sourceLocation()));
+    if (locationOfTypeOrForeign)
+        result << *locationOfTypeOrForeign;
+
+    auto resolvedTypeLocation = createCppTypeLocation(
+            scope->resolvedFilePath(), headerDirectories,
+            QQmlJS::SourceLocation{ 0u, 0u, scope->lineNumberInResolvedFile(), 1u });
+    if (resolvedTypeLocation)
+        result << *resolvedTypeLocation;
+
+    return result;
+}
+
+template <typename T>
+QList<T> optionalToList(std::optional<T> &&optional)
+{
+    if (optional)
+        return { *optional };
+    return { };
+}
+
+QList<Location> findDefinitionOf(const DomItem &item, const QStringList &headerDirectories)
 {
     auto resolvedExpression = resolveExpressionType(item, ResolveOptions::ResolveOwnerType);
 
@@ -1956,25 +2078,43 @@ std::optional<Location> findDefinitionOf(const DomItem &item)
         if (!jsIdentifier)
             return {};
 
-        return Location::tryFrom(resolvedExpression->semanticScope->filePath(),
-                                 jsIdentifier->location, item);
+        return optionalToList(Location::tryFrom(resolvedExpression->semanticScope->filePath(),
+                                                jsIdentifier->location, item));
     }
 
+    case GroupedPropertyIdentifier:
     case PropertyIdentifier: {
+        if (!resolvedExpression->semanticScope->isComposite()) {
+            return optionalToList(createCppTypeLocation(
+                    resolvedExpression->semanticScope->filePath(), headerDirectories,
+                    resolvedExpression->semanticScope->property(*resolvedExpression->name)
+                            .sourceLocation()));
+        }
         const DomItem ownerFile = item.goToFile(resolvedExpression->semanticScope->filePath());
         const QQmlJS::SourceLocation ownerLocation =
                 resolvedExpression->semanticScope->sourceLocation();
-        return findPropertyDefinitionOf(ownerFile, ownerLocation, *resolvedExpression->name);
+        return optionalToList(
+                findPropertyDefinitionOf(ownerFile, ownerLocation, *resolvedExpression->name));
     }
     case PropertyChangedSignalIdentifier:
     case PropertyChangedHandlerIdentifier:
     case SignalIdentifier:
     case SignalHandlerIdentifier:
     case MethodIdentifier: {
+        if (!resolvedExpression->semanticScope->isComposite()) {
+            const auto methods =
+                    resolvedExpression->semanticScope->methods(*resolvedExpression->name);
+            if (methods.isEmpty())
+                return {};
+            return optionalToList(
+                    createCppTypeLocation(resolvedExpression->semanticScope->filePath(),
+                                          headerDirectories, methods.front().sourceLocation()));
+        }
         const DomItem ownerFile = item.goToFile(resolvedExpression->semanticScope->filePath());
         const QQmlJS::SourceLocation ownerLocation =
                 resolvedExpression->semanticScope->sourceLocation();
-        return findMethodDefinitionOf(ownerFile, ownerLocation, *resolvedExpression->name);
+        return optionalToList(
+                findMethodDefinitionOf(ownerFile, ownerLocation, *resolvedExpression->name));
     }
     case QmlObjectIdIdentifier: {
         DomItem qmlObject = QQmlLSUtils::sourceLocationToDomItem(
@@ -1991,14 +2131,18 @@ std::optional<Location> findDefinitionOf(const DomItem &item)
             return {};
         }
 
-        return Location::tryFrom(domId.canonicalFilePath(),
-                                 FileLocations::treeOf(domId)->info().fullRegion, domId);
+        return optionalToList(Location::tryFrom(
+                domId.canonicalFilePath(), FileLocations::treeOf(domId)->info().fullRegion, domId));
     }
     case AttachedTypeIdentifier:
-    case QmlComponentIdentifier: {
-        return Location::tryFrom(resolvedExpression->semanticScope->filePath(),
-                                 resolvedExpression->semanticScope->sourceLocation(), item);
-    }
+        return findDefinitionOfType(resolvedExpression->semanticScope->attachedType(), item,
+                                    headerDirectories);
+    case AttachedTypeIdentifierInBindingTarget:
+        return findDefinitionOfType(resolvedExpression->semanticScope->baseType(), item,
+                                    headerDirectories);
+    case QmlComponentIdentifier:
+    case SingletonIdentifier:
+        return findDefinitionOfType(resolvedExpression->semanticScope, item, headerDirectories);
     case QualifiedModuleIdentifier: {
         const DomItem imports = item.fileObject().field(Fields::imports);
         for (int i = 0; i < imports.indexes(); ++i) {
@@ -2007,15 +2151,35 @@ std::optional<Location> findDefinitionOf(const DomItem &item)
                 if (!fileLocations)
                     continue;
 
-                return Location::tryFrom(item.canonicalFilePath(), fileLocations->info().regions[IdNameRegion], item);
+                return optionalToList(Location::tryFrom(item.canonicalFilePath(),
+                                                        fileLocations->info().regions[IdNameRegion],
+                                                        item));
             }
         }
         return {};
     }
-    case SingletonIdentifier:
     case EnumeratorIdentifier:
-    case EnumeratorValueIdentifier:
-    case GroupedPropertyIdentifier:
+    case EnumeratorValueIdentifier: {
+        if (!resolvedExpression->semanticScope->isComposite()) {
+            const auto enumerations = resolvedExpression->semanticScope->enumerations();
+            for (const auto &enumeration : enumerations) {
+                if (enumeration.hasKey(*resolvedExpression->name)
+                    || enumeration.name() == *resolvedExpression->name) {
+                    return optionalToList(createCppTypeLocation(
+                            resolvedExpression->semanticScope->filePath(), headerDirectories,
+                            sourceLocationOrDefault(QQmlJS::SourceLocation::fromQSizeType(
+                                    0, 0, enumeration.lineNumber(), 1))));
+                }
+            }
+            return {};
+        }
+        const DomItem ownerFile = item.goToFile(resolvedExpression->semanticScope->filePath());
+        const QQmlJS::SourceLocation ownerLocation =
+                resolvedExpression->semanticScope->sourceLocation();
+        return optionalToList(
+                findEnumDefinitionOf(ownerFile, ownerLocation, *resolvedExpression->name));
+    }
+
     case LambdaMethodIdentifier:
     case NotAnIdentifier:
         qCDebug(QQmlLSUtilsLog) << "QQmlLSUtils::findDefinitionOf was not implemented for type"
@@ -2091,10 +2255,11 @@ static QQmlJSScope::ConstPtr expressionTypeWithDefinition(const ExpressionType &
     case EnumeratorIdentifier:
     case EnumeratorValueIdentifier:
     case AttachedTypeIdentifier:
+    case AttachedTypeIdentifierInBindingTarget:
     case GroupedPropertyIdentifier:
     case QmlComponentIdentifier:
-    case QualifiedModuleIdentifier:
     case LambdaMethodIdentifier:
+    case QualifiedModuleIdentifier:
     case NotAnIdentifier:
         return ownerType.semanticScope;
     }
@@ -2116,7 +2281,7 @@ std::optional<ErrorMessage> checkNameForRename(const DomItem &item, const QStrin
     const auto userSemanticScope = item.nearestSemanticScope();
 
     if (!ownerType || !userSemanticScope) {
-        return ErrorMessage{ 0, u"Requested item cannot be renamed"_s };
+        return ErrorMessage{ 0, u"Requested item cannot be renamed."_s };
     }
 
     // type specific checks
@@ -2356,16 +2521,17 @@ Location Location::from(const QString &fileName, const QQmlJS::SourceLocation &s
     return Location{ fileName, sourceLocation, textRowAndColumnFrom(code, sourceLocation.end()) };
 }
 
-Location Location::from(const QString &fileName, const QString &code, quint32 startLine,
-                        quint32 startCharacter, quint32 length)
+Location Location::from(const QString &fileName, const QString &code, qsizetype startLine,
+                        qsizetype startCharacter, qsizetype length)
 {
-    const quint32 offset = QQmlLSUtils::textOffsetFrom(code, startLine - 1, startCharacter - 1);
-    return from(fileName, QQmlJS::SourceLocation{ offset, length, startLine, startCharacter },
+    const auto offset = QQmlLSUtils::textOffsetFrom(code, startLine - 1, startCharacter - 1);
+    return from(fileName,
+                QQmlJS::SourceLocation::fromQSizeType(offset, length, startLine, startCharacter),
                 code);
 }
 
-Edit Edit::from(const QString &fileName, const QString &code, quint32 startLine,
-                quint32 startCharacter, quint32 length, const QString &newName)
+Edit Edit::from(const QString &fileName, const QString &code, qsizetype startLine,
+                qsizetype startCharacter, qsizetype length, const QString &newName)
 {
     Edit rename;
     rename.location = Location::from(fileName, code, startLine, startCharacter, length);
@@ -2399,11 +2565,13 @@ https://doc.qt.io/qt-6/windows-building.html#step-2-install-build-requirements c
 to have CMake in your path to build Qt. So a developer machine running qmlls has a high chance of
 having CMake in their path, if CMake is installed and used.
 */
-QPair<QString, QStringList> cmakeBuildCommand(const QString &path)
+std::pair<QString, QStringList> cmakeBuildCommand(const QString &path, int cmakeJobs)
 {
-    const QPair<QString, QStringList> result{
+    std::pair<QString, QStringList> result{
         u"cmake"_s, { u"--build"_s, path, u"-t"_s, u"all_qmltyperegistrations"_s }
     };
+    if (cmakeJobs > 0)
+        result.second << "-j"_L1 << QString::number(cmakeJobs);
     return result;
 }
 
@@ -2431,6 +2599,79 @@ RenameUsages::RenameUsages(const QList<Edit> &renamesInFile,
 {
     std::sort(m_renamesInFile.begin(), m_renamesInFile.end());
     std::sort(m_renamesInFilename.begin(), m_renamesInFilename.end());
+}
+
+enum SearchOption { FindFirst, FindAll };
+static QStringList findFilePathsFromFileNamesImpl(const QStringList &rootDirs,
+                                                  const QStringList &fileNamesToSearch,
+                                                  SearchOption option,
+                                                  const QSet<QString> &ignoredFilePaths)
+{
+    if (fileNamesToSearch.isEmpty() || rootDirs.isEmpty())
+        return {};
+
+    const qint64 maxFilesToSearch =
+            qEnvironmentVariableIntegerValue("QMLLS_MAX_FILES_TO_SEARCH")
+                    .value_or(20'000); // 20'000 entries need around one second on my machine
+    qint64 visitedItems = 0;
+
+    QStringList result;
+    std::queue<QString> toVisit;
+    for (const QString &rootDir : rootDirs)
+        toVisit.push(rootDir);
+
+    while (!toVisit.empty()) {
+        const QString current = toVisit.front();
+        toVisit.pop();
+
+        for (const auto &entry : QDirListing{ current, QDirListing::IteratorFlag::ExcludeOther }) {
+            // timeout to avoid qmlls from recursing too much, in case rootDir is the filesystem
+            // root for example
+            if (++visitedItems > maxFilesToSearch) {
+                qInfo(QQmlLSUtilsLog).noquote().nospace()
+                        << "Aborting search for \"" << fileNamesToSearch.join("\", \""_L1)
+                        << "\" inside \"" << rootDirs.join("\", \""_L1)
+                        << "\" after reaching QMLLS_MAX_FILES_TO_SEARCH (currently set to "
+                        << maxFilesToSearch
+                        << "). Set the environment variable \"QMLLS_MAX_FILES_TO_SEARCH\" to a "
+                           "higher value to spend more time on searching.";
+                return result;
+            }
+
+            if (entry.isDir()) {
+                toVisit.push(entry.filePath());
+                continue;
+            }
+            Q_ASSERT(entry.isFile());
+            if (!fileNamesToSearch.contains(entry.fileName()))
+                continue;
+
+            if (ignoredFilePaths.contains(entry.absoluteFilePath()))
+                continue;
+
+            if (option == FindFirst)
+                return { entry.absoluteFilePath() };
+
+            result << entry.absoluteFilePath();
+        }
+    }
+
+    return result;
+}
+
+QStringList findFilePathsFromFileNames(const QString &rootDir, const QStringList &fileNamesToSearch,
+                                       const QSet<QString> &ignoredFilePaths)
+{
+    return findFilePathsFromFileNamesImpl({ rootDir }, fileNamesToSearch, FindAll,
+                                          ignoredFilePaths);
+}
+
+QString findFilePathFromFileName(const QStringList &rootDirs, const QString &fileNameToSearch,
+                                 const QSet<QString> &ignoredFilePaths)
+{
+    const QStringList result = findFilePathsFromFileNamesImpl(rootDirs, { fileNameToSearch },
+                                                              FindFirst, ignoredFilePaths);
+    return result.isEmpty() ? QString{} : result.front();
 }
 
 } // namespace QQmlLSUtils

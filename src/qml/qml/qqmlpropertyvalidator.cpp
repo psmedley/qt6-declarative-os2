@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpropertyvalidator_p.h"
 
@@ -41,7 +42,7 @@ QQmlPropertyValidator::QQmlPropertyValidator(
     bindingPropertyDataPerObject->resize(compilationUnit->objectCount());
 }
 
-QVector<QQmlError> QQmlPropertyValidator::validate()
+QList<QQmlError> QQmlPropertyValidator::validate()
 {
     return validateObject(/*root object*/0, /*instantiatingBinding*/nullptr);
 }
@@ -64,9 +65,19 @@ struct BindingFinder
     }
 };
 
-QVector<QQmlError> QQmlPropertyValidator::validateObject(
-        int objectIndex, const QV4::CompiledData::Binding *instantiatingBinding, bool populatingValueTypeGroupProperty) const
+QList<QQmlError> QQmlPropertyValidator::validateObject(
+        int objectIndex, const QV4::CompiledData::Binding *instantiatingBinding,
+        bool populatingValueTypeGroupProperty,
+        QQmlPropertyResolver::RevisionCheck checkRevision) const
 {
+    // Implicit component wrappers (>= objectCount) have no CU object.
+    // Validate the child object instead.
+    if (objectIndex >= compilationUnit->objectCount()) {
+        return validateObject(
+                compilationUnit->resolvedIndex(objectIndex), instantiatingBinding,
+                populatingValueTypeGroupProperty, checkRevision);
+    }
+
     const QV4::CompiledData::Object *obj = compilationUnit->objectAt(objectIndex);
     for (auto it = obj->inlineComponentsBegin(); it != obj->inlineComponentsEnd(); ++it) {
         const auto errors = validateObject(it->objectIndex, /* instantiatingBinding*/ nullptr);
@@ -84,7 +95,7 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
 
     QQmlPropertyCache::ConstPtr propertyCache = propertyCaches.at(objectIndex);
     if (!propertyCache)
-        return QVector<QQmlError>();
+        return QList<QQmlError>();
 
     QQmlCustomParser *customParser = nullptr;
     if (auto typeRef = resolvedType(obj->inheritedTypeNameIndex)) {
@@ -163,10 +174,9 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
         if (!name.isEmpty()) {
             if (bindingFlags & QV4::CompiledData::Binding::IsSignalHandlerExpression
                     || bindingFlags & QV4::CompiledData::Binding::IsSignalHandlerObject) {
-                pd = propertyResolver.signal(name, &notInRevision);
+                pd = propertyResolver.signal(name, &notInRevision, checkRevision);
             } else {
-                pd = propertyResolver.property(name, &notInRevision,
-                                               QQmlPropertyResolver::CheckRevision);
+                pd = propertyResolver.property(name, &notInRevision, checkRevision);
             }
 
             if (notInRevision) {
@@ -177,12 +187,14 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
                         const auto version = objectType->version();
                         return recordError(binding->location,
                                            tr("\"%1.%2\" is not available in %3 %4.%5.")
-                                           .arg(typeName).arg(name).arg(type.module())
-                                           .arg(version.majorVersion())
-                                           .arg(version.minorVersion()));
+                                                   .arg(typeName, name, type.module(),
+                                                        QString::number(version.majorVersion()),
+                                                        QString::number(version.minorVersion())));
                     }
                 } else {
-                    return recordError(binding->location, tr("\"%1.%2\" is not available due to component versioning.").arg(typeName).arg(name));
+                    return recordError(binding->location,
+                                       tr("\"%1.%2\" is not available due to component versioning.")
+                                               .arg(typeName, name));
                 }
             }
         } else {
@@ -214,9 +226,12 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
                     = pd
                       && QQmlMetaType::metaObjectForValueType(pd->propType())
                       && !binding->hasFlag(QV4::CompiledData::Binding::IsOnAssignment);
-            const QVector<QQmlError> subObjectValidatorErrors
-                    = validateObject(binding->value.objectIndex, binding,
-                                     populatingValueTypeGroupProperty);
+
+            // As this is a sub-object, its properties are qualified. We can ignore revisions.
+            const QList<QQmlError> subObjectValidatorErrors = validateObject(
+                    binding->value.objectIndex, binding, populatingValueTypeGroupProperty,
+                    QQmlPropertyResolver::IgnoreRevision);
+
             if (!subObjectValidatorErrors.isEmpty())
                 return subObjectValidatorErrors;
         }
@@ -343,7 +358,8 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
             return recordError(obj->locationOfIdProperty, tr("Invalid use of id property with a value type"));
 
         bool notInRevision = false;
-        collectedBindingPropertyData << propertyResolver.property(QStringLiteral("id"), &notInRevision);
+        collectedBindingPropertyData
+                << propertyResolver.property(QStringLiteral("id"), &notInRevision, checkRevision);
     }
 
     if (customParser && !customBindings.isEmpty()) {
@@ -353,14 +369,14 @@ QVector<QQmlError> QQmlPropertyValidator::validateObject(
         customParser->verifyBindings(compilationUnit, customBindings);
         customParser->validator = nullptr;
         customParser->imports = (QQmlImports*)nullptr;
-        QVector<QQmlError> parserErrors = customParser->errors();
+        QList<QQmlError> parserErrors = customParser->errors();
         if (!parserErrors.isEmpty())
             return parserErrors;
     }
 
     (*bindingPropertyDataPerObject)[objectIndex] = collectedBindingPropertyData;
 
-    QVector<QQmlError> noError;
+    QList<QQmlError> noError;
     return noError;
 }
 
@@ -640,39 +656,38 @@ QQmlError QQmlPropertyValidator::validateLiteralBinding(
 */
 bool QQmlPropertyValidator::canCoerce(QMetaType to, QQmlPropertyCache::ConstPtr fromMo) const
 {
-    QQmlPropertyCache::ConstPtr toMo = QQmlMetaType::rawPropertyCacheForType(to);
+    if (QQmlMetaType::canConvert(fromMo, to))
+        return true;
 
-    if (toMo.isNull()) {
-        // if we have an inline component from the current file,
-        // it is not properly registered at this point, as registration
-        // only occurs after the whole file has been validated
-        // Therefore we need to check the ICs here
-        for (const auto& icDatum : compilationUnit->inlineComponentData) {
-            if (icDatum.qmlType.typeId() == to) {
-                toMo = compilationUnit->propertyCaches.at(icDatum.objectIndex);
-                break;
-            }
+    // if we have an inline component from the current file,
+    // it is not properly registered at this point, as registration
+    // only occurs after the whole file has been validated
+    // Therefore we need to check the ICs here
+    for (const auto &icDatum : std::as_const(compilationUnit->inlineComponentData)) {
+        if (icDatum.qmlType.typeId() != to)
+            continue;
+
+        const auto toMo = compilationUnit->propertyCaches.at(icDatum.objectIndex);
+        for (QQmlPropertyCache::ConstPtr parent = fromMo; parent; parent = parent->parent()) {
+            if (parent == toMo)
+                return true;
         }
+        return false;
     }
 
-    while (fromMo) {
-        if (fromMo == toMo)
-            return true;
-        fromMo = fromMo->parent();
-    }
     return false;
 }
 
-QVector<QQmlError> QQmlPropertyValidator::recordError(const QV4::CompiledData::Location &location, const QString &description) const
+QList<QQmlError> QQmlPropertyValidator::recordError(const QV4::CompiledData::Location &location, const QString &description) const
 {
-    QVector<QQmlError> errors;
+    QList<QQmlError> errors;
     errors.append(qQmlCompileError(location, description));
     return errors;
 }
 
-QVector<QQmlError> QQmlPropertyValidator::recordError(const QQmlError &error) const
+QList<QQmlError> QQmlPropertyValidator::recordError(const QQmlError &error) const
 {
-    QVector<QQmlError> errors;
+    QList<QQmlError> errors;
     errors.append(error);
     return errors;
 }
@@ -702,7 +717,10 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
         }
 
         if (!isValueSource && !isPropertyInterceptor) {
-            return qQmlCompileError(binding->valueLocation, tr("\"%1\" cannot operate on \"%2\"").arg(stringAt(targetObject->inheritedTypeNameIndex)).arg(propertyName));
+            return qQmlCompileError(
+                    binding->valueLocation,
+                    tr("\"%1\" cannot operate on \"%2\"")
+                            .arg(stringAt(targetObject->inheritedTypeNameIndex), propertyName));
         }
 
         return noError;
@@ -726,8 +744,18 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
         const QMetaType listType = QQmlMetaType::listValueType(property->propType());
         if (!QQmlMetaType::isInterface(listType)) {
             QQmlPropertyCache::ConstPtr source = propertyCaches.at(binding->value.objectIndex);
+
+            if (const int wrapper = compilationUnit->implicitComponentForObject(
+                        binding->value.objectIndex); wrapper != -1) {
+                // If the child is wrapped in an implicit component, use the wrapper for coercion.
+                source = propertyCaches.at(wrapper);
+            }
+
             if (!canCoerce(listType, source)) {
-                return qQmlCompileError(binding->valueLocation, tr("Cannot assign object to list property \"%1\"").arg(propertyName));
+                const QString expectedTypeName = QString::fromUtf8(listType.name()).remove(QLatin1Char('*'));
+                return qQmlCompileError(binding->valueLocation,
+                    tr("Cannot assign object of type \"%1\" to list property \"%2\"; expected \"%3\"")
+                        .arg(source->className(), propertyName, expectedTypeName));
             }
         }
         return noError;
@@ -736,34 +764,32 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
         return noError;
     } else if (isPrimitiveType(propType)) {
         auto typeName = QString::fromUtf8(QMetaType(propType).name());
-        return qQmlCompileError(binding->location, tr("Cannot assign value of type \"%1\" to property \"%2\", expecting \"%3\"")
-                                                      .arg(rhsType())
-                                                      .arg(propertyName)
-                                                      .arg(typeName));
+        return qQmlCompileError(
+                binding->location,
+                tr("Cannot assign value of type \"%1\" to property \"%2\", expecting \"%3\"")
+                        .arg(rhsType(), propertyName, typeName));
     } else if (propType == QMetaType::fromType<QQmlScriptString>()) {
         return qQmlCompileError(binding->valueLocation, tr("Invalid property assignment: script expected"));
-    } else if (QQmlMetaType::isValueType(property->propType())) {
-        return qQmlCompileError(binding->location, tr("Cannot assign value of type \"%1\" to property \"%2\", expecting an object")
-                                                      .arg(rhsType()).arg(propertyName));
-    } else {
-        // We want to use the raw metaObject here as the raw metaobject is the
-        // actual property type before we applied any extensions that might
-        // effect the properties on the type, but don't effect assignability
-        // Not passing a version ensures that we get the raw metaObject.
-        QQmlPropertyCache::ConstPtr propertyMetaObject
-                = QQmlMetaType::rawPropertyCacheForType(propType);
-        if (!propertyMetaObject) {
-            // if we have an inline component from the current file,
-            // it is not properly registered at this point, as registration
-            // only occurs after the whole file has been validated
-            // Therefore we need to check the ICs here
-            for (const auto& icDatum: compilationUnit->inlineComponentData) {
-                if (icDatum.qmlType.typeId() == property->propType()) {
-                    propertyMetaObject
-                            = compilationUnit->propertyCaches.at(icDatum.objectIndex);
-                    break;
-                }
+    } else if (!QQmlMetaType::isValueType(property->propType())) {
+        QQmlPropertyCache::ConstPtr propertyMetaObject;
+
+        // if we have an inline component from the current file,
+        // it is not properly registered at this point, as registration
+        // only occurs after the whole file has been validated
+        // Therefore we need to check the ICs here
+        for (const auto &icDatum: std::as_const(compilationUnit->inlineComponentData)) {
+            if (icDatum.qmlType.typeId() == property->propType()) {
+                propertyMetaObject = compilationUnit->propertyCaches.at(icDatum.objectIndex);
+                break;
             }
+        }
+
+        if (!propertyMetaObject) {
+            // We want to use the raw metaObject here as the raw metaobject is the
+            // actual property type before we applied any extensions that might
+            // effect the properties on the type, but don't effect assignability
+            // Not passing a version ensures that we get the raw metaObject.
+            propertyMetaObject = QQmlMetaType::rawPropertyCacheForType(propType);
         }
 
         if (propertyMetaObject) {
@@ -771,6 +797,13 @@ QQmlError QQmlPropertyValidator::validateObjectBinding(const QQmlPropertyData *p
             // Determine isAssignable value
             bool isAssignable = false;
             QQmlPropertyCache::ConstPtr c = propertyCaches.at(binding->value.objectIndex);
+
+            if (const int wrapper = compilationUnit->implicitComponentForObject(
+                        binding->value.objectIndex); wrapper != -1) {
+                // If the child is wrapped in an implicit component, use the wrapper.
+                c = propertyCaches.at(wrapper);
+            }
+
             while (c && !isAssignable) {
                 isAssignable |= c == propertyMetaObject;
                 c = c->parent();

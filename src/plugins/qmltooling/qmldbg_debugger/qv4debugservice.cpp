@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4debugservice.h"
 #include "qv4debugjob.h"
@@ -702,9 +703,15 @@ void QV4DebugServiceImpl::engineAboutToBeRemoved(QJSEngine *engine)
     if (engine){
         const QV4::ExecutionEngine *ee = engine->handle();
         if (ee) {
-            QV4Debugger *debugger = qobject_cast<QV4Debugger *>(ee->debugger());
-            if (debugger)
-                debuggerAgent.removeDebugger(debugger);
+            const auto debuggers = debuggerAgent.debuggers();
+            for (QV4Debugger *debugger : debuggers) {
+                if (debugger->engine() == ee) {
+                    debuggerAgent.removeDebugger(debugger);
+                    if (ee->debugger() != debugger)
+                        delete debugger;
+                    break;
+                }
+            }
         }
     }
     QQmlConfigurableDebugService<QV4DebugService>::engineAboutToBeRemoved(engine);

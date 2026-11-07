@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <private/qquickshadereffect_p_p.h>
 #include <private/qsgcontextplugin_p.h>
@@ -152,7 +153,8 @@ QT_BEGIN_NAMESPACE
 
     \table 70%
     \row
-    \li \image declarative-shadereffectitem.png
+    \li \image declarative-shadereffectitem.png {Two Qt logos: original
+               colored and grayscale shader effect}
     \li \qml
         import QtQuick 2.0
 
@@ -249,7 +251,9 @@ QT_BEGIN_NAMESPACE
     \table
     \row
       \li \b {Layer with effect disabled} \inlineimage qml-shadereffect-nolayereffect.png
+          {Colorful pinwheel shape}
       \li \b {Layer with effect enabled} \inlineimage qml-shadereffect-layereffect.png
+          {Grayscale pinwheel shape}
     \row
       \li \qml
           Item {
@@ -283,6 +287,7 @@ QT_BEGIN_NAMESPACE
     \table
     \row
       \li \inlineimage qml-shadereffect-opacitymask.png
+          {Text reading Gradient Text with blue gradient fill}
     \row
       \li \qml
           Rectangle {
@@ -348,8 +353,8 @@ QT_BEGIN_NAMESPACE
     \endlist
 
     As described in the \l{Qt Shader Tools} module some of these steps can be
-    automated by letting CMake invoke the \c qsb tool at build time. See \l{Qt
-    Shader Tools Build System Integration} for more information and examples.
+    automated by letting CMake invoke the \c qsb tool at build time. See
+    \l{qt_add_shaders}{qt_add_shaders()} for more information and examples.
 
     When it comes to updating the shader code, below is an overview of the
     commonly required changes.
@@ -497,7 +502,7 @@ QT_BEGIN_NAMESPACE
 
     \endlist
 
-    \sa {Item Layers}, {QSB Manual}, {Qt Shader Tools Build System Integration}
+    \sa {Item Layers}, {QSB Manual}, qt_add_shaders
 */
 
 
@@ -567,6 +572,11 @@ QQuickShaderEffect::~QQuickShaderEffect()
     via the Qt resource system. The URL may be absolute, or relative to the URL
     of the component.
 
+    \warning Shaders, including \c{.qsb} files, are assumed to be trusted
+    content. Application developers are advised to carefully consider the
+    potential implications before allowing the loading of user-provided content
+    that is not part of the application.
+
     \sa vertexShader
 */
 
@@ -591,6 +601,11 @@ void QQuickShaderEffect::setFragmentShader(const QUrl &fileUrl)
     must either be a local file or use the qrc scheme to access files embedded
     via the Qt resource system. The URL may be absolute, or relative to the URL
     of the component.
+
+    \warning Shaders, including \c{.qsb} files, are assumed to be trusted
+    content. Application developers are advised to carefully consider the
+    potential implications before allowing the loading of user-provided content
+    that is not part of the application.
 
     \sa fragmentShader
 */
@@ -1171,7 +1186,9 @@ QSGGuiThreadShaderEffectManager *QQuickShaderEffectPrivate::shaderEffectManager(
             return m_mgr;
         QQuickWindow *w = q->window();
         if (w) { // note: just the window, don't care about isSceneGraphInitialized() here
-            m_mgr = QQuickWindowPrivate::get(w)->context->sceneGraphContext()->createGuiThreadShaderEffectManager();
+            QSGRenderContext *renderContext = QQuickWindowPrivate::get(w)->context;
+            if (QSGContext *sgContext = renderContext->sceneGraphContext())
+                m_mgr = sgContext->createGuiThreadShaderEffectManager();
             if (m_mgr) {
                 QObject::connect(m_mgr, &QSGGuiThreadShaderEffectManager::logAndStatusChanged, q, &QQuickShaderEffect::logChanged);
                 QObject::connect(m_mgr, &QSGGuiThreadShaderEffectManager::logAndStatusChanged, q, &QQuickShaderEffect::statusChanged);
@@ -1199,11 +1216,7 @@ void QQuickShaderEffectPrivate::disconnectSignals(Shader shaderType)
             if (source) {
                 if (q->window())
                     QQuickItemPrivate::get(source)->derefWindow();
-                auto it = m_destroyedConnections.constFind(source);
-                if (it != m_destroyedConnections.constEnd()) {
-                    QObject::disconnect(*it);
-                    m_destroyedConnections.erase(it);
-                }
+                QObject::disconnect(m_destroyedConnections.take(source));
             }
         }
     }
@@ -1435,7 +1448,9 @@ void QQuickShaderEffectPrivate::updateShaderVars(Shader shaderType)
                 // work that around, store the Connection and manually
                 // disconnect instead.
                 if (!m_destroyedConnections.contains(source))
-                    m_destroyedConnections.insert(source, QObject::connect(source, &QObject::destroyed, [this](QObject *obj) { sourceDestroyed(obj); }));
+                    m_destroyedConnections.insert(source,
+                        connect(source, &QObject::destroyed,
+                                this, &QQuickShaderEffectPrivate::sourceDestroyed));
             }
         }
     }
@@ -1498,13 +1513,8 @@ void QQuickShaderEffectPrivate::propertyChanged(int mappedId)
             // If the same source has been attached to two separate
             // textures/samplers, then changing one of them would trigger both
             // to be disconnected. So check first.
-            if (sourceIsUnique(source, type, idx)) {
-                auto it = m_destroyedConnections.constFind(source);
-                if (it != m_destroyedConnections.constEnd()) {
-                    QObject::disconnect(*it);
-                    m_destroyedConnections.erase(it);
-                }
-            }
+            if (sourceIsUnique(source, type, idx))
+                QObject::disconnect(m_destroyedConnections.take(source));
         }
 
         source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(vd.value));
@@ -1516,7 +1526,9 @@ void QQuickShaderEffectPrivate::propertyChanged(int mappedId)
             if (q->window())
                 QQuickItemPrivate::get(source)->refWindow(q->window());
             if (!m_destroyedConnections.contains(source))
-                m_destroyedConnections.insert(source, QObject::connect(source, &QObject::destroyed, [this](QObject *obj) { sourceDestroyed(obj); }));
+                m_destroyedConnections.insert(source,
+                    connect(source, &QObject::destroyed,
+                            this, &QQuickShaderEffectPrivate::sourceDestroyed));
         }
 
         m_dirty |= QSGShaderEffectNode::DirtyShaderTexture;

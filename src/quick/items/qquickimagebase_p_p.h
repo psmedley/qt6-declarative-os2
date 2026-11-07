@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKIMAGEBASE_P_P_H
 #define QQUICKIMAGEBASE_P_P_H
@@ -38,6 +39,11 @@ public:
     {
         pendingPix = &pix1;
         currentPix = &pix1;
+    }
+
+    static QQuickImageBasePrivate *get(QQuickImageBase *image)
+    {
+        return image->d_func();
     }
 
     virtual bool updateDevicePixelRatio(qreal targetDevicePixelRatio);

@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <QtCore/qfile.h>
 #include <QtNetwork/qsslcipher.h>
@@ -7,6 +8,8 @@
 #include <array>
 
 QT_BEGIN_NAMESPACE
+
+// Keep in sync with QSsl::SslOption!
 static constexpr std::array<QSsl::SslOption, 8> SslOptions = {
     QSsl::SslOptionDisableEmptyFragments,
     QSsl::SslOptionDisableSessionTickets,
@@ -23,10 +26,12 @@ QString QQmlSslConfiguration::ciphers() const
     return m_ciphers;
 }
 
+#if QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
 QList<QSsl::SslOption> QQmlSslConfiguration::sslOptions() const
 {
     return m_sslOptions;
 }
+#endif // QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
 
 QSsl::SslProtocol QQmlSslConfiguration::protocol() const
 {
@@ -46,6 +51,16 @@ int QQmlSslConfiguration::peerVerifyDepth() const
 QByteArray QQmlSslConfiguration::sessionTicket() const
 {
     return m_configuration.sessionTicket();
+}
+
+QSsl::SslOptions QQmlSslConfiguration::sslOptionFlags() const
+{
+    QSsl::SslOptions options{};
+    for (auto opt : SslOptions) {
+        if (m_configuration.testSslOption(opt))
+            options |= opt;
+    }
+    return options;
 }
 
 QSslConfiguration const QQmlSslConfiguration::configuration()
@@ -109,6 +124,7 @@ void QQmlSslConfiguration::setCiphers(const QString &ciphers)
     m_configuration.setCiphers(ciphers); // split(":") is used inside
 }
 
+#if QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
 void QQmlSslConfiguration::setSslOptions(const QList<QSsl::SslOption> &options)
 {
     if (m_sslOptions == options)
@@ -118,6 +134,7 @@ void QQmlSslConfiguration::setSslOptions(const QList<QSsl::SslOption> &options)
     for (QSsl::SslOption option: m_sslOptions)
         m_configuration.setSslOption(option, true);
 }
+#endif // QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
 
 void QQmlSslConfiguration::setSessionTicket(const QByteArray &sessionTicket)
 {
@@ -127,21 +144,31 @@ void QQmlSslConfiguration::setSessionTicket(const QByteArray &sessionTicket)
     m_configuration.setSessionTicket(sessionTicket);
 }
 
+void QQmlSslConfiguration::setSslOptionFlags(QSsl::SslOptions options)
+{
+    for (auto opt : SslOptions)
+        m_configuration.setSslOption(opt, options & opt);
+}
+
 void QQmlSslConfiguration::setPrivateKey(const QQmlSslKey &privateKey)
 {
     m_configuration.setPrivateKey(privateKey.getSslKey());
 }
 
+#if QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
 void QQmlSslConfiguration::setSslOptionsList(const QSslConfiguration &configuration)
 {
+    Q_ASSERT(m_sslOptions.isEmpty());
     for (QSsl::SslOption option: SslOptions) {
         if (configuration.testSslOption(option))
             m_sslOptions.append(option);
     }
 }
+#endif
 
 void QQmlSslConfiguration::setCiphersList(const QSslConfiguration &configuration)
 {
+    Q_ASSERT(m_ciphers.isEmpty());
     QList<QSslCipher> ciphers = configuration.ciphers();
     for (int i = 0; i < ciphers.size(); ++i) {
         if (i != 0) {
@@ -155,7 +182,9 @@ QQmlSslDefaultConfiguration::QQmlSslDefaultConfiguration()
     : QQmlSslConfiguration()
 {
     m_configuration = QSslConfiguration::defaultConfiguration();
+#if QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
     setSslOptionsList(m_configuration);
+#endif
     setCiphersList(m_configuration);
 }
 
@@ -168,7 +197,9 @@ QQmlSslDefaultDtlsConfiguration::QQmlSslDefaultDtlsConfiguration()
     qWarning() << "No dtls support enabled";
     m_configuration = QSslConfiguration::defaultConfiguration();
 #endif // QT_CONFIG(dtls)
+#if QT_REMOVAL_QT7_DEPRECATED_SINCE(6, 11)
     setSslOptionsList(m_configuration);
+#endif
     setCiphersList(m_configuration);
 }
 

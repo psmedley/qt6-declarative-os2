@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpositioners_p.h"
 #include "qquickpositioners_p_p.h"
@@ -9,6 +10,8 @@
 #include <QtCore/qcoreapplication.h>
 
 #include <QtQuick/private/qquicktransition_p.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -46,13 +49,6 @@ QQuickBasePositioner::PositionedItem::PositionedItem(QQuickItem *i)
 {
 }
 
-QQuickBasePositioner::PositionedItem::~PositionedItem()
-{
-#if QT_CONFIG(quick_viewtransitions)
-    delete transitionableItem;
-#endif
-}
-
 qreal QQuickBasePositioner::PositionedItem::itemX() const
 {
     return
@@ -87,8 +83,8 @@ void QQuickBasePositioner::PositionedItem::transitionNextReposition(QQuickItemVi
     if (!transitioner)
         return;
     if (!transitionableItem)
-        transitionableItem = new QQuickItemViewTransitionableItem(item);
-    transitioner->transitionNextReposition(transitionableItem, type, asTarget);
+        transitionableItem = std::make_unique<QQuickItemViewTransitionableItem>(item);
+    transitioner->transitionNextReposition(transitionableItem.get(), type, asTarget);
 }
 
 bool QQuickBasePositioner::PositionedItem::prepareTransition(QQuickItemViewTransitioner *transitioner, const QRectF &viewBounds)
@@ -151,12 +147,12 @@ QQuickBasePositioner::~QQuickBasePositioner()
 #if QT_CONFIG(quick_viewtransitions)
     delete d->transitioner;
 #endif
-    for (int i = 0; i < positionedItems.count(); ++i)
-        d->unwatchChanges(positionedItems.at(i).item);
-    for (int i = 0; i < unpositionedItems.count(); ++i)
-        d->unwatchChanges(unpositionedItems.at(i).item);
-    clearPositionedItems(&positionedItems);
-    clearPositionedItems(&unpositionedItems);
+    for (const PositionedItem &pi : positionedItems)
+        d->unwatchChanges(pi.item);
+    for (const PositionedItem &pi : unpositionedItems)
+        d->unwatchChanges(pi.item);
+    positionedItems.clear();
+    unpositionedItems.clear();
 }
 
 void QQuickBasePositioner::updatePolish()
@@ -262,14 +258,16 @@ void QQuickBasePositioner::itemChange(ItemChange change, const ItemChangeData &v
         d->setPositioningDirty();
     } else if (change == ItemChildRemovedChange) {
         QQuickItem *child = value.item;
-        QQuickBasePositioner::PositionedItem posItem(child);
-        int idx = positionedItems.find(posItem);
-        if (idx >= 0) {
+        auto it = std::find(positionedItems.begin(), positionedItems.end(), child);
+        if (it != positionedItems.end()) {
             d->unwatchChanges(child);
-            removePositionedItem(&positionedItems, idx);
-        } else if ((idx = unpositionedItems.find(posItem)) >= 0) {
-            d->unwatchChanges(child);
-            removePositionedItem(&unpositionedItems, idx);
+            positionedItems.erase(it);
+        } else {
+            it = std::find(unpositionedItems.begin(), unpositionedItems.end(), child);
+            if (it != unpositionedItems.end()) {
+                d->unwatchChanges(child);
+                unpositionedItems.erase(it);
+            }
         }
         d->setPositioningDirty();
     }
@@ -296,11 +294,17 @@ void QQuickBasePositioner::prePositioning()
     //Need to order children by creation order modified by stacking order
     QList<QQuickItem *> children = childItems();
 
-    QPODVector<PositionedItem,8> oldItems;
-    positionedItems.copyAndClear(oldItems);
-    for (int ii = 0; ii < unpositionedItems.count(); ii++)
-        oldItems.append(unpositionedItems[ii]);
+    std::vector<PositionedItem> oldItems;
+    oldItems.reserve(positionedItems.size() + unpositionedItems.size());
+
+    std::move(positionedItems.begin(), positionedItems.end(),
+              std::back_inserter(oldItems));
+    positionedItems.clear();
+
+    std::move(unpositionedItems.begin(), unpositionedItems.end(),
+              std::back_inserter(oldItems));
     unpositionedItems.clear();
+
 #if QT_CONFIG(quick_viewtransitions)
     int addedIndex = -1;
 #endif
@@ -311,23 +315,31 @@ void QQuickBasePositioner::prePositioning()
             continue;
         QQuickItemPrivate *childPrivate = QQuickItemPrivate::get(child);
         PositionedItem posItem(child);
-        int wIdx = oldItems.find(posItem);
-        if (wIdx < 0) {
+        auto it = std::find(oldItems.begin(), oldItems.end(), posItem);
+        if (it == oldItems.end()) {
+            // This is a newly added item.
             d->watchChanges(child);
             posItem.isNew = true;
             if (!childPrivate->explicitVisible || !child->width() || !child->height()) {
                 posItem.isVisible = false;
                 posItem.index = -1;
-                unpositionedItems.append(posItem);
+                // If we hide a zero-width or height item by setting visible to false,
+                // the !childPrivate->explicitVisible will then always trigger. We can't
+                // overwrite what the user has set, and we don't want to introduce a separate
+                // flag to track whether the visible property was actually explicitly set so
+                // that we can implicitly set it, so instead we use culled for this.
+                childPrivate->setCulled(true);
+                unpositionedItems.push_back(std::move(posItem));
             } else {
-                posItem.index = positionedItems.count();
-                positionedItems.append(posItem);
+                const int posIndex = int(positionedItems.size());
+                posItem.index = posIndex;
+                positionedItems.push_back(std::move(posItem));
 
 #if QT_CONFIG(quick_viewtransitions)
                 if (d->transitioner) {
                     if (addedIndex < 0)
-                        addedIndex = posItem.index;
-                    PositionedItem *theItem = &positionedItems[positionedItems.count()-1];
+                        addedIndex = posIndex;
+                    PositionedItem *theItem = &positionedItems.back();
                     if (d->transitioner->canTransition(QQuickItemViewTransitioner::PopulateTransition, true))
                         theItem->transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::PopulateTransition, true);
                     else if (!d->transitioner->populateTransitionEnabled())
@@ -336,45 +348,50 @@ void QQuickBasePositioner::prePositioning()
 #endif
             }
         } else {
-            PositionedItem *item = &oldItems[wIdx];
+            // This item already existed within us.
+            PositionedItem *item = &*it;
             // Items are only omitted from positioning if they are explicitly hidden
             // i.e. their positioning is not affected if an ancestor is hidden.
             if (!childPrivate->explicitVisible || !child->width() || !child->height()) {
                 item->isVisible = false;
                 item->index = -1;
-                unpositionedItems.append(*item);
+                childPrivate->setCulled(true);
+                unpositionedItems.push_back(std::move(*item));
             } else if (!item->isVisible) {
                 // item changed from non-visible to visible, treat it as a "new" item
                 item->isVisible = true;
                 item->isNew = true;
-                item->index = positionedItems.count();
-                positionedItems.append(*item);
+                const int itemIndex = int(positionedItems.size());
+                item->index = itemIndex;
+                childPrivate->setCulled(false);
+                positionedItems.push_back(std::move(*item));
 
 #if QT_CONFIG(quick_viewtransitions)
                 if (d->transitioner) {
                     if (addedIndex < 0)
-                        addedIndex = item->index;
-                    positionedItems[positionedItems.count()-1].transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::AddTransition, true);
+                        addedIndex = itemIndex;
+                    positionedItems.back().transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::AddTransition, true);
                 }
 #endif
             } else {
                 item->isNew = false;
-                item->index = positionedItems.count();
-                positionedItems.append(*item);
+                const int itemIndex = int(positionedItems.size());
+                item->index = itemIndex;
+                positionedItems.push_back(std::move(*item));
             }
         }
     }
 
 #if QT_CONFIG(quick_viewtransitions)
     if (d->transitioner) {
-        for (int i=0; i<positionedItems.count(); i++) {
-            if (!positionedItems[i].isNew) {
+        for (PositionedItem &item : positionedItems) {
+            if (!item.isNew) {
                 if (addedIndex >= 0) {
-                    positionedItems[i].transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::AddTransition, false);
+                    item.transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::AddTransition, false);
                 } else {
                     // just queue the item for a move-type displace - if the item hasn't
                     // moved anywhere, it won't be transitioned anyway
-                    positionedItems[i].transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::MoveTransition, false);
+                    item.transitionNextReposition(d->transitioner, QQuickItemViewTransitioner::MoveTransition, false);
                 }
             }
         }
@@ -391,10 +408,10 @@ void QQuickBasePositioner::prePositioning()
 #if QT_CONFIG(quick_viewtransitions)
     if (d->transitioner) {
         QRectF viewBounds(QPointF(), contentSize);
-        for (int i=0; i<positionedItems.count(); i++)
-            positionedItems[i].prepareTransition(d->transitioner, viewBounds);
-        for (int i=0; i<positionedItems.count(); i++)
-            positionedItems[i].startTransition(d->transitioner);
+        for (PositionedItem &item : positionedItems)
+            item.prepareTransition(d->transitioner, viewBounds);
+        for (PositionedItem &item : positionedItems)
+            item.startTransition(d->transitioner);
         d->transitioner->resetTargetLists();
     }
 #endif
@@ -431,28 +448,6 @@ void QQuickBasePositioner::positionItemY(qreal y, PositionedItem *target)
     }
 }
 
-/*
-  Since PositionedItem values are stored by value, their internal transitionableItem pointers
-  must be cleaned up when a PositionedItem is removed from a QPODVector, otherwise the pointer
-  is never deleted since QPODVector doesn't invoke the destructor.
-  */
-void QQuickBasePositioner::removePositionedItem(QPODVector<PositionedItem,8> *items, int index)
-{
-    Q_ASSERT(index >= 0 && index < items->count());
-#if QT_CONFIG(quick_viewtransitions)
-    delete items->at(index).transitionableItem;
-#endif
-    items->remove(index);
-}
-void QQuickBasePositioner::clearPositionedItems(QPODVector<PositionedItem,8> *items)
-{
-#if QT_CONFIG(quick_viewtransitions)
-    for (int i=0; i<items->count(); i++)
-        delete items->at(i).transitionableItem;
-#endif
-    items->clear();
-}
-
 QQuickPositionerAttached *QQuickBasePositioner::qmlAttachedProperties(QObject *obj)
 {
     return new QQuickPositionerAttached(obj);
@@ -467,8 +462,9 @@ void QQuickBasePositioner::updateAttachedProperties(QQuickPositionerAttached *sp
     QQuickPositionerAttached *prevLastProperty = nullptr;
     QQuickPositionerAttached *lastProperty = nullptr;
 
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        const PositionedItem &child = positionedItems.at(ii);
+    const int positionedItemsSize = int(positionedItems.size());
+    for (int ii = 0; ii < positionedItemsSize; ++ii) {
+        const PositionedItem &child = positionedItems[ii];
         if (!child.item)
             continue;
 
@@ -502,8 +498,7 @@ void QQuickBasePositioner::updateAttachedProperties(QQuickPositionerAttached *sp
         lastProperty->setIsLastItem(true);
 
     // clear attached properties for unpositioned items
-    for (int ii = 0; ii < unpositionedItems.count(); ++ii) {
-        const PositionedItem &child = unpositionedItems.at(ii);
+    for (const PositionedItem &child : unpositionedItems) {
         if (!child.item)
             continue;
 
@@ -736,7 +731,8 @@ void QQuickBasePositionerPrivate::setBottomPadding(qreal value, bool reset)
     }
     \endcode
 
-    \image positioner-example.png
+    \image positioner-example.png {Grid with 16 rectangles numbered 0-15,
+           first item yellow indicating Positioner.isFirstItem}
 */
 
 QQuickPositionerAttached::QQuickPositionerAttached(QObject *parent) : QObject(parent), m_index(-1), m_isFirstItem(false), m_isLastItem(false)
@@ -805,7 +801,8 @@ void QQuickPositionerAttached::setIsLastItem(bool isLastItem)
 
     The Column automatically positions these items in a vertical formation, like this:
 
-    \image verticalpositioner_example.png
+    \image verticalpositioner_example.png {Three colored rectangles
+           stacked vertically in a Column}
 
     If an item within a Column is not \l {Item::}{visible}, or if it has a width or
     height of 0, the item will not be laid out and it will not be visible within the
@@ -836,7 +833,8 @@ void QQuickPositionerAttached::setIsLastItem(bool isLastItem)
     \l Rectangle is toggled. As it appears and disappears, the blue \l Rectangle moves within
     the Column, and the \l move transition is automatically applied to the blue \l Rectangle:
 
-    \image verticalpositioner_transition.gif
+    \image verticalpositioner_transition.gif {Blue rectangle animating
+           up and down as green rectangle toggles visibility}
 
     \sa Row, Grid, Flow, Positioner, ColumnLayout, {Qt Quick Examples - Positioners}
 */
@@ -915,7 +913,7 @@ void QQuickPositionerAttached::setIsLastItem(bool isLastItem)
   \sa Grid::spacing
 */
 /*!
-    \qmlmethod QtQuick::Column::forceLayout()
+    \qmlmethod void QtQuick::Column::forceLayout()
     \since 5.9
 
     Column typically positions its children once per frame. This means that
@@ -946,8 +944,7 @@ void QQuickColumn::doPositioning(QSizeF *contentSize)
     const qreal padding = leftPadding() + rightPadding();
     contentSize->setWidth(qMax(contentSize->width(), padding));
 
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        PositionedItem &child = positionedItems[ii];
+    for (PositionedItem &child : positionedItems) {
         positionItem(child.itemX() + leftPadding() - child.leftPadding, voffset, &child);
         child.updatePadding(leftPadding(), topPadding(), rightPadding(), bottomPadding());
         contentSize->setWidth(qMax(contentSize->width(), child.item->width() + padding));
@@ -964,8 +961,7 @@ void QQuickColumn::doPositioning(QSizeF *contentSize)
 void QQuickColumn::reportConflictingAnchors()
 {
     QQuickBasePositionerPrivate *d = static_cast<QQuickBasePositionerPrivate*>(QQuickBasePositionerPrivate::get(this));
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        const PositionedItem &child = positionedItems.at(ii);
+    for (const PositionedItem &child : positionedItems) {
         if (child.item) {
             QQuickAnchors *anchors = QQuickItemPrivate::get(static_cast<QQuickItem *>(child.item))->_anchors;
             if (anchors) {
@@ -1003,7 +999,8 @@ void QQuickColumn::reportConflictingAnchors()
 
     The Row automatically positions these items in a horizontal formation, like this:
 
-    \image horizontalpositioner_example.png
+    \image horizontalpositioner_example.png {Three colored rectangles
+           arranged horizontally in a Row}
 
     If an item within a Row is not \l {Item::}{visible}, or if it has a width or
     height of 0, the item will not be laid out and it will not be visible within the
@@ -1098,7 +1095,7 @@ void QQuickColumn::reportConflictingAnchors()
   \sa Grid::spacing
 */
 /*!
-    \qmlmethod QtQuick::Row::forceLayout()
+    \qmlmethod void QtQuick::Row::forceLayout()
     \since 5.9
 
     Row typically positions its children once per frame. This means that
@@ -1202,9 +1199,7 @@ void QQuickRow::doPositioning(QSizeF *contentSize)
     contentSize->setHeight(qMax(contentSize->height(), padding));
 
     QList<qreal> hoffsets;
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        PositionedItem &child = positionedItems[ii];
-
+    for (PositionedItem &child : positionedItems) {
         if (d->isLeftToRight()) {
             positionItem(hoffset, child.itemY() + topPadding() - child.topPadding, &child);
             child.updatePadding(leftPadding(), topPadding(), rightPadding(), bottomPadding());
@@ -1233,8 +1228,7 @@ void QQuickRow::doPositioning(QSizeF *contentSize)
         end = width();
 
     int acc = 0;
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        PositionedItem &child = positionedItems[ii];
+    for (PositionedItem &child : positionedItems) {
         hoffset = end - hoffsets[acc++] - child.item->width();
         positionItem(hoffset, child.itemY() + topPadding() - child.topPadding, &child);
         child.updatePadding(leftPadding(), topPadding(), rightPadding(), bottomPadding());
@@ -1244,8 +1238,7 @@ void QQuickRow::doPositioning(QSizeF *contentSize)
 void QQuickRow::reportConflictingAnchors()
 {
     QQuickBasePositionerPrivate *d = static_cast<QQuickBasePositionerPrivate*>(QQuickBasePositionerPrivate::get(this));
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        const PositionedItem &child = positionedItems.at(ii);
+    for (const PositionedItem &child : positionedItems) {
         if (child.item) {
             QQuickAnchors *anchors = QQuickItemPrivate::get(static_cast<QQuickItem *>(child.item))->_anchors;
             if (anchors) {
@@ -1290,7 +1283,8 @@ void QQuickRow::reportConflictingAnchors()
 
     The Grid automatically positions the child items in a grid formation:
 
-    \image gridLayout_example.png
+    \image gridLayout_example.png {Five colored rectangles arranged
+           in a grid formation}
 
     If an item within a Grid is not \l {Item::}{visible}, or if it has a width or
     height of 0, the item will not be laid out and it will not be visible within the
@@ -1384,12 +1378,14 @@ void QQuickRow::reportConflictingAnchors()
   a spacing of 6.
 
   \inlineimage qml-grid-no-spacing.png
+               {Four colored squares in a grid with no spacing}
   \inlineimage qml-grid-spacing.png
+               {Four colored squares in a grid with spacing between them}
 
   \sa rows, columns
 */
 /*!
-    \qmlmethod QtQuick::Grid::forceLayout()
+    \qmlmethod void QtQuick::Grid::forceLayout()
     \since 5.9
 
     Grid typically positions its children once per frame. This means that
@@ -1624,8 +1620,11 @@ Qt::LayoutDirection QQuickGrid::effectiveLayoutDirection() const
     \row
         \li
         \li \inlineimage gridLayout_aligntopleft.png
+            {Colored rectangles aligned top-left in grid cells}
         \li \inlineimage gridLayout_aligntop.png
+            {Colored rectangles aligned top-center in grid cells}
         \li \inlineimage gridLayout_aligncenter.png
+            {Colored rectangles centered in grid cells}
     \row
         \li Horizontal alignment
         \li AlignLeft
@@ -1699,7 +1698,7 @@ void QQuickGrid::doPositioning(QSizeF *contentSize)
     QQuickBasePositionerPrivate *d = static_cast<QQuickBasePositionerPrivate*>(QQuickBasePositionerPrivate::get(this));
     int c = m_columns;
     int r = m_rows;
-    const int numVisible = positionedItems.count();
+    const int numVisible = int(positionedItems.size());
 
     if (m_columns <= 0 && m_rows <= 0) {
         c = 4;
@@ -1734,7 +1733,7 @@ void QQuickGrid::doPositioning(QSizeF *contentSize)
                 if (childIndex == numVisible)
                     break;
 
-                const PositionedItem &child = positionedItems.at(childIndex++);
+                const PositionedItem &child = positionedItems[childIndex++];
                 if (child.item->width() > maxColWidth[j])
                     maxColWidth[j] = child.item->width();
                 if (child.item->height() > maxRowHeight[i])
@@ -1752,7 +1751,7 @@ void QQuickGrid::doPositioning(QSizeF *contentSize)
                 if (childIndex == numVisible)
                     break;
 
-                const PositionedItem &child = positionedItems.at(childIndex++);
+                const PositionedItem &child = positionedItems[childIndex++];
                 if (child.item->width() > maxColWidth[j])
                     maxColWidth[j] = child.item->width();
                 if (child.item->height() > maxRowHeight[i])
@@ -1795,8 +1794,7 @@ void QQuickGrid::doPositioning(QSizeF *contentSize)
     qreal yoffset = topPadding();
     int curRow =0;
     int curCol =0;
-    for (int i = 0; i < positionedItems.count(); ++i) {
-        PositionedItem &child = positionedItems[i];
+    for (PositionedItem &child : positionedItems) {
         qreal childXOffset = xoffset;
 
         if (effectiveHAlign() == AlignRight)
@@ -1854,8 +1852,7 @@ void QQuickGrid::doPositioning(QSizeF *contentSize)
 void QQuickGrid::reportConflictingAnchors()
 {
     QQuickBasePositionerPrivate *d = static_cast<QQuickBasePositionerPrivate*>(QQuickBasePositionerPrivate::get(this));
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        const PositionedItem &child = positionedItems.at(ii);
+    for (const PositionedItem &child : positionedItems) {
         if (child.item) {
             QQuickAnchors *anchors = QQuickItemPrivate::get(static_cast<QQuickItem *>(child.item))->_anchors;
             if (anchors && (anchors->usedAnchors() || anchors->fill() || anchors->centerIn())) {
@@ -1886,7 +1883,8 @@ void QQuickGrid::reportConflictingAnchors()
     The Flow item automatically positions the child \l Text items side by
     side, wrapping as necessary:
 
-    \image qml-flow-snippet.png
+    \image qml-flow-snippet.png {Text items wrapped like words on a page
+           within a Flow positioner}
 
     If an item within a Flow is not \l {Item::}{visible}, or if it has a width or
     height of 0, the item will not be laid out and it will not be visible within the
@@ -1974,7 +1972,7 @@ void QQuickGrid::reportConflictingAnchors()
   \sa Grid::spacing
 */
 /*!
-    \qmlmethod QtQuick::Flow::forceLayout()
+    \qmlmethod void QtQuick::Flow::forceLayout()
     \since 5.9
 
     Flow typically positions its children once per frame. This means that
@@ -2121,9 +2119,7 @@ void QQuickFlow::doPositioning(QSizeF *contentSize)
     contentSize->setWidth(qMax(contentSize->width(), hoffset1 + hoffset2));
     contentSize->setHeight(qMax(contentSize->height(), voffset + bottomPadding()));
 
-    for (int i = 0; i < positionedItems.count(); ++i) {
-        PositionedItem &child = positionedItems[i];
-
+    for (PositionedItem &child : positionedItems) {
         if (d->flow == LeftToRight)  {
             if (widthValid() && hoffset != hoffset1 && hoffset + child.item->width() + hoffset2 > width()) {
                 hoffset = hoffset1;
@@ -2171,8 +2167,7 @@ void QQuickFlow::doPositioning(QSizeF *contentSize)
     else
         end = contentSize->width();
     int acc = 0;
-    for (int i = 0; i < positionedItems.count(); ++i) {
-        PositionedItem &child = positionedItems[i];
+    for (PositionedItem &child : positionedItems) {
         hoffset = end - hoffsets[acc++] - child.item->width();
         positionItemX(hoffset, &child);
         child.leftPadding = leftPadding();
@@ -2183,8 +2178,7 @@ void QQuickFlow::doPositioning(QSizeF *contentSize)
 void QQuickFlow::reportConflictingAnchors()
 {
     Q_D(QQuickFlow);
-    for (int ii = 0; ii < positionedItems.count(); ++ii) {
-        const PositionedItem &child = positionedItems.at(ii);
+    for (const PositionedItem &child : positionedItems) {
         if (child.item) {
             QQuickAnchors *anchors = QQuickItemPrivate::get(static_cast<QQuickItem *>(child.item))->_anchors;
             if (anchors && (anchors->usedAnchors() || anchors->fill() || anchors->centerIn())) {

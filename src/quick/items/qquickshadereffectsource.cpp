@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshadereffectsource_p.h"
 
@@ -88,7 +89,8 @@ public:
 
     \table
     \row
-    \li \image declarative-shadereffectsource.png
+    \li \image declarative-shadereffectsource.png {Overlapping colored
+               rectangles rendered as shader effect source}
     \li \qml
         import QtQuick 2.0
 
@@ -580,7 +582,7 @@ void QQuickShaderEffectSource::setSamples(int count)
 }
 
 /*!
-    \qmlmethod QtQuick::ShaderEffectSource::scheduleUpdate()
+    \qmlmethod void QtQuick::ShaderEffectSource::scheduleUpdate()
 
     Schedules a re-rendering of the texture for the next frame.
     Use this to update the texture when \l live is false.
@@ -671,11 +673,11 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
                       : m_sourceRect;
     m_texture->setRect(sourceRect);
     QQuickItemPrivate *d = static_cast<QQuickItemPrivate *>(QObjectPrivate::get(this));
-    const float dpr = d->window->effectiveDevicePixelRatio();
+    const qreal dpr = d->effectiveDevicePixelRatio();
     QSize textureSize = m_textureSize.isEmpty()
-            ? QSize(qCeil(qAbs(sourceRect.width())), qCeil(qAbs(sourceRect.height()))) * dpr
+            ? (QSizeF(qAbs(sourceRect.width()), qAbs(sourceRect.height())) * dpr)
+                      .toSize().expandedTo(QSize(1, 1))
             : m_textureSize;
-    Q_ASSERT(!textureSize.isEmpty());
 
     const QSize minTextureSize = d->sceneGraphContext()->minimumFBOSize();
     // Keep power-of-two by doubling the size.
@@ -684,7 +686,7 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
     while (textureSize.height() < minTextureSize.height())
         textureSize.rheight() *= 2;
 
-    m_texture->setDevicePixelRatio(d->window->effectiveDevicePixelRatio());
+    m_texture->setDevicePixelRatio(d->effectiveDevicePixelRatio());
     m_texture->setSize(textureSize);
     m_texture->setRecursive(m_recursive);
     m_texture->setFormat(toLayerFormat(m_format));
@@ -735,8 +737,15 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
     node->setFiltering(filtering);
     node->setHorizontalWrapMode(hWrap);
     node->setVerticalWrapMode(vWrap);
-    node->setTargetRect(QRectF(0, 0, width(), height()));
-    node->setInnerTargetRect(QRectF(0, 0, width(), height()));
+
+    const qreal dx = x() * dpr;
+    const qreal dy = y() * dpr;
+    const QSizeF devicePixelSize(qCeil(dx - std::floor(dx)) + qMax(1, qRound(width() * dpr)),
+                                 qCeil(dy - std::floor(dy)) + qMax(1, qRound(height() * dpr)));
+    const QRectF targetRect(QPointF(0, 0), devicePixelSize / dpr);
+    node->setTargetRect(targetRect);
+    node->setInnerTargetRect(targetRect);
+
     node->update();
 
     return node;

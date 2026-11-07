@@ -33,6 +33,7 @@ private slots:
     void setDataThroughDelegate();
     void setRowsImperatively();
     void setRowsMultipleTimes();
+    void setRowsRejectsNonArray();
     void dataAndEditing();
     void omitTableModelColumnIndex();
     void complexRow();
@@ -44,7 +45,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel") .value<QAbstractTableModel *>();
+    auto *model = view.rootObject()->property("testModel") .value<QAbstractItemModel *>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -55,6 +56,10 @@ void tst_QQmlTableModel::appendRemoveRow()
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
     int rowCountSignalEmissions = 0;
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+    int rowsChangedSignalEmissions = 0;
 
     const QHash<int, QByteArray> roleNames = model->roleNames();
     QCOMPARE(roleNames.size(), 1);
@@ -71,6 +76,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call remove() with an rowIndex that is too large.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
@@ -80,23 +86,28 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call remove() with a valid rowIndex but negative rows.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*removeRow\\(\\): \"rows\" is less than or equal to zero"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*data\\(\\): invalid QModelIndex"));
     QVERIFY(QMetaObject::invokeMethod(model, "removeRow", Q_ARG(int, 0), Q_ARG(int, -1)));
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call remove() with a valid rowIndex but excessive rows.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
         ".*removeRow\\(\\): \"rows\" 3 exceeds available rowCount\\(\\) of 2 when removing from \"rowIndex\" 0"));
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*data\\(\\): invalid QModelIndex"));
     QVERIFY(QMetaObject::invokeMethod(model, "removeRow", Q_ARG(int, 0), Q_ARG(int, 3)));
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call remove() without specifying the number of rows to remove; it should remove one row.
     QVERIFY(QMetaObject::invokeMethod(model, "removeRow", Q_ARG(int, 0)));
@@ -106,10 +117,10 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     // Call append() with a row that has an unexpected role; the row should be added and the extra data ignored.
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "appendRowExtraData"));
-    // Nothing should change.
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(model->data(model->index(0, 0, QModelIndex()), roleNames.key("display")).toString(), QLatin1String("Oliver"));
@@ -118,6 +129,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 99);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     // Call append() with a row that is an int.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
@@ -132,6 +144,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 99);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call append() with a row with a role of the wrong type.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
@@ -146,10 +159,11 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 99);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call append() with a row that is an array instead of a simple object.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-        ".*appendRow\\(\\): row manipulation functions do not support complex rows \\(row index: -1\\)"));
+        ".*appendRow\\(\\): row manipulation functions do not support complex rows"));
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "appendRowInvalid3"));
     // Nothing should change.
     QCOMPARE(model->rowCount(), 2);
@@ -158,6 +172,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Call append() to insert one row.
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "appendRow", Q_ARG(QVariant, QLatin1String("Max")), Q_ARG(QVariant, 40)));
@@ -171,6 +186,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 40);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     // Call remove() and specify rowIndex and rows, removing all remaining rows.
     QVERIFY(QMetaObject::invokeMethod(model, "removeRow", Q_ARG(int, 0), Q_ARG(int, 3)));
@@ -180,6 +196,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")), QVariant());
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     QVariantMap variantMap;
     variantMap["name"] = QLatin1String("VariantMap");
@@ -192,6 +209,7 @@ void tst_QQmlTableModel::appendRemoveRow()
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")).toInt(), int(QMetaType::QVariantMap));
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 }
 
 void tst_QQmlTableModel::appendRowToEmptyModel()
@@ -199,7 +217,7 @@ void tst_QQmlTableModel::appendRowToEmptyModel()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("empty.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 0);
     QCOMPARE(model->columnCount(), 2);
@@ -209,6 +227,9 @@ void tst_QQmlTableModel::appendRowToEmptyModel()
 
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -223,6 +244,7 @@ void tst_QQmlTableModel::appendRowToEmptyModel()
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")).toInt(), 22);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QTRY_COMPARE(tableView->rows(), 1);
     QCOMPARE(tableView->columns(), 2);
 }
@@ -232,7 +254,7 @@ void tst_QQmlTableModel::clear()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -242,6 +264,9 @@ void tst_QQmlTableModel::clear()
 
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
 
     const QHash<int, QByteArray> roleNames = model->roleNames();
     QVERIFY(roleNames.values().contains("display"));
@@ -255,10 +280,13 @@ void tst_QQmlTableModel::clear()
     QVERIFY(QMetaObject::invokeMethod(model, "clear"));
     QCOMPARE(model->rowCount(), 0);
     QCOMPARE(model->columnCount(), 2);
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*data\\(\\): invalid QModelIndex"));
     QCOMPARE(model->data(model->index(0, 0, QModelIndex()), roleNames.key("display")), QVariant());
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*data\\(\\): invalid QModelIndex"));
     QCOMPARE(model->data(model->index(0, 1, QModelIndex()), roleNames.key("display")), QVariant());
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     // Wait until updatePolish() gets called, which is where the size is recalculated.
     QTRY_COMPARE(tableView->rows(), 0);
     QCOMPARE(tableView->columns(), 2);
@@ -269,7 +297,7 @@ void tst_QQmlTableModel::getRow()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -298,7 +326,7 @@ void tst_QQmlTableModel::insertRow()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -309,6 +337,10 @@ void tst_QQmlTableModel::insertRow()
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
     int rowCountSignalEmissions = 0;
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+    int rowsChangedSignalEmissions = 0;
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -329,6 +361,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -345,6 +378,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -360,6 +394,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -375,12 +410,13 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
     // Try to insert a row that is an array instead of a simple object.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-        ".*insertRow\\(\\): row manipulation functions do not support complex rows \\(row index: 0\\)"));
+        ".*insertRow\\(\\): row manipulation functions do not support complex rows"));
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "insertRowInvalid3"));
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -390,6 +426,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -405,6 +442,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
 
@@ -423,6 +461,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(3, 1, QModelIndex()), roleNames.key("display")).toInt(), 40);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 4);
     QCOMPARE(tableView->columns(), 2);
 
@@ -443,6 +482,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 40);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 5);
     QCOMPARE(tableView->columns(), 2);
 
@@ -468,6 +508,7 @@ void tst_QQmlTableModel::insertRow()
     QCOMPARE(model->data(model->index(5, 1, QModelIndex()), roleNames.key("display")).toInt(), int(QMetaType::QVariantMap));
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 6);
     QCOMPARE(tableView->columns(), 2);
 }
@@ -477,7 +518,7 @@ void tst_QQmlTableModel::moveRow()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(model->rowCount(), 2);
@@ -488,6 +529,10 @@ void tst_QQmlTableModel::moveRow()
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
     int rowCountSignalEmissions = 0;
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+    int rowsChangedSignalEmissions = 3;
 
     const QHash<int, QByteArray> roleNames = model->roleNames();
 
@@ -510,6 +555,7 @@ void tst_QQmlTableModel::moveRow()
     rowCountSignalEmissions = 3;
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Try to move with a fromRowIndex that is negative.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*moveRow\\(\\): \"fromRowIndex\" cannot be negative"));
@@ -519,6 +565,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Try to move with a fromRowIndex that is too large.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*moveRow\\(\\): \"fromRowIndex\" 5 is greater than or equal to rowCount\\(\\)"));
@@ -527,6 +574,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Try to move with a toRowIndex that is negative.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*moveRow\\(\\): \"toRowIndex\" cannot be negative"));
@@ -536,6 +584,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Try to move with a toRowIndex that is too large.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*moveRow\\(\\): \"toRowIndex\" 5 is greater than or equal to rowCount\\(\\)"));
@@ -544,6 +593,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Move the first row to the end.
     QVERIFY(QMetaObject::invokeMethod(model, "moveRow", Q_ARG(int, 0), Q_ARG(int, 4)));
@@ -562,6 +612,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 22);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     // Move it back again.
     QVERIFY(QMetaObject::invokeMethod(model, "moveRow", Q_ARG(int, 4), Q_ARG(int, 0)));
@@ -579,6 +630,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 
     // Move the first row down one by one row.
     QVERIFY(QMetaObject::invokeMethod(model, "moveRow", Q_ARG(int, 0), Q_ARG(int, 1)));
@@ -596,6 +648,7 @@ void tst_QQmlTableModel::moveRow()
     QCOMPARE(model->data(model->index(4, 1, QModelIndex()), roleNames.key("display")).toInt(), 48);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
 }
 
 void tst_QQmlTableModel::setRow()
@@ -603,7 +656,7 @@ void tst_QQmlTableModel::setRow()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("common.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(model->rowCount(), 2);
@@ -614,6 +667,10 @@ void tst_QQmlTableModel::setRow()
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
     int rowCountSignalEmissions = 0;
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+    int rowsChangedSignalEmissions = 0;
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -634,6 +691,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -650,6 +708,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -663,6 +722,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -678,6 +738,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -693,12 +754,13 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
     // Try to insert a row that is an array instead of a simple object.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-        ".*setRow\\(\\): row manipulation functions do not support complex rows \\(row index: 0\\)"));
+        ".*setRow\\(\\): row manipulation functions do not support complex rows"));
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setRowInvalid3"));
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -708,6 +770,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -722,6 +785,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -736,6 +800,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 30);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
@@ -752,6 +817,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 99);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), ++rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
 
@@ -770,6 +836,7 @@ void tst_QQmlTableModel::setRow()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 99);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), rowCountSignalEmissions);
+    QCOMPARE(rowsChangedSpy.size(), ++rowsChangedSignalEmissions);
     QTRY_COMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
 }
@@ -780,7 +847,7 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QVERIFY(QQuickTest::showView(view, testFileUrl("setDataThroughDelegate.qml")));
 
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -791,6 +858,10 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
 
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+    int rowsChangedSignalEmissions = 0;
+
     const QHash<int, QByteArray> roleNames = model->roleNames();
     QCOMPARE(roleNames.size(), 1);
     QVERIFY(roleNames.values().contains("display"));
@@ -800,6 +871,7 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "modify"));
     QCOMPARE(model->data(model->index(0, 0, QModelIndex()), roleNames.key("display")).toString(), QLatin1String("John"));
@@ -808,6 +880,8 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 18);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 0);
+    rowsChangedSignalEmissions = 2;
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Test setting a role that doesn't exist for a certain column.
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "modifyInvalidRole"));
@@ -818,6 +892,7 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 18);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 
     // Test setting a role with a value of the wrong type.
     // There are two rows, so two delegates respond to the signal, which means we need to ignore two warnings.
@@ -833,6 +908,7 @@ void tst_QQmlTableModel::setDataThroughDelegate()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 18);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), rowsChangedSignalEmissions);
 }
 
 // Start off with empty rows and then set them to test rowCountChanged().
@@ -841,7 +917,7 @@ void tst_QQmlTableModel::setRowsImperatively()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("empty.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 0);
     QCOMPARE(model->columnCount(), 2);
@@ -851,6 +927,9 @@ void tst_QQmlTableModel::setRowsImperatively()
 
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -867,6 +946,7 @@ void tst_QQmlTableModel::setRowsImperatively()
     QCOMPARE(model->data(model->index(1, 1, QModelIndex()), roleNames.key("display")).toInt(), 33);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QTRY_COMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 }
@@ -876,7 +956,7 @@ void tst_QQmlTableModel::setRowsMultipleTimes()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("setRowsMultipleTimes.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -886,6 +966,9 @@ void tst_QQmlTableModel::setRowsMultipleTimes()
 
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -905,12 +988,13 @@ void tst_QQmlTableModel::setRowsMultipleTimes()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 89);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QTRY_COMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
 
     // Set invalid rows; we should get a warning and nothing should change.
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
-        ".*setRows\\(\\): expected a property named \"name\" in row at index 0, but couldn't find one"));
+        ".*setRows\\(\\): expected a property named \"name\" in row"));
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setRowsInvalid"));
     QCOMPARE(model->rowCount(), 3);
     QCOMPARE(model->columnCount(), 2);
@@ -922,8 +1006,74 @@ void tst_QQmlTableModel::setRowsMultipleTimes()
     QCOMPARE(model->data(model->index(2, 1, QModelIndex()), roleNames.key("display")).toInt(), 89);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QCOMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
+}
+
+void tst_QQmlTableModel::setRowsRejectsNonArray()
+{
+    QQuickView view;
+    QVERIFY(QQuickTest::showView(view, testFileUrl("empty.qml")));
+
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
+    QVERIFY(model);
+    QCOMPARE(model->rowCount(), 0);
+    QCOMPARE(model->columnCount(), 2);
+
+    QSignalSpy columnCountSpy(model, SIGNAL(columnCountChanged()));
+    QVERIFY(columnCountSpy.isValid());
+
+    QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
+    QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
+
+    QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
+    QVERIFY(tableView);
+    QCOMPARE(tableView->rows(), 0);
+    QCOMPARE(tableView->columns(), 2);
+
+    // Try to insert a number
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*must be an array.*"));
+    QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setInvalidRowsNumber"));
+    // Nothing happens
+    QCOMPARE(tableView->rows(), 0);
+    QCOMPARE(tableView->columns(), 2);
+    QCOMPARE(columnCountSpy.size(), 0);
+    QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), 0);
+
+    // Try to insert a string
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*must be an array.*"));
+    QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setInvalidRowsString"));
+    // Nothing happens
+    QCOMPARE(tableView->rows(), 0);
+    QCOMPARE(tableView->columns(), 2);
+    QCOMPARE(columnCountSpy.size(), 0);
+    QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), 0);
+
+    // Try to insert a string
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*must be an array.*"));
+    QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setInvalidRowsString"));
+    // Nothing happens
+    QCOMPARE(tableView->rows(), 0);
+    QCOMPARE(tableView->columns(), 2);
+    QCOMPARE(columnCountSpy.size(), 0);
+    QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), 0);
+
+    // Try to insert a JSON object
+    QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*but an array is expected"));
+    QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "setInvalidRowsObject"));
+    // Nothing happens
+    QCOMPARE(tableView->rows(), 0);
+    QCOMPARE(tableView->columns(), 2);
+    QCOMPARE(columnCountSpy.size(), 0);
+    QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), 0);
 }
 
 void tst_QQmlTableModel::dataAndEditing()
@@ -931,7 +1081,7 @@ void tst_QQmlTableModel::dataAndEditing()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("dataAndSetData.qml")));
 
-    auto *model = view.rootObject()->property("model").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("model").value<QAbstractItemModel*>();
     QVERIFY(model);
 
     const QHash<int, QByteArray> roleNames = model->roleNames();
@@ -951,7 +1101,7 @@ void tst_QQmlTableModel::omitTableModelColumnIndex()
     QQmlComponent component(&engine, testFileUrl("omitTableModelColumnIndex.qml"));
     QCOMPARE(component.status(), QQmlComponent::Ready);
 
-    QScopedPointer<QAbstractTableModel> model(qobject_cast<QAbstractTableModel*>(component.create()));
+    QScopedPointer<QAbstractItemModel> model(qobject_cast<QAbstractItemModel*>(component.create()));
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -973,7 +1123,7 @@ void tst_QQmlTableModel::complexRow()
     QCOMPARE(tableView->rows(), 2);
     QCOMPARE(tableView->columns(), 2);
 
-    auto *model = tableView->model().value<QAbstractTableModel*>();
+    auto *model = tableView->model().value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -990,7 +1140,7 @@ void tst_QQmlTableModel::appendRowWithDouble()
     QQuickView view;
     QVERIFY(QQuickTest::showView(view, testFileUrl("intAndDouble.qml")));
 
-    auto *model = view.rootObject()->property("testModel").value<QAbstractTableModel*>();
+    auto *model = view.rootObject()->property("testModel").value<QAbstractItemModel*>();
     QVERIFY(model);
     QCOMPARE(model->rowCount(), 2);
     QCOMPARE(model->columnCount(), 2);
@@ -1000,6 +1150,9 @@ void tst_QQmlTableModel::appendRowWithDouble()
 
     QSignalSpy rowCountSpy(model, SIGNAL(rowCountChanged()));
     QVERIFY(rowCountSpy.isValid());
+
+    QSignalSpy rowsChangedSpy(model, SIGNAL(rowsChanged()));
+    QVERIFY(rowsChangedSpy.isValid());
 
     QQuickTableView *tableView = view.rootObject()->property("tableView").value<QQuickTableView*>();
     QVERIFY(tableView);
@@ -1020,10 +1173,12 @@ void tst_QQmlTableModel::appendRowWithDouble()
              QLatin1String("3.5"));
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QTRY_COMPARE(tableView->rows(), 3);
     QCOMPARE(tableView->columns(), 2);
 
     rowCountSpy.clear();
+    rowsChangedSpy.clear();
 
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "appendStrawberry"));
     QCOMPARE(model->rowCount(), 4);
@@ -1035,13 +1190,15 @@ void tst_QQmlTableModel::appendRowWithDouble()
              QLatin1String("5"));
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 1);
+    QCOMPARE(rowsChangedSpy.size(), 1);
     QTRY_COMPARE(tableView->rows(), 4);
     QCOMPARE(tableView->columns(), 2);
 
     rowCountSpy.clear();
+    rowsChangedSpy.clear();
     QTest::ignoreMessage(QtWarningMsg,
                          QRegularExpression(".*appendRow\\(\\): failed converting value "
-                                            "QVariant\\(QString, \"Invalid\"\\) set at column 1 with "
+                                            "\"QVariant\\(QString, Invalid\\)\" set at column 1 with "
                                             "role \"QString\" to \"int\""));
     QVERIFY(QMetaObject::invokeMethod(view.rootObject(), "appendInvalid"));
     // Nothing should change
@@ -1049,6 +1206,7 @@ void tst_QQmlTableModel::appendRowWithDouble()
     QCOMPARE(model->columnCount(), 2);
     QCOMPARE(columnCountSpy.size(), 0);
     QCOMPARE(rowCountSpy.size(), 0);
+    QCOMPARE(rowsChangedSpy.size(), 0);
     QCOMPARE(tableView->rows(), 4);
     QCOMPARE(tableView->columns(), 2);
 }

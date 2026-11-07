@@ -4,10 +4,17 @@ layout(location = 0) in vec4 P;
 layout(location = 1) in vec2 A;
 layout(location = 2) in vec2 B;
 layout(location = 3) in vec2 C;
-layout(location = 4) in vec2 HG;
-layout(location = 5) in float offset;
+layout(location = 4) in vec4 HGOW; // H and G: args to solveDepressedCubic(); O: offset; W: strokeWidth
+
+#if defined(LINEARGRADIENT)
+layout(location = 5) in float gradTabIndex;
+#elif defined(RADIALGRADIENT) || defined(CONICALGRADIENT)
+layout(location = 5) in vec2 coord;
+#endif
 
 layout(location = 0) out vec4 fragColor;
+
+#define INVERSE_2PI 0.1591549430918953358
 
 layout(std140, binding = 0) uniform buf {
 #if QSHADER_VIEW_COUNT >= 2
@@ -18,16 +25,37 @@ layout(std140, binding = 0) uniform buf {
 
     float matrixScale;
     float opacity;
-    float reserved2;
-    float reserved3;
-
-    vec4 strokeColor;
-
+    float devicePixelRatio;
     float strokeWidth;
+
+#if defined(LINEARGRADIENT)
+    vec2 gradientStart;
+    vec2 gradientEnd;
+#elif defined(RADIALGRADIENT)
+    vec2 translationPoint;
+    vec2 focalToCenter;
+    float centerRadius;
+    float focalRadius;
+    float reserved3;
+    float reserved4;
+#elif defined(CONICALGRADIENT)
+    vec2 translationPoint;
+    float angle;
+    float reserved3;
+#else
+    vec4 strokeColor;
+#endif
+
     float debug;
     float reserved5;
     float reserved6;
+    float reserved7;
 } ubuf;
+
+#if defined(LINEARGRADIENT) || defined(RADIALGRADIENT) || defined(CONICALGRADIENT)
+layout(binding = 1) uniform sampler2D gradTabTexture;
+#endif
+
 
 float cuberoot(float x)
 {
@@ -36,19 +64,27 @@ float cuberoot(float x)
 
 #define PI 3.1415926538
 
-vec3 solveDepressedCubic(float p, float q)
+// Cardano's formula for the solution of
+// t^3 + G(x,y)t + H(x,y) = 0
+// H and G are interpolated from hull positions
+// returns 3 possible values of t (roots)
+vec3 solveDepressedCubic(float H, float G)
 {
-    float D = q * q / 4. + p * p * p / 27.;
+    // discriminant
+    float D = G * G / 4. + H * H * H / 27.;
 
-    float u1 = cuberoot(-q / 2. - sqrt(D));
-    float u2 = cuberoot(-q / 2. + sqrt(D));
-    vec3 rootsD1 = vec3(u1 - p / (3. * u1), u2 - p / (3. * u2), 0);
+    float u1 = cuberoot(-G / 2. - sqrt(D));
+    float u2 = cuberoot(-G / 2. + sqrt(D));
+    vec3 rootsD1 = vec3(u1 - H / (3. * u1), u2 - H / (3. * u2), 0);
 
-    float v = 2.*sqrt(-p / 3.);
-    float t = acos(3. * q / p / v) / 3.;
+    float v = 2.*sqrt(-H / 3.);
+    float t = acos(3. * G / H / v) / 3.;
     float k = 2. * PI / 3.;
     vec3 rootsD2 = vec3(v * cos(t), v * cos(t - k), v * cos(t - 2. * k));
 
+    // D > 0 : one real root (and two complex conjugate roots)
+    // D < 0 : three real roots, trigonometric solution
+    // D == 0: two of the real roots are equal
     return D > 0 ? rootsD1 : rootsD2;
 }
 
@@ -68,10 +104,45 @@ mat2 qInverse(mat2 matrix) {
     return inverseMatrix;
 }
 
+vec4 baseColor()
+{
+#if defined(LINEARGRADIENT)
+    return texture(gradTabTexture, vec2(gradTabIndex, 0.5));
+#elif defined(RADIALGRADIENT)
+    float rd = ubuf.centerRadius - ubuf.focalRadius;
+    float b = 2.0 * (rd * ubuf.focalRadius + dot(coord, ubuf.focalToCenter));
+    float fmp2_m_radius2 = -ubuf.focalToCenter.x * ubuf.focalToCenter.x - ubuf.focalToCenter.y * ubuf.focalToCenter.y + rd * rd;
+    float inverse_2_fmp2_m_radius2 = 1.0 / (2.0 * fmp2_m_radius2);
+    float det = b * b - 4.0 * fmp2_m_radius2 * ((ubuf.focalRadius * ubuf.focalRadius) - dot(coord, coord));
+    vec4 result = vec4(0.0);
+    if (det >= 0.0) {
+        float detSqrt = sqrt(det);
+        float w = max((-b - detSqrt) * inverse_2_fmp2_m_radius2, (-b + detSqrt) * inverse_2_fmp2_m_radius2);
+        if (ubuf.focalRadius + w * (ubuf.centerRadius - ubuf.focalRadius) >= 0.0)
+            result = texture(gradTabTexture, vec2(w, 0.5));
+    }
+
+    return result;
+#elif defined(CONICALGRADIENT)
+    float t;
+    if (abs(coord.y) == abs(coord.x))
+        t = (atan(-coord.y + 0.002, coord.x) + ubuf.angle) * INVERSE_2PI;
+    else
+        t = (atan(-coord.y, coord.x) + ubuf.angle) * INVERSE_2PI;
+    return texture(gradTabTexture, vec2(t - floor(t), 0.5));
+#else
+    return vec4(ubuf.strokeColor.rgb, 1.0) * ubuf.strokeColor.a;
+#endif
+
+}
+
 void main()
 {
-    vec3 s = solveDepressedCubic(HG.x, HG.y) - vec3(offset, offset, offset);
+    float offset = HGOW.z;
+    vec3 s = solveDepressedCubic(HGOW.x, HGOW.y) - vec3(offset, offset, offset);
 
+    // choose the value of s that minimizes the distance from our pixel to the point on the curve
+    // stay in the logical coordinate system for now
     vec2 Qmin = vec2(1e10, 1e10);
     float dmin = 1e4;
     for (int i = 0; i < 3; i++) {
@@ -83,8 +154,8 @@ void main()
         Qmin = foundNewMin * Q + (1. - foundNewMin) * Qmin;
     }
     vec2 n = (P.xy - Qmin) / dmin;
-    vec2 Q1 = (Qmin + ubuf.strokeWidth / 2. * n);
-    vec2 Q2 = (Qmin - ubuf.strokeWidth / 2. * n);
+    vec2 Q1 = (Qmin + HGOW.w / 2. * n);
+    vec2 Q2 = (Qmin - HGOW.w / 2. * n);
 
     // Converting to screen coordinates:
 #if defined(USE_DERIVATIVES)
@@ -126,9 +197,9 @@ void main()
     float fillCoverage = fillCoverageDia;
 
     // The center line is sometimes not filled because of numerical issues. This fixes this.
-    float centerline = step(ubuf.strokeWidth * 0.01, dmin);
-    fillCoverage = fillCoverage * centerline + min(1., ubuf.strokeWidth * ubuf.matrixScale) * (1. - centerline);
+    float centerline = step(HGOW.w * 0.01, dmin);
+    fillCoverage = fillCoverage * centerline + min(1., HGOW.w * ubuf.matrixScale) * (1. - centerline);
 
-    fragColor = vec4(ubuf.strokeColor.rgb, 1.0) *ubuf.strokeColor.a * fillCoverage * ubuf.opacity
+    fragColor = baseColor() * fillCoverage * ubuf.opacity
                 + ubuf.debug * vec4(0.0, 0.5, 1.0, 1.0) * (1.0 - fillCoverage) * ubuf.opacity;
 }

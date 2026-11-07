@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTABLEINSTANCEMODEL_P_H
 #define QQMLTABLEINSTANCEMODEL_P_H
@@ -26,6 +27,7 @@ QT_BEGIN_NAMESPACE
 
 class QQmlTableInstanceModel;
 class QQmlAbstractDelegateComponent;
+class QTypeRevision;
 
 class QQmlTableInstanceModelIncubationTask : public QQDMIncubationTask
 {
@@ -72,9 +74,21 @@ public:
     QQmlComponent *delegate() const;
     void setDelegate(QQmlComponent *);
 
+    QQmlDelegateModel::DelegateModelAccess delegateModelAccess() const
+    {
+        return m_adaptorModel.delegateModelAccess;
+    }
+    void setDelegateModelAccess(QQmlDelegateModel::DelegateModelAccess delegateModelAccess)
+    {
+        m_adaptorModel.delegateModelAccess = delegateModelAccess;
+    }
+
     const QAbstractItemModel *abstractItemModel() const override;
 
     QObject *object(int index, QQmlIncubator::IncubationMode incubationMode = QQmlIncubator::AsynchronousIfNested) override;
+    QObject *incubateModelItemIfNeeded(QQmlDelegateModelItem *modelItem, QQmlIncubator::IncubationMode incubationMode);
+    void restoreFromReleasedItemsCache(QQmlDelegateModelItem *item, int newFlatIndex);
+    void commitReleasedItems();
     ReleaseFlags release(QObject *object, ReusableFlag reusable = NotReusable) override;
     void dispose(QObject *object);
     void cancel(int) override;
@@ -90,6 +104,11 @@ public:
     QVariant variantValue(int, const QString &) override { Q_UNREACHABLE_RETURN(QVariant()); }
     void setWatchedRoles(const QList<QByteArray> &) override { Q_UNREACHABLE(); }
     int indexOf(QObject *, QObject *) const override { Q_UNREACHABLE_RETURN(0); }
+
+    QQmlDelegateModelItem *getModelItem(int index);
+
+signals:
+    void modelChanged();
 
 private:
     enum DestructionMode {
@@ -107,17 +126,19 @@ private:
 
     QHash<int, QQmlDelegateModelItem *> m_modelItems;
     QQmlReusableDelegateModelItemsPool m_reusableItemsPool;
+    QList<QQmlDelegateModelItem *> m_releasedItems;
     QList<QQmlIncubator *> m_finishedIncubationTasks;
 
     void incubateModelItem(QQmlDelegateModelItem *modelItem, QQmlIncubator::IncubationMode incubationMode);
     void incubatorStatusChanged(QQmlTableInstanceModelIncubationTask *dmIncubationTask, QQmlIncubator::Status status);
     void deleteIncubationTaskLater(QQmlIncubator *incubationTask);
     void deleteAllFinishedIncubationTasks();
-    QQmlDelegateModelItem *resolveModelItem(int index);
+    QQmlDelegateModelItem *resolveModelItem(int flatIndex, const QModelIndex &modelIndex);
     void destroyModelItem(QQmlDelegateModelItem *modelItem, DestructionMode mode);
 
-    void dataChangedCallback(const QModelIndex &begin, const QModelIndex &end, const QVector<int> &roles);
+    void dataChangedCallback(const QModelIndex &begin, const QModelIndex &end, const QList<int> &roles);
     void modelAboutToBeResetCallback();
+    void forceSetModel(const QVariant &model);
 
     static bool isDoneIncubating(QQmlDelegateModelItem *modelItem);
     static void deleteModelItemLater(QQmlDelegateModelItem *modelItem);

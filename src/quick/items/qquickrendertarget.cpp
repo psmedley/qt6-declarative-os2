@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickrendertarget_p.h"
 #include <rhi/qrhi.h>
@@ -1585,7 +1586,7 @@ static bool createRhiRenderTargetMultiView(QRhiTexture *texture,
         if (maybeCustomDepthTexture)
             format = maybeCustomDepthTexture->format();
         else
-            format = rhi->isTextureFormatSupported(QRhiTexture::D24S8) ? QRhiTexture::D24S8 : QRhiTexture::D32F;
+            format = rhi->isTextureFormatSupported(QRhiTexture::D24S8) ? QRhiTexture::D24S8 : QRhiTexture::D32FS8;
         depthStencil.reset(rhi->newTextureArray(format, arraySize, pixelSize, sampleCount, QRhiTexture::RenderTarget));
         depthStencil->setName(QByteArrayLiteral("Depth-stencil buffer (multiview) for QQuickRenderTarget"));
         if (!depthStencil->create()) {

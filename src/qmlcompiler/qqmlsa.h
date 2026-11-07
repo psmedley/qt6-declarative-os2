@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLSA_H
 #define QQMLSA_H
@@ -31,6 +32,7 @@ namespace QQmlSA {
 
 class BindingPrivate;
 class BindingsPrivate;
+class DocumentEditPrivate;
 class Element;
 class ElementPass;
 class FixSuggestion;
@@ -42,7 +44,6 @@ class PassManager;
 class PassManagerPrivate;
 class PropertyPass;
 class PropertyPrivate;
-struct BindingInfo;
 struct PropertyPassInfo;
 
 enum class MethodType { Signal, Slot, Method, StaticMethod };
@@ -79,16 +80,25 @@ public:
     ~Binding();
 
     Element groupType() const;
+    Element bindingScope() const;
     BindingType bindingType() const;
     QString stringValue() const;
     QString propertyName() const;
+    bool isAttached() const;
+    Element attachedType() const;
+
+#if QT_DEPRECATED_SINCE(6, 9)
+    QT_DEPRECATED_X("Use attachedType()")
     Element attachingType() const;
+#endif
+
     QQmlSA::SourceLocation sourceLocation() const;
     double numberValue() const;
     ScriptBindingKind scriptKind() const;
     bool hasObject() const;
     Element objectType() const;
     bool hasUndefinedScriptValue() const;
+    bool hasFunctionScriptValue() const;
 
     friend bool operator==(const Binding &lhs, const Binding &rhs)
     {
@@ -210,6 +220,7 @@ public:
     QString baseTypeName() const;
     Element parentScope() const;
     bool inherits(const Element &) const;
+    bool isFileRootComponent() const;
 
     bool isNull() const;
     QString internalId() const;
@@ -226,6 +237,7 @@ public:
     Method::Methods ownMethods() const;
 
     QQmlSA::SourceLocation sourceLocation() const;
+    QQmlSA::SourceLocation idSourceLocation() const;
     QString filePath() const;
 
     bool hasPropertyBindings(const QString &name) const;
@@ -246,14 +258,14 @@ public:
     }
     friend inline bool operator!=(const Element &lhs, const Element &rhs) { return !(lhs == rhs); }
 
-    friend inline qsizetype qHash(const Element &key, qsizetype seed = 0) noexcept
+    friend size_t qHash(const Element &key, size_t seed = 0) noexcept
     {
-        return qHashImpl(key, seed);
+        return key.hash(seed);
     }
 
 private:
     static bool operatorEqualsImpl(const Element &, const Element &);
-    static qsizetype qHashImpl(const Element &key, qsizetype seed) noexcept;
+    Q_DECL_PURE_FUNCTION size_t hash(size_t seed) const noexcept;
 
     static constexpr qsizetype sizeofElement = 2 * sizeof(QSharedPointer<int>);
     alignas(QSharedPointer<int>) char m_data[sizeofElement];
@@ -316,9 +328,7 @@ public:
 
     bool isCategoryEnabled(LoggerWarningId category) const;
 
-    std::vector<std::shared_ptr<ElementPass>> elementPasses() const;
-    std::multimap<QString, PropertyPassInfo> propertyPasses() const;
-    std::unordered_map<quint32, BindingInfo> bindingsByLocation() const;
+    std::unordered_map<quint32, Binding> bindingsByLocation() const;
 
 private:
     PassManager();
@@ -348,6 +358,8 @@ public:
                            const QQmlSA::Element &value);
     virtual void onRead(const QQmlSA::Element &element, const QString &propertyName,
                         const QQmlSA::Element &readScope, QQmlSA::SourceLocation location);
+    virtual void onCall(const QQmlSA::Element &element, const QString &propertyName,
+                        const QQmlSA::Element &readScope, QQmlSA::SourceLocation location);
     virtual void onWrite(const QQmlSA::Element &element, const QString &propertyName,
                          const QQmlSA::Element &value, const QQmlSA::Element &writeScope,
                          QQmlSA::SourceLocation location);
@@ -362,24 +374,32 @@ public:
     virtual void run(const Element &element) = 0;
 };
 
-class Q_QMLCOMPILER_EXPORT DebugElementPass : public ElementPass
+class Q_QMLCOMPILER_EXPORT DocumentEdit
 {
-    void run(const Element &element) override;
-};
+    Q_DECLARE_PRIVATE(DocumentEdit)
+    Q_DECLARE_EQUALITY_COMPARABLE(DocumentEdit)
 
-class Q_QMLCOMPILER_EXPORT DebugPropertyPass : public QQmlSA::PropertyPass
-{
 public:
-    DebugPropertyPass(QQmlSA::PassManager *manager);
+    DocumentEdit(const QString &filename, const SourceLocation &location,
+                   const QString &replacement);
+    DocumentEdit(const DocumentEdit&);
+    DocumentEdit(DocumentEdit&&);
+    DocumentEdit &operator=(const DocumentEdit&);
+    DocumentEdit &operator=(DocumentEdit &&);
+    ~DocumentEdit();
 
-    void onRead(const QQmlSA::Element &element, const QString &propertyName,
-                const QQmlSA::Element &readScope, QQmlSA::SourceLocation location) override;
-    void onBinding(const QQmlSA::Element &element, const QString &propertyName,
-                   const QQmlSA::Binding &binding, const QQmlSA::Element &bindingScope,
-                   const QQmlSA::Element &value) override;
-    void onWrite(const QQmlSA::Element &element, const QString &propertyName,
-                 const QQmlSA::Element &value, const QQmlSA::Element &writeScope,
-                 QQmlSA::SourceLocation location) override;
+    QString filename() const;
+    SourceLocation location() const;
+    QString replacement() const;
+
+private:
+    friend bool comparesEqual(const DocumentEdit &self, const DocumentEdit &other) noexcept
+    {
+        return self.filename() == other.filename() && self.location() == other.location()
+                && self.replacement() == other.replacement();
+    }
+
+    std::unique_ptr<DocumentEditPrivate> d_ptr;
 };
 
 class Q_QMLCOMPILER_EXPORT FixSuggestion
@@ -387,23 +407,24 @@ class Q_QMLCOMPILER_EXPORT FixSuggestion
     Q_DECLARE_PRIVATE(FixSuggestion)
 
 public:
-    FixSuggestion(const QString &fixDescription, const QQmlSA::SourceLocation &location,
-                  const QString &replacement = QString());
+    FixSuggestion(const QString &description, const QQmlSA::SourceLocation &location,
+                  const DocumentEdit &documentEdit);
+    FixSuggestion(const QString &description, const QQmlSA::SourceLocation &location,
+                  const QList<DocumentEdit> &documentEdits = {});
     FixSuggestion(const FixSuggestion &);
     FixSuggestion(FixSuggestion &&) noexcept;
     FixSuggestion &operator=(const FixSuggestion &);
     FixSuggestion &operator=(FixSuggestion &&) noexcept;
     ~FixSuggestion();
 
-    QString fixDescription() const;
+    QString description() const;
     QQmlSA::SourceLocation location() const;
-    QString replacement() const;
+
+    void addDocumentEdit(const DocumentEdit &);
+    QList<DocumentEdit> documentEdits() const;
 
     void setFileName(const QString &);
     QString fileName() const;
-
-    void setHint(const QString &);
-    QString hint() const;
 
     void setAutoApplicable(bool autoApplicable = true);
     bool isAutoApplicable() const;

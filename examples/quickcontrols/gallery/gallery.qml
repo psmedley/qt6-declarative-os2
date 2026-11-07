@@ -46,7 +46,7 @@ ApplicationWindow {
     }
 
     Shortcut {
-        sequence: StandardKey.HelpContents
+        sequences: [StandardKey.HelpContents]
         onActivated: window.help()
     }
 
@@ -63,11 +63,6 @@ ApplicationWindow {
         }
     }
 
-    Shortcut {
-        sequence: "Menu"
-        onActivated: optionsMenuAction.trigger()
-    }
-
     Action {
         id: optionsMenuAction
         icon.name: "menu"
@@ -81,6 +76,7 @@ ApplicationWindow {
             anchors.leftMargin: !window.portraitMode ? drawer.width : undefined
 
             ToolButton {
+                Accessible.name: qsTr("Toggle drawer")
                 action: navigateBackAction
                 visible: window.portraitMode
             }
@@ -97,6 +93,7 @@ ApplicationWindow {
 
             ToolButton {
                 action: optionsMenuAction
+                Accessible.name: qsTr("Open options menu")
 
                 Menu {
                     id: optionsMenu
@@ -148,21 +145,28 @@ ApplicationWindow {
                 ListElement { title: qsTr("Delegates"); source: "qrc:/pages/DelegatePage.qml" }
                 ListElement { title: qsTr("Frame"); source: "qrc:/pages/FramePage.qml" }
                 ListElement { title: qsTr("GroupBox"); source: "qrc:/pages/GroupBoxPage.qml" }
+                ListElement { title: qsTr("MenuBar"); source: "qrc:/pages/MenuBarPage.qml" }
+                ListElement { title: qsTr("MonthGrid"); source: "qrc:/pages/MonthGridPage.qml" }
                 ListElement { title: qsTr("PageIndicator"); source: "qrc:/pages/PageIndicatorPage.qml" }
                 ListElement { title: qsTr("ProgressBar"); source: "qrc:/pages/ProgressBarPage.qml" }
                 ListElement { title: qsTr("RadioButton"); source: "qrc:/pages/RadioButtonPage.qml" }
                 ListElement { title: qsTr("RangeSlider"); source: "qrc:/pages/RangeSliderPage.qml" }
                 ListElement { title: qsTr("ScrollBar"); source: "qrc:/pages/ScrollBarPage.qml" }
                 ListElement { title: qsTr("ScrollIndicator"); source: "qrc:/pages/ScrollIndicatorPage.qml" }
+                ListElement { title: qsTr("SearchField"); source: "qrc:/pages/SearchFieldPage.qml" }
                 ListElement { title: qsTr("Slider"); source: "qrc:/pages/SliderPage.qml" }
-                ListElement { title: qsTr("SpinBox"); source: "qrc:/pages/SpinBoxPage.qml" }
+                ListElement { title: qsTr("Spin boxes"); source: "qrc:/pages/SpinBoxPage.qml" }
+                ListElement { title: qsTr("SplitView"); source: "qrc:/pages/SplitViewPage.qml" }
                 ListElement { title: qsTr("StackView"); source: "qrc:/pages/StackViewPage.qml" }
                 ListElement { title: qsTr("SwipeView"); source: "qrc:/pages/SwipeViewPage.qml" }
                 ListElement { title: qsTr("Switch"); source: "qrc:/pages/SwitchPage.qml" }
                 ListElement { title: qsTr("TabBar"); source: "qrc:/pages/TabBarPage.qml" }
+                ListElement { title: qsTr("TableView"); source: "qrc:/pages/TableViewPage.qml" }
                 ListElement { title: qsTr("TextArea"); source: "qrc:/pages/TextAreaPage.qml" }
                 ListElement { title: qsTr("TextField"); source: "qrc:/pages/TextFieldPage.qml" }
+                ListElement { title: qsTr("ToolBar"); source: "qrc:/pages/ToolBarPage.qml" }
                 ListElement { title: qsTr("ToolTip"); source: "qrc:/pages/ToolTipPage.qml" }
+                ListElement { title: qsTr("TreeView"); source: "qrc:/pages/TreeViewPage.qml" }
                 ListElement { title: qsTr("Tumbler"); source: "qrc:/pages/TumblerPage.qml" }
             }
 
@@ -178,6 +182,9 @@ ApplicationWindow {
                 required property string source
 
                 onClicked: {
+                    if (stackView.depth > 1)
+                        return
+
                     listView.currentIndex = index
                     stackView.push(source)
                     if (window.portraitMode)
@@ -241,6 +248,7 @@ ApplicationWindow {
         standardButtons: Dialog.Ok | Dialog.Cancel
         onAccepted: {
             settings.style = styleBox.displayText
+            GalleryConfig.disabled = disableControlsCheckBox.checked
             settingsDialog.close()
         }
         onRejected: {
@@ -272,10 +280,56 @@ ApplicationWindow {
                 }
             }
 
+            RowLayout {
+                id: colorSchemes
+                // Some Qt Quick styles prioritize the respective design system guidelines
+                // over the system palette.
+                enabled: ["FluentWinUI3", "Fusion", "iOS", "Basic"].includes(styleBox.currentText)
+                CheckBox {
+                    id: autoColorScheme
+                    checked: true
+                    text: qsTr("Auto")
+                }
+                CheckBox {
+                    id: darkColorScheme
+                    text: qsTr("Dark Mode")
+                }
+                CheckBox {
+                    id: lightColorScheme
+                    text: qsTr("Light Mode")
+                }
+                ButtonGroup {
+                    exclusive: true
+                    buttons: colorSchemes.children
+                    onCheckedButtonChanged: {
+                        let scheme;
+                        switch (checkedButton) {
+                            case autoColorScheme:
+                                scheme = Qt.Unknown
+                                break;
+                            case darkColorScheme:
+                                scheme = Qt.Dark
+                                break;
+                            case lightColorScheme:
+                                scheme = Qt.Light
+                                break;
+                        }
+                        Qt.styleHints.colorScheme = scheme
+                    }
+                }
+            }
+
             CheckBox {
                 id: orientationCheckBox
                 text: qsTr("Enable Landscape")
                 checked: false
+                Layout.fillWidth: true
+            }
+
+            CheckBox {
+                id: disableControlsCheckBox
+                checked: GalleryConfig.disabled
+                text: qsTr("Disable Controls")
                 Layout.fillWidth: true
             }
 

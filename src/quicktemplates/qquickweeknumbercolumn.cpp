@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickweeknumbercolumn_p.h"
 #include "qquickweeknumbermodel_p.h"
@@ -20,14 +21,16 @@ QT_BEGIN_NAMESPACE
     are calculated for a given \l month and \l year, using the specified
     \l {Control::locale}{locale}.
 
-    \image qtquickcontrols-weeknumbercolumn.png
+    \image qtquickcontrols-weeknumbercolumn.webp
+           {Week number column displaying week numbers}
     \snippet qtquickcontrols-weeknumbercolumn.qml 1
 
     WeekNumberColumn can be used as a standalone control, but it is most
     often used in conjunction with MonthGrid. Regardless of the use case,
     positioning of the column is left to the user.
 
-    \image qtquickcontrols-weeknumbercolumn-layout.png
+    \image qtquickcontrols-weeknumbercolumn-layout.webp
+           {Week number column in calendar layout}
     \snippet qtquickcontrols-weeknumbercolumn-layout.qml 1
 
     The visual appearance of WeekNumberColumn can be changed by
@@ -160,6 +163,8 @@ void QQuickWeekNumberColumn::setSource(const QVariant &source)
     delegates.
 
     \snippet basic/WeekNumberColumn.qml delegate
+
+    \include delegate-ownership.qdocinc {no-ownership} {WeekNumberColumn}
 */
 QQmlComponent *QQuickWeekNumberColumn::delegate() const
 {

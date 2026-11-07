@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import Qt.labs.folderlistmodel
 import QtQuick
@@ -18,12 +19,12 @@ FolderDialogImpl {
     // Can't set implicitWidth of the NinePatchImage background, so we do it here.
     implicitWidth: Math.max(600,
                             implicitBackgroundWidth + leftInset + rightInset,
-                            contentWidth + leftPadding + rightPadding,
+                            implicitContentWidth + leftPadding + rightPadding,
                             implicitHeaderWidth,
                             implicitFooterWidth)
     implicitHeight: Math.max(400,
                              implicitBackgroundHeight + topInset + bottomInset,
-                             contentHeight + topPadding + bottomPadding
+                             implicitContentHeight + topPadding + bottomPadding
                              + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
                              + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 

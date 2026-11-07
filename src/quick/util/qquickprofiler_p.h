@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPROFILER_P_H
 #define QQUICKPROFILER_P_H
@@ -22,6 +23,7 @@
 #include <QtQml/private/qqmlprofilerdefinitions_p.h>
 #endif
 
+#include <QtCore/private/qnumeric_p.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qsize.h>
 #include <QtCore/qmutex.h>
@@ -121,15 +123,15 @@ private:
         qint64 values[size][s_numSceneGraphTimings + 1];
     };
 
-    QThreadStorage<TimingData<NumRenderThreadFrameTypes> > renderThreadTimings;
-    TimingData<NumGUIThreadFrameTypes> guiThreadTimings;
+    static inline thread_local TimingData<NumRenderThreadFrameTypes> renderThreadTimings = {};
+    TimingData<NumGUIThreadFrameTypes> guiThreadTimings = {};
 
 public:
     template<SceneGraphFrameType type>
     qint64 *timings()
     {
         if constexpr (type < NumRenderThreadFrameTypes)
-            return renderThreadTimings.localData().values[type];
+            return renderThreadTimings.values[type];
         else
             return guiThreadTimings.values[type - NumRenderThreadFrameTypes];
     }
@@ -206,11 +208,12 @@ public:
 
     static void animationFrame(qint64 delta, AnimationThread threadId)
     {
-        int animCount = QUnifiedTimer::instance()->runningAnimationCount();
+        const qsizetype animCount = QUnifiedTimer::instance()->runningAnimationCount();
 
         if (animCount > 0 && delta > 0) {
             s_instance->processMessage(QQuickProfilerData(s_instance->timestamp(), 1 << Event,
-                    1 << AnimationFrame, 1000 / (int)delta /* trim fps to integer */, animCount,
+                    1 << AnimationFrame, 1000 / (int)delta /* trim fps to integer */,
+                    qt_saturate<int>(animCount),
                     threadId));
         }
     }
@@ -300,7 +303,7 @@ public:
     ~QQuickProfiler() override;
 
 Q_SIGNALS:
-    void dataReady(const QVector<QQuickProfilerData> &data);
+    void dataReady(const QList<QQuickProfilerData> &data);
 
 protected:
     friend class QQuickProfilerAdapter;
@@ -308,7 +311,7 @@ protected:
     static QQuickProfiler *s_instance;
     QMutex m_dataMutex;
     QElapsedTimer m_timer;
-    QVector<QQuickProfilerData> m_data;
+    QList<QQuickProfilerData> m_data;
     QQuickProfilerSceneGraphData m_sceneGraphData;
 
     QQuickProfiler(QObject *parent);

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGCONTEXT_H
 #define QSGCONTEXT_H
@@ -33,6 +34,8 @@
 #include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcQsgLeak)
 
 class QSGContextPrivate;
 class QSGInternalRectangleNode;
@@ -101,7 +104,7 @@ public:
     virtual QSGInternalImageNode *createInternalImageNode(QSGRenderContext *renderContext) = 0;
     virtual QSGInternalTextNode *createInternalTextNode(QSGRenderContext *renderContext);
     virtual QSGPainterNode *createPainterNode(QQuickPaintedItem *item) = 0;
-    virtual QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, QSGTextNode::RenderType renderType, int renderTypeQuality) = 0;
+    virtual QSGGlyphNode *createGlyphNode(QSGRenderContext *rc, QSGTextNode::RenderType renderType) = 0;
     virtual QSGLayer *createLayer(QSGRenderContext *renderContext) = 0;
     virtual QSGGuiThreadShaderEffectManager *createGuiThreadShaderEffectManager();
     virtual QSGShaderEffectNode *createShaderEffectNode(QSGRenderContext *renderContext);
@@ -121,6 +124,8 @@ public:
     virtual QSGRectangleNode *createRectangleNode() = 0;
     virtual QSGImageNode *createImageNode() = 0;
     virtual QSGNinePatchNode *createNinePatchNode() = 0;
+
+    virtual QSGTextNode::RenderType processTextRenderType(QSGTextNode::RenderType renderType) = 0;
 
     static QSGContext *createDefaultContext();
     static QQuickTextureFactory *createTextureFactoryFromImage(const QImage &image);
@@ -167,6 +172,7 @@ public:
 
     virtual void preprocess();
     virtual void invalidateGlyphCaches();
+    virtual void flushGlyphCaches();
     virtual QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font, int renderTypeQuality);
     virtual QSGCurveGlyphAtlas *curveGlyphAtlas(const QRawFont &font);
     QSGTexture *textureForFactory(QQuickTextureFactory *factory, QQuickWindow *window);
@@ -211,6 +217,7 @@ protected:
     QHash<QObject *, QSGTexture *> m_textures;
     QSet<QSGTexture *> m_texturesToDelete;
     QHash<FontKey, QSGDistanceFieldGlyphCache *> m_glyphCaches;
+    QList<QSGDistanceFieldGlyphCache *> m_staleGlyphCaches;
 
     // References to font engines that are currently in use by native rendering glyph nodes
     // and which must be kept alive as long as they are used in the render thread.

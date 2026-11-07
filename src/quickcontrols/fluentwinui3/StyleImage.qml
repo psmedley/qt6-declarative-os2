@@ -1,8 +1,13 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 
+@Deprecated {
+    reason: "StyleImage component has been moved to private FluentWinUI3.impl module \
+    and is no longer part of the public QML API."
+}
 // This item will resize the child image in such a way that any drop shadow
 // or blur (or other effects) will be drawn outside its own bounds.
 // The effect is that users of this item won't have to take e.g shadows
@@ -11,6 +16,12 @@ import QtQuick
 
 Item {
     id: root
+
+    Component.onCompleted: {
+        print("StyleImage has been moved to private FluentWinUI3.impl module "
+             + "and is no longer part of the public QML API.")
+    }
+
     implicitWidth: horizontal ? imageConfig.width : imageConfig.height
     implicitHeight: horizontal ? imageConfig.height : imageConfig.width
 

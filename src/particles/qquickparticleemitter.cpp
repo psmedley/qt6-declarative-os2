@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
+#include <QtCore/qtconfigmacros.h>
 #undef QT_NO_FOREACH // this file contains unported legacy Q_FOREACH uses
 
 #include "qquickparticleemitter_p.h"
@@ -164,19 +165,19 @@ QT_BEGIN_NAMESPACE
     high-volume particle systems.
 */
 
-/*! \qmlmethod QtQuick.Particles::Emitter::burst(int count)
+/*! \qmlmethod void QtQuick.Particles::Emitter::burst(int count)
 
     Emits a number of particles, specified by \a count, from this emitter immediately.
 */
 
-/*! \qmlmethod QtQuick.Particles::Emitter::burst(int count, int x, int y)
+/*! \qmlmethod void QtQuick.Particles::Emitter::burst(int count, int x, int y)
 
     Emits a number of particles, specified by \a count, from this emitter immediately.
     The particles are emitted as if the Emitter was positioned at (\a {x}, \a {y}) but
     all other properties are the same.
 */
 
-/*! \qmlmethod QtQuick.Particles::Emitter::pulse(int duration)
+/*! \qmlmethod void QtQuick.Particles::Emitter::pulse(int duration)
 
     If the emitter is not enabled, enables it for a specified \a duration
     (in milliseconds) and then switches it back off.
@@ -227,6 +228,12 @@ bool QQuickParticleEmitter::isEmitConnected()
             this, QQuickParticleEmitter, emitParticles, (const QList<QQuickV4ParticleData> &));
 }
 
+void QQuickParticleEmitter::callSystemEmittersChanged()
+{
+    if (m_system && isComponentComplete())
+        m_system->emittersChanged();
+}
+
 void QQuickParticleEmitter::reclaculateGroupId() const
 {
     if (!m_system) {
@@ -272,12 +279,12 @@ void QQuickParticleEmitter::pulse(int milliseconds)
 
 void QQuickParticleEmitter::burst(int num)
 {
-    m_burstQueue << qMakePair(num, QPointF(x(), y()));
+    m_burstQueue << std::make_pair(num, QPointF(x(), y()));
 }
 
 void QQuickParticleEmitter::burst(int num, qreal x, qreal y)
 {
-    m_burstQueue << qMakePair(num, QPointF(x, y));
+    m_burstQueue << std::make_pair(num, QPointF(x, y));
 }
 
 void QQuickParticleEmitter::setMaxParticleCount(int arg)
@@ -296,6 +303,7 @@ void QQuickParticleEmitter::setMaxParticleCount(int arg)
         }
         m_overwrite = arg < 0;
         m_maxParticleCount = arg;
+        callSystemEmittersChanged();
         emit maximumEmittedChanged(arg);
         emit particleCountChanged();
     }

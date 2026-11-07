@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -38,6 +39,10 @@ T.TextArea {
 
     Material.containerStyle: Material.Outlined
 
+    ContextMenu.menu: TextEditingContextMenu {
+        editor: control
+    }
+
     cursorDelegate: CursorDelegate { }
 
     FloatingPlaceholderText {
@@ -46,6 +51,7 @@ T.TextArea {
         text: control.placeholderText
         font: control.font
         color: control.placeholderTextColor
+        wrapMode: control.wrapMode
         elide: Text.ElideRight
         renderType: control.renderType
         // When the TextArea is in a Flickable, the background is reparented to it

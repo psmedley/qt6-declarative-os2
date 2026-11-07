@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSUTILS_P_H
 #define QQMLJSUTILS_P_H
@@ -17,7 +18,6 @@
 #include <qtqmlcompilerexports.h>
 
 #include "qqmljslogger_p.h"
-#include "qqmljsregistercontent_p.h"
 #include "qqmljsresourcefilemapper_p.h"
 #include "qqmljsscope_p.h"
 #include "qqmljsmetatypes_p.h"
@@ -74,13 +74,13 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
         Returns escaped version of \a s. This function is mostly useful for code
         generators.
     */
-    static QString escapeString(QString s)
+    template<typename String, typename CharacterLiteral, typename StringView>
+    static String escapeString(String s)
     {
-        using namespace Qt::StringLiterals;
-        return s.replace('\\'_L1, "\\\\"_L1)
-                .replace('"'_L1, "\\\""_L1)
-                .replace('\n'_L1, "\\n"_L1)
-                .replace('?'_L1, "\\?"_L1);
+        return s.replace(CharacterLiteral('\\'), StringView("\\\\"))
+                .replace(CharacterLiteral('"'), StringView("\\\""))
+                .replace(CharacterLiteral('\n'), StringView("\\n"))
+                .replace(CharacterLiteral('?'), StringView("\\?"));
     }
 
     /*! \internal
@@ -90,9 +90,14 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
 
         \note This function escapes \a s before wrapping it.
     */
-    static QString toLiteral(const QString &s, QStringView ctor = u"QStringLiteral")
+    template<
+            typename String = QString,
+            typename CharacterLiteral = QLatin1Char,
+            typename StringView = QLatin1StringView>
+    static String toLiteral(const String &s, StringView ctor = StringView("QStringLiteral"))
     {
-        return ctor % u"(\"" % escapeString(s) % u"\")";
+        return ctor % StringView("(\"")
+                % escapeString<String, CharacterLiteral, StringView>(s) % StringView("\")");
     }
 
     /*! \internal
@@ -203,7 +208,7 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
                                       const AliasResolutionVisitor &visitor);
 
     template<typename QQmlJSScopePtr, typename Action>
-    static bool searchBaseAndExtensionTypes(QQmlJSScopePtr type, const Action &check)
+    static bool searchBaseAndExtensionTypes(const QQmlJSScopePtr &type, const Action &check)
     {
         if (!type)
             return false;
@@ -242,12 +247,18 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
         for (T scope = type; scope && !seen.hasSeen(scope);
              scope = getQQmlJSScopeFromSmartPtr<QQmlJSScopePtr>(scope->baseType())) {
             QDuplicateTracker<T> seenExtensions;
-            // Extensions override the types they extend. However, usually base
-            // types of extensions are ignored. The unusual cases are when we
+            // Extensions override the types they extend unless they are JavaScript extensions.
+            // However, usually base types of extensions are ignored. The unusual cases are when we
             // have a value or sequence type or when we have the QObject type, in which
             // case we also study the extension's base type hierarchy.
             const bool isQObject = scope->internalName() == QLatin1String("QObject");
             auto [extensionPtr, extensionKind] = scope->extensionType();
+
+            if (extensionKind == QQmlJSScope::ExtensionJavaScript
+                    && checkWrapper(scope, QQmlJSScope::NotExtension)) {
+                return true;
+            }
+
             auto extension = getQQmlJSScopeFromSmartPtr<QQmlJSScopePtr>(extensionPtr);
             do {
                 if (!extension || seenExtensions.hasSeen(extension))
@@ -258,8 +269,10 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
                 extension = getQQmlJSScopeFromSmartPtr<QQmlJSScopePtr>(extension->baseType());
             } while (isValueOrSequenceType || isQObject);
 
-            if (checkWrapper(scope, QQmlJSScope::NotExtension))
+            if (extensionKind != QQmlJSScope::ExtensionJavaScript
+                    && checkWrapper(scope, QQmlJSScope::NotExtension)) {
                 return true;
+            }
         }
 
         return false;
@@ -361,9 +374,10 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
             act(begin->scope, begin->extensionSpecifier);
     }
 
-    static std::optional<QQmlJSFixSuggestion> didYouMean(const QString &userInput,
-                                                   QStringList candidates,
-                                                   QQmlJS::SourceLocation location);
+
+    static std::optional<QQmlJSFixSuggestion> didYouMean(
+            const QString &userInput, QStringList candidates, const QString &filename,
+            const QQmlJS::SourceLocation &location);
 
     static std::variant<QString, QQmlJS::DiagnosticMessage>
     sourceDirectoryPath(const QQmlJSImporter *importer, const QString &buildDirectoryPath);
@@ -388,6 +402,9 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSUtils
                                               const QString &pathInBuildFolder);
     static QString qmlBuildPathFromSourcePath(const QQmlJSResourceFileMapper *mapper,
                                               const QString &pathInBuildFolder);
+
+    static QString getScopeName(const QQmlJSScope::ConstPtr &scope, QQmlJSScope::ScopeType type);
+    static QString fileSelectorFor(const QQmlJSScope::ConstPtr &scope1);
 };
 
 bool Q_QMLCOMPILER_EXPORT canStrictlyCompareWithVar(

@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDELIVERYAGENT_P_P_H
 #define QQUICKDELIVERYAGENT_P_P_H
@@ -17,7 +18,9 @@
 
 #include <QtQuick/private/qquickdeliveryagent_p.h>
 #include <QtGui/qevent.h>
+#include <QtCore/qelapsedtimer.h>
 #include <QtCore/qstack.h>
+#include <QtCore/qxpfunctional.h>
 
 #include <private/qevent_p.h>
 #include <private/qpointingdevice_p.h>
@@ -35,11 +38,18 @@ class QQuickPointerHandler;
 class QQuickWindow;
 
 /*! \internal
-    Extra device-specific data to be stored in QInputDevicePrivate::qqExtra
+    Extra device-specific data to be stored in QInputDevicePrivate::qqExtra.
+
+    \c deliveryTargets is a list of objects that have already been visited
+    during event delivery:
+    - QQuickPointerHandlerPrivate::deviceDeliveryTargets() returns the whole
+      list by reference
+    - QQuickPointerHandler::handlePointerEvent() appends to it
+    - QQuickItemPrivate::handlePointerEvent() checks it to prevent delivery to
+      the same handler multiple times
 */
 struct QQuickPointingDeviceExtra {
-    // used in QQuickPointerHandlerPrivate::deviceDeliveryTargets
-    QVector<QObject *> deliveryTargets;
+    QList<QObject *> deliveryTargets;
 };
 
 class Q_QUICK_EXPORT QQuickDeliveryAgentPrivate : public QObjectPrivate
@@ -75,9 +85,14 @@ public:
 #endif
     QQuickItem *lastUngrabbed = nullptr;
     QStack<QPointerEvent *> eventsInDelivery;
-    QFlatMap<QPointer<QQuickItem>, uint> hoverItems;
-    QVector<QQuickItem *> hasFiltered; // during event delivery to a single receiver, the filtering parents for which childMouseEventFilter was already called
-    QVector<QQuickItem *> skipDelivery; // during delivery of one event to all receivers, Items to which we know delivery is no longer necessary
+    struct HoverItemState {
+        QPointer<QQuickItem> item;
+        uint hoverId = 0;
+    };
+    using HoverItems = QList<HoverItemState>;
+    HoverItems hoverItems;
+    QList<QQuickItem *> hasFiltered; // during event delivery to a single receiver, the filtering parents for which childMouseEventFilter was already called
+    QList<QQuickItem *> skipDelivery; // during delivery of one event to all receivers, Items to which we know delivery is no longer necessary
 
     std::unique_ptr<QMutableTouchEvent> delayedTouch;
     QList<const QPointingDevice *> knownPointingDevices;
@@ -88,7 +103,6 @@ public:
 #endif
     uchar compressedTouchCount = 0;
     bool allowChildEventFiltering = true;
-    bool frameSynchronousHoverEnabled = true;
     bool hoveredLeafItemFound = false;
 
     bool isSubsceneAgent = false;
@@ -96,6 +110,11 @@ public:
     // QQuickDeliveryAgent::event() sets this to the one that's currently (trying to) handle the event
     static QQuickDeliveryAgent *currentEventDeliveryAgent;
     static QQuickDeliveryAgent *currentOrItemDeliveryAgent(const QQuickItem *item);
+    inline static quint64 frameSynchronousHover_counter = 0;
+
+    int frameSynchronousHoverInterval = 100; // milliseconds
+    QElapsedTimer frameSynchronousHoverTimer;   // avoid calling deliverHoverEvent/updateCursor too often
+    QBasicTimer frameSynchronousDelayTimer;     // call deliverHoverEvent/updateCursor after a delay
 
     Qt::FocusReason lastFocusReason = Qt::OtherFocusReason;
     int pointerEventRecursionGuard = 0;
@@ -119,12 +138,12 @@ public:
     // Mouse positions are saved in widget coordinates
     QPointF lastMousePosition;
     bool deliverTouchAsMouse(QQuickItem *item, QTouchEvent *pointerEvent);
-    void translateTouchEvent(QTouchEvent *touchEvent);
+    static void translateTouchEvent(QTouchEvent *touchEvent);
     void removeGrabber(QQuickItem *grabber, bool mouse = true, bool touch = true, bool cancel = false);
     void clearGrabbers(QPointerEvent *pointerEvent);
     void onGrabChanged(QObject *grabber, QPointingDevice::GrabTransition transition, const QPointerEvent *event, const QEventPoint &point);
     static QPointerEvent *clonePointerEvent(QPointerEvent *event, std::optional<QPointF> transformedLocalPos = std::nullopt);
-    void deliverToPassiveGrabbers(const QVector<QPointer<QObject> > &passiveGrabbers, QPointerEvent *pointerEvent);
+    void deliverToPassiveGrabbers(const QList<QPointer<QObject> > &passiveGrabbers, QPointerEvent *pointerEvent);
     bool sendFilteredMouseEvent(QEvent *event, QQuickItem *receiver, QQuickItem *filteringParent);
     bool sendFilteredPointerEvent(QPointerEvent *event, QQuickItem *receiver, QQuickItem *filteringParent = nullptr);
     bool sendFilteredPointerEventImpl(QPointerEvent *event, QQuickItem *receiver, QQuickItem *filteringParent);
@@ -148,6 +167,7 @@ public:
     static bool isMouseEvent(const QPointerEvent *ev);
     static bool isMouseOrWheelEvent(const QPointerEvent *ev);
     static bool isHoverEvent(const QPointerEvent *ev);
+    static bool isHoveringMoveEvent(const QPointerEvent *ev);
     static bool isTouchEvent(const QPointerEvent *ev);
     static bool isTabletEvent(const QPointerEvent *ev);
     static bool isEventFromMouseOrTouchpad(const QPointerEvent *ev);
@@ -166,9 +186,14 @@ public:
     void deliverUpdatedPoints(QPointerEvent *event);
     void deliverMatchingPointsToItem(QQuickItem *item, bool isGrabber, QPointerEvent *pointerEvent, bool handlersOnly = false);
 
-    QVector<QQuickItem *> pointerTargets(QQuickItem *, const QPointerEvent *event, const QEventPoint &point,
+    QList<QQuickItem *> eventTargets(QQuickItem *, const QEvent *event, int pointId, QPointF localPos, QPointF scenePos,
+                                       qxp::function_ref<std::optional<bool> (QQuickItem *, const QEvent *)> predicate) const;
+    void eventTargetsAppend(QQuickItem *, const QEvent *event, int pointId, QPointF localPos, QPointF scenePos,
+                            qxp::function_ref<std::optional<bool> (QQuickItem *, const QEvent *)> predicate,
+                            QList<QQuickItem *> &targets) const;
+    QList<QQuickItem *> pointerTargets(QQuickItem *, const QPointerEvent *event, const QEventPoint &point,
                                          bool checkMouseButtons, bool checkAcceptsTouch) const;
-    QVector<QQuickItem *> mergePointerTargets(const QVector<QQuickItem *> &list1, const QVector<QQuickItem *> &list2) const;
+    QList<QQuickItem *> mergePointerTargets(const QList<QQuickItem *> &list1, const QList<QQuickItem *> &list2) const;
 
     // hover delivery
     enum class HoverChange : uint8_t {
@@ -176,10 +201,15 @@ public:
         Set,
     };
     bool deliverHoverEvent(const QPointF &scenePos, const QPointF &lastScenePos, Qt::KeyboardModifiers modifiers, ulong timestamp);
-    bool deliverHoverEventRecursive(QQuickItem *, const QPointF &scenePos, const QPointF &lastScenePos, Qt::KeyboardModifiers modifiers, ulong timestamp);
-    bool deliverHoverEventToItem(QQuickItem *item, const QPointF &scenePos, const QPointF &lastScenePos, Qt::KeyboardModifiers modifiers, ulong timestamp,
+    bool deliverHoverEventRecursive(QQuickItem *, const QPointF &localPos,
+                                    const QPointF &scenePos, const QPointF &lastScenePos,
+                                    const QPointF &globalPos, Qt::KeyboardModifiers modifiers, ulong timestamp);
+    bool deliverHoverEventToItem(QQuickItem *item, const QPointF &localPos, const QPointF &scenePos,
+                                 const QPointF &lastScenePos, const QPointF &globalPos,
+                                 Qt::KeyboardModifiers modifiers, ulong timestamp,
                                  HoverChange hoverChange);
-    bool sendHoverEvent(QEvent::Type, QQuickItem *, const QPointF &scenePos, const QPointF &lastScenePos,
+    bool sendHoverEvent(QEvent::Type, QQuickItem *, const QPointF &localPos, const QPointF &scenePos,
+                        const QPointF &lastScenePos, const QPointF &globalPos,
                         Qt::KeyboardModifiers modifiers, ulong timestamp);
     bool clearHover(ulong timestamp = 0);
 
@@ -195,7 +225,12 @@ public:
     static bool dragOverThreshold(qreal d, Qt::Axis axis, const QEventPoint &tp, int startDragThreshold = -1);
 
     static bool dragOverThreshold(QVector2D delta);
+
+    // context menu events
+    QList<QQuickItem *> contextMenuTargets(QQuickItem *item, const QContextMenuEvent *event) const;
+    void deliverContextMenuEvent(QContextMenuEvent *event);
 };
+Q_DECLARE_TYPEINFO(QQuickDeliveryAgentPrivate::HoverItemState, Q_RELOCATABLE_TYPE);
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickDeliveryAgentPrivate::FocusOptions)
 

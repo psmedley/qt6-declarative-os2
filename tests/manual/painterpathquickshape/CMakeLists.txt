@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 if (NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_BUILDING_QT)
-    project(painterPathQuickShape LANGUAGES C CXX ASM)
+    project(painterPathQuickShape LANGUAGES C CXX)
     find_package(Qt6BuildInternals COMPONENTS STANDALONE_TEST)
 endif()
 
@@ -50,14 +50,17 @@ set(qml_resource_files
     "capStyles.qml"
     "cubicCurve.qml"
     "dashPattern.qml"
+    "designhelpers_rectangleshape.qml"
     "ellipticalArcs.qml"
     "fillRules.qml"
+    "fillUnderLines.qml"
     "gradientSpreadModes.qml"
     "joinStyles.qml"
     "largeOrSmallArc.qml"
     "linearGradient.qml"
     "quadraticCurve.qml"
     "radialGradient.qml"
+    "regularAndCosmeticStrokes.qml"
     "strokeOrFill.qml"
     "text.qml"
     "tiger.qml"

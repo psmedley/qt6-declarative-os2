@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMESSAGEDIALOG_P_H
 #define QQUICKLABSPLATFORMMESSAGEDIALOG_P_H
@@ -18,12 +19,15 @@
 #include "qquicklabsplatformdialog_p.h"
 #include <QtQml/qqml.h>
 
+#if QT_DEPRECATED_SINCE(6, 9)
+
 QT_BEGIN_NAMESPACE
 
 class QQuickLabsPlatformMessageDialog : public QQuickLabsPlatformDialog
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(MessageDialog)
+    QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged FINAL)
     Q_PROPERTY(QString informativeText READ informativeText WRITE setInformativeText NOTIFY informativeTextChanged FINAL)
     Q_PROPERTY(QString detailedText READ detailedText WRITE setDetailedText NOTIFY detailedTextChanged FINAL)
@@ -83,5 +87,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#endif // QT_DEPRECATED_SINCE(6, 9)
 
 #endif // QQUICKLABSPLATFORMMESSAGEDIALOG_P_H

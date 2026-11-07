@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKVIEW_P_H
 #define QQUICKVIEW_P_H
@@ -36,7 +37,7 @@ class QQuickItem;
 class QQmlComponent;
 
 class Q_QUICK_EXPORT QQuickViewPrivate : public QQuickWindowPrivate,
-                       public QQuickItemChangeListener
+                                         public QSafeQuickItemChangeListener<QQuickViewPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickView)
 public:

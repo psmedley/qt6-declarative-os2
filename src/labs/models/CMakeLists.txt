@@ -10,21 +10,32 @@ qt_internal_add_qml_module(LabsQmlModels
         qqmlmodelsglobal_p.h
     DEFINES
         QT_BUILD_LABSQMLMODELS_LIB
-    PUBLIC_LIBRARIES
+    LIBRARIES
         Qt::QmlModelsPrivate
         Qt::QmlPrivate
     DEPENDENCIES
         QtQml.Models/auto
-    OS2_SHORT_NAME Qt6LabQM
     )
 
 qt_internal_extend_target(LabsQmlModels CONDITION QT_FEATURE_qml_table_model
     SOURCES
+        qqmlabstractcolumnmodel.cpp qqmlabstractcolumnmodel_p.h
         qqmltablemodel.cpp qqmltablemodel_p.h
         qqmltablemodelcolumn.cpp qqmltablemodelcolumn_p.h
 )
 
 qt_internal_extend_target(LabsQmlModels CONDITION QT_FEATURE_qml_delegate_model
     SOURCES
-        qqmldelegatecomponent.cpp qqmldelegatecomponent_p.h
+        qqmldelegatechooser.cpp qqmldelegatechooser_p.h
+)
+
+qt_internal_extend_target(LabsQmlModels CONDITION QT_FEATURE_qml_tree_model
+    SOURCES
+        qqmltreemodel.cpp qqmltreemodel_p.h
+        qqmltreerow.cpp qqmltreerow_p.h
+)
+
+target_sources(LabsQmlModels
+    PRIVATE
+        doc/src/qmllabsmodels.qdoc
 )

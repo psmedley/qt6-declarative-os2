@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLLISTMODEL_P_P_H
 #define QQMLLISTMODEL_P_P_H
@@ -53,7 +54,7 @@ public:
 
     static DynamicRoleModelNode *create(const QVariantMap &obj, QQmlListModel *owner);
 
-    void updateValues(const QVariantMap &object, QVector<int> &roles);
+    void updateValues(const QVariantMap &object, QList<int> &roles);
 
     QVariant getValue(const QString &name) const
     {
@@ -75,7 +76,7 @@ public:
         return m_uid;
     }
 
-    static QVector<int> sync(DynamicRoleModelNode *src, DynamicRoleModelNode *target);
+    static QList<int> sync(DynamicRoleModelNode *src, DynamicRoleModelNode *target);
 
 private:
     QQmlListModel *m_owner;
@@ -91,7 +92,11 @@ public:
     ModelNodeMetaObject(QObject *object, QQmlListModel *model, int elementIndex);
     ~ModelNodeMetaObject();
 
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    const QMetaObject *toDynamicMetaObject(QObject *object) const override;
+#else
     QMetaObject *toDynamicMetaObject(QObject *object) override;
+#endif
 
     static ModelNodeMetaObject *get(QObject *obj);
 
@@ -100,7 +105,7 @@ public:
     int m_elementIndex;
 
     void updateValues();
-    void updateValues(const QVector<int> &roles);
+    void updateValues(const QList<int> &roles);
 
     bool initialized() const { return m_initialized; }
 
@@ -113,7 +118,7 @@ private:
     void emitDirectNotifies(const int *changedRoles, int roleCount);
 
     void initialize();
-    bool m_initialized;
+    mutable bool m_initialized;
 };
 
 namespace QV4 {
@@ -219,7 +224,7 @@ private:
 
     int currentBlock;
     int currentBlockOffset;
-    QVector<Role *> roles;
+    QList<Role *> roles;
     QStringHash<Role *> roleHash;
 };
 
@@ -257,7 +262,7 @@ public:
     ListElement(int existingUid);
     ~ListElement();
 
-    static QVector<int> sync(ListElement *src, ListLayout *srcLayout, ListElement *target, ListLayout *targetLayout);
+    static QList<int> sync(ListElement *src, ListLayout *srcLayout, ListElement *target, ListLayout *targetLayout);
 
 private:
 
@@ -324,7 +329,6 @@ class ListModel
 public:
 
     ListModel(ListLayout *layout, QQmlListModel *modelCache);
-    ~ListModel() {}
 
     void destroy();
 
@@ -363,13 +367,13 @@ public:
 
     enum class SetElement {WasJustInserted, IsCurrentlyUpdated};
 
-    void set(int elementIndex, QV4::Object *object, QVector<int> *roles);
+    void set(int elementIndex, QV4::Object *object, QList<int> *roles);
     void set(int elementIndex, QV4::Object *object, SetElement reason = SetElement::IsCurrentlyUpdated);
 
     int append(QV4::Object *object);
     void insert(int elementIndex, QV4::Object *object);
 
-    Q_REQUIRED_RESULT QVector<std::function<void()>> remove(int index, int count);
+    Q_REQUIRED_RESULT QList<std::function<void()>> remove(int index, int count);
 
     int appendElement();
     void insertElement(int index);
@@ -392,7 +396,7 @@ private:
         ListElement *target = nullptr;
         int srcIndex = -1;
         int targetIndex = -1;
-        QVector<int> changedRoles;
+        QList<int> changedRoles;
     };
 
     void newElement(int index);
@@ -400,20 +404,33 @@ private:
     void updateCacheIndices(int start = 0, int end = -1);
 
     template<typename ArrayLike>
-    void setArrayLike(QV4::ScopedObject *o, QV4::String *propertyName, ListElement *e, ArrayLike *a)
+    ListModel *resolveSubModel(QV4::ScopedObject *o, const ListLayout::Role &r, ArrayLike *a)
+    {
+        ListModel *subModel = new ListModel(r.subLayout, nullptr);
+
+        for (qint64 j = 0, arrayLength = a->getLength(); j < arrayLength; ++j) {
+            *o = a->get(j);
+            subModel->append(*o);
+        }
+
+        return subModel;
+    }
+
+    template<typename ArrayLike>
+    void setArrayLikeFast(
+            QV4::ScopedObject *o, QV4::String *propertyName, ListElement *e, ArrayLike *a)
     {
         const ListLayout::Role &r = m_layout->getRoleOrCreate(propertyName, ListLayout::Role::List);
-        if (r.type == ListLayout::Role::List) {
-            ListModel *subModel = new ListModel(r.subLayout, nullptr);
+        if (r.type == ListLayout::Role::List)
+            e->setListPropertyFast(r, resolveSubModel(o, r, a));
+    }
 
-            int arrayLength = a->getLength();
-            for (int j=0 ; j < arrayLength ; ++j) {
-                *o = a->get(j);
-                subModel->append(*o);
-            }
-
-            e->setListPropertyFast(r, subModel);
-        }
+    template<typename ArrayLike>
+    int setArrayLike(
+            QV4::ScopedObject *o, QV4::String *propertyName, ListElement *e, ArrayLike *a)
+    {
+        const ListLayout::Role &r = m_layout->getRoleOrCreate(propertyName, ListLayout::Role::List);
+        return e->setListProperty(r, resolveSubModel(o, r, a));
     }
 
     friend class ListElement;

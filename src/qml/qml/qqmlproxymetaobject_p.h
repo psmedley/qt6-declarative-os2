@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPROXYMETAOBJECT_P_H
 #define QQMLPROXYMETAOBJECT_P_H
@@ -48,7 +49,14 @@ public:
 
 protected:
     int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) override;
-    QMetaObject *toDynamicMetaObject(QObject *) override;
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    const QMetaObject *toDynamicMetaObject(QObject *) const override
+#else
+    QMetaObject *toDynamicMetaObject(QObject *) override
+#endif
+    {
+        return metaObject;
+    }
     void objectDestroyed(QObject *object) override;
 
 private:

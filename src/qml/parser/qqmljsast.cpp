@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <QString>
 #include <QLocale>
@@ -129,11 +130,12 @@ FormalParameterList *ExpressionNode::reparseAsFormalParameterList(MemoryPool *po
 {
     AST::ExpressionNode *expr = this;
     AST::FormalParameterList *f = nullptr;
-    if (AST::Expression *commaExpr = AST::cast<AST::Expression *>(expr)) {
+    if (AST::CommaExpression *commaExpr = AST::cast<AST::CommaExpression *>(expr)) {
         f = commaExpr->left->reparseAsFormalParameterList(pool);
         if (!f)
             return nullptr;
 
+        f->commaToken = commaExpr->commaToken;
         expr = commaExpr->right;
     }
 
@@ -151,13 +153,14 @@ FormalParameterList *ExpressionNode::reparseAsFormalParameterList(MemoryPool *po
     } else if (AST::Pattern *p = expr->patternCast()) {
         SourceLocation loc;
         QString s;
-        if (!p->convertLiteralToAssignmentPattern(pool, &loc, &s))
+        if (!p->convertLiteralToAssignmentPattern(&loc, &s))
             return nullptr;
         binding = new (pool) AST::PatternElement(p, rhs);
         binding->identifierToken = p->firstSourceLocation();
     }
     if (!binding)
         return nullptr;
+
     return new (pool) AST::FormalParameterList(f, binding);
 }
 
@@ -376,7 +379,7 @@ PropertyName:
     ComputedPropertyName
 
 */
-bool ArrayPattern::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage)
+bool ArrayPattern::convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage)
 {
     if (parseMode == Binding)
         return true;
@@ -388,26 +391,26 @@ bool ArrayPattern::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLoc
             *errorMessage = QString::fromLatin1("'...' can only appear as last element in a destructuring list.");
             return false;
         }
-        if (!it->element->convertLiteralToAssignmentPattern(pool, errorLocation, errorMessage))
+        if (!it->element->convertLiteralToAssignmentPattern(errorLocation, errorMessage))
             return false;
     }
     parseMode = Binding;
     return true;
 }
 
-bool ObjectPattern::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage)
+bool ObjectPattern::convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage)
 {
     if (parseMode == Binding)
         return true;
     for (auto *it = properties; it; it = it->next) {
-        if (!it->property->convertLiteralToAssignmentPattern(pool, errorLocation, errorMessage))
+        if (!it->property->convertLiteralToAssignmentPattern(errorLocation, errorMessage))
             return false;
     }
     parseMode = Binding;
     return true;
 }
 
-bool PatternElement::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage)
+bool PatternElement::convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage)
 {
     Q_ASSERT(type == Literal || type == SpreadElement);
     Q_ASSERT(bindingIdentifier.isNull());
@@ -454,13 +457,13 @@ bool PatternElement::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceL
 
     bindingTarget = lhs;
     if (auto *p = lhs->patternCast()) {
-        if (!p->convertLiteralToAssignmentPattern(pool, errorLocation, errorMessage))
+        if (!p->convertLiteralToAssignmentPattern(errorLocation, errorMessage))
             return false;
     }
     return true;
 }
 
-bool PatternProperty::convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage)
+bool PatternProperty::convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage)
 {
     Q_ASSERT(type != SpreadElement);
     if (type == Binding)
@@ -473,7 +476,7 @@ bool PatternProperty::convertLiteralToAssignmentPattern(MemoryPool *pool, Source
     if (type == Method)
         type = Literal;
     Q_ASSERT(type == Literal);
-    return PatternElement::convertLiteralToAssignmentPattern(pool, errorLocation, errorMessage);
+    return PatternElement::convertLiteralToAssignmentPattern(errorLocation, errorMessage);
 }
 
 
@@ -711,7 +714,7 @@ void ConditionalExpression::accept0(BaseVisitor *visitor)
     visitor->endVisit(this);
 }
 
-void Expression::accept0(BaseVisitor *visitor)
+void CommaExpression::accept0(BaseVisitor *visitor)
 {
     if (visitor->visit(this)) {
         accept(left, visitor);
@@ -1606,16 +1609,16 @@ void UiAnnotation::accept0(BaseVisitor *visitor)
 
 SourceLocation UiPropertyAttributes::firstSourceLocation() const
 {
-    std::array<const SourceLocation *, 4> tokens {&m_propertyToken, &m_defaultToken, &m_readonlyToken, &m_requiredToken};
-    const auto it = std::min_element(tokens.begin(), tokens.end(), compareLocationsByBegin<true>);
-    return **it;
+    return *std::min({ &m_propertyToken, &m_defaultToken, &m_readonlyToken, &m_requiredToken,
+                       &m_finalToken, &m_virtualToken, &m_overrideToken },
+                     compareLocationsByBegin<true>);
 }
 
 SourceLocation UiPropertyAttributes::lastSourceLocation() const
 {
-    std::array<const SourceLocation *, 4> tokens {&m_propertyToken, &m_defaultToken, &m_readonlyToken, &m_requiredToken};
-    const auto it = std::max_element(tokens.begin(), tokens.end(), compareLocationsByBegin<false>);
-    return **it;
+    return *std::max({ &m_propertyToken, &m_defaultToken, &m_readonlyToken, &m_requiredToken,
+                       &m_finalToken, &m_virtualToken, &m_overrideToken },
+                     compareLocationsByBegin<false>);
 }
 
 } } // namespace QQmlJS::AST

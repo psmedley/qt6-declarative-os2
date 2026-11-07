@@ -1,10 +1,11 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #if QT_CONFIG(process)
 #include <QtCore/qprocess.h>
 #endif
+#include <QtCore/qlibraryinfo.h>
 #include <QtCore/qtemporaryfile.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlapplicationengine.h>
@@ -45,7 +46,7 @@ void tst_QV4Assembler::perfMapFile()
 {
 #if !QT_CONFIG(process)
     QSKIP("Depends on QProcess");
-#elif !defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+#elif !defined(Q_OS_LINUX) || defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
     QSKIP("perf map files are only generated on linux");
 #else
     const QString qmljs = QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/qmljs";

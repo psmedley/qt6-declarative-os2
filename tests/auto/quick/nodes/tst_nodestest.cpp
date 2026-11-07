@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtCore/QString>
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 #include <QtQuick/qsgnode.h>
 #include <QtQuick/private/qsgbatchrenderer_p.h>
@@ -111,7 +111,7 @@ void NodesTest::initTestCase()
 #endif
 
 #ifdef TST_VK
-    vulkanInstance.setLayers({ QByteArrayLiteral("VK_LAYER_LUNARG_standard_validation") });
+    vulkanInstance.setLayers({ QByteArrayLiteral("VK_LAYER_KHRONOS_validation") });
     vulkanInstance.setExtensions({ QByteArrayLiteral("VK_KHR_get_physical_device_properties2") });
     vulkanInstance.create();
     initParams.vk.inst = &vulkanInstance;

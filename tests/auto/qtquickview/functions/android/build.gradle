@@ -1,0 +1,44 @@
+// Copyright (C) 2026 The Qt Company Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
+plugins {
+    id 'com.android.application' version '9.2.1'
+    id 'org.qtproject.qt.gradleplugin' version '1.4'
+}
+
+QtBuild {
+    qtPath = file(qtAndroidDir).parentFile.parentFile.parentFile
+    projectPath = file('qml/')
+    extraCMakeArguments = ['-DANDROID_NDK_ROOT=' + System.getenv('ANDROID_NDK_ROOT')]
+}
+
+android {
+    namespace androidPackageName
+    compileSdkVersion androidCompileSdkVersion
+    buildToolsVersion androidBuildToolsVersion
+    ndkVersion androidNdkVersion
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = [qtAndroidDir + '/src', 'src', 'java']
+            res.srcDirs = [qtAndroidDir + '/res', 'res']
+       }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Do not compress Qt binary resources file
+    aaptOptions {
+        noCompress 'rcc'
+    }
+
+    defaultConfig {
+        minSdkVersion qtMinSdkVersion
+        targetSdkVersion qtTargetSdkVersion
+        ndk.abiFilters = qtTargetAbiList.split(",")
+    }
+}

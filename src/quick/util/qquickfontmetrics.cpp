@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickfontmetrics_p.h"
 
@@ -233,7 +234,7 @@ qreal QQuickFontMetrics::lineWidth() const
 }
 
 /*!
-    \qmlmethod qreal QtQuick::FontMetrics::advanceWidth(string text)
+    \qmlmethod real QtQuick::FontMetrics::advanceWidth(string text)
 
     This method returns the advance in pixels of the characters in \a text.
     This is the distance from the position of the string to where the next
@@ -306,6 +307,24 @@ QRectF QQuickFontMetrics::tightBoundingRect(const QString &text) const
 QString QQuickFontMetrics::elidedText(const QString &text, Qt::TextElideMode mode, qreal width, int flags) const
 {
     return m_metrics.elidedText(text, mode, width, flags);
+}
+
+/*!
+    \qmlproperty real QtQuick::FontMetrics::capitalHeight
+
+    \since 6.9
+
+    Returns the capital height as specified by the font.
+
+    The cap-height of a font is defined as the height of a capital letter above the baseline. It
+    specifically refers to the height of capital letters that are flat - such as H or I - as opposed
+    to round letters such as O, or pointed letters like A, both of which may display overshoot.
+
+    \sa {QFontMetricsF::capHeight}, ascent, descent, height, xHeight
+*/
+qreal QQuickFontMetrics::capitalHeight() const
+{
+    return m_metrics.capHeight();
 }
 
 QT_END_NAMESPACE

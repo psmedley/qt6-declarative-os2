@@ -1,5 +1,6 @@
 // Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <private/qtquickglobal_p.h>
 #include "qquickitemgrabresult.h"
@@ -19,6 +20,7 @@
 #include <private/qsgcontext_p.h>
 #include <private/qsgadaptationlayer_p.h>
 
+#include <QtCore/qmutex.h>
 #include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
@@ -38,9 +40,18 @@ public:
 
     ~QQuickItemGrabResultPrivate()
     {
+        // Remove the unmanaged heap size we've added when creating the image in
+        // QQuickItemGrabResult::render(). If render() was never called the image is empty and
+        // its size is 0.
+        if (hasCallback())
+            qmlEngine->handle()->memoryManager->changeUnmanagedHeapSizeUsage(-image.sizeInBytes());
         delete cacheEntry;
     }
 
+    // Should be called under a locked mutex!
+    bool hasCallback() const { return qmlEngine && callback.isCallable(); }
+
+    // Should be called under a locked mutex!
     void ensureImageInCache() const {
         if (url.isEmpty() && !image.isNull()) {
             url.setScheme(QQuickPixmap::itemGrabberScheme);
@@ -52,6 +63,8 @@ public:
     }
 
     static QQuickItemGrabResult *create(QQuickItem *item, const QSize &size);
+
+    mutable QBasicMutex mutex;
 
     QImage image;
 
@@ -67,6 +80,9 @@ public:
     QSizeF itemSize;
     QSize textureSize;
     qreal devicePixelRatio;
+
+    QMetaObject::Connection setupConnection;
+    QMetaObject::Connection renderConnection;
 };
 
 /*!
@@ -163,6 +179,7 @@ bool QQuickItemGrabResult::saveToFile(const QString &fileName) const
     Q_D(const QQuickItemGrabResult);
     if (fileName.startsWith(QLatin1String("file:/")))
         return saveToFile(QUrl(fileName));
+    QMutexLocker locker(&d->mutex);
     return d->image.save(fileName);
 }
 
@@ -180,6 +197,7 @@ bool QQuickItemGrabResult::saveToFile(const QUrl &filePath) const
         qWarning() << "saveToFile can only save to a file on the local filesystem";
         return false;
     }
+    QMutexLocker locker(&d->mutex);
     return d->image.save(filePath.toLocalFile());
 }
 
@@ -199,6 +217,7 @@ bool QQuickItemGrabResult::saveToFile(const QString &fileName)
 QUrl QQuickItemGrabResult::url() const
 {
     Q_D(const QQuickItemGrabResult);
+    QMutexLocker locker(&d->mutex);
     d->ensureImageInCache();
     return d->url;
 }
@@ -206,6 +225,7 @@ QUrl QQuickItemGrabResult::url() const
 QImage QQuickItemGrabResult::image() const
 {
     Q_D(const QQuickItemGrabResult);
+    QMutexLocker locker(&d->mutex);
     return d->image;
 }
 
@@ -216,10 +236,21 @@ bool QQuickItemGrabResult::event(QEvent *e)
 {
     Q_D(QQuickItemGrabResult);
     if (e->type() == Event_Grab_Completed) {
-        // JS callback
-        if (d->qmlEngine && d->callback.isCallable()) {
-            d->callback.call(QJSValueList() << d->qmlEngine->newQObject(this));
-            deleteLater();
+        // We cannot hold the mutex while emitting the signal or calling the
+        // callback, because they can immediately call various getters.
+        QJSValue callback;
+        QQmlEngine *engine = nullptr;
+        if (QMutexLocker locker(&d->mutex); d->hasCallback()) {
+            callback = d->callback;
+            engine = d->qmlEngine;
+        }
+        if (engine) {
+            // We have a JS callback. Transfer ownership to JavaScript to follow the documentation.
+            // The user should be able to store the object in QML, but we also want to GC it
+            // eventually.
+            QQmlEngine::setObjectOwnership(this, QQmlEngine::JavaScriptOwnership);
+            setParent(nullptr);
+            callback.call(QJSValueList() << engine->newQObject(this));
         } else {
             Q_EMIT ready();
         }
@@ -228,12 +259,17 @@ bool QQuickItemGrabResult::event(QEvent *e)
     return QObject::event(e);
 }
 
+/*!
+    \internal
+    This method is called from QSGRenderThread
+*/
 void QQuickItemGrabResult::setup()
 {
     Q_D(QQuickItemGrabResult);
+    QMutexLocker locker(&d->mutex);
     if (!d->item) {
-        disconnect(d->window.data(), &QQuickWindow::beforeSynchronizing, this, &QQuickItemGrabResult::setup);
-        disconnect(d->window.data(), &QQuickWindow::afterRendering, this, &QQuickItemGrabResult::render);
+        disconnect(d->setupConnection);
+        disconnect(d->renderConnection);
         QCoreApplication::postEvent(this, new QEvent(Event_Grab_Completed));
         return;
     }
@@ -246,38 +282,57 @@ void QQuickItemGrabResult::setup()
     d->itemSize = QSizeF(d->item->width(), d->item->height());
 }
 
+/*!
+    \internal
+    This method is called from QSGRenderThread
+*/
 void QQuickItemGrabResult::render()
 {
     Q_D(QQuickItemGrabResult);
+    QMutexLocker locker(&d->mutex);
     if (!d->texture)
         return;
 
     d->texture->setRect(QRectF(0, d->itemSize.height(), d->itemSize.width(), -d->itemSize.height()));
     const QSize minSize = QQuickWindowPrivate::get(d->window.data())->context->sceneGraphContext()->minimumFBOSize();
-    const QSize effectiveTextureSize = d->textureSize * d->devicePixelRatio;
+    const QSize effectiveTextureSize = d->textureSize.isEmpty()
+            ? (d->itemSize * d->devicePixelRatio).toSize()
+            : d->textureSize * d->devicePixelRatio;
     d->texture->setSize(QSize(qMax(minSize.width(), effectiveTextureSize.width()),
                               qMax(minSize.height(), effectiveTextureSize.height())));
     d->texture->scheduleUpdate();
     d->texture->updateTexture();
+
+    const qsizetype oldImageSize = d->image.sizeInBytes();
     d->image = d->texture->toImage();
     d->image.setDevicePixelRatio(d->devicePixelRatio);
+    const qsizetype newImageSize = d->image.sizeInBytes();
+    if (d->hasCallback()) {
+        // If we have a callback, we assume that it's going to be called, eventually. If you post
+        // an event that never arrives, you have worse problems. Based on that assumption, we track
+        // the (potentially large) image as unmanaged heap size already now. This is the only place
+        // where we can determine the size. In the dtor we need to "untrack" the image if it was
+        // tracked. So either we need to store an extra bit that tells us whether the callback was
+        // called or we need to live with stale unmanaged heap size in the unlikely case that it's
+        // never called. We choose the latter.
+        d->qmlEngine->handle()->memoryManager->changeUnmanagedHeapSizeUsage(
+                newImageSize - oldImageSize);
+    }
 
     delete d->texture;
     d->texture = nullptr;
 
-    disconnect(d->window.data(), &QQuickWindow::beforeSynchronizing, this, &QQuickItemGrabResult::setup);
-    disconnect(d->window.data(), &QQuickWindow::afterRendering, this, &QQuickItemGrabResult::render);
+    disconnect(d->setupConnection);
+    disconnect(d->renderConnection);
     QCoreApplication::postEvent(this, new QEvent(Event_Grab_Completed));
 }
 
 QQuickItemGrabResult *QQuickItemGrabResultPrivate::create(QQuickItem *item, const QSize &targetSize)
 {
-    QSize size = targetSize;
-    if (size.isEmpty())
-        size = QSize(item->width(), item->height());
+    const QSize size = targetSize.isEmpty() ? QSize(item->width(), item->height()) : targetSize;
 
     if (size.width() < 1 || size.height() < 1) {
-        qmlWarning(item) << "grabToImage: item has invalid dimensions";
+        qmlWarning(item) << "grabToImage: item's width and/or height are less than 1: " << size;
         return nullptr;
     }
 
@@ -295,11 +350,15 @@ QQuickItemGrabResult *QQuickItemGrabResultPrivate::create(QQuickItem *item, cons
         return nullptr;
     }
 
-    QQuickItemGrabResult *result = new QQuickItemGrabResult();
+    // Initially parent to item so that we don't leak it if Event_Grab_Completed never arrives or
+    // the callback can't be called.
+    QQuickItemGrabResult *result = new QQuickItemGrabResult(item);
     QQuickItemGrabResultPrivate *d = result->d_func();
+    // no need to lock here, since we didn't do the connection yet, so it cannot be
+    // accessed from multiple threads
     d->item = item;
     d->window = item->window();
-    d->textureSize = size;
+    d->textureSize = targetSize;
 
     QQuickItemPrivate::get(item)->refFromEffectItem(false);
 
@@ -333,10 +392,24 @@ QSharedPointer<QQuickItemGrabResult> QQuickItem::grabToImage(const QSize &target
     if (!result)
         return QSharedPointer<QQuickItemGrabResult>();
 
-    connect(window(), &QQuickWindow::beforeSynchronizing, result, &QQuickItemGrabResult::setup, Qt::DirectConnection);
-    connect(window(), &QQuickWindow::afterRendering, result, &QQuickItemGrabResult::render, Qt::DirectConnection);
+    QQuickItemGrabResultPrivate *d = result->d_func();
+    auto sharedResult = QSharedPointer<QQuickItemGrabResult>(result);
+    result->setParent(nullptr); // the smart pointer now manages the lifetime
 
-    return QSharedPointer<QQuickItemGrabResult>(result);
+    auto weakResult = QWeakPointer(sharedResult);
+    QMutexLocker locker(&d->mutex);
+    d->setupConnection = connect(window(), &QQuickWindow::beforeSynchronizing,
+                                 result, [weakResult] {
+                                     if (auto strong = weakResult.toStrongRef(); strong)
+                                         strong->setup();
+                                 }, Qt::DirectConnection);
+    d->renderConnection = connect(window(), &QQuickWindow::afterRendering,
+                                  result, [weakResult] {
+                                      if (auto strong = weakResult.toStrongRef(); strong)
+                                          strong->render();
+                                  }, Qt::DirectConnection);
+
+    return sharedResult;
 }
 
 /*!
@@ -386,12 +459,10 @@ bool QQuickItem::grabToImage(const QJSValue &callback, const QSize &targetSize)
         return false;
     }
 
-    QSize size = targetSize;
-    if (size.isEmpty())
-        size = QSize(width(), height());
-
-    if (size.width() < 1 || size.height() < 1) {
-        qmlWarning(this) << "grabToImage: item has invalid dimensions";
+    const QSize validationSize = targetSize.isEmpty() ? QSize(width(), height()) : targetSize;
+    if (validationSize.width() < 1 || validationSize.height() < 1) {
+        qmlWarning(this) << "grabToImage: item's width and/or height are less than 1: "
+                         << validationSize;
         return false;
     }
 
@@ -400,16 +471,23 @@ bool QQuickItem::grabToImage(const QJSValue &callback, const QSize &targetSize)
         return false;
     }
 
-    QQuickItemGrabResult *result = QQuickItemGrabResultPrivate::create(this, size);
+    QQuickItemGrabResult *result = QQuickItemGrabResultPrivate::create(this, targetSize);
     if (!result)
         return false;
 
-    connect(window(), &QQuickWindow::beforeSynchronizing, result, &QQuickItemGrabResult::setup, Qt::DirectConnection);
-    connect(window(), &QQuickWindow::afterRendering, result, &QQuickItemGrabResult::render, Qt::DirectConnection);
-
+    // Do not transfer ownership to JavaScript here, yet. There is no reference to the object
+    // We don't want the GC to collect it while the grab is still in flight.
     QQuickItemGrabResultPrivate *d = result->d_func();
+
+    QMutexLocker locker(&d->mutex);
     d->qmlEngine = engine;
     d->callback = callback;
+
+    d->setupConnection = connect(window(), &QQuickWindow::beforeSynchronizing,
+                                 result, &QQuickItemGrabResult::setup, Qt::DirectConnection);
+    d->renderConnection = connect(window(), &QQuickWindow::afterRendering,
+                                  result, &QQuickItemGrabResult::render, Qt::DirectConnection);
+
     return true;
 }
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTYPELOADERQMLDIRCONTENT_P_H
 #define QQMLTYPELOADERQMLDIRCONTENT_P_H
@@ -37,6 +38,7 @@ public:
     bool hasError() const { return m_parser.hasError(); }
     QList<QQmlError> errors(const QString &uri, const QUrl &url) const;
 
+    bool hasTypeNamespace() const { return m_parser.hasTypeNamespace(); }
     QString typeNamespace() const { return m_parser.typeNamespace(); }
 
     QQmlDirComponents components() const { return m_parser.components(); }
@@ -46,6 +48,7 @@ public:
 
     QString qmldirLocation() const { return m_location; }
     QString preferredPath() const { return m_parser.preferredPath(); }
+    QString linkTarget() const { return m_parser.linkTarget(); }
 
     bool hasRedirection() const
     {

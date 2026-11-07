@@ -2317,79 +2317,17 @@
                         "value": "anonymous"
                     }
                 ],
-                "className": "URLPrototype",
+                "className": "URLSearchParams",
                 "methods": [
-                    {
-                        "access": "public",
-                        "arguments": [
-                        ],
-                        "isJavaScriptFunction": true,
-                        "name": "toString"
-                    },
-                    {
-                        "access": "public",
-                        "arguments": [
-                        ],
-                        "isJavaScriptFunction": true,
-                        "name": "toJSON"
-                    }
                 ],
                 "object": true,
                 "properties": [
-                    {
-                        "member": "fakeMember",
-                        "name": "hash"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "host"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "hostname"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "href"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "origin"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "password"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "pathname"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "port"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "protocol"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "search"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "searchParams"
-                    },
-                    {
-                        "member": "fakeMember",
-                        "name": "username"
-                    }
                 ],
-                "qualifiedClassName": "URLPrototype",
+                "qualifiedClassName": "URLSearchParams",
                 "superClasses": [
                     {
                         "access": "public",
-                        "name": "ObjectPrototype"
+                        "name": "URLPrototypeSearchParamsPrototype"
                     }
                 ]
             },
@@ -2400,29 +2338,17 @@
                         "value": "anonymous"
                     }
                 ],
-                "className": "URL",
+                "className": "URLPrototypeSearchParamsPrototype",
                 "methods": [
-                ],
-                "object": true,
-                "properties": [
-                ],
-                "qualifiedClassName": "URL",
-                "superClasses": [
                     {
                         "access": "public",
-                        "name": "URLPrototype"
-                    }
-                ]
-            },
-            {
-                "classInfos": [
-                    {
-                        "name": "QML.Element",
-                        "value": "anonymous"
-                    }
-                ],
-                "className": "URLSearchParamsPrototype",
-                "methods": [
+                        "arguments": [
+                        ],
+                        "isConstructor": true,
+                        "isJavaScriptFunction": true,
+                        "name": "constructor",
+                        "returnType": "URLSearchParams"
+                    },
                     {
                         "access": "public",
                         "arguments": [
@@ -2511,7 +2437,7 @@
                 "object": true,
                 "properties": [
                 ],
-                "qualifiedClassName": "URLSearchParamsPrototype",
+                "qualifiedClassName": "URLPrototypeSearchParamsPrototype",
                 "superClasses": [
                     {
                         "access": "public",
@@ -2526,17 +2452,142 @@
                         "value": "anonymous"
                     }
                 ],
-                "className": "URLSearchParams",
+                "className": "URLPrototypeSearchParams",
                 "methods": [
                 ],
                 "object": true,
                 "properties": [
                 ],
-                "qualifiedClassName": "URLSearchParams",
+                "qualifiedClassName": "URLPrototypeSearchParams",
                 "superClasses": [
                     {
                         "access": "public",
-                        "name": "URLSearchParamsPrototype"
+                        "name": "URLPrototypeSearchParamsPrototype"
+                    }
+                ]
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    }
+                ],
+                "className": "URLPrototype",
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isConstructor": true,
+                        "isJavaScriptFunction": true,
+                        "name": "constructor",
+                        "returnType": "URL"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "toString"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "toJSON"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "member": "fakeMember",
+                        "name": "hash",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "host",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "hostname",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "href",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "origin",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "password",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "pathname",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "port",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "protocol",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "search",
+                        "type": "string"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "searchParams",
+                        "type": "URLPrototypeSearchParams"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "username",
+                        "type": "string"
+                    }
+                ],
+                "qualifiedClassName": "URLPrototype",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "ObjectPrototype"
+                    }
+                ]
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    }
+                ],
+                "className": "URL",
+                "methods": [
+                ],
+                "object": true,
+                "properties": [
+                ],
+                "qualifiedClassName": "URL",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "URLPrototype"
                     }
                 ]
             },
@@ -5088,6 +5139,18 @@
                         "type": "number"
                     },
                     {
+                        "name": "NoPreference",
+                        "type": "number"
+                    },
+                    {
+                        "name": "HighContrast",
+                        "type": "number"
+                    },
+                    {
+                        "name": "ReducedMotion",
+                        "type": "number"
+                    },
+                    {
                         "name": "NoButton",
                         "type": "number"
                     },
@@ -5537,6 +5600,14 @@
                     },
                     {
                         "name": "MaximizeUsingFullscreenGeometryHint",
+                        "type": "number"
+                    },
+                    {
+                        "name": "ExpandedClientAreaHint",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NoTitleBarBackgroundHint",
                         "type": "number"
                     },
                     {
@@ -8008,6 +8079,10 @@
                         "type": "number"
                     },
                     {
+                        "name": "Key_Keyboard",
+                        "type": "number"
+                    },
+                    {
                         "name": "Key_New",
                         "type": "number"
                     },
@@ -8952,6 +9027,10 @@
                         "type": "number"
                     },
                     {
+                        "name": "ImhNoFullscreen",
+                        "type": "number"
+                    },
+                    {
                         "name": "ImhDigitsOnly",
                         "type": "number"
                     },
@@ -8981,6 +9060,10 @@
                     },
                     {
                         "name": "ImhLatinOnly",
+                        "type": "number"
+                    },
+                    {
+                        "name": "ImhDecimalNumbersOnly",
                         "type": "number"
                     },
                     {
@@ -9168,7 +9251,27 @@
                         "type": "number"
                     },
                     {
+                        "name": "RangeModelDataRole",
+                        "type": "number"
+                    },
+                    {
+                        "name": "RangeModelAdapterRole",
+                        "type": "number"
+                    },
+                    {
                         "name": "UserRole",
+                        "type": "number"
+                    },
+                    {
+                        "name": "StandardItemFlagsRole",
+                        "type": "number"
+                    },
+                    {
+                        "name": "FileInfoRole",
+                        "type": "number"
+                    },
+                    {
+                        "name": "RemoteObjectsCacheRole",
                         "type": "number"
                     },
                     {
@@ -9552,15 +9655,6 @@
                     {
                         "access": "public",
                         "arguments": [
-                            {
-                            }
-                        ],
-                        "isJavaScriptFunction": true,
-                        "name": "sort"
-                    },
-                    {
-                        "access": "public",
-                        "arguments": [
                         ],
                         "isJavaScriptFunction": true,
                         "name": "valueOf"
@@ -9571,6 +9665,31 @@
                         ],
                         "isJavaScriptFunction": true,
                         "name": "shift"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                            }
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "unshift"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                            {
+                            }
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "push"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "pop"
                     }
                 ],
                 "object": true,
@@ -9873,6 +9992,13 @@
                         "arguments": [
                         ],
                         "isJavaScriptFunction": true,
+                        "name": "uiLanguageChanged"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
                         "name": "include"
                     },
                     {
@@ -10090,6 +10216,13 @@
                         "arguments": [
                         ],
                         "isJavaScriptFunction": true,
+                        "name": "escapeHtml"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
                         "name": "quit"
                     },
                     {
@@ -10126,6 +10259,27 @@
                         ],
                         "isJavaScriptFunction": true,
                         "name": "callLater"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "enumStringToValue"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "enumValueToString"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "enumValueToStrings"
                     }
                 ],
                 "object": true,
@@ -10278,6 +10432,238 @@
                     {
                         "access": "public",
                         "name": "ObjectPrototype"
+                    }
+                ]
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    }
+                ],
+                "className": "DOMException",
+                "methods": [
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "name": "INDEX_SIZE_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "DOMSTRING_SIZE_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "HIERARCHY_REQUEST_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "WRONG_DOCUMENT_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "INVALID_CHARACTER_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NO_DATA_ALLOWED_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NO_MODIFICATION_ALLOWED_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NOT_FOUND_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NOT_SUPPORTED_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "INUSE_ATTRIBUTE_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "INVALID_STATE_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "SYNTAX_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "INVALID_MODIFICATION_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "NAMESPACE_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "INVALID_ACCESS_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "VALIDATION_ERR",
+                        "type": "number"
+                    },
+                    {
+                        "name": "TYPE_MISMATCH_ERR",
+                        "type": "number"
+                    }
+                ],
+                "qualifiedClassName": "DOMException",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "ObjectPrototype"
+                    }
+                ]
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    }
+                ],
+                "className": "XMLHttpRequestPrototype",
+                "methods": [
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "open"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "setRequestHeader"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "send"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "abort"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "getResponseHeader"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "getAllResponseHeaders"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isJavaScriptFunction": true,
+                        "name": "overrideMimeType"
+                    }
+                ],
+                "object": true,
+                "properties": [
+                    {
+                        "name": "UNSENT",
+                        "type": "number"
+                    },
+                    {
+                        "name": "OPENED",
+                        "type": "number"
+                    },
+                    {
+                        "name": "HEADERS_RECEIVED",
+                        "type": "number"
+                    },
+                    {
+                        "name": "LOADING",
+                        "type": "number"
+                    },
+                    {
+                        "name": "DONE",
+                        "type": "number"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "readyState"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "status"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "statusText"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "responseText"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "responseXML"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "response"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "responseURL"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "responseType"
+                    }
+                ],
+                "qualifiedClassName": "XMLHttpRequestPrototype",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "ObjectPrototype"
+                    }
+                ]
+            },
+            {
+                "classInfos": [
+                    {
+                        "name": "QML.Element",
+                        "value": "anonymous"
+                    }
+                ],
+                "className": "XMLHttpRequest",
+                "methods": [
+                ],
+                "object": true,
+                "properties": [
+                ],
+                "qualifiedClassName": "XMLHttpRequest",
+                "superClasses": [
+                    {
+                        "access": "public",
+                        "name": "XMLHttpRequestPrototype"
                     }
                 ]
             },
@@ -10880,6 +11266,15 @@
                         ],
                         "isJavaScriptFunction": true,
                         "name": "gc"
+                    },
+                    {
+                        "access": "public",
+                        "arguments": [
+                        ],
+                        "isConstructor": true,
+                        "isJavaScriptFunction": true,
+                        "name": "XMLHttpRequest",
+                        "returnType": "XMLHttpRequest"
                     }
                 ],
                 "object": true,
@@ -10924,6 +11319,11 @@
                         "member": "fakeMember",
                         "name": "console",
                         "type": "Console"
+                    },
+                    {
+                        "member": "fakeMember",
+                        "name": "DOMException",
+                        "type": "DOMException"
                     }
                 ],
                 "qualifiedClassName": "GlobalObject",

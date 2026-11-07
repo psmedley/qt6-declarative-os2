@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGABSTRACTRENDERER_P_H
 #define QSGABSTRACTRENDERER_P_H
@@ -60,6 +61,8 @@ public:
     QMatrix4x4 projectionMatrixWithNativeNDC(int index) const;
     int projectionMatrixCount() const;
     int projectionMatrixWithNativeNDCCount() const;
+    void setInvertFrontFace(bool invert);
+    bool invertFrontFace() const;
 
     void setClearColor(const QColor &color);
     QColor clearColor() const;

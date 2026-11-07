@@ -18,7 +18,7 @@ qt_internal_add_qml_module(QuickTest
     VERSION "${PROJECT_VERSION}"
     PAST_MAJOR_VERSIONS 1
     DEPENDENCIES
-        QtQuick.Window/auto
+        QtQuick/auto
     CONFIG_MODULE_NAME qmltest
     QMAKE_MODULE_CONFIG $${QT.testlib.CONFIG}
     SOURCES
@@ -34,7 +34,6 @@ qt_internal_add_qml_module(QuickTest
         TestSchedule.qml
         testlogger.js
     DEFINES
-        QT_NO_FOREACH
         QT_NO_URL_CAST_FROM_STRING
         QT_BUILD_QMLTEST_LIB
     LIBRARIES
@@ -49,13 +48,30 @@ qt_internal_add_qml_module(QuickTest
         Qt::Test
     PRIVATE_MODULE_INTERFACE
         Qt::TestPrivate
-    OS2_SHORT_NAME quicktet
 )
 
 qt_internal_extend_target(QuickTest CONDITION QT_FEATURE_qml_debug
     DEFINES
         QT_QML_DEBUG_NO_WARNING
 )
+
+qt_internal_extend_target(QuickTest CONDITION ANDROID
+    SOURCES
+        android/androidtestutils_p.h
+        android/quickforandroidtest_p.h
+        android/quickforandroidtest.cpp
+)
+
 qt_internal_add_docs(QuickTest
     doc/qtqmltest.qdocconf
+)
+
+target_sources(QuickTest
+    PRIVATE
+        doc/src/qtquicktest-index.qdoc
+        doc/src/toucheventsequence.qdoc
+        doc/src/qtquicktest-cppapi.qdoc
+        doc/src/qt6-changes.qdoc
+        doc/src/qtquicktest.qdoc
+        doc/src/qtquicktest-qmltypes.qdoc
 )

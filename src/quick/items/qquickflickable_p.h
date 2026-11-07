@@ -1,5 +1,7 @@
+
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKFLICKABLE_P_H
 #define QQUICKFLICKABLE_P_H
@@ -17,17 +19,19 @@
 
 #include "qquickitem.h"
 #include <private/qtquickglobal_p.h>
+#include <QtCore/qpoint.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQuickFlickablePrivate;
 class QQuickFlickableVisibleArea;
+class QPointerEvent;
 class Q_QUICK_EXPORT QQuickFlickable : public QQuickItem
 {
     Q_OBJECT
 
-    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged)
-    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged)
+    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged VIRTUAL)
+    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged VIRTUAL)
     Q_PROPERTY(qreal contentX READ contentX WRITE setContentX NOTIFY contentXChanged)
     Q_PROPERTY(qreal contentY READ contentY WRITE setContentY NOTIFY contentYChanged)
     Q_PROPERTY(QQuickItem *contentItem READ contentItem CONSTANT)
@@ -74,6 +78,8 @@ class Q_QUICK_EXPORT QQuickFlickable : public QQuickItem
 
     Q_PROPERTY(qreal horizontalOvershoot READ horizontalOvershoot NOTIFY horizontalOvershootChanged REVISION(2, 9))
     Q_PROPERTY(qreal verticalOvershoot READ verticalOvershoot NOTIFY verticalOvershootChanged REVISION(2, 9))
+
+    Q_PROPERTY(Qt::MouseButtons acceptedButtons READ acceptedButtons WRITE setAcceptedButtons NOTIFY acceptedButtonsChanged REVISION(6, 9) FINAL)
 
     Q_PROPERTY(QQmlListProperty<QObject> flickableData READ flickableData)
     Q_PROPERTY(QQmlListProperty<QQuickItem> flickableChildren READ flickableChildren)
@@ -183,13 +189,33 @@ public:
     bool synchronousDrag() const;
     void setSynchronousDrag(bool v);
 
+    Qt::MouseButtons acceptedButtons() const;
+    void setAcceptedButtons(Qt::MouseButtons buttons);
+
     qreal horizontalOvershoot() const;
     qreal verticalOvershoot() const;
+
+    enum PositionModeFlag {
+        AlignLeft = Qt::AlignLeft,
+        AlignRight = Qt::AlignRight,
+        AlignHCenter = Qt::AlignHCenter,
+        AlignTop = Qt::AlignTop,
+        AlignBottom = Qt::AlignBottom,
+        AlignVCenter = Qt::AlignVCenter,
+        AlignCenter = AlignVCenter | AlignHCenter,
+        Visible = 0x01000,
+        Contain = 0x02000
+    };
+    Q_DECLARE_FLAGS(PositionMode, PositionModeFlag)
+    Q_FLAG(PositionMode)
 
     Q_INVOKABLE void resizeContent(qreal w, qreal h, QPointF center);
     Q_INVOKABLE void returnToBounds();
     Q_INVOKABLE void flick(qreal xVelocity, qreal yVelocity);
     Q_INVOKABLE void cancelFlick();
+    Q_REVISION(6, 11) Q_INVOKABLE void positionViewAtChild(QQuickItem *child, PositionMode mode, const QPointF &offset = QPointF());
+    Q_REVISION(6, 11) Q_INVOKABLE void flickToChild(QQuickItem *child, PositionMode mode, const QPointF &offset = QPointF());
+    Q_REVISION(6, 11) Q_INVOKABLE void flickTo(const QPointF &position);
 
 Q_SIGNALS:
     void contentWidthChanged();
@@ -239,6 +265,8 @@ Q_SIGNALS:
     void atXBeginningChanged();
     void atYBeginningChanged();
 
+    Q_REVISION(6, 9) void acceptedButtonsChanged();
+
 protected:
     bool childMouseEventFilter(QQuickItem *, QEvent *) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -275,6 +303,9 @@ protected:
     bool xflick() const;
     bool yflick() const;
 
+    QPointF computePosition(QPointF currentPosition, QRectF itemRect, PositionMode mode,
+                            const QPointF &offset = QPointF()) const;
+
 protected:
     QQuickFlickable(QQuickFlickablePrivate &dd, QQuickItem *parent);
 
@@ -284,6 +315,8 @@ private:
     friend class QQuickFlickableVisibleArea;
     friend class QQuickFlickableReboundTransition;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickFlickable::PositionMode)
 
 QT_END_NAMESPACE
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickimagebase_p.h"
 #include "qquickimagebase_p_p.h"
@@ -298,7 +299,7 @@ void QQuickImageBase::loadPixmap(const QUrl &url, LoadPixmapOptions loadOptions)
         loadUrl = context->resolvedUrl(url);
 
     if (loadOptions & HandleDPR) {
-        const qreal targetDevicePixelRatio = (window() ? window()->effectiveDevicePixelRatio() : qApp->devicePixelRatio());
+        const qreal targetDevicePixelRatio = d->effectiveDevicePixelRatio();
         d->devicePixelRatio = 1.0;
         bool updatedDevicePixelRatio = false;
         if (d->sourcesize.isValid()
@@ -418,7 +419,10 @@ void QQuickImageBase::itemChange(ItemChange change, const ItemChangeData &value)
         const auto oldDpr = d->devicePixelRatio;
         // ### how can we get here with !qmlEngine(this)? that implies
         // itemChange() on an item pending deletion, which seems strange.
-        if (qmlEngine(this) && isComponentComplete() && d->url.isValid()) {
+        // Note: We call load here without checking for a valid URL or
+        // any other properties, as we can't know whether the subclass'
+        // implementation of load() is based on URLs or not.
+        if (qmlEngine(this) && isComponentComplete()) {
             load();
             // not changed when loading (sourceSize might not be set)
             if (d->devicePixelRatio == oldDpr)

@@ -14,6 +14,7 @@
 
 #include <QtCore/qtimer.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qfile.h>
 #include <QtCore/qtranslator.h>
 #include <QSignalSpy>
 
@@ -53,10 +54,17 @@ class tst_qqmllistmodel : public QQmlDataTest
 {
     Q_OBJECT
 public:
+    static void initMain()
+    {
+        // Some tests may require a window to fully emulate the behavior of certain things like a
+        // ListView. Use the offscreen platform to avoid showing windows which might cause issues.
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    }
+
     tst_qqmllistmodel()
         : QQmlDataTest(QT_QMLTEST_DATADIR)
     {
-        qRegisterMetaType<QVector<int> >();
+        qRegisterMetaType<QList<int> >();
     }
 
 private:
@@ -123,6 +131,12 @@ private slots:
     void protectQObjectFromGC();
     void nestedLists();
     void deadModelData();
+    void valuesOfInnerList();
+    void arrayLikes();
+    void functionInNested();
+    void properWorkerAgentLifecycle();
+    void emptyListRoleSurvivesCachegen();
+    void crashCanMoveIntegerOverflow();
 };
 
 bool tst_qqmllistmodel::compareVariantList(const QVariantList &testList, QVariant object)
@@ -814,7 +828,7 @@ void tst_qqmllistmodel::get()
     QList<QVariant> spyResult = spy.takeFirst();
     QCOMPARE(spyResult.at(0).value<QModelIndex>(), model->index(index, 0, QModelIndex()));
     QCOMPARE(spyResult.at(1).value<QModelIndex>(), model->index(index, 0, QModelIndex()));  // only 1 item is modified at a time
-    QCOMPARE(spyResult.at(2).value<QVector<int> >(), (QVector<int>() << role));
+    QCOMPARE(spyResult.at(2).value<QList<int> >(), (QList<int>() << role));
 }
 
 void tst_qqmllistmodel::get_data()
@@ -902,11 +916,11 @@ void tst_qqmllistmodel::get_nested()
     //  get(1).listRoleB
     //  get(1).listRoleC
 
-    QList<QPair<int, QString> > testData;
-    testData << qMakePair(0, QString("listRoleA"));
-    testData << qMakePair(1, QString("listRoleA"));
-    testData << qMakePair(1, QString("listRoleB"));
-    testData << qMakePair(1, QString("listRoleC"));
+    QList<std::pair<int, QString> > testData;
+    testData << std::make_pair(0, QString("listRoleA"));
+    testData << std::make_pair(1, QString("listRoleA"));
+    testData << std::make_pair(1, QString("listRoleB"));
+    testData << std::make_pair(1, QString("listRoleC"));
 
     for (int i=0; i<testData.size(); i++) {
         int outerListIndex = testData[i].first;
@@ -936,7 +950,7 @@ void tst_qqmllistmodel::get_nested()
         QList<QVariant> spyResult = spy.takeFirst();
         QCOMPARE(spyResult.at(0).value<QModelIndex>(), childModel->index(index, 0, QModelIndex()));
         QCOMPARE(spyResult.at(1).value<QModelIndex>(), childModel->index(index, 0, QModelIndex()));  // only 1 item is modified at a time
-        QCOMPARE(spyResult.at(2).value<QVector<int> >(), (QVector<int>() << role));
+        QCOMPARE(spyResult.at(2).value<QList<int> >(), (QList<int>() << role));
     }
 }
 
@@ -958,6 +972,15 @@ void tst_qqmllistmodel::crash_model_with_multiple_roles()
 
     // used to cause a crash
     model->setProperty(0, "black", true);
+}
+
+void tst_qqmllistmodel::crashCanMoveIntegerOverflow()
+{
+    QQmlEngine eng;
+    QQmlComponent component(&eng, testFileUrl("qtbug149028.qml"));
+    std::unique_ptr<QObject> rootItem{ component.create() };
+    QVERIFY(component.errorString().isEmpty());
+    QVERIFY(rootItem);
 }
 
 void tst_qqmllistmodel::crash_model_with_unknown_roles()
@@ -1745,7 +1768,7 @@ void tst_qqmllistmodel::objectDestroyed()
             QUrl());
 
     std::unique_ptr<QObject> obj = std::make_unique<QObject>();
-    connect(obj.get(), &QObject::destroyed, [&]() { obj.release(); });
+    connect(obj.get(), &QObject::destroyed, obj.get(), [&obj] { obj.release(); });
 
     engine.rootContext()->setContextProperty(u"contextObject"_s, obj.get());
     engine.setObjectOwnership(obj.get(), QJSEngine::JavaScriptOwnership);
@@ -2125,6 +2148,156 @@ void tst_qqmllistmodel::deadModelData()
         QVERIFY(i2);
         QCOMPARE(i2->property("ident").value<double>(), double());
         QCOMPARE(i2->property("buttonText").value<QString>(), QString());
+    }
+}
+
+void tst_qqmllistmodel::valuesOfInnerList()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("valuesOfInnerList.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QTest::ignoreMessage(QtDebugMsg, "[1,2,3]");
+    QTest::ignoreMessage(QtDebugMsg, "[1,2,3]");
+    QTest::ignoreMessage(QtDebugMsg, QRegularExpression("QQmlListModel\\(0x[0-9a-f]*\\)"));
+
+    // Array with values of all the properties of QQmlListModel, one of which is "agent"
+    QTest::ignoreMessage(
+            QtDebugMsg, QRegularExpression("\\[.*QQmlListModelWorkerAgent\\(0x[0-9a-f]*\\).*\\]"));
+
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+}
+
+class VariantListProvider : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+public:
+    Q_INVOKABLE QVariantMap getSomeData(int count)
+    {
+        QVariantList list;
+
+        while (count--) {
+            QVariantMap item;
+            item[QLatin1String("r")] = i++;
+            item[QLatin1String("s")] = QString::number(i) + u"s";
+            list.append(item);
+        }
+
+        QVariantMap data;
+        data[QLatin1String("a")] = 2;
+        data[QLatin1String("b")] = list;
+        return data;
+    }
+private:
+    int i = 0;
+};
+
+void tst_qqmllistmodel::arrayLikes()
+{
+    qmlRegisterTypesAndRevisions<VariantListProvider>("Test", 1);
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("arrayLikes.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->property("count").toInt(), 0);
+    QMetaObject::invokeMethod(o.data(), "setVariantList");
+
+    QCOMPARE(o->property("count").toInt(), 1);
+    QCOMPARE(o->property("a").toInt(), 2);
+    QCOMPARE(o->property("r").toInt(), 11);
+    QCOMPARE(o->property("s").toString(), "13s");
+
+    QMetaObject::invokeMethod(o.data(), "setJavaScriptArray");
+
+    QCOMPARE(o->property("count").toInt(), 1);
+    QCOMPARE(o->property("a").toInt(), 3);
+    QCOMPARE(o->property("r").toInt(), 1);
+    QCOMPARE(o->property("s").toString(), "2t");
+}
+
+void tst_qqmllistmodel::functionInNested()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("functionInNested.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QTest::ignoreMessage(QtDebugMsg, "called");
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+}
+
+void tst_qqmllistmodel::properWorkerAgentLifecycle()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("properWorkerAgentLifecycle.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QTest::ignoreMessage(QtDebugMsg, "worker modifying & syncing model");
+    QTest::ignoreMessage(QtDebugMsg, "worker modifying & syncing model");
+    QTest::ignoreMessage(QtDebugMsg, "worker modifying & syncing model");
+    QTest::ignoreMessage(QtDebugMsg, "worker modifying & syncing model");
+
+    QScopedPointer<QObject> o(component.create());
+    QVERIFY(!o.isNull());
+
+    QTRY_COMPARE(o->property("received"), 4);
+}
+
+void tst_qqmllistmodel::emptyListRoleSurvivesCachegen()
+{
+    // A ListElement role assigned an empty array ("attributes: []") must be recognized as a list
+    // role. The custom parser can only tell this from the binding's source text "[]". Compiled
+    // ahead of time by qmlcachegen, it has to come from the compiled unit -- the source is gone.
+    //
+    // Both modules below are built with DISCARD_QML_CONTENTS, so the source bytes are dropped from
+    // the resources and the only possible source of "[]" is the ahead-of-time-compiled unit.
+    QFile discardedSource(u":/listmodeldiscard/EmptyListRoleViaQtQml.qml"_s);
+    QVERIFY2(discardedSource.exists(), "the module layout changed; update this path");
+    QVERIFY2(discardedSource.size() == 0,
+             "the QML source was not discarded; the test would be moot");
+
+    QQmlEngine engine;
+
+    // Run-time compilation from source recovers "[]" no matter how the import is spelled.
+    {
+        QQmlComponent fromSource(&engine);
+        fromSource.setData("import QtQml\n"
+                           "QtObject {\n"
+                           "    property ListModel model: ListModel {\n"
+                           "        ListElement { attributes: [] }\n"
+                           "    }\n"
+                           "    property int attributesCount: model.get(0).attributes.count\n"
+                           "}\n",
+                           QUrl(u"empty_list_from_source.qml"_s));
+        QVERIFY2(fromSource.isReady(), qPrintable(fromSource.errorString()));
+        QScopedPointer<QObject> root(fromSource.create());
+        QVERIFY2(!root.isNull(), qPrintable(fromSource.errorString()));
+        QCOMPARE(root->property("attributesCount").toInt(), 0);
+    }
+
+    // Ahead-of-time, importing QtQml.Models by name.
+    {
+        QQmlComponent viaModels(&engine);
+        viaModels.loadFromModule("listmodeldiscard", "EmptyListRoleViaModels");
+        QVERIFY2(viaModels.isReady(), qPrintable(viaModels.errorString()));
+        QScopedPointer<QObject> root(viaModels.create());
+        QVERIFY2(!root.isNull(), qPrintable(viaModels.errorString()));
+        QCOMPARE(root->property("attributesCount").toInt(), 0);
+    }
+
+    // Ahead-of-time, reaching the very same types through "import QtQml".
+    // NB: This is what would fail with the old annotateListElements().
+    {
+        QQmlComponent viaQtQml(&engine);
+        viaQtQml.loadFromModule("listmodeldiscard", "EmptyListRoleViaQtQml");
+        QVERIFY2(viaQtQml.isReady(), qPrintable(viaQtQml.errorString()));
+        QScopedPointer<QObject> root(viaQtQml.create());
+        QVERIFY(!root.isNull());
     }
 }
 

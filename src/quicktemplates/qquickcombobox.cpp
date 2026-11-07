@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickcombobox_p.h"
 #include "qquickcontrol_p_p.h"
@@ -7,6 +8,7 @@
 #include "qquickabstractbutton_p_p.h"
 #include "qquickpopup_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
+#include "qquickpopupwindow_p_p.h"
 
 #include <QtCore/qregularexpression.h>
 #include <QtCore/qabstractitemmodel.h>
@@ -17,6 +19,7 @@
 #include <QtGui/qpa/qplatformtheme.h>
 #include <QtQml/qjsvalue.h>
 #include <QtQml/qqmlcontext.h>
+#include <QtQml/qqmlcomponent.h>
 #include <QtQml/private/qlazilyallocated_p.h>
 #include <private/qqmldelegatemodel_p.h>
 #include <QtQuick/private/qquickaccessibleattached_p.h>
@@ -29,7 +32,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcCalculateWidestTextWidth, "qt.quick.controls.combobox.calculatewidesttextwidth")
+Q_STATIC_LOGGING_CATEGORY(lcCalculateWidestTextWidth, "qt.quick.controls.combobox.calculatewidesttextwidth")
 
 /*!
     \qmltype ComboBox
@@ -42,6 +45,7 @@ Q_LOGGING_CATEGORY(lcCalculateWidestTextWidth, "qt.quick.controls.combobox.calcu
     \brief Combined button and popup list for selecting options.
 
     \image qtquickcontrols-combobox.gif
+           {Combo box expanding to show dropdown list}
 
     ComboBox is a combined button and popup list. It provides a means of
     presenting a list of options to the user in a way that takes up the
@@ -206,6 +210,44 @@ class QQuickComboBoxPrivate : public QQuickControlPrivate
 public:
     Q_DECLARE_PUBLIC(QQuickComboBox)
 
+    /*
+       This defines which criteria is used to determine the current model element.
+       The criteria is set by the currentIndex and currentValue setters.
+       With CurrentValue the currentIndex will be set to the index of the element
+       having the same value and currentText will be set to the text of that element.
+       With CurrentIndex or None (when none is explicitly set)
+       currentText and currentValue are set to the ones of the element at currentIndex.
+       Upon model changes the two other properties (those not set) are updated accordingly.
+       User interaction (choosing an item) doesn't change this criteria.
+       This means that if we start with a model containing the values [foo, bar, baz],
+       the user selecting "bar" (at index 1) and the model then being updated by inserting
+       a new element at the beginning, the end result will depend on currentElementCriteria:
+       - CurrentIndex or None:
+             currentIndex will still be 1 but currentValue will be "foo"
+       - CurrentValue:
+             currentValue will still be "bar" but currentIndex will be 2
+
+       The different criteria also have slight behavior changes upon initialization and
+       model changes. The following table depicts how the currentIndex is set in different
+       cases depending on the model count:
+
+                         |  CurrentValue  |  CurrentIndex  |      None
+       ---------------------------------------------------------------------
+       componentComplete |                |                | 0 if not empty
+       ---------------------------------------------------------------------
+       countChanged      |                |           -1 if empty
+       ---------------------------------------------------------------------
+       modelChanged      |                |    -1 if empty, 0 if not empty
+
+       Note that with CurrentValue the currentValue will only be changed by user interactions,
+       not by model changes.
+    */
+    enum class CurrentElementCriteria {
+        None,
+        CurrentIndex,
+        CurrentValue,
+    };
+
     bool isPopupVisible() const;
     void showPopup();
     void hidePopup(bool accept);
@@ -222,19 +264,23 @@ public:
 
     QString effectiveTextRole() const;
     void updateEditText();
+    void updateCurrentIndex();
     void updateCurrentText();
     void updateCurrentValue();
-    void updateCurrentTextAndValue();
+    void updateCurrentElements();
     void updateAcceptableInput();
+
+    void onDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QList<int> &roles);
 
     bool isValidIndex(int index) const;
 
     void acceptInput();
     QString tryComplete(const QString &inputText);
 
+    void setCurrentItemAtIndex(int, Activation activate);
     void incrementCurrentIndex();
     void decrementCurrentIndex();
-    void setCurrentIndex(int index, Activation activate);
+    void setCurrentIndex(int index);
     void updateHighlightedIndex();
     void setHighlightedIndex(int index, Highlighting highlight);
 
@@ -275,12 +321,13 @@ public:
     bool ownModel = false;
     bool keyNavigating = false;
     bool hasDisplayText = false;
-    bool hasCurrentIndex = false;
     bool hasCalculatedWidestText = false;
+    CurrentElementCriteria currentElementCriteria = CurrentElementCriteria::None;
     int highlightedIndex = -1;
     int currentIndex = -1;
     QQuickComboBox::ImplicitContentWidthPolicy implicitContentWidthPolicy = QQuickComboBox::ContentItemImplicitWidth;
     QVariant model;
+    std::optional<QPointer<QObject>> qobjectModelGuard;
     QString textRole;
     QString currentText;
     QString displayText;
@@ -294,6 +341,7 @@ public:
     bool m_acceptableInput = true;
     bool acceptedEscKeyPress = false;
     bool receivedEscKeyPress = false;
+    bool highlightOnHover = true;
 
     struct ExtraData {
         bool editable = false;
@@ -327,8 +375,10 @@ void QQuickComboBoxPrivate::hidePopup(bool accept)
 {
     Q_Q(QQuickComboBox);
     if (accept) {
-        q->setCurrentIndex(highlightedIndex);
-        emit q->activated(currentIndex);
+        setCurrentItemAtIndex(highlightedIndex, NoActivate);
+        // hiding the popup on user interaction should always emit activated,
+        // even if the current index didn't change
+        emit q->activated(highlightedIndex);
     }
     if (popup && popup->isVisible())
         popup->close();
@@ -396,7 +446,8 @@ void QQuickComboBoxPrivate::itemHovered()
 
     int index = delegateModel->indexOf(button, nullptr);
     if (index != -1) {
-        setHighlightedIndex(index, Highlight);
+        if (highlightOnHover)
+            setHighlightedIndex(index, Highlight);
 
 #if QT_CONFIG(quick_itemview)
         if (QQuickItemView *itemView = popup->findChild<QQuickItemView *>())
@@ -425,13 +476,13 @@ void QQuickComboBoxPrivate::createdItem(int index, QObject *object)
     }
 
     if (index == currentIndex && !q->isEditable())
-        updateCurrentTextAndValue();
+        updateCurrentElements();
 }
 
 void QQuickComboBoxPrivate::modelUpdated()
 {
     if (componentComplete && (!extra.isAllocated() || !extra->accepting)) {
-        updateCurrentTextAndValue();
+        updateCurrentElements();
 
         if (implicitContentWidthPolicy == QQuickComboBox::WidestText)
             updateImplicitContentSize();
@@ -441,8 +492,12 @@ void QQuickComboBoxPrivate::modelUpdated()
 void QQuickComboBoxPrivate::countChanged()
 {
     Q_Q(QQuickComboBox);
-    if (q->count() == 0)
-        q->setCurrentIndex(-1);
+    if (q->count() == 0) {
+        if (currentElementCriteria == CurrentElementCriteria::CurrentValue)
+            updateCurrentElements();
+        else
+            setCurrentItemAtIndex(-1, NoActivate);
+    }
     emit q->countChanged();
 }
 
@@ -470,6 +525,17 @@ void QQuickComboBoxPrivate::updateEditText()
         }
     }
     q->setEditText(text);
+}
+
+void QQuickComboBoxPrivate::updateCurrentIndex()
+{
+    Q_Q(QQuickComboBox);
+    const int index = q->indexOfValue(currentValue);
+    if (currentIndex == index)
+        return;
+
+    currentIndex = index;
+    emit q->currentIndexChanged();
 }
 
 void QQuickComboBoxPrivate::updateCurrentText()
@@ -501,10 +567,20 @@ void QQuickComboBoxPrivate::updateCurrentValue()
     emit q->currentValueChanged();
 }
 
-void QQuickComboBoxPrivate::updateCurrentTextAndValue()
+void QQuickComboBoxPrivate::updateCurrentElements()
 {
-    updateCurrentText();
-    updateCurrentValue();
+    switch (currentElementCriteria) {
+        case CurrentElementCriteria::None:
+            Q_FALLTHROUGH();
+        case CurrentElementCriteria::CurrentIndex:
+            updateCurrentText();
+            updateCurrentValue();
+            break;
+        case CurrentElementCriteria::CurrentValue:
+            updateCurrentIndex();
+            updateCurrentText();
+            break;
+    }
 }
 
 void QQuickComboBoxPrivate::updateAcceptableInput()
@@ -527,6 +603,13 @@ void QQuickComboBoxPrivate::updateAcceptableInput()
     }
 }
 
+void QQuickComboBoxPrivate::onDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QList<int> &)
+{
+    const bool currentIndexIsInChangedRange = currentIndex >= topLeft.row() && currentIndex <= bottomRight.row();
+    if (currentIndex == -1 || currentIndexIsInChangedRange)
+        updateCurrentElements();
+}
+
 bool QQuickComboBoxPrivate::isValidIndex(int index) const
 {
     return delegateModel && index >= 0 && index < delegateModel->count();
@@ -538,7 +621,7 @@ void QQuickComboBoxPrivate::acceptInput()
     int idx = q->find(extra.value().editText, Qt::MatchFixedString);
     if (idx > -1) {
         // The item that was accepted already exists, so make it the current item.
-        q->setCurrentIndex(idx);
+        setCurrentItemAtIndex(idx, NoActivate);
         // After accepting text that matches an existing entry, the selection should be cleared.
         QQuickTextInput *input = qobject_cast<QQuickTextInput *>(contentItem);
         if (input) {
@@ -552,8 +635,10 @@ void QQuickComboBoxPrivate::acceptInput()
 
     // The user might have added the item since it didn't exist, so check again
     // to see if we can select that new item.
-    if (idx == -1)
-        q->setCurrentIndex(q->find(extra.value().editText, Qt::MatchFixedString));
+    if (idx == -1) {
+        idx = q->find(extra.value().editText, Qt::MatchFixedString);
+        setCurrentItemAtIndex(idx, NoActivate);
+    }
     extra.value().accepting = false;
 }
 
@@ -579,7 +664,7 @@ QString QQuickComboBoxPrivate::tryComplete(const QString &input)
     return input + match.mid(input.size());
 }
 
-void QQuickComboBoxPrivate::setCurrentIndex(int index, Activation activate)
+void QQuickComboBoxPrivate::setCurrentIndex(int index)
 {
     Q_Q(QQuickComboBox);
     if (currentIndex == index)
@@ -589,7 +674,20 @@ void QQuickComboBoxPrivate::setCurrentIndex(int index, Activation activate)
     emit q->currentIndexChanged();
 
     if (componentComplete)
-        updateCurrentTextAndValue();
+        updateCurrentElements();
+}
+
+void QQuickComboBoxPrivate::setCurrentItemAtIndex(int index, Activation activate)
+{
+    Q_Q(QQuickComboBox);
+    if (currentIndex == index)
+        return;
+
+    currentIndex = index;
+    emit q->currentIndexChanged();
+
+    updateCurrentText();
+    updateCurrentValue();
 
     if (activate)
         emit q->activated(index);
@@ -605,7 +703,7 @@ void QQuickComboBoxPrivate::incrementCurrentIndex()
             setHighlightedIndex(highlightedIndex + 1, Highlight);
     } else {
         if (currentIndex < q->count() - 1)
-            setCurrentIndex(currentIndex + 1, Activate);
+            setCurrentItemAtIndex(currentIndex + 1, Activate);
     }
     if (extra.isAllocated())
         extra->allowComplete = true;
@@ -620,7 +718,7 @@ void QQuickComboBoxPrivate::decrementCurrentIndex()
             setHighlightedIndex(highlightedIndex - 1, Highlight);
     } else {
         if (currentIndex > 0)
-            setCurrentIndex(currentIndex - 1, Activate);
+            setCurrentItemAtIndex(currentIndex - 1, Activate);
     }
     if (extra.isAllocated())
         extra->allowComplete = true;
@@ -652,7 +750,7 @@ void QQuickComboBoxPrivate::keySearch(const QString &text)
         if (isPopupVisible())
             setHighlightedIndex(index, Highlight);
         else
-            setCurrentIndex(index, Activate);
+            setCurrentItemAtIndex(index, Activate);
     }
 }
 
@@ -1005,34 +1103,53 @@ int QQuickComboBox::count() const
 QVariant QQuickComboBox::model() const
 {
     Q_D(const QQuickComboBox);
-    return d->model;
+    if (!d->qobjectModelGuard.has_value()) {
+        // It's not a QObject-derived model; return it as-is.
+        return d->model;
+    }
+
+    // It is a QObject-derived model; only return it if it's still alive.
+    return !d->qobjectModelGuard->isNull() ? d->model : QVariant();
 }
 
 void QQuickComboBox::setModel(const QVariant& m)
 {
     Q_D(QQuickComboBox);
-    QVariant model = m;
-    if (model.userType() == qMetaTypeId<QJSValue>())
-        model = model.value<QJSValue>().toVariant();
+    QVariant newModel = m;
+    if (newModel.userType() == qMetaTypeId<QJSValue>())
+        newModel = newModel.value<QJSValue>().toVariant();
 
-    if (d->model == model)
+    if (d->model == newModel)
         return;
 
-    if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(d->model)) {
-        QObjectPrivate::disconnect(aim, &QAbstractItemModel::dataChanged,
-            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentTextAndValue));
+    if (d->qobjectModelGuard.has_value() && !d->qobjectModelGuard->isNull()) {
+        if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(d->model)) {
+            QObjectPrivate::disconnect(aim, &QAbstractItemModel::dataChanged,
+                d, &QQuickComboBoxPrivate::onDataChanged);
+        }
     }
-    if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(model)) {
-        QObjectPrivate::connect(aim, &QAbstractItemModel::dataChanged,
-            d, QOverload<>::of(&QQuickComboBoxPrivate::updateCurrentTextAndValue));
+    if (QObject* newModelAsQObject = qvariant_cast<QObject *>(newModel)) {
+        // Ensure that if the model is destroyed, we don't try to access it.
+        // We store it in std::optional because model() needs to return the model
+        // as-is if a non-QObject model is contained within it.
+        d->qobjectModelGuard = QPointer<QObject>(newModelAsQObject);
+
+        if (QAbstractItemModel* aim = qvariant_cast<QAbstractItemModel *>(newModel)) {
+            QObjectPrivate::connect(aim, &QAbstractItemModel::dataChanged,
+                d, &QQuickComboBoxPrivate::onDataChanged);
+        }
+    } else {
+        // It's not a QObject, so we don't need to worry about tracking its lifetime.
+        d->qobjectModelGuard.reset();
     }
 
-    d->model = model;
+    d->model = newModel;
     d->createDelegateModel();
     emit countChanged();
     if (isComponentComplete()) {
-        setCurrentIndex(count() > 0 ? 0 : -1);
-        d->updateCurrentTextAndValue();
+        if (d->currentElementCriteria != QQuickComboBoxPrivate::CurrentElementCriteria::CurrentValue)
+            d->setCurrentIndex(count() > 0 ? 0 : -1);
+        d->updateCurrentElements();
     }
     emit modelChanged();
 
@@ -1123,8 +1240,8 @@ int QQuickComboBox::currentIndex() const
 void QQuickComboBox::setCurrentIndex(int index)
 {
     Q_D(QQuickComboBox);
-    d->hasCurrentIndex = true;
-    d->setCurrentIndex(index, NoActivate);
+    d->currentElementCriteria = QQuickComboBoxPrivate::CurrentElementCriteria::CurrentIndex;
+    d->setCurrentIndex(index);
 }
 
 /*!
@@ -1242,7 +1359,7 @@ void QQuickComboBox::setValueRole(const QString &role)
 
     d->valueRole = role;
     if (isComponentComplete())
-        d->updateCurrentValue();
+        d->updateCurrentElements();
     emit valueRoleChanged();
 }
 
@@ -1267,6 +1384,8 @@ void QQuickComboBox::setValueRole(const QString &role)
     }
     \endcode
 
+    \include delegate-ownership.qdocinc {no-ownership-since-6.11} {ComboBox}
+
     \sa ItemDelegate, {Customizing ComboBox}
 */
 QQmlComponent *QQuickComboBox::delegate() const
@@ -1281,7 +1400,6 @@ void QQuickComboBox::setDelegate(QQmlComponent* delegate)
     if (d->delegate == delegate)
         return;
 
-    delete d->delegate;
     d->delegate = delegate;
     QQmlDelegateModel *delegateModel = qobject_cast<QQmlDelegateModel*>(d->delegateModel);
     if (delegateModel)
@@ -1371,6 +1489,12 @@ void QQuickComboBox::setPopup(QQuickPopup *popup)
         QQuickComboBoxPrivate::hideOldPopup(d->popup);
     }
     if (popup) {
+#if QT_CONFIG(wayland)
+        QQuickPopupPrivate::get(popup)->extendedWindowType = QNativeInterface::Private::QWaylandWindow::ComboBox;
+#endif
+#if QT_CONFIG(xcb)
+        QQuickPopupPrivate::get(popup)->wmWindowType = QNativeInterface::Private::QXcbWindow::Combo;
+#endif
         QQuickPopupPrivate::get(popup)->allowVerticalFlip = true;
         popup->setClosePolicy(QQuickPopup::CloseOnEscape | QQuickPopup::CloseOnPressOutsideParent);
         QObjectPrivate::connect(popup, &QQuickPopup::visibleChanged, d, &QQuickComboBoxPrivate::popupVisibleChanged);
@@ -1690,11 +1814,15 @@ qreal QQuickComboBox::implicitIndicatorHeight() const
 }
 
 /*!
-    \readonly
     \since QtQuick.Controls 2.14 (Qt 5.14)
     \qmlproperty var QtQuick.Controls::ComboBox::currentValue
 
     This property holds the value of the current item in the combo box.
+    Setting this property will set \l currentIndex to the item with the
+    corresponding value or \c -1 if it is not found.
+    Setting both \l currentIndex and \a currentValue declaratively will
+    result in undefined behavior.
+    Setting this property with a value that is not unique is not supported.
 
     For an example of how to use this property, see \l {ComboBox Model Roles}.
 
@@ -1704,6 +1832,20 @@ QVariant QQuickComboBox::currentValue() const
 {
     Q_D(const QQuickComboBox);
     return d->currentValue;
+}
+
+void QQuickComboBox::setCurrentValue(const QVariant &value)
+{
+    Q_D(QQuickComboBox);
+    d->currentElementCriteria = QQuickComboBoxPrivate::CurrentElementCriteria::CurrentValue;
+    if (value == d->currentValue)
+        return;
+
+    d->currentValue = value;
+    emit currentValueChanged();
+
+    if (d->componentComplete)
+        d->updateCurrentElements();
 }
 
 /*!
@@ -1842,6 +1984,31 @@ void QQuickComboBox::setImplicitContentWidthPolicy(QQuickComboBox::ImplicitConte
     d->maybeUpdateImplicitContentWidth();
     emit implicitContentWidthPolicyChanged();
 }
+
+/*!
+    \since QtQuick.Controls 6.12 (Qt 6.12)
+    \qmlproperty bool QtQuick.Controls::ComboBox::highlightOnHover
+
+    This property holds whether hovering over items should highlight
+    them.
+
+    The default value is \c true.
+*/
+bool QQuickComboBox::highlightOnHover() const
+{
+    Q_D(const QQuickComboBox);
+    return d->highlightOnHover;
+}
+
+void QQuickComboBox::setHighlightOnHover(bool value)
+{
+    Q_D(QQuickComboBox);
+    if (value == highlightOnHover())
+        return;
+
+    d->highlightOnHover = value;
+    emit highlightOnHoverChanged();
+}
 /*!
     \qmlmethod string QtQuick.Controls::ComboBox::textAt(int index)
 
@@ -1970,7 +2137,7 @@ bool QQuickComboBox::eventFilter(QObject *object, QEvent *event)
             // change our currentIndex to that. This matches widgets' behavior.
             const int indexForEditText = find(d->extra.value().editText, Qt::MatchFixedString);
             if (indexForEditText > -1)
-                setCurrentIndex(indexForEditText);
+                d->setCurrentItemAtIndex(indexForEditText, Activate);
         }
         break;
     }
@@ -2074,7 +2241,7 @@ void QQuickComboBox::keyPressEvent(QKeyEvent *event)
         if (d->isPopupVisible())
             d->setHighlightedIndex(0, Highlight);
         else
-            d->setCurrentIndex(0, Activate);
+            d->setCurrentItemAtIndex(0, Activate);
         event->accept();
         break;
     case Qt::Key_End:
@@ -2082,7 +2249,7 @@ void QQuickComboBox::keyPressEvent(QKeyEvent *event)
         if (d->isPopupVisible())
             d->setHighlightedIndex(count() - 1, Highlight);
         else
-            d->setCurrentIndex(count() - 1, Activate);
+            d->setCurrentItemAtIndex(count() - 1, Activate);
         event->accept();
         break;
     default:
@@ -2156,7 +2323,7 @@ bool QQuickComboBox::event(QEvent *e)
 {
     Q_D(QQuickComboBox);
     if (e->type() == QEvent::LanguageChange)
-        d->updateCurrentTextAndValue();
+        d->updateCurrentElements();
     return QQuickControl::event(e);
 }
 
@@ -2172,10 +2339,10 @@ void QQuickComboBox::componentComplete()
         static_cast<QQmlDelegateModel *>(d->delegateModel)->componentComplete();
 
     if (count() > 0) {
-        if (!d->hasCurrentIndex && d->currentIndex == -1)
-            setCurrentIndex(0);
+        if (d->currentElementCriteria == QQuickComboBoxPrivate::CurrentElementCriteria::None && d->currentIndex == -1)
+            d->setCurrentIndex(0);
         else
-            d->updateCurrentTextAndValue();
+            d->updateCurrentElements();
 
         // If the widest text was already calculated in the call to
         // QQmlDelegateModel::componentComplete() above, then we shouldn't do it here too.

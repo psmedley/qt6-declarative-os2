@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <private/qqmlscriptdata_p.h>
 #include <private/qqmlcontext_p.h>
@@ -57,7 +58,7 @@ QQmlRefPointer<QQmlContextData> QQmlScriptData::qmlContextDataForContext(
     }
     QV4::ScopedValue v(scope);
     for (int ii = 0; ii < scripts.size(); ++ii) {
-        v = scripts.at(ii)->scriptData()->scriptValueForContext(qmlContextData);
+        v = scripts.at(ii)->scriptValueForContext(qmlContextData);
         scriptsArray->put(ii, v);
     }
 

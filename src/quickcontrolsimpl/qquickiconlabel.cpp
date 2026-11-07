@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickiconlabel_p.h"
 #include "qquickiconlabel_p_p.h"
@@ -9,16 +10,18 @@
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/private/qquicktext_p.h>
+#include <QtQuickTemplates2/private/qquickicon_p.h>
+#include <QtQuickTemplates2/private/qquickicon_p_p.h>
 
 QT_BEGIN_NAMESPACE
 
-static void beginClass(QQuickItem *item)
+void QQuickIconLabelPrivate::beginClass(QQuickItem *item)
 {
     if (QQmlParserStatus *parserStatus = qobject_cast<QQmlParserStatus *>(item))
         parserStatus->classBegin();
 }
 
-static void completeComponent(QQuickItem *item)
+void QQuickIconLabelPrivate::completeComponent(QQuickItem *item)
 {
     if (QQmlParserStatus *parserStatus = qobject_cast<QQmlParserStatus *>(item))
         parserStatus->componentComplete();
@@ -49,7 +52,8 @@ bool QQuickIconLabelPrivate::createImage()
     image->setName(icon.name());
     image->setSource(icon.resolvedSource());
     image->setSourceSize(QSize(icon.width(), icon.height()));
-    image->setColor(icon.color());
+    const bool explicitColor = QQuickIconPrivate::isResolved(icon, QQuickIconPrivate::ColorResolved);
+    image->setColor(explicitColor ? icon.color() : defaultIconColor);
     image->setCache(icon.cache());
     QQmlEngine::setContextForObject(image, qmlContext(q));
     if (componentComplete)
@@ -83,7 +87,8 @@ void QQuickIconLabelPrivate::syncImage()
     image->setName(icon.name());
     image->setSource(icon.resolvedSource());
     image->setSourceSize(QSize(icon.width(), icon.height()));
-    image->setColor(icon.color());
+    const bool explicitColor = QQuickIconPrivate::isResolved(icon, QQuickIconPrivate::ColorResolved);
+    image->setColor(explicitColor ? icon.color() : defaultIconColor);
     image->setCache(icon.cache());
     const int valign = alignment & Qt::AlignVertical_Mask;
     image->setVerticalAlignment(static_cast<QQuickImage::VAlignment>(valign));
@@ -184,7 +189,8 @@ void QQuickIconLabelPrivate::updateImplicitSize()
 }
 
 // adapted from QStyle::alignedRect()
-static QRectF alignedRect(bool mirrored, Qt::Alignment alignment, const QSizeF &size, const QRectF &rectangle)
+QRectF QQuickIconLabelPrivate::alignedRect(bool mirrored, Qt::Alignment alignment,
+    const QSizeF &size, const QRectF &rectangle)
 {
     alignment = QGuiApplicationPrivate::visualAlignment(mirrored ? Qt::RightToLeft : Qt::LeftToRight, alignment);
     qreal x = rectangle.x();
@@ -341,8 +347,21 @@ void QQuickIconLabelPrivate::itemDestroyed(QQuickItem *item)
         label = nullptr;
 }
 
+void QQuickIconLabelPrivate::textChange()
+{
+}
+
+void QQuickIconLabelPrivate::displayChange()
+{
+}
+
 QQuickIconLabel::QQuickIconLabel(QQuickItem *parent)
     : QQuickItem(*(new QQuickIconLabelPrivate), parent)
+{
+}
+
+QQuickIconLabel::QQuickIconLabel(QQuickIconLabelPrivate &dd, QQuickItem *parent)
+    : QQuickItem(dd, parent)
 {
 }
 
@@ -372,6 +391,39 @@ void QQuickIconLabel::setIcon(const QQuickIcon &icon)
     d->updateOrSyncImage();
 }
 
+/*!
+    \internal
+
+    The icon property of the control always takes precedence over that of an
+    action's (see 146bc9517c56feda4eba34282d3cc53bd47b6267). However, styles
+    also need to be able to set their default icon color.
+
+    This property allows styles to specify a color for the image without
+    overriding any potential action's icon:
+
+    \code
+    contentItem: IconLabel {
+        icon: control.icon
+        defaultIconColor: "tomato
+    }
+    \endcode
+
+    If icon.color was explicitly set, it is used instead.
+*/
+QColor QQuickIconLabel::defaultIconColor() const
+{
+    Q_D(const QQuickIconLabel);
+    return d->defaultIconColor;
+}
+
+void QQuickIconLabel::setDefaultIconColor(const QColor &defaultIconColor)
+{
+    Q_D(QQuickIconLabel);
+    d->defaultIconColor = defaultIconColor;
+    d->syncImage();
+    emit defaultIconColorChanged();
+}
+
 QString QQuickIconLabel::text() const
 {
     Q_D(const QQuickIconLabel);
@@ -385,6 +437,7 @@ void QQuickIconLabel::setText(const QString &text)
         return;
 
     d->text = text;
+    d->textChange();
     d->updateOrSyncLabel();
 }
 
@@ -435,6 +488,7 @@ void QQuickIconLabel::setDisplay(Display display)
         return;
 
     d->display = display;
+    d->displayChange();
     d->updateImage();
     d->updateLabel();
     d->updateImplicitSize();
@@ -595,11 +649,26 @@ void QQuickIconLabel::componentComplete()
 {
     Q_D(QQuickIconLabel);
     if (d->image)
-        completeComponent(d->image);
+        QQuickIconLabelPrivate::completeComponent(d->image);
     if (d->label)
-        completeComponent(d->label);
+        QQuickIconLabelPrivate::completeComponent(d->label);
     QQuickItem::componentComplete();
     d->layout();
+
+    // Any items declared as children of us will be parented before the label and icon image,
+    // so they will be drawn below us. This is not intuitive, so move us to the bottom of the pile.
+    const auto paintOrderChildItems = QQuickItemPrivate::get(this)->paintOrderChildItems();
+    const auto bottomMostFosterChildIt = std::find_if(paintOrderChildItems.constBegin(),
+            paintOrderChildItems.constEnd(), [d](QQuickItem *item) {
+        return item != d->label && item != d->image;
+    });
+    if (bottomMostFosterChildIt != paintOrderChildItems.constEnd()) {
+        const QQuickItem *bottomMostFosterChild = *bottomMostFosterChildIt;
+        if (d->label)
+            d->label->stackBefore(bottomMostFosterChild);
+        if (d->image)
+            d->image->stackBefore(bottomMostFosterChild);
+    }
 }
 
 void QQuickIconLabel::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)

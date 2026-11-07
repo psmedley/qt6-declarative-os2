@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickabstractbutton_p.h"
 #include "qquickabstractbutton_p_p.h"
@@ -9,11 +10,18 @@
 #include "qquickaction_p_p.h"
 #include "qquickshortcutcontext_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
+#include "qquickicon_p_p.h"
+#include "qquicktooltip_p.h"
+#include "qquicktooltip_p_p.h"
 
+#include <QtCore/qloggingcategory.h>
 #include <QtGui/qstylehints.h>
 #include <QtGui/qguiapplication.h>
 #if QT_CONFIG(shortcut)
 #  include <QtGui/private/qshortcutmap_p.h>
+#endif
+#if QT_CONFIG(accessibility)
+#include <QtGui/private/qaccessiblehelper_p.h>
 #endif
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformtheme.h>
@@ -23,6 +31,8 @@
 #include <QtQml/qqmllist.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_STATIC_LOGGING_CATEGORY(lcButtonAction, "qt.quick.controls.abstractbutton.action")
 
 /*!
     \qmltype AbstractButton
@@ -134,6 +144,8 @@ void QQuickAbstractButtonPrivate::setMovePoint(const QPointF &point)
 bool QQuickAbstractButtonPrivate::handlePress(const QPointF &point, ulong timestamp)
 {
     Q_Q(QQuickAbstractButton);
+    if (pressed)
+        return true;
     QQuickControlPrivate::handlePress(point, timestamp);
     setPressPoint(point);
     q->setPressed(true);
@@ -146,6 +158,11 @@ bool QQuickAbstractButtonPrivate::handlePress(const QPointF &point, ulong timest
         startPressAndHold();
     else
         stopPressAndHold();
+
+    // Tool tips on desktop should hide when their parent item is pressed.
+    if (touchId == -1)
+        QQuickToolTipAttachedPrivate::maybeSetVisibleImplicitly(q, false);
+
     return true;
 }
 
@@ -179,10 +196,16 @@ bool QQuickAbstractButtonPrivate::handleRelease(const QPointF &point, ulong time
         && QQuickDeliveryAgentPrivate::isWithinDoubleClickInterval(timestamp - lastTouchReleaseTimestamp)
         && isDoubleClickConnected();
 
-    if (!wasHeld && (keepPressed || q->contains(point)))
+    if (!wasHeld && wasPressed && (keepPressed || q->contains(point)))
         q->nextCheckState();
 
     if (wasPressed) {
+        if (wasHeld && pressTouchId != -1) {
+            // We were potentially showing a tool tip on long press; if we were, hide it now that
+            // we're no longer pressed.
+            QQuickToolTipAttachedPrivate::maybeSetVisibleImplicitly(q, false);
+        }
+
         emit q->released();
         if (!wasHeld && !wasDoubleClick)
             trigger(touchDoubleClick);
@@ -334,11 +357,11 @@ void QQuickAbstractButtonPrivate::actionTextChange()
     q->buttonChange(QQuickAbstractButton::ButtonTextChange);
 }
 
-void QQuickAbstractButtonPrivate::setText(const QString &newText, bool isExplicit)
+void QQuickAbstractButtonPrivate::setText(const QString &newText, QQml::PropertyUtils::State propertyState)
 {
     Q_Q(QQuickAbstractButton);
     const QString oldText = q->text();
-    explicitText = isExplicit;
+    explicitText = isExplicitlySet(propertyState);
     text = newText;
     if (oldText == q->text())
         return;
@@ -353,33 +376,93 @@ void QQuickAbstractButtonPrivate::updateEffectiveIcon()
     // If we only stored our icon and the action's icon, and resolved in the getter, we'd have
     // no way of knowing what the old value was here. As an added benefit, we only resolve when
     // something has changed, as opposed to doing it unconditionally in the icon() getter.
-    const QQuickIcon newEffectiveIcon = action ? icon.resolve(action->icon()) : icon;
-    if (newEffectiveIcon == effectiveIcon)
+    QQuickIcon newEffectiveIcon = action ? icon.resolve(action->icon()) : icon;
+
+    bool unchanged = newEffectiveIcon == effectiveIcon;
+    if (action) {
+        // We can't rely purely on QQuickIcon::operator== for our unchanged check, because it
+        // doesn't account for the color being resolved. QQuickIconLabelPrivate::syncImage and
+        // createImage rely on the color's resolve mask to determine if a color was set on it
+        // that should override the style default (see QQuickIconLabel::defaultIconColor for
+        // more info). If we didn't check the resolve mask
+        // and the user set the color to transparent (the default), the resolveMask of d->icon
+        // wouldn't indicate that the color was resolved and iconChanged wouldn't be emitted,
+        // leading to the user's request being ignored.
+        const bool actionIconColorResolved = QQuickIconPrivate::isResolved(action->icon(),
+            QQuickIconPrivate::ColorResolved);
+        const bool iconColorResolved = QQuickIconPrivate::isResolved(icon,
+            QQuickIconPrivate::ColorResolved);
+
+        unchanged = newEffectiveIcon == effectiveIcon;
+
+        // Only set it to false if there was a change in icon color that would otherwise
+        // be undetectable.
+        if (unchanged && !iconColorResolved && actionIconColorResolved)
+            unchanged = false;
+
+        // We need to mark the effective icon's color as resolved, too.
+        if (actionIconColorResolved)
+            newEffectiveIcon.resolveColor();
+    }
+
+    // Always update effectiveIcon because the color may have been resolved in icon,
+    // which isn't accounted for QQuickIcon::operator==.
+    effectiveIcon = newEffectiveIcon;
+
+    if (unchanged)
         return;
 
-    effectiveIcon = newEffectiveIcon;
+    if (action && !QQuickIconPrivate::isResolved(effectiveIcon, QQuickIconPrivate::ColorResolved)) {
+        // A color wasn't set on the button's icon (which should always win over an Action's).
+        if (QQuickIconPrivate::isResolved(action->icon(), QQuickIconPrivate::ColorResolved)) {
+            // A color was set on the action's icon; mark the effective icon's color as being
+            // explicitly set so that QQuickIconLabel can detect that it's set and respect it.
+            effectiveIcon.resolveColor();
+        }
+    }
+
     emit q->iconChanged();
 }
 
 void QQuickAbstractButtonPrivate::click()
 {
     Q_Q(QQuickAbstractButton);
-    if (effectiveEnable)
+    // If our Action's trigger signal handler disables us (or the action, which causes us to be
+    // disabled), we still want clicked to be emitted so that e.g. menus close when a menu item is
+    // clicked. That's why we check wasEnabledBeforeTrigger here.
+    if (effectiveEnable || wasEnabledBeforeTrigger)
         emit q->clicked();
+}
+
+void QQuickAbstractButtonPrivate::accessiblePressAction()
+{
+    Q_Q(QQuickAbstractButton);
+    q->click();
+}
+
+void QQuickAbstractButtonPrivate::accessibleToggleAction()
+{
+    accessiblePressAction();
 }
 
 void QQuickAbstractButtonPrivate::trigger(bool doubleClick)
 {
     Q_Q(QQuickAbstractButton);
-    const bool wasEnabled = effectiveEnable;
+    const QScopedValueRollback<bool> rollback(wasEnabledBeforeTrigger, effectiveEnable);
+
+    bool actionTriggered = false;
     if (action && action->isEnabled())
-        QQuickActionPrivate::get(action)->trigger(q, false);
-    if (wasEnabled && (!action || !action->isEnabled())) {
-        if (!doubleClick)
-            emit q->clicked();
-        else
-            emit q->doubleClicked();
-    }
+        actionTriggered = QQuickActionPrivate::get(action)->trigger(q, false);
+
+    // Don't emit the signals below if we were disabled or if our action already emitted its
+    // triggered signal (which we connect to click, which emits clicked, so would emit twice).
+    if (!wasEnabledBeforeTrigger || actionTriggered)
+        return;
+
+    if (!doubleClick)
+        emit q->clicked();
+    else
+        emit q->doubleClicked();
 }
 
 void QQuickAbstractButtonPrivate::toggle(bool value)
@@ -531,13 +614,13 @@ QString QQuickAbstractButton::text() const
 void QQuickAbstractButton::setText(const QString &text)
 {
     Q_D(QQuickAbstractButton);
-    d->setText(text, true);
+    d->setText(text, QQml::PropertyUtils::State::ExplicitlySet);
 }
 
 void QQuickAbstractButton::resetText()
 {
     Q_D(QQuickAbstractButton);
-    d->setText(QString(), false);
+    d->setText(QString(), QQml::PropertyUtils::State::ImplicitlySet);
 }
 
 /*!
@@ -789,7 +872,7 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
     \qmlproperty color QtQuick.Controls::AbstractButton::icon.color
     \qmlproperty bool QtQuick.Controls::AbstractButton::icon.cache
 
-    This property group was added in QtQuick.Controls 2.3.
+    \since QtQuick.Controls 2.3
 
     \include qquickicon.qdocinc grouped-properties
 
@@ -819,10 +902,18 @@ void QQuickAbstractButton::setIcon(const QQuickIcon &icon)
 
     \table
     \header \li Display \li Result
-    \row \li \c AbstractButton.IconOnly \li \image qtquickcontrols-button-icononly.png
-    \row \li \c AbstractButton.TextOnly \li \image qtquickcontrols-button-textonly.png
-    \row \li \c AbstractButton.TextBesideIcon (default) \li \image qtquickcontrols-button-textbesideicon.png
-    \row \li \c AbstractButton.TextUnderIcon \li \image qtquickcontrols-button-textundericon.png
+    \row \li \c AbstractButton.IconOnly
+         \li \image qtquickcontrols-button-icononly.png
+                    {Button displaying only icon}
+    \row \li \c AbstractButton.TextOnly
+         \li \image qtquickcontrols-button-textonly.png
+                    {Button displaying only text}
+    \row \li \c AbstractButton.TextBesideIcon (default)
+         \li \image qtquickcontrols-button-textbesideicon.png
+                    {Button with text beside icon}
+    \row \li \c AbstractButton.TextUnderIcon
+         \li \image qtquickcontrols-button-textundericon.png
+                    {Button with text under icon}
     \endtable
 
     \sa {Control::}{spacing}, {Control::}{padding}
@@ -860,6 +951,7 @@ QQuickAction *QQuickAbstractButton::action() const
 void QQuickAbstractButton::setAction(QQuickAction *action)
 {
     Q_D(QQuickAbstractButton);
+    qCDebug(lcButtonAction) << this << "setAction called with" << action;
     if (d->action == action)
         return;
 
@@ -958,6 +1050,12 @@ void QQuickAbstractButton::setAutoRepeatInterval(int interval)
 }
 
 #if QT_CONFIG(shortcut)
+/*!
+    \internal
+
+    This is the mnemonic shortcut that is derived from the text;
+    see \c QQuickAbstractButton::buttonChange().
+*/
 QKeySequence QQuickAbstractButton::shortcut() const
 {
     Q_D(const QQuickAbstractButton);
@@ -1137,10 +1235,12 @@ void QQuickAbstractButton::animateClick()
         forceActiveFocus(Qt::MouseFocusReason);
 
     // If the timer was already running, kill it so we can restart it.
-    if (d->animateTimer != 0)
+    if (d->animateTimer != 0) {
         killTimer(d->animateTimer);
-    else
+        d->animateTimer = 0;
+    } else {
         d->handlePress(QPointF(d->width / 2, d->height / 2), 0);
+    }
 
     d->animateTimer = startTimer(100);
 }
@@ -1239,6 +1339,7 @@ void QQuickAbstractButton::timerEvent(QTimerEvent *event)
         d->stopPressAndHold();
         d->wasHeld = true;
         emit pressAndHold();
+        QQuickToolTipAttachedPrivate::maybeSetVisibleImplicitly(this, true);
     } else if (event->timerId() == d->delayTimer) {
         d->startPressRepeat();
     } else if (event->timerId() == d->repeatTimer) {
@@ -1250,6 +1351,7 @@ void QQuickAbstractButton::timerEvent(QTimerEvent *event)
         if (setFocusOnRelease && focusPolicy() & Qt::ClickFocus)
             forceActiveFocus(Qt::MouseFocusReason);
         d->handleRelease(QPointF(d->width / 2, d->height / 2), 0);
+        killTimer(d->animateTimer);
         d->animateTimer = 0;
     }
 }
@@ -1281,7 +1383,9 @@ void QQuickAbstractButton::buttonChange(ButtonChange change)
         break;
     case ButtonTextChange: {
         const QString txt = text();
-        maybeSetAccessibleName(txt);
+#if QT_CONFIG(accessibility)
+        maybeSetAccessibleName(qt_accStripAmp(txt));
+#endif
 #if QT_CONFIG(shortcut)
         setShortcut(QKeySequence::mnemonic(txt));
 #endif
@@ -1320,7 +1424,7 @@ void QQuickAbstractButton::accessibilityActiveChanged(bool active)
 
     Q_D(QQuickAbstractButton);
     if (active) {
-        maybeSetAccessibleName(text());
+        maybeSetAccessibleName(qt_accStripAmp(text()));
         setAccessibleProperty("pressed", d->pressed);
         setAccessibleProperty("checked", d->checked);
         setAccessibleProperty("checkable", d->checkable);
@@ -1339,7 +1443,13 @@ QAccessible::Role QQuickAbstractButton::accessibleRole() const
 void QQuickAbstractButton::accessiblePressAction()
 {
     Q_D(QQuickAbstractButton);
-    d->trigger();
+    d->accessiblePressAction();
+}
+
+void QQuickAbstractButton::accessibleToggleAction()
+{
+    Q_D(QQuickAbstractButton);
+    d->accessibleToggleAction();
 }
 #endif
 

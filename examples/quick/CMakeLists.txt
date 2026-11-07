@@ -5,6 +5,9 @@ qt_internal_add_example(quick-accessibility)
 qt_internal_add_example(animation)
 qt_internal_add_example(draganddrop)
 qt_internal_add_example(canvas)
+if (NOT INTEGRITY)
+    qt_internal_add_example(flexboxlayout)
+endif()
 qt_internal_add_example(imageelements)
 qt_internal_add_example(keyinteraction)
 qt_internal_add_example(layouts)
@@ -14,6 +17,9 @@ add_subdirectory(models)
 qt_internal_add_example(views)
 add_subdirectory(tableview)
 qt_internal_add_example(mousearea)
+if(TARGET Qt6::Svg)
+    qt_internal_add_example(pointerhandlers)
+endif()
 qt_internal_add_example(positioners)
 add_subdirectory(scenegraph)
 qt_internal_add_example(shadereffects)
@@ -36,8 +42,10 @@ if(TARGET Qt6::QuickWidgets AND TARGET Qt6::Widgets AND (QT_FEATURE_opengl OR QT
     add_subdirectory(quickwidgets)
 endif()
 add_subdirectory(quickshapes)
-add_subdirectory(advancedtext)
-qt_internal_add_example(vectorimage)
+qt_internal_add_example(advancedtext)
+if(TARGET Qt6::Svg)
+    qt_internal_add_example(vectorimage)
+endif()
 
 # qt_examples_build_end() misses at least some of these due to some
 # source subdirectories being added multiple times. See QTBUG-96159.
@@ -58,6 +66,7 @@ set(reused_dir_targets
     draganddrop_shared
     testbed_shared
     itemswitcher_shared
+    neumorphicpanel_shared
 )
 
 foreach(target IN LISTS reused_dir_targets)

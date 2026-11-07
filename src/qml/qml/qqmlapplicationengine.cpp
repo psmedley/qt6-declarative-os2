@@ -1,5 +1,6 @@
 // Copyright (C) 2016 Research In Motion.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <QtQml/qqmlfile.h>
 #include <QtCore/QCoreApplication>
@@ -11,10 +12,12 @@
 #include <QtQml/private/qqmldirdata_p.h>
 #include <QtQml/private/qqmlfileselector_p.h>
 
+using namespace Qt::Literals::StringLiterals;
+
 QT_BEGIN_NAMESPACE
 
-QQmlApplicationEnginePrivate::QQmlApplicationEnginePrivate(QQmlEngine *e)
-    : QQmlEnginePrivate(e)
+QQmlApplicationEnginePrivate::QQmlApplicationEnginePrivate()
+    : QQmlEnginePrivate()
 {
     uiLanguage = QLocale().bcp47Name();
 }
@@ -51,11 +54,12 @@ void QQmlApplicationEnginePrivate::init()
         _q_loadTranslations();
     });
 #if QT_CONFIG(translation)
-    QTranslator* qtTranslator = new QTranslator(q);
-    if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::path(QLibraryInfo::TranslationsPath), QLatin1String(".qm")))
-        QCoreApplication::installTranslator(qtTranslator);
-    else
-        delete qtTranslator;
+    const QStringList paths = QLibraryInfo::paths(QLibraryInfo::TranslationsPath);
+    for (const QString &path : paths) {
+        auto qtTranslator = std::make_unique<QTranslator>(q);
+        if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), path, QLatin1String(".qm")))
+            QCoreApplication::installTranslator(qtTranslator.release());
+    }
 #endif
     auto *selector = new QQmlFileSelector(q,q);
     selector->setExtraSelectors(extraFileSelectors);
@@ -85,18 +89,19 @@ void QQmlApplicationEnginePrivate::_q_loadTranslations()
 #endif
 }
 
+static QString translationsDirectoryFromLocalUrl(const QUrl &url)
+{
+    QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(url));
+    return fi.path() + "/i18n"_L1;
+}
+
 void QQmlApplicationEnginePrivate::startLoad(const QUrl &url, const QByteArray &data, bool dataFlag)
 {
     Q_Q(QQmlApplicationEngine);
 
     ensureInitialized();
 
-    if (url.scheme() == QLatin1String("file") || url.scheme() == QLatin1String("qrc")) {
-        QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(url));
-        translationsDirectory = fi.path() + QLatin1String("/i18n");
-    } else {
-        translationsDirectory.clear();
-    }
+    updateTranslationDirectory(url);
 
     _q_loadTranslations(); //Translations must be loaded before the QML file is
     QQmlComponent *c = new QQmlComponent(q, q);
@@ -118,17 +123,16 @@ void QQmlApplicationEnginePrivate::startLoad(QAnyStringView uri, QAnyStringView 
     ensureInitialized();
 
     auto *componentPriv = QQmlComponentPrivate::get(c);
-    const auto [status, type] = componentPriv->prepareLoadFromModule(uri, typeName);
+    componentPriv->prepareLoadFromModule(uri, typeName, QQmlTypeLoader::Synchronous);
+
+    const QQmlType type = componentPriv->loadHelperType();
 
     if (type.sourceUrl().isValid()) {
-        const auto qmlDirData = typeLoader.getQmldir(type.sourceUrl());
+        const auto qmlDirData = QQmlTypeLoader::get(q)->getQmldir(type.sourceUrl());
         const QUrl url = qmlDirData->finalUrl();
-        if (url.scheme() == QLatin1String("file") || url.scheme() == QLatin1String("qrc")) {
-            QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(url));
-            translationsDirectory = fi.path() + QLatin1String("/i18n");
-        } else {
-            translationsDirectory.clear();
-        }
+        // A QRC URL coming from a qmldir cannot contain a relative path
+        Q_ASSERT(url.scheme() != "qrc"_L1 || url.path().startsWith('/'_L1));
+        updateTranslationDirectory(url);
     }
 
     /* Translations must be loaded before the QML file. They require translationDirectory to
@@ -137,7 +141,7 @@ void QQmlApplicationEnginePrivate::startLoad(QAnyStringView uri, QAnyStringView 
      * loading because the translation directory needs to be set in between.
      */
     _q_loadTranslations();
-    componentPriv->completeLoadFromModule(uri, typeName, type, status);
+    componentPriv->completeLoadFromModule(uri, typeName);
 
     ensureLoadingFinishes(c);
 }
@@ -186,6 +190,18 @@ void QQmlApplicationEnginePrivate::ensureLoadingFinishes(QQmlComponent *c)
     QObject::connect(c, &QQmlComponent::statusChanged, q, [this, c] { this->finishLoad(c); });
 }
 
+void QQmlApplicationEnginePrivate::updateTranslationDirectory(const QUrl &url)
+{
+    const QString scheme = url.scheme();
+    if (scheme == "file"_L1) {
+        translationsDirectory = translationsDirectoryFromLocalUrl(url);
+    } else if (scheme == "qrc"_L1) {
+        translationsDirectory = translationsDirectoryFromLocalUrl(url);
+    } else {
+        translationsDirectory.clear();
+    }
+}
+
 /*!
   \class QQmlApplicationEngine
   \since 5.1
@@ -208,9 +224,9 @@ void QQmlApplicationEnginePrivate::ensureLoadingFinishes(QQmlComponent *c)
   }
   \endcode
 
-  Unlike QQuickView, QQmlApplicationEngine does not automatically create a root
-  window. If you are using visual items from Qt Quick, you will need to place
-  them inside of a \l [QML] {Window}.
+  \note Unlike QQuickView, QQmlApplicationEngine does not automatically create a
+  root window. If you are using visual items from Qt Quick, you will need to
+  place them inside a \l [QML] {Window}.
 
   You can also use QCoreApplication with QQmlApplicationEngine, if you are not using any QML modules which require a QGuiApplication (such as \c QtQuick).
 
@@ -235,7 +251,7 @@ void QQmlApplicationEnginePrivate::ensureLoadingFinishes(QQmlComponent *c)
         needs to include the resource prefix of the main file's QML module
         (\e{/qt/qml} by default) and the module URI. For example, to provide
         translation files for a module called "Translated":
-        \snippet qml-i18n/CMakeLists.txt 0
+        \snippet cmake/qt_add_translations.cmake 0
 */
 
 /*!
@@ -282,7 +298,7 @@ void QQmlApplicationEnginePrivate::ensureLoadingFinishes(QQmlComponent *c)
   order to load a QML file.
 */
 QQmlApplicationEngine::QQmlApplicationEngine(QObject *parent)
-: QQmlEngine(*(new QQmlApplicationEnginePrivate(this)), parent)
+: QQmlEngine(*(new QQmlApplicationEnginePrivate), parent)
 {
     QJSEnginePrivate::addToDebugServer(this);
 }

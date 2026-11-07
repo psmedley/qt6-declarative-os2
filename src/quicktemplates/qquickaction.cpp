@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickaction_p.h"
 #include "qquickaction_p_p.h"
@@ -14,10 +15,12 @@
 #endif
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/private/qquickitem_p.h>
+#include <QtQuickTemplates2/private/qquickicon_p_p.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcAction, "qt.quick.controls.action")
+Q_STATIC_LOGGING_CATEGORY(lcAction, "qt.quick.controls.action")
+Q_STATIC_LOGGING_CATEGORY(lcShortcutEntry, "qt.quick.controls.action.shortcutEntry")
 
 /*!
     \qmltype Action
@@ -91,6 +94,8 @@ static QKeySequence variantToKeySequence(const QVariant &var)
 {
     if (var.metaType().id() == QMetaType::Int)
         return QKeySequence(static_cast<QKeySequence::StandardKey>(var.toInt()));
+    else if (var.metaType().id() == QMetaType::QKeySequence)
+        return var.value<QKeySequence>();
     return QKeySequence::fromString(var.toString());
 }
 
@@ -116,6 +121,8 @@ int QQuickActionPrivate::ShortcutEntry::shortcutId() const
 
 void QQuickActionPrivate::ShortcutEntry::grab(const QKeySequence &shortcut, bool enabled)
 {
+    qCDebug(lcShortcutEntry) << "- grab called with" << shortcut << "enabled" << enabled
+        << "for" << m_target;
     if (shortcut.isEmpty() || m_shortcutId)
         return;
 
@@ -128,6 +135,8 @@ void QQuickActionPrivate::ShortcutEntry::grab(const QKeySequence &shortcut, bool
 
 void QQuickActionPrivate::ShortcutEntry::ungrab()
 {
+    qCDebug(lcShortcutEntry).nospace() << "- ungrab called for " << m_target << ", m_shortcutId is "
+        << m_shortcutId;
     if (!m_shortcutId)
         return;
 
@@ -154,6 +163,7 @@ void QQuickActionPrivate::setShortcut(const QVariant &var)
     if (vshortcut == var)
         return;
 
+    qCDebug(lcAction) << q << "setShortcut called with" << var;
     defaultShortcutEntry->ungrab();
     for (QQuickActionPrivate::ShortcutEntry *entry : std::as_const(shortcutEntries))
         entry->ungrab();
@@ -214,6 +224,7 @@ void QQuickActionPrivate::registerItem(QQuickItem *item)
         return;
 
 #if QT_CONFIG(shortcut)
+    qCDebug(lcAction) << q_func() << "registerItem called with" << item;
     QQuickActionPrivate::ShortcutEntry *entry = new QQuickActionPrivate::ShortcutEntry(item);
     if (item->isVisible())
         entry->grab(keySequence, enabled);
@@ -230,6 +241,7 @@ void QQuickActionPrivate::unregisterItem(QQuickItem *item)
     if (!entry || !unwatchItem(item))
         return;
 
+    qCDebug(lcAction) << q_func() << "unregisterItem called with" << item;
     shortcutEntries.removeOne(entry);
     delete entry;
 
@@ -246,6 +258,8 @@ void QQuickActionPrivate::itemVisibilityChanged(QQuickItem *item)
     if (!entry)
         return;
 
+    qCDebug(lcAction) << q_func() << "visibility of" << item << "changed to" << item->isVisible()
+        << "- grabbing/ungrabbing shortcut";
     if (item->isVisible())
         entry->grab(keySequence, enabled);
     else
@@ -299,10 +313,14 @@ void QQuickActionPrivate::updateDefaultShortcutEntry()
         }
     }
 
-    if (hasActiveShortcutEntries)
+    if (hasActiveShortcutEntries) {
+        // There is an item that is using us as its action; let it have the shortcut.
         defaultShortcutEntry->ungrab();
-    else if (!defaultShortcutEntry->shortcutId())
+    } else if (!defaultShortcutEntry->shortcutId()) {
+        // There are no items that are using us as their action (or they aren't visible) and we
+        // haven't already grabbed the shortcut; grab it.
         defaultShortcutEntry->grab(keySequence, enabled);
+    }
 }
 #endif // QT_CONFIG(shortcut)
 
@@ -371,10 +389,20 @@ QQuickIcon QQuickAction::icon() const
 void QQuickAction::setIcon(const QQuickIcon &icon)
 {
     Q_D(QQuickAction);
-    if (d->icon == icon)
-        return;
+    // Similar to QQuickAbstractButtonPrivate::updateEffectiveIcon, we don't want to rely
+    // purely on QQuickIcon::operator==, because it doesn't account for the color being resolved.
+    // If we didn't check the resolve mask and the user set the color to transparent (the default),
+    // the resolveMask of d->icon wouldn't indicate that the color was resolved and iconChanged
+    // wouldn't be emitted, leading to the user's request being ignored.
+    const bool oldColorResolved = QQuickIconPrivate::isResolved(d->icon, QQuickIconPrivate::ColorResolved);
+    const bool newColorResolved = QQuickIconPrivate::isResolved(icon, QQuickIconPrivate::ColorResolved);
+    const bool unchanged = d->icon == icon && oldColorResolved && !newColorResolved;
 
     d->icon = icon;
+
+    if (unchanged)
+        return;
+
     d->icon.ensureRelativeSourceResolved(this);
     emit iconChanged(icon);
 }
@@ -459,10 +487,11 @@ void QQuickAction::setCheckable(bool checkable)
 /*!
     \qmlproperty keysequence QtQuick.Controls::Action::shortcut
 
-    This property holds the action's shortcut. The key sequence can be set
-    to one of the \l{QKeySequence::StandardKey}{standard keyboard shortcuts},
-    or it can be described with a string containing a sequence of up to four
-    key presses that are needed to trigger the shortcut.
+    This property holds the action's shortcut. The key sequence can be set to
+    one of the \l{QKeySequence::StandardKey}{standard keyboard shortcuts}, (for
+    example, \c StandardKey.Copy), or it can be described with a string
+    containing a sequence of up to four key presses that are needed to trigger
+    the shortcut.
 
     \code
     Action {
@@ -512,11 +541,16 @@ void QQuickAction::trigger(QObject *source)
     d->trigger(source, true);
 }
 
-void QQuickActionPrivate::trigger(QObject* source, bool doToggle)
+/*!
+    \internal
+
+    Returns \c true if \l {Action::}{triggered()} was emitted.
+*/
+bool QQuickActionPrivate::trigger(QObject* source, bool doToggle)
 {
     Q_Q(QQuickAction);
     if (!enabled)
-        return;
+        return false;
 
     QPointer<QObject> guard = q;
     // the checked action of an exclusive group cannot be unchecked
@@ -527,8 +561,11 @@ void QQuickActionPrivate::trigger(QObject* source, bool doToggle)
             emit q->toggled(source);
     }
 
-    if (!guard.isNull())
-        emit q->triggered(source);
+    if (guard.isNull())
+        return false;
+
+    emit q->triggered(source);
+    return true;
 }
 
 bool QQuickAction::event(QEvent *event)

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDROPAREA_P_H
 #define QQUICKDROPAREA_P_H
@@ -26,7 +27,7 @@ QT_REQUIRE_CONFIG(quick_draganddrop);
 QT_BEGIN_NAMESPACE
 
 class QQuickDropAreaPrivate;
-class QQuickDragEvent : public QObject
+class Q_QUICK_EXPORT QQuickDragEvent : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(qreal x READ x FINAL)

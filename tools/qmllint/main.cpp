@@ -1,14 +1,13 @@
 // Copyright (C) 2016 Klaralvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Sergio Martins <sergio.martins@kdab.com>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include <QtQmlToolingSettings/private/qqmltoolingsettings_p.h>
-#include <QtQmlToolingSettings/private/qqmltoolingutils_p.h>
-
-#include <QtQmlCompiler/private/qqmljscompiler_p.h>
-#include <QtQmlCompiler/private/qqmljslinter_p.h>
-#include <QtQmlCompiler/private/qqmljsloggingutils_p.h>
-#include <QtQmlCompiler/private/qqmljsresourcefilemapper_p.h>
-#include <QtQmlCompiler/private/qqmljsutils_p.h>
+#include <private/qqmljscompiler_p.h>
+#include <private/qqmljslinter_p.h>
+#include <private/qqmljsloggingutils_p.h>
+#include <private/qqmljsresourcefilemapper_p.h>
+#include <private/qqmljsutils_p.h>
+#include <private/qqmltoolingsettings_p.h>
+#include <private/qqmltoolingutils_p.h>
 
 #include <QtCore/qdebug.h>
 #include <QtCore/qfile.h>
@@ -30,7 +29,14 @@
 
 using namespace Qt::StringLiterals;
 
-constexpr int JSON_LOGGING_FORMAT_REVISION = 3;
+// Bump this whenever the qmllint JSON format changes
+//
+// IMPORTANT:
+//
+// Also change the comment behind the number to describe the latest change. This has the added
+// benefit that if another patch changes the version too, it will result in a merge conflict, and
+// not get removed silently.
+constexpr int JSON_LOGGING_FORMAT_REVISION = 6; // Support multiple DocumentEdits per FixSuggestion
 
 bool argumentsFromCommandLineAndFile(QStringList& allArguments, const QStringList &arguments)
 {
@@ -61,22 +67,89 @@ bool argumentsFromCommandLineAndFile(QStringList& allArguments, const QStringLis
     return true;
 }
 
-int main(int argv, char *argc[])
+static bool applyFixes(const QQmlJSLinter::Result &linterResult, bool silent, bool dryRun)
+{
+    if (linterResult.status != QQmlJSLinter::LintSuccess
+        && linterResult.status != QQmlJSLinter::HasWarnings) {
+        return true;
+    }
+
+    QString fixedCode;
+    const QQmlJSLinter::FixResult result =
+            QQmlJSLinter::applyFixes(linterResult.logger.get(), &fixedCode, silent);
+    const QString filename = linterResult.logger->filePath();
+
+    if (result != QQmlJSLinter::NothingToFix && result != QQmlJSLinter::FixSuccess) {
+        return false;
+    }
+
+    if (dryRun) {
+        QTextStream(stdout) << fixedCode;
+        return true;
+    }
+    if (result == QQmlJSLinter::NothingToFix) {
+        if (!silent)
+            qWarning().nospace() << "Nothing to fix in " << filename;
+        return true;
+    }
+
+    const QString backupFile = filename + u".bak"_s;
+    if (QFile::exists(backupFile) && !QFile::remove(backupFile)) {
+        if (!silent) {
+            qWarning().nospace() << "Failed to remove old backup file " << backupFile
+                                 << ", aborting";
+        }
+        return false;
+    }
+    if (!QFile::copy(filename, backupFile)) {
+        if (!silent) {
+            qWarning().nospace() << "Failed to create backup file " << backupFile << ", aborting";
+        }
+        return false;
+    }
+
+    QFile file(filename);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (!silent) {
+            qWarning().nospace() << "Failed to open " << filename
+                                 << " for writing:" << file.errorString();
+        }
+        return false;
+    }
+
+    const QByteArray data = fixedCode.toUtf8();
+    if (file.write(data) != data.size()) {
+        if (!silent) {
+            qWarning().nospace() << "Failed to write new contents to " << filename << ": "
+                                 << file.errorString();
+        }
+        return false;
+    }
+    if (!silent) {
+        qDebug().nospace() << "Applied fixes to " << filename << ". Backup created at "
+                           << backupFile;
+    }
+    return true;
+}
+
+int main(int argc, char *argv[])
 {
     QHashSeed::setDeterministicGlobalSeed();
-    QList<QQmlJS::LoggerCategory> categories;
+    QList<QQmlJS::LoggerCategory> defaultCategories;
 
-    QCoreApplication app(argv, argc);
+    QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName("qmllint");
     QCoreApplication::setApplicationVersion(QT_VERSION_STR);
     QCommandLineParser parser;
-    QQmlToolingSettings settings(QLatin1String("qmllint"));
+    QQmlToolingSettings defaultSettings(QLatin1String("qmllint"),
+                                        { QLatin1String("General"), QLatin1String("Warnings") });
     parser.setApplicationDescription(QLatin1String(R"(QML syntax verifier and analyzer
 
-All warnings can be set to three levels:
+All warnings can be set to four levels of severity:
     disable - Fully disables the warning.
     info - Displays the warning but does not influence the return code.
     warning - Displays the warning and leads to a non-zero exit code if more warnings than max-warnings occur.
+    error - Displays the warning as error and leads to a non-zero exit code if encountered.
 )"));
 
     parser.addHelpOption();
@@ -113,7 +186,7 @@ All warnings can be set to three levels:
                 QStringLiteral("resource"));
     parser.addOption(resourceOption);
     const QString &resourceSetting = QLatin1String("ResourcePath");
-    settings.addOption(resourceSetting);
+    defaultSettings.addOption(resourceSetting);
 
     QCommandLineOption qmlImportPathsOption(
             QStringList() << "I"
@@ -122,7 +195,7 @@ All warnings can be set to three levels:
             QLatin1String("directory"));
     parser.addOption(qmlImportPathsOption);
     const QString qmlImportPathsSetting = QLatin1String("AdditionalQmlImportPaths");
-    settings.addOption(qmlImportPathsSetting);
+    defaultSettings.addOption(qmlImportPathsSetting);
 
     QCommandLineOption environmentOption(
             QStringList() << "E",
@@ -135,7 +208,7 @@ All warnings can be set to three levels:
                               "This may be used to run qmllint on a project using a different Qt version."));
     parser.addOption(qmlImportNoDefault);
     const QString qmlImportNoDefaultSetting = QLatin1String("DisableDefaultImports");
-    settings.addOption(qmlImportNoDefaultSetting, false);
+    defaultSettings.addOption(qmlImportNoDefaultSetting, false);
 
     QCommandLineOption qmldirFilesOption(
             QStringList() << "i"
@@ -149,7 +222,7 @@ All warnings can be set to three levels:
             QLatin1String("qmldirs"));
     parser.addOption(qmldirFilesOption);
     const QString qmldirFilesSetting = QLatin1String("OverwriteImportTypes");
-    settings.addOption(qmldirFilesSetting);
+    defaultSettings.addOption(qmldirFilesSetting);
 
     QCommandLineOption absolutePath(
             QStringList() << "absolute-path",
@@ -164,7 +237,8 @@ All warnings can be set to three levels:
 
     QCommandLineOption dryRun(QStringList() << "dry-run",
                               QLatin1String("Only print out the contents of the file after fix "
-                                            "suggestions without applying them"));
+                                            "suggestions without applying them. Also prints the "
+                                            "settings file that would be used for this instance."));
     parser.addOption(dryRun);
 
     QCommandLineOption listPluginsOption(QStringList() << "list-plugins",
@@ -178,12 +252,12 @@ All warnings can be set to three levels:
             QLatin1String("plugins"));
     parser.addOption(pluginsDisable);
     const QString pluginsDisableSetting = QLatin1String("DisablePlugins");
-    settings.addOption(pluginsDisableSetting);
+    defaultSettings.addOption(pluginsDisableSetting);
 
     QCommandLineOption pluginPathsOption(
             QStringList() << "P"
                           << "plugin-paths",
-            QLatin1String("Look for qmllint plugins in specified directory"),
+            QLatin1String("Load qmllint plugins from the specified trusted directory"),
             QLatin1String("directory"));
     parser.addOption(pluginPathsOption);
 
@@ -198,26 +272,31 @@ All warnings can be set to three levels:
             );
     parser.addOption(maxWarnings);
     const QString maxWarningsSetting = QLatin1String("MaxWarnings");
-    settings.addOption(maxWarningsSetting, -1);
+    defaultSettings.addOption(maxWarningsSetting, -1);
+
+    // QTBUG-135020: don't break existing user configs and still accept PropertyAliasCycles
+    defaultSettings.addOption("PropertyAliasCycles"_L1);
+
+    const auto onlyExplicitCategoriesOptionName = "only-explicit-categories"_L1;
+    const auto onlyExplicitCategoriesSettingName = "OnlyExplicitCategories"_L1;
+    QCommandLineOption onlyExplicitCategoriesOption(
+            QStringList() << onlyExplicitCategoriesOptionName,
+            "Enable only categories explicitly set on the command line or in the settings file."_L1);
+    parser.addOption(onlyExplicitCategoriesOption);
+    defaultSettings.addOption(onlyExplicitCategoriesSettingName, false);
 
     auto addCategory = [&](const QQmlJS::LoggerCategory &category) {
-        categories.push_back(category);
-        if (category.isDefault())
-            return;
-        QCommandLineOption option(
-                category.id().name().toString(),
-                category.description()
-                        + QStringLiteral(" (default: %1)")
-                                  .arg(QQmlJS::LoggingUtils::levelToString(category)),
-                QStringLiteral("level"), QQmlJS::LoggingUtils::levelToString(category));
-        if (category.isIgnored())
-            option.setFlags(QCommandLineOption::HiddenFromHelp);
+        defaultCategories.push_back(category);
+
+        const QString severity = QQmlJS::LoggingUtils::severityToString(category.severity());
+        QCommandLineOption option(category.id().name().toString(),
+                                  category.description() + " (default: %1)"_L1.arg(severity),
+                                  "severity"_L1, severity);
         parser.addOption(option);
-        settings.addOption(QStringLiteral("Warnings/") + category.settingsName(),
-                           QQmlJS::LoggingUtils::levelToString(category));
+        defaultSettings.addOption("Warnings/"_L1 + category.settingsName(), severity);
     };
 
-    for (const auto &category : QQmlJSLogger::defaultCategories()) {
+    for (const auto &category : QQmlJSLogger::builtinCategories()) {
         addCategory(category);
     }
 
@@ -237,10 +316,6 @@ All warnings can be set to three levels:
     if (parser.isSet("version"))
         parser.showVersion();
 
-    auto updateLogLevels = [&]() {
-        QQmlJS::LoggingUtils::updateLogLevels(categories, settings, &parser);
-    };
-
     bool silent = parser.isSet(silentOption);
     bool useAbsolutePath = parser.isSet(absolutePath);
     bool useJson = parser.isSet(jsonOption);
@@ -253,7 +328,7 @@ All warnings can be set to three levels:
         defaultImportPaths.append(QLatin1String(":/qt/qml"));
     };
 
-    defaultImportPaths.append(QLibraryInfo::path(QLibraryInfo::QmlImportsPath));
+    defaultImportPaths.append(QLibraryInfo::paths(QLibraryInfo::QmlImportsPath));
 
     QStringList qmlImportPaths =
             parser.isSet(qmlImportNoDefault) ? QStringList {} : defaultImportPaths;
@@ -284,7 +359,7 @@ All warnings can be set to three levels:
 
     bool success = true;
 
-    QStringList pluginPaths = { QQmlJSLinter::defaultPluginPath() };
+    QStringList pluginPaths;
 
     if (parser.isSet(pluginPathsOption))
         pluginPaths << parser.values(pluginPathsOption);
@@ -297,7 +372,7 @@ All warnings can be set to three levels:
     }
 
     if (parser.isSet(writeDefaultsOption)) {
-        return settings.writeDefaults() ? 0 : 1;
+        return defaultSettings.writeDefaults() ? 0 : 1;
     }
 
     if (parser.isSet("help") || parser.isSet("help-all"))
@@ -306,16 +381,32 @@ All warnings can be set to three levels:
     if (!parser.unknownOptionNames().isEmpty())
         parser.process(app);
 
-    updateLogLevels();
-
     if (parser.isSet(listPluginsOption)) {
         const std::vector<QQmlJSLinter::Plugin> &plugins = linter.plugins();
         if (!plugins.empty()) {
-            qInfo().nospace().noquote() << "Plugin\t\t\tBuilt-in?\tVersion\tAuthor\t\tDescription";
+            int nameWidth = "Plugin"_L1.size();
+            int versionWidth = "Version"_L1.size();
+            int authorWidth = "Author"_L1.size();
+            for (const auto &p : plugins) {
+                nameWidth = qMax(nameWidth, p.name().size());
+                versionWidth = qMax(versionWidth, p.version().size());
+                authorWidth = qMax(authorWidth, p.author().size());
+            }
+
+            // At least 4 spaces between columns
+            nameWidth += 4;
+            versionWidth += 4;
+            authorWidth += 4;
+
+            qInfo().nospace().noquote() << u"Plugin"_s.leftJustified(nameWidth, u' ')
+                                        << u"Version"_s.leftJustified(versionWidth, u' ')
+                                        << u"Author"_s.leftJustified(authorWidth, u' ')
+                                        << u"Description"_s;
             for (const QQmlJSLinter::Plugin &plugin : plugins) {
                 qInfo().nospace().noquote()
-                        << plugin.name() << "\t\t\t" << (plugin.isBuiltin() ? "Yes" : "No")
-                        << "\t\t" << plugin.version() << "\t" << plugin.author() << "\t\t"
+                        << plugin.name().leftJustified(nameWidth, u' ')
+                        << plugin.version().leftJustified(versionWidth, u' ')
+                        << plugin.author().leftJustified(authorWidth, u' ')
                         << plugin.description();
             }
         } else {
@@ -324,33 +415,52 @@ All warnings can be set to three levels:
         return 0;
     }
 
-    const auto positionalArguments = parser.positionalArguments();
+    const auto positionalArguments = [&parser]() {
+        auto positionalArguments = parser.positionalArguments();
+        auto begin = positionalArguments.begin(), end = positionalArguments.end();
+        std::sort(begin, end);
+        positionalArguments.erase(std::unique(begin, end), end);
+        return positionalArguments;
+    }();
+
     if (positionalArguments.isEmpty()) {
         parser.showHelp(-1);
     }
 
+    if (parser.isSet(dryRun))
+        defaultSettings.reportConfigForFiles(positionalArguments);
+
+    const bool isFixing = parser.isSet(fixFile);
     QJsonArray jsonFiles;
 
     for (const QString &filename : positionalArguments) {
-        if (!parser.isSet(ignoreSettings))
-            settings.search(filename);
-        updateLogLevels();
+        QQmlToolingSettings settings(QLatin1String("qmllint"),
+                                     { QLatin1String("General"), QLatin1String("Warnings") });
 
-        const QDir fileDir = QFileInfo(filename).absoluteDir();
-        auto addAbsolutePaths = [&](QStringList &list, const QStringList &entries) {
-            for (const QString &file : entries)
-                list << (QFileInfo(file).isAbsolute() ? file : fileDir.filePath(file));
-        };
+        QList<QQmlJS::LoggerCategory> categories = defaultCategories;
+
+        if (!parser.isSet(ignoreSettings)) {
+            QQmlToolingSettings::SearchOptions options;
+            options.isQmllintSilent = silent;
+            settings.search(filename, options);
+        }
+
+        const bool onlyExplicitCategories = parser.isSet(onlyExplicitCategoriesOption)
+                || (settings.isSet(onlyExplicitCategoriesSettingName)
+                    && settings.value(onlyExplicitCategoriesSettingName).toBool());
+
+        const auto categorySelection = onlyExplicitCategories
+                ? QQmlJS::LoggingUtils::CategorySelection::Explicit
+                : QQmlJS::LoggingUtils::CategorySelection::All;
+        QQmlJS::LoggingUtils::updateLogSeverities(categories, settings, &parser, categorySelection);
 
         resourceFiles = defaultResourceFiles;
-
-        addAbsolutePaths(resourceFiles, settings.value(resourceSetting).toStringList());
+        resourceFiles.append(settings.valueAsAbsolutePathList(resourceSetting, filename));
 
         qmldirFiles = defaultQmldirFiles;
         if (settings.isSet(qmldirFilesSetting)
             && !settings.value(qmldirFilesSetting).toStringList().isEmpty()) {
-            qmldirFiles = {};
-            addAbsolutePaths(qmldirFiles, settings.value(qmldirFilesSetting).toStringList());
+            qmldirFiles = settings.valueAsAbsolutePathList(qmldirFilesSetting, filename);
         }
 
         if (parser.isSet(qmlImportNoDefault)
@@ -392,7 +502,7 @@ All warnings can be set to three levels:
             }
         }
 
-        addAbsolutePaths(qmlImportPaths, settings.value(qmlImportPathsSetting).toStringList());
+        qmlImportPaths.append(settings.valueAsAbsolutePathList(qmlImportPathsSetting, filename));
 
         QSet<QString> disabledPlugins;
 
@@ -416,90 +526,65 @@ All warnings can be set to three levels:
         for (auto &plugin : plugins)
             plugin.setEnabled(!disabledPlugins.contains(plugin.name().toLower()));
 
-        const bool isFixing = parser.isSet(fixFile);
-
-        QQmlJSLinter::LintResult lintResult;
+        QQmlJSLinter::Result lintResult;
 
         if (parser.isSet(moduleOption)) {
-            lintResult = linter.lintModule(filename, silent, useJson ? &jsonFiles : nullptr,
-                                           qmlImportPaths, resourceFiles);
+            QQmlJSLinter::LintOptions options;
+            options.setFlag(QQmlJSLinter::Silent, silent);
+            options.setFlag(QQmlJSLinter::GenerateJson, useJson);
+            lintResult = linter.lintModule(filename, options, qmlImportPaths, resourceFiles);
+            jsonFiles.append(lintResult.json);
+            success &= (lintResult.status == QQmlJSLinter::LintSuccess
+                        || lintResult.status == QQmlJSLinter::HasWarnings);
+            if (success) {
+                const qsizetype value = parser.isSet(maxWarnings)
+                        ? parser.value(maxWarnings).toInt()
+                        : (settings.isSet(maxWarningsSetting)
+                                   ? settings.value(maxWarningsSetting).toInt()
+                                   : defaultSettings.value(maxWarningsSetting).toInt());
+                if (value != -1 && value < lintResult.logger->numWarnings())
+                    success = false;
+            }
+
+            if (isFixing)
+                success &= applyFixes(lintResult, silent, parser.isSet(dryRun));
         } else {
-            lintResult = linter.lintFile(filename, nullptr, silent || isFixing,
-                                         useJson ? &jsonFiles : nullptr, qmlImportPaths,
-                                         qmldirFiles, resourceFiles, categories);
+            // collect all filenames and parameters before actually linting the files
+            QQmlJSLinter::LintOptions options;
+            options.setFlag(QQmlJSLinter::Silent, silent || isFixing);
+            options.setFlag(QQmlJSLinter::GenerateJson, useJson);
+            linter.prepareFileForBatchLinting(filename, nullptr, options, qmlImportPaths,
+                                              qmldirFiles, resourceFiles, categories);
         }
-        success &= (lintResult == QQmlJSLinter::LintSuccess || lintResult == QQmlJSLinter::HasWarnings);
-        if (success)
-        {
-            int value = parser.isSet(maxWarnings) ? parser.value(maxWarnings).toInt()
-                                                  : settings.value(maxWarningsSetting).toInt();
-            if (value != -1 && value < linter.logger()->warnings().size())
-                success = false;
-        }
+    }
+    if (!parser.isSet(moduleOption)) {
+        for (const QString &filename : positionalArguments) {
+            QQmlJSLinter::Result lintResult = linter.lintFileInBatch(filename);
+            jsonFiles.append(lintResult.json);
+            success &= (lintResult.status == QQmlJSLinter::LintSuccess
+                        || lintResult.status == QQmlJSLinter::HasWarnings);
 
-        if (isFixing) {
-            if (lintResult != QQmlJSLinter::LintSuccess && lintResult != QQmlJSLinter::HasWarnings)
-                continue;
+            if (success) {
+                QQmlToolingSettings settings(
+                        QLatin1String("qmllint"),
+                        { QLatin1String("General"), QLatin1String("Warnings") });
+                if (!parser.isSet(ignoreSettings)) {
+                    QQmlToolingSettings::SearchOptions options;
+                    options.isQmllintSilent = silent;
+                    settings.search(filename, options);
+                }
 
-            QString fixedCode;
-            const QQmlJSLinter::FixResult result = linter.applyFixes(&fixedCode, silent);
-
-            if (result != QQmlJSLinter::NothingToFix && result != QQmlJSLinter::FixSuccess) {
-                success = false;
-                continue;
+                const qsizetype value = parser.isSet(maxWarnings)
+                        ? parser.value(maxWarnings).toInt()
+                        : (settings.isSet(maxWarningsSetting)
+                                   ? settings.value(maxWarningsSetting).toInt()
+                                   : defaultSettings.value(maxWarningsSetting).toInt());
+                if (value != -1 && value < lintResult.logger->numWarnings())
+                    success = false;
             }
 
-            if (parser.isSet(dryRun)) {
-                QTextStream(stdout) << fixedCode;
-            } else {
-                if (result == QQmlJSLinter::NothingToFix) {
-                    if (!silent)
-                        qWarning().nospace() << "Nothing to fix in " << filename;
-                    continue;
-                }
-
-                const QString backupFile = filename + u".bak"_s;
-                if (QFile::exists(backupFile) && !QFile::remove(backupFile)) {
-                    if (!silent) {
-                        qWarning().nospace() << "Failed to remove old backup file " << backupFile
-                                             << ", aborting";
-                    }
-                    success = false;
-                    continue;
-                }
-                if (!QFile::copy(filename, backupFile)) {
-                    if (!silent) {
-                        qWarning().nospace()
-                                << "Failed to create backup file " << backupFile << ", aborting";
-                    }
-                    success = false;
-                    continue;
-                }
-
-                QFile file(filename);
-                if (!file.open(QIODevice::WriteOnly)) {
-                    if (!silent) {
-                        qWarning().nospace() << "Failed to open " << filename
-                                             << " for writing:" << file.errorString();
-                    }
-                    success = false;
-                    continue;
-                }
-
-                const QByteArray data = fixedCode.toUtf8();
-                if (file.write(data) != data.size()) {
-                    if (!silent) {
-                        qWarning().nospace() << "Failed to write new contents to " << filename
-                                             << ": " << file.errorString();
-                    }
-                    success = false;
-                    continue;
-                }
-                if (!silent) {
-                    qDebug().nospace() << "Applied fixes to " << filename << ". Backup created at "
-                                       << backupFile;
-                }
-            }
+            if (isFixing)
+                success &= applyFixes(lintResult, silent, parser.isSet(dryRun));
         }
     }
 

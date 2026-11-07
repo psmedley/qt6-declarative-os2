@@ -7,8 +7,29 @@
 
 set(qml_files
     "CheckIndicator.qml"
+    "CopyAction.qml"
+    "CutAction.qml"
+    "DeleteAction.qml"
+    "PasteAction.qml"
     "RadioIndicator.qml"
+    "RedoAction.qml"
+    "SelectAllAction.qml"
     "SwitchIndicator.qml"
+    "TextEditingContextMenu.qml"
+    "UndoAction.qml"
+)
+
+set_source_files_properties(
+    CopyAction.qml
+    CutAction.qml
+    DeleteAction.qml
+    PasteAction.qml
+    RedoAction.qml
+    SelectAllAction.qml
+    TextEditingContextMenu.qml
+    UndoAction.qml
+    PROPERTIES
+        QT_QML_SOURCE_VERSIONS "6.11"
 )
 
 qt_internal_add_qml_module(QuickControls2UniversalStyleImpl
@@ -35,5 +56,4 @@ qt_internal_add_qml_module(QuickControls2UniversalStyleImpl
         Qt::QuickControls2ImplPrivate
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    OS2_SHORT_NAME QuCoUnSI
 )

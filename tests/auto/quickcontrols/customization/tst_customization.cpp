@@ -156,7 +156,8 @@ static ItemParentListener *qt_itemParentListener = nullptr;
 extern "C" Q_DECL_EXPORT void qt_addQObject(QObject *object)
 {
     // objectName is not set at construction time
-    QObject::connect(object, &QObject::objectNameChanged, [object](const QString &objectName) {
+    QObject::connect(object, &QObject::objectNameChanged, object,
+                     [object](const QString &objectName) {
         QString oldObjectName = qt_objectNames()->value(object);
         if (!oldObjectName.isEmpty())
             qt_createdQObjects()->removeOne(oldObjectName);
@@ -527,7 +528,6 @@ void tst_customization::comboPopup()
         QQuickWindow window;
         window.resize(300, 300);
         window.show();
-        window.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&window));
 
         QQmlComponent component(engine);

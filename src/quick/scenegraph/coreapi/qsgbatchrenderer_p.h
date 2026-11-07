@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
 // Copyright (C) 2016 Robin Burchell <robin.burchell@viroteck.net>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGBATCHRENDERER_P_H
 #define QSGBATCHRENDERER_P_H
@@ -23,8 +24,10 @@
 #include <private/qsgrendernode_p.h>
 #include <private/qdatabuffer_p.h>
 #include <private/qsgtexture_p.h>
+#include <private/qsgnode_p.h>
 
 #include <QtCore/QBitArray>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QStack>
 
 #include <rhi/qrhi.h>
@@ -171,7 +174,7 @@ public:
         releaseExplicit(pageIndex, index);
     }
 
-    QVector<AllocatorPage<Type, PageSize> *> pages;
+    QList<AllocatorPage<Type, PageSize> *> pages;
     int m_freePage = 0;
 };
 
@@ -276,12 +279,14 @@ struct Element {
         , orphaned(false)
         , isRenderNode(false)
         , isMaterialBlended(false)
+        , mutabilityGroup(0)
     {
     }
 
     void setNode(QSGGeometryNode *n) {
         node = n;
         isMaterialBlended = hasMaterialWithBlending(n);
+        mutabilityGroup = QSGNodePrivate::mutabilityGroup(n);
     }
 
     inline void ensureBoundsValid() {
@@ -309,6 +314,7 @@ struct Element {
     uint orphaned : 1;
     uint isRenderNode : 1;
     uint isMaterialBlended : 1;
+    uint mutabilityGroup : 4;
 };
 
 struct RenderNodeElement : public Element {
@@ -622,8 +628,8 @@ struct GraphicsPipelineStateKey
 {
     GraphicsState state;
     const ShaderManagerShader *sms;
-    QVector<quint32> renderTargetDescription;
-    QVector<quint32> srbLayoutDescription;
+    QList<quint32> renderTargetDescription;
+    QList<quint32> srbLayoutDescription;
     struct {
         size_t renderTargetDescriptionHash;
         size_t srbLayoutDescriptionHash;
@@ -633,8 +639,8 @@ struct GraphicsPipelineStateKey
                                            const QRhiRenderPassDescriptor *rpDesc,
                                            const QRhiShaderResourceBindings *srb)
     {
-        const QVector<quint32> rtDesc = rpDesc->serializedFormat();
-        const QVector<quint32> srbDesc = srb->serializedLayoutDescription();
+        const QList<quint32> rtDesc = rpDesc->serializedFormat();
+        const QList<quint32> srbDesc = srb->serializedLayoutDescription();
         return { state, sms, rtDesc, srbDesc, { qHash(rtDesc), qHash(srbDesc) } };
     }
 };
@@ -681,8 +687,8 @@ public:
 
     QHash<GraphicsPipelineStateKey, QRhiGraphicsPipeline *> pipelineCache;
 
-    QMultiHash<QVector<quint32>, QRhiShaderResourceBindings *> srbPool;
-    QVector<quint32> srbLayoutDescSerializeWorkspace;
+    QMultiHash<QList<quint32>, QRhiShaderResourceBindings *> srbPool;
+    QList<quint32> srbLayoutDescSerializeWorkspace;
 
 public Q_SLOTS:
     void invalidated();
@@ -817,7 +823,7 @@ private:
     bool ensurePipelineState(Element *e, const ShaderManager::Shader *sms, bool depthPostPass = false);
     QRhiTexture *dummyTexture();
     void updateMaterialDynamicData(ShaderManager::Shader *sms, QSGMaterialShader::RenderState &renderState,
-                                   QSGMaterial *material, const Batch *batch, Element *e, int ubufOffset, int ubufRegionSize,
+                                   QSGMaterial *material, const Batch *batch, Element *e, int ubufOffset,
                                    char *directUpdatePtr);
     void updateMaterialStaticData(ShaderManager::Shader *sms, QSGMaterialShader::RenderState &renderState,
                                   QSGMaterial *material, Batch *batch, bool *gstateChanged);
@@ -826,6 +832,7 @@ private:
     void renderMergedBatch(PreparedRenderBatch *renderBatch, bool depthPostPass = false);
     bool prepareRenderUnmergedBatch(Batch *batch, PreparedRenderBatch *renderBatch);
     void renderUnmergedBatch(PreparedRenderBatch *renderBatch, bool depthPostPass = false);
+    void setViewportAndScissors(QRhiCommandBuffer *cb, const Batch *batch);
     void setGraphicsPipeline(QRhiCommandBuffer *cb, const Batch *batch, Element *e, bool depthPostPass = false);
     ClipState::ClipType updateStencilClip(const QSGClipNode *clip);
     void updateClip(const QSGClipNode *clipList, const Batch *batch);
@@ -894,6 +901,7 @@ private:
     int m_batchVertexThreshold;
     int m_srbPoolThreshold;
     int m_bufferPoolSizeLimit;
+    int m_minimumOrderPadding;
 
     Visualizer *m_visualizer;
 

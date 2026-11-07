@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKMENU_P_P_H
 #define QQUICKMENU_P_P_H
@@ -17,6 +18,7 @@
 
 #include <QtCore/qlist.h>
 #include <QtCore/qpointer.h>
+#include <QtCore/qset.h>
 
 #include <QtGui/qpa/qplatformmenu.h>
 
@@ -54,8 +56,9 @@ public:
     void removeNativeMenu();
     void syncWithNativeMenu();
     void syncWithUseNativeMenu();
-    static void recursivelyDestroyNativeSubMenus(QQuickMenu *menu);
     void setNativeMenuVisible(bool visible);
+
+    void makeEditMenu();
 
     QQuickItem *itemAt(int index) const;
     void insertItem(int index, QQuickItem *item);
@@ -67,7 +70,11 @@ public:
     };
     void removeItem(int index, QQuickItem *item,
         DestructionPolicy destructionPolicy = DestructionPolicy::DoNotDestroy);
-    void removeNativeItem(int index);
+    enum class SyncPolicy {
+        Sync,
+        DoNotSync
+    };
+    void removeNativeItem(int index, SyncPolicy syncPolicy = SyncPolicy::Sync);
     void resetNativeData();
 
     static void recursivelyCreateNativeMenuItems(QQuickMenu *menu);
@@ -99,11 +106,15 @@ public:
     void onItemHovered();
     void onItemTriggered();
     void onItemActiveFocusChanged();
+    void onItemVisibleChanged();
     void updateTextPadding();
+    void updateCollapsedSeparators();
 
     QQuickMenu *currentSubMenu() const;
     void setParentMenu(QQuickMenu *parent);
     void resolveParentItem();
+
+    void popup(QQuickItem *menuItem = nullptr);
 
     void propagateKeyEvent(QKeyEvent *event);
 
@@ -124,7 +135,11 @@ public:
     QPalette defaultPalette() const override;
     virtual QQuickPopup::PopupType resolvedPopupType() const override;
 
+    void resetContentItem();
+
     bool cascade = false;
+    bool collapsibleSeparators = true;
+    bool updatingCollapsedSeparators = false;
     bool triedToCreateNativeMenu = false;
     int hoverTimer = 0;
     int currentIndex = -1;
@@ -132,9 +147,9 @@ public:
     qreal textPadding = 0;
     QPointer<QQuickMenu> parentMenu;
     QPointer<QQuickMenuItem> currentItem;
-    QQuickItem *contentItem = nullptr; // TODO: cleanup
+    QPointer<QQuickItem> contentItem;
     QList<QObject *> contentData;
-    QQmlObjectModel *contentModel;
+    QPointer<QQmlObjectModel> contentModel;
     QQmlComponent *delegate = nullptr;
     QString title;
     QQuickIcon icon;
@@ -142,6 +157,7 @@ public:
     // For native menu support.
     std::unique_ptr<QPlatformMenu> handle = nullptr;
     QList<QQuickNativeMenuItem *> nativeItems;
+    QSet<QQuickItem *> collapsedSeparators;
     QPointer<QQuickMenuBar> menuBar;
     qreal lastDevicePixelRatio = 0;
 };

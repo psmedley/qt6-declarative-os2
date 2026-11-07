@@ -1,14 +1,15 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmllintsuggestions_p.h"
 
 #include <QtLanguageServer/private/qlanguageserverspec_p.h>
-#include <QtQmlCompiler/private/qqmljslinter_p.h>
 #include <QtQmlCompiler/private/qqmljslogger_p.h>
 #include <QtQmlCompiler/private/qqmljsutils_p.h>
 #include <QtQmlDom/private/qqmldom_utils_p.h>
 #include <QtQmlDom/private/qqmldomtop_p.h>
+#include <QtQmlLint/private/qqmljslinter_p.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qfileinfo.h>
@@ -17,13 +18,14 @@
 #include <QtCore/qxpfunctional.h>
 #include <chrono>
 
+QT_BEGIN_NAMESPACE
+
+Q_STATIC_LOGGING_CATEGORY(lintLog, "qt.languageserver.lint")
+
 using namespace QLspSpecification;
 using namespace QQmlJS::Dom;
 using namespace Qt::StringLiterals;
 
-Q_LOGGING_CATEGORY(lintLog, "qt.languageserver.lint")
-
-QT_BEGIN_NAMESPACE
 namespace QmlLsp {
 
 static DiagnosticSeverity severityFromMsgType(QtMsgType t)
@@ -42,72 +44,11 @@ static DiagnosticSeverity severityFromMsgType(QtMsgType t)
     return DiagnosticSeverity::Error;
 }
 
-static void codeActionHandler(
-        const QByteArray &, const CodeActionParams &params,
-        LSPPartialResponse<std::variant<QList<std::variant<Command, CodeAction>>, std::nullptr_t>,
-                           QList<std::variant<Command, CodeAction>>> &&response)
+QmlLintSuggestions::QmlLintSuggestions(QLanguageServer *server,
+                                       QmlLsp::QQmlCodeModelManager *codeModelManager)
+    : m_server(server), m_codeModelManager(codeModelManager)
 {
-    QList<std::variant<Command, CodeAction>> responseData;
-
-    for (const Diagnostic &diagnostic : params.context.diagnostics) {
-        if (!diagnostic.data.has_value())
-            continue;
-
-        const auto &data = diagnostic.data.value();
-
-        int version = data[u"version"].toInt();
-        QJsonArray suggestions = data[u"suggestions"].toArray();
-
-        QList<WorkspaceEdit::DocumentChange> edits;
-        QString message;
-        for (const QJsonValue &suggestion : suggestions) {
-            QString replacement = suggestion[u"replacement"].toString();
-            message += suggestion[u"message"].toString() + u"\n";
-
-            TextEdit textEdit;
-            textEdit.range = { Position { suggestion[u"lspBeginLine"].toInt(),
-                                          suggestion[u"lspBeginCharacter"].toInt() },
-                               Position { suggestion[u"lspEndLine"].toInt(),
-                                          suggestion[u"lspEndCharacter"].toInt() } };
-            textEdit.newText = replacement.toUtf8();
-
-            TextDocumentEdit textDocEdit;
-            textDocEdit.textDocument = { params.textDocument, version };
-            textDocEdit.edits.append(textEdit);
-
-            edits.append(textDocEdit);
-        }
-        message.chop(1);
-        WorkspaceEdit edit;
-        edit.documentChanges = edits;
-
-        CodeAction action;
-        // VS Code and QtC ignore everything that is not a 'quickfix'.
-        action.kind = u"quickfix"_s.toUtf8();
-        action.edit = edit;
-        action.title = message.toUtf8();
-
-        responseData.append(action);
-    }
-
-    response.sendResponse(responseData);
-}
-
-void QmlLintSuggestions::registerHandlers(QLanguageServer *, QLanguageServerProtocol *protocol)
-{
-    protocol->registerCodeActionRequestHandler(&codeActionHandler);
-}
-
-void QmlLintSuggestions::setupCapabilities(const QLspSpecification::InitializeParams &,
-                                           QLspSpecification::InitializeResult &serverInfo)
-{
-    serverInfo.capabilities.codeActionProvider = true;
-}
-
-QmlLintSuggestions::QmlLintSuggestions(QLanguageServer *server, QmlLsp::QQmlCodeModel *codeModel)
-    : m_server(server), m_codeModel(codeModel)
-{
-    QObject::connect(m_codeModel, &QmlLsp::QQmlCodeModel::updatedSnapshot, this,
+    QObject::connect(m_codeModelManager, &QmlLsp::QQmlCodeModelManager::updatedSnapshot, this,
                      &QmlLintSuggestions::diagnose, Qt::DirectConnection);
 }
 
@@ -151,6 +92,56 @@ static Diagnostic createMissingBuildDirDiagnostic()
 }
 
 using AdvanceFunc = qxp::function_ref<void(const QQmlJS::SourceLocation &, Position &)>;
+QJsonArray suggestionToJson(AdvanceFunc advancePositionPastLocation, const Message &message)
+{
+    const auto addLocationToJsonObject = [&](const auto &location, QJsonObject &object) {
+        const unsigned line = location.isValid() ? location.startLine - 1 : 0;
+        const unsigned column = location.isValid() ? location.startColumn - 1 : 0;
+        Position end = { line, column };
+        if (location.isValid())
+            advancePositionPastLocation(location, end);
+        object["lspBeginLine"_L1] = double(line);
+        object["lspBeginCharacter"_L1] = double(column);
+        object["lspEndLine"_L1] = double(end.line);
+        object["lspEndCharacter"_L1] = double(end.character);
+    };
+
+    if (!message.fixSuggestion.has_value())
+        return QJsonArray();
+
+    const QQmlJSFixSuggestion &suggestion = message.fixSuggestion.value();
+    QJsonArray documentEditsJson;
+    const auto &documentEdits = suggestion.documentEdits();
+    for (const auto &documentEdit : documentEdits) {
+        // We need to interject the information about where the fix suggestions end
+        // here since we don't have access to the textDocument to calculate it later.
+        const QQmlJS::SourceLocation cut = suggestion.location();
+        const unsigned line = cut.isValid() ? cut.startLine - 1 : 0;
+        const unsigned column = cut.isValid() ? cut.startColumn - 1 : 0;
+
+        Position end = { line, column };
+        if (cut.isValid())
+            advancePositionPastLocation(cut, end);
+
+        QJsonObject documentEditJson{
+            { "filename"_L1, QUrl::fromLocalFile(documentEdit.m_filename).toString() },
+            { "replacement"_L1, documentEdit.m_replacement }
+        };
+        addLocationToJsonObject(documentEdit.m_location, documentEditJson);
+        documentEditsJson.append(documentEditJson);
+    }
+
+    QJsonObject fixSuggestionJson;
+    fixSuggestionJson["message"_L1] = message.fixSuggestion->description();
+    addLocationToJsonObject(message.fixSuggestion->location(), fixSuggestionJson);
+    fixSuggestionJson["documentEdits"_L1] = documentEditsJson;
+    fixSuggestionJson["autoApplicable"_L1] = message.fixSuggestion->isAutoApplicable();
+
+    QJsonArray fixSuggestionsJson;
+    fixSuggestionsJson.append(fixSuggestionJson);
+    return fixSuggestionsJson;
+}
+
 static Diagnostic messageToDiagnostic_helper(AdvanceFunc advancePositionPastLocation,
                                              std::optional<int> version, const Message &message)
 {
@@ -168,8 +159,8 @@ static Diagnostic messageToDiagnostic_helper(AdvanceFunc advancePositionPastLoca
         advancePositionPastLocation(message.loc, range.end);
     }
 
-    if (message.fixSuggestion && !message.fixSuggestion->fixDescription().isEmpty()) {
-        diagnostic.message = u"%1: %2 [%3]"_s.arg(message.message, message.fixSuggestion->fixDescription(), message.id.toString())
+    if (message.fixSuggestion && !message.fixSuggestion->description().isEmpty()) {
+        diagnostic.message = u"%1: %2 [%3]"_s.arg(message.message, message.fixSuggestion->description(), message.id.toString())
                                      .simplified()
                                      .toUtf8();
     } else {
@@ -182,44 +173,22 @@ static Diagnostic messageToDiagnostic_helper(AdvanceFunc advancePositionPastLoca
     if (!suggestion.has_value())
         return diagnostic;
 
-    // We need to interject the information about where the fix suggestions end
-    // here since we don't have access to the textDocument to calculate it later.
-    const QQmlJS::SourceLocation cut = suggestion->location();
-
-    const int line = cut.isValid() ? cut.startLine - 1 : 0;
-    const int column = cut.isValid() ? cut.startColumn - 1 : 0;
-
-    QJsonObject object;
-    object.insert("lspBeginLine"_L1, line);
-    object.insert("lspBeginCharacter"_L1, column);
-
-    Position end = { line, column };
-
-    if (srcLoc.isValid())
-        advancePositionPastLocation(cut, end);
-    object.insert("lspEndLine"_L1, end.line);
-    object.insert("lspEndCharacter"_L1, end.character);
-
-    object.insert("message"_L1, suggestion->fixDescription());
-    object.insert("replacement"_L1, suggestion->replacement());
-
-    QJsonArray fixedSuggestions;
-    fixedSuggestions.append(object);
     QJsonObject data;
-    data[u"suggestions"] = fixedSuggestions;
-
+    data[u"suggestions"] = suggestionToJson(advancePositionPastLocation, message);
     Q_ASSERT(version.has_value());
     data[u"version"] = version.value();
 
     diagnostic.data = data;
-
     return diagnostic;
 };
 
-static bool isSnapshotNew(std::optional<int> snapshotVersion, std::optional<int> processedVersion)
+static bool isSnapshotNew(std::optional<int> snapshotVersion, std::optional<int> processedVersion,
+                          QmlLsp::UpdatePolicy policy)
 {
     if (!snapshotVersion)
         return false;
+    if (policy == ForceUpdate)
+        return true;
     if (!processedVersion || *snapshotVersion > *processedVersion)
         return true;
     return false;
@@ -228,25 +197,26 @@ static bool isSnapshotNew(std::optional<int> snapshotVersion, std::optional<int>
 using namespace std::chrono_literals;
 
 QmlLintSuggestions::VersionToDiagnose
-QmlLintSuggestions::chooseVersionToDiagnoseHelper(const QByteArray &url)
+QmlLintSuggestions::chooseVersionToDiagnoseHelper(const QByteArray &url,
+                                                  QmlLsp::UpdatePolicy policy)
 {
     const std::chrono::milliseconds maxInvalidTime = 400ms;
-    QmlLsp::OpenDocumentSnapshot snapshot = m_codeModel->snapshotByUrl(url);
+    QmlLsp::OpenDocumentSnapshot snapshot = m_codeModelManager->snapshotByUrl(url);
 
     LastLintUpdate &lastUpdate = m_lastUpdate[url];
 
     // ignore updates when already processed
-    if (lastUpdate.version && *lastUpdate.version == snapshot.docVersion) {
+    if (policy != ForceUpdate && lastUpdate.version && *lastUpdate.version == snapshot.docVersion) {
         qCDebug(lspServerLog) << "skipped update of " << url << "unchanged valid doc";
         return NoDocumentAvailable{};
     }
 
     // try out a valid version, if there is one
-    if (isSnapshotNew(snapshot.validDocVersion, lastUpdate.version))
+    if (isSnapshotNew(snapshot.validDocVersion, lastUpdate.version, policy))
         return VersionedDocument{ snapshot.validDocVersion, snapshot.validDoc };
 
     // try out an invalid version, if there is one
-    if (isSnapshotNew(snapshot.docVersion, lastUpdate.version)) {
+    if (isSnapshotNew(snapshot.docVersion, lastUpdate.version, policy)) {
         if (auto since = lastUpdate.invalidUpdatesSince) {
             // did we wait enough to get a valid document?
             if (std::chrono::steady_clock::now() - *since > maxInvalidTime) {
@@ -264,10 +234,10 @@ QmlLintSuggestions::chooseVersionToDiagnoseHelper(const QByteArray &url)
 }
 
 QmlLintSuggestions::VersionToDiagnose
-QmlLintSuggestions::chooseVersionToDiagnose(const QByteArray &url)
+QmlLintSuggestions::chooseVersionToDiagnose(const QByteArray &url, QmlLsp::UpdatePolicy policy)
 {
     QMutexLocker l(&m_mutex);
-    auto versionToDiagnose = chooseVersionToDiagnoseHelper(url);
+    auto versionToDiagnose = chooseVersionToDiagnoseHelper(url, policy);
     if (auto versionedDocument = std::get_if<VersionedDocument>(&versionToDiagnose)) {
         // update immediately, and do not keep track of sent version, thus in extreme cases sent
         // updates could be out of sync
@@ -278,15 +248,15 @@ QmlLintSuggestions::chooseVersionToDiagnose(const QByteArray &url)
     return versionToDiagnose;
 }
 
-void QmlLintSuggestions::diagnose(const QByteArray &url)
+void QmlLintSuggestions::diagnose(const QByteArray &url, QmlLsp::UpdatePolicy policy)
 {
-    auto versionedDocument = chooseVersionToDiagnose(url);
+    auto versionedDocument = chooseVersionToDiagnose(url, policy);
 
     std::visit(qOverloadedVisitor{
                        [](NoDocumentAvailable) {},
-                       [this, &url](const TryAgainLater &tryAgainLater) {
+                       [this, &url, &policy](const TryAgainLater &tryAgainLater) {
                            QTimer::singleShot(tryAgainLater.time, Qt::VeryCoarseTimer, this,
-                                              [this, url]() { diagnose(url); });
+                                              [this, url, policy]() { diagnose(url, policy); });
                        },
                        [this, &url](const VersionedDocument &versionedDocument) {
                            diagnoseHelper(url, versionedDocument);
@@ -306,19 +276,17 @@ void QmlLintSuggestions::diagnoseHelper(const QByteArray &url,
     diagnosticParams.version = version;
 
     qCDebug(lintLog) << "has doc, do real lint";
-    QStringList imports = m_codeModel->buildPathsForFileUrl(url);
+    QStringList imports = m_codeModelManager->importPathsForUrl(url);
     const QString filename = doc.canonicalFilePath();
-    imports.append(m_codeModel->importPathsForFile(filename));
     // add source directory as last import as fallback in case there is no qmldir in the build
     // folder this mimics qmllint behaviors
     imports.append(QFileInfo(filename).dir().absolutePath());
     // add m_server->clientInfo().rootUri & co?
-    bool silent = true;
     const QString fileContents = doc.field(Fields::code).value().toString();
     const QStringList qmltypesFiles;
-    const QStringList resourceFiles = QQmlJSUtils::resourceFilesFromBuildFolders(imports);
+    const QStringList resourceFiles = m_codeModelManager->resourceFilesForFileUrl(url);
 
-    QList<QQmlJS::LoggerCategory> categories = QQmlJSLogger::defaultCategories();
+    QList<QQmlJS::LoggerCategory> categories = QQmlJSLogger::builtinCategories();
 
     QQmlJSLinter linter(imports);
 
@@ -327,13 +295,20 @@ void QmlLintSuggestions::diagnoseHelper(const QByteArray &url,
             categories.append(category);
     }
 
-    QQmlToolingSettings settings(QLatin1String("qmllint"));
-    if (settings.search(filename)) {
-        QQmlJS::LoggingUtils::updateLogLevels(categories, settings, nullptr);
+    QQmlToolingSettings settings(QLatin1String("qmllint"), { "General"_L1, "Warnings"_L1 });
+    if (settings.search(filename).isValid()) {
+        QQmlJS::LoggingUtils::updateLogSeverities(categories, settings, nullptr);
     }
 
-    linter.lintFile(filename, &fileContents, silent, nullptr, imports, qmltypesFiles,
-                    resourceFiles, categories);
+    // TODO: pass the workspace folders to QQmlJSLinter
+    QQmlJSLinter::LintOptions lintOptions;
+    lintOptions.setFlag(QQmlJSLinter::Silent);
+
+    const bool wasPrepared =
+            linter.prepareFileForBatchLinting(filename, &fileContents, lintOptions, imports,
+                                              qmltypesFiles, resourceFiles, categories);
+    Q_ASSERT(wasPrepared);
+    QQmlJSLinter::Result result = linter.lintFileInBatch(filename);
 
     // ###  TODO: C++20 replace with bind_front
     auto advancePositionPastLocation = [&fileContents](const QQmlJS::SourceLocation &location, Position &position)
@@ -366,23 +341,19 @@ void QmlLintSuggestions::diagnoseHelper(const QByteArray &url,
             },
             true);
 
-    if (const QQmlJSLogger *logger = linter.logger()) {
+    if (const QQmlJSLogger *logger = result.logger.get()) {
         qsizetype nDiagnostics = diagnostics.size();
-        for (const auto &messages : { logger->infos(), logger->warnings(), logger->errors() }) {
-            for (const Message &message : messages) {
-                if (!message.message.contains(u"Failed to import")) {
-                    diagnostics.append(messageToDiagnostic(message));
-                    continue;
-                }
-
-                Message modified {message};
-                modified.message.append(
-                        u" Did you build your project? If yes, did you set the "
-                        u"\"QT_QML_GENERATE_QMLLS_INI\" CMake variable on your project to \"ON\"?");
-
-                diagnostics.append(messageToDiagnostic(modified));
+        logger->iterateAllMessages([&](const Message &message) {
+            if (!message.message.contains(u"Failed to import")) {
+                diagnostics.append(messageToDiagnostic(message));
+                return;
             }
-        }
+
+            Message modified {message};
+            modified.message.append(u" Did you build your project?");
+
+            diagnostics.append(messageToDiagnostic(modified));
+        });
         if (diagnostics.size() != nDiagnostics && imports.size() == 1)
             diagnostics.append(createMissingBuildDirDiagnostic());
     }

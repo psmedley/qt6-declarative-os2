@@ -16,11 +16,13 @@
 //
 
 #include <QQuickItem>
+#include <QtQuick/private/qquickanimation_p.h>
 #include <QtQuickVectorImage/qtquickvectorimageexports.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQuickVectorImagePrivate;
+class QQuickVectorImageAnimations;
 
 class Q_QUICKVECTORIMAGE_EXPORT QQuickVectorImage : public QQuickItem
 {
@@ -29,6 +31,13 @@ class Q_QUICKVECTORIMAGE_EXPORT QQuickVectorImage : public QQuickItem
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(FillMode fillMode READ fillMode WRITE setFillMode NOTIFY fillModeChanged)
     Q_PROPERTY(RendererType preferredRendererType READ preferredRendererType WRITE setPreferredRendererType NOTIFY preferredRendererTypeChanged)
+    Q_PROPERTY(QQuickVectorImageAnimations *animations READ animations CONSTANT REVISION(6, 10) FINAL)
+    Q_PROPERTY(bool assumeTrustedSource READ assumeTrustedSource WRITE setAssumeTrustedSource NOTIFY assumeTrustedSourceChanged FINAL)
+    Q_PROPERTY(bool asynchronousShapes READ asynchronousShapes WRITE setAsynchronousShapes NOTIFY asynchronousShapesChanged REVISION(6, 11) FINAL)
+    Q_PROPERTY(bool asynchronous READ asynchronous WRITE setAsynchronous NOTIFY asynchronousChanged REVISION(6, 12))
+    Q_PROPERTY(Status status READ status NOTIFY statusChanged REVISION(6, 12))
+    Q_PROPERTY(bool retainWhileLoading READ retainWhileLoading WRITE setRetainWhileLoading NOTIFY retainWhileLoadingChanged REVISION(6, 12))
+    Q_PROPERTY(QQuickItem *generatedItem READ generatedItem NOTIFY generatedItemChanged REVISION(6, 12))
     QML_NAMED_ELEMENT(VectorImage)
 
 public:
@@ -46,7 +55,11 @@ public:
     };
     Q_ENUM(RendererType)
 
+    enum class Status : quint8 { Null, Ready, Loading, Error };
+    Q_ENUM(Status)
+
     QQuickVectorImage(QQuickItem *parent = nullptr);
+    ~QQuickVectorImage();
 
     QUrl source() const;
     void setSource(const QUrl &source);
@@ -57,18 +70,77 @@ public:
     RendererType preferredRendererType() const;
     void setPreferredRendererType(RendererType newPreferredRendererType);
 
+    bool asynchronousShapes() const;
+    void setAsynchronousShapes(bool asynchronous);
+
+    bool asynchronous() const;
+    void setAsynchronous(bool asynchronous);
+
+    bool retainWhileLoading() const;
+    void setRetainWhileLoading(bool retainWhileLoading);
+
+    Status status() const;
+
+    QQuickVectorImageAnimations *animations();
+
+    bool assumeTrustedSource() const;
+    void setAssumeTrustedSource(bool assumeTrustedSource);
+
+    void componentComplete() override;
+
+    QQuickItem *generatedItem() const;
+
 signals:
     void sourceChanged();
     void fillModeChanged();
 
     void preferredRendererTypeChanged();
+    void asynchronousShapesChanged();
+    void assumeTrustedSourceChanged();
 
-private slots:
-    void updateSvgItemScale();
+    Q_REVISION(6, 12) void asynchronousChanged();
+    Q_REVISION(6, 12) void statusChanged();
+    Q_REVISION(6, 12) void retainWhileLoadingChanged();
+    Q_REVISION(6, 12) void generatedItemChanged();
 
 private:
     Q_DISABLE_COPY(QQuickVectorImage)
     Q_DECLARE_PRIVATE(QQuickVectorImage)
+
+    void updateRootItemScale();
+    void updateAnimationProperties();
+    void updateItem();
+};
+
+class Q_QUICKVECTORIMAGE_EXPORT QQuickVectorImageAnimations : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(int loops READ loops WRITE setLoops NOTIFY loopsChanged FINAL)
+    Q_PROPERTY(bool paused READ paused WRITE setPaused NOTIFY pausedChanged FINAL)
+
+    QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(6, 10)
+public:
+    QQuickVectorImageAnimations(QObject *parent = nullptr) : QObject(parent) {}
+
+    int loops() const;
+
+    void setLoops(int loops);
+
+    bool paused() const;
+    void setPaused(bool paused);
+
+    Q_INVOKABLE void restart();
+
+Q_SIGNALS:
+    void loopsChanged();
+    void enabledChanged();
+    void pausedChanged();
+
+private:
+    int m_loops = 1;
+    bool m_paused = false;
 };
 
 QT_END_NAMESPACE

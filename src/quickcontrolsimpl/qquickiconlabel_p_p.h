@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKICONLABEL_P_P_H
 #define QQUICKICONLABEL_P_P_H
@@ -24,7 +25,8 @@ QT_BEGIN_NAMESPACE
 class QQuickIconImage;
 class QQuickMnemonicLabel;
 
-class Q_AUTOTEST_EXPORT QQuickIconLabelPrivate : public QQuickItemPrivate, public QQuickItemChangeListener
+class Q_AUTOTEST_EXPORT QQuickIconLabelPrivate : public QQuickItemPrivate,
+                                                 public QSafeQuickItemChangeListener<QQuickIconLabelPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickIconLabel)
 
@@ -46,8 +48,8 @@ public:
     void syncLabel();
     void updateOrSyncLabel();
 
-    void updateImplicitSize();
-    void layout();
+    virtual void updateImplicitSize();
+    virtual void layout();
 
     void watchChanges(QQuickItem *item);
     void unwatchChanges(QQuickItem *item);
@@ -58,6 +60,14 @@ public:
     void itemImplicitWidthChanged(QQuickItem *) override;
     void itemImplicitHeightChanged(QQuickItem *) override;
     void itemDestroyed(QQuickItem *item) override;
+
+    virtual void textChange();
+    virtual void displayChange();
+
+    static void beginClass(QQuickItem *item);
+    static void completeComponent(QQuickItem *item);
+    static QRectF alignedRect(bool mirrored, Qt::Alignment alignment, const QSizeF &size,
+        const QRectF &rectangle);
 
     bool mirrored = false;
     QQuickIconLabel::Display display = QQuickIconLabel::TextBesideIcon;
@@ -71,6 +81,7 @@ public:
     QColor color;
     QString text;
     QQuickIcon icon;
+    QColor defaultIconColor = Qt::transparent;
     QQuickIconImage *image = nullptr;
     QQuickMnemonicLabel *label = nullptr;
 };

@@ -16,6 +16,8 @@ qt_add_executable(draganddropexample
     main.cpp
 )
 
+set_target_properties(draganddropexample PROPERTIES FOLDER "qtc_runnable")
+
 qt_add_qml_module(draganddropexample
     URI draganddrop
     QML_FILES
@@ -46,7 +48,6 @@ install(TARGETS draganddropexample
 qt_generate_deploy_qml_app_script(
     TARGET draganddropexample
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

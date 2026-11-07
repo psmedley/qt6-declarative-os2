@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQMLRENAMESYMBOLSUPPORT_P_H
 #define QQMLRENAMESYMBOLSUPPORT_P_H
@@ -15,9 +16,8 @@
 // We mean it.
 //
 
-#include "qlanguageserver_p.h"
-#include "qqmlcodemodel_p.h"
-#include "qqmlbasemodule_p.h"
+#include <private/qlanguageserver_p.h>
+#include <private/qqmlbasemodule_p.h>
 
 QT_BEGIN_NAMESPACE
 struct RenameRequest : public BaseRequest<QLspSpecification::RenameParams,
@@ -29,12 +29,10 @@ class QQmlRenameSymbolSupport : public QQmlBaseModule<RenameRequest>
 {
     Q_OBJECT
 public:
-    QQmlRenameSymbolSupport(QmlLsp::QQmlCodeModel *codeModel);
+    QQmlRenameSymbolSupport(QmlLsp::QQmlCodeModelManager *codeModel);
 
-    QString name() const override;
     void registerHandlers(QLanguageServer *server, QLanguageServerProtocol *protocol) override;
-    void setupCapabilities(const QLspSpecification::InitializeParams &clientInfo,
-                           QLspSpecification::InitializeResult &) override;
+    void setupCapabilities(QLspSpecification::ServerCapabilities &caps) override;
 
     void process(RequestPointerArgument request) override;
 };

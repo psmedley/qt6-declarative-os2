@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef DESIGNERSUPPORT_H
 #define DESIGNERSUPPORT_H
@@ -89,7 +90,7 @@ public:
     static bool hasAnchor(QQuickItem *item, const QString &name);
     static QQuickItem *anchorFillTargetItem(QQuickItem *item);
     static QQuickItem *anchorCenterInTargetItem(QQuickItem *item);
-    static QPair<QString, QObject*> anchorLineTarget(QQuickItem *item, const QString &name, QQmlContext *context);
+    static std::pair<QString, QObject*> anchorLineTarget(QQuickItem *item, const QString &name, QQmlContext *context);
     static void resetAnchor(QQuickItem *item, const QString &name);
     static void emitComponentCompleteSignalForAttachedProperty(QObject *item);
 

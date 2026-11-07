@@ -24,12 +24,14 @@
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+#include <QtGui/private/qhighdpiscaling_p.h>
 
 DEFINE_BOOL_CONFIG_OPTION(qmlDisableDistanceField, QML_DISABLE_DISTANCEFIELD)
 
 Q_DECLARE_METATYPE(QQuickText::TextFormat)
 
-typedef QVector<QPointF> PointVector;
+typedef QList<QPointF> PointVector;
 Q_DECLARE_METATYPE(PointVector);
 
 typedef qreal (*ExpectedBaseline)(QQuickText *item);
@@ -39,6 +41,8 @@ Q_LOGGING_CATEGORY(lcTests, "qt.quick.tests")
 
 QT_BEGIN_NAMESPACE
 extern void qt_setQtEnableTestFont(bool value);
+
+using namespace Qt::StringLiterals;
 
 class tst_qquicktext : public QQmlDataTest
 {
@@ -55,6 +59,8 @@ private slots:
     void elideParentChanged();
     void elideRelayoutAfterZeroWidth_data();
     void elideRelayoutAfterZeroWidth();
+    void elideRelayoutAfterGrowingWidth();
+    void implicitWidthRespectsMaximumLineCount();
     void multilineElide_data();
     void multilineElide();
     void implicitElide_data();
@@ -93,10 +99,13 @@ private slots:
     void linkInteraction_data();
     void linkInteraction();
 
+    void styledTextLinkInColumnLayout();
+
     void implicitSize_data();
     void implicitSize();
     void implicitSizeChangeRewrap();
     void implicitSizeMaxLineCount();
+    void implicitWidthAfterWidthChange();
     void dependentImplicitSizes();
     void contentSize();
     void implicitSizeBinding_data();
@@ -121,8 +130,18 @@ private slots:
     void imgTagsAlign();
     void imgTagsMultipleImages();
     void imgTagsElide();
+    void imgTagsElideMode_data();
+    void imgTagsElideMode();
+    void imgTagsWrapElide_data();
+    void imgTagsWrapElide();
+    void imgTagsWrapAnywhere();
+    void imgTagsSpacing();
+    void imgTagsLetterSpacing();
+    void imgTagsLineLaidOut();
     void imgTagsUpdates();
     void imgTagsError();
+    void imgSize_data();
+    void imgSize();
     void fontSizeMode_data();
     void fontSizeMode();
     void fontSizeModeMultiline_data();
@@ -164,6 +183,18 @@ private slots:
 
     void displaySuperscriptedTag();
 
+    void textObjectRespectsDpr_data();
+    void textObjectRespectsDpr();
+    void clearTruncated();
+
+    void textObjectBaselineAlignment();
+    void textObjectBaselineVsBottomAlignment();
+
+    void styledTextDirectionWithSpan_data();
+    void styledTextDirectionWithSpan();
+    void styledTextDirectionNoExtraSignal_data();
+    void styledTextDirectionNoExtraSignal();
+
 private:
     QStringList standard;
     QStringList richText;
@@ -183,6 +214,10 @@ private:
 
     QQuickView *createView(const QString &filename);
     int numberOfNonWhitePixels(int fromX, int toX, const QImage &image);
+
+    QQuickText *createStyledText(const QString &text);
+
+    static constexpr QStringView testImgTag = u"<img src='images/face-sad.png' width='18' height='18'>";
 };
 
 void tst_qquicktext::cleanup()
@@ -251,6 +286,14 @@ QQuickView *tst_qquicktext::createView(const QString &filename)
 
     window->setSource(QUrl::fromLocalFile(filename));
     return window;
+}
+
+QQuickText *tst_qquicktext::createStyledText(const QString &text)
+{
+    QString qml = u"import QtQuick\nText { textFormat: Text.StyledText; text: \"%1\" }"_s.arg(text);
+    QQmlComponent comp(&engine);
+    comp.setData(qml.toLatin1(), testFileUrl("."));
+    return qobject_cast<QQuickText *>(comp.create());
 }
 
 void tst_qquicktext::text()
@@ -608,6 +651,58 @@ void tst_qquicktext::elideRelayoutAfterZeroWidth()
     QVERIFY(root->property("ok").toBool());
 }
 
+void tst_qquicktext::elideRelayoutAfterGrowingWidth()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("elideBindingOnWidth.qml"));
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    QQuickText *text = qobject_cast<QQuickText *>(root.get());
+    QVERIFY(text);
+    auto *textPrivate = QQuickTextPrivate::get(text);
+    QVERIFY(textPrivate->widthValid());
+
+    const qreal implicitWidth = text->implicitWidth();
+    const int steps = 4;
+    const int startingStep = 1;
+
+    // Initially set it to larger than the implicitWidth
+    text->setProperty("explicitWidth", implicitWidth * 2);
+    QVERIFY(!textPrivate->widthExceeded);
+
+    // Then make it small
+    text->setProperty("explicitWidth", implicitWidth / (steps + startingStep));
+    qreal lastLayedOutRect = textPrivate->layedOutTextRect.width();
+    QVERIFY(text->truncated());
+
+    // Steadily increase the width. The text should get laid out each time.
+    for (int i = startingStep; i < steps; ++i) {
+        const qreal newWidth = implicitWidth / (steps + startingStep - i);
+        text->setProperty("explicitWidth", newWidth);
+        QCOMPARE_GT(textPrivate->layedOutTextRect.width(), lastLayedOutRect);
+        lastLayedOutRect = textPrivate->layedOutTextRect.width();
+        QVERIFY(text->truncated());
+    }
+}
+
+void tst_qquicktext::implicitWidthRespectsMaximumLineCount()
+{
+    // The multiline elide path must not lay out extra lines beyond
+    // maximumLineCount that would inflate implicitWidth.
+    QScopedPointer<QQuickText> text(new QQuickText);
+    text->setText("Short\nThis is a much longer second line of text");
+    text->setMaximumLineCount(1);
+    text->setElideMode(QQuickText::ElideRight);
+    text->setWidth(100); // triggers multilineElide path
+    text->componentComplete();
+
+    // implicitWidth should reflect only the first (visible) line.
+    // +1.0 for possible rounding between QFontMetricsF and QTextLayout.
+    QFontMetricsF fm(text->font());
+    const qreal firstLineWidth = fm.horizontalAdvance("Short");
+    QCOMPARE_LE(text->implicitWidth(), firstLineWidth + 1.0);
+}
+
 void tst_qquicktext::multilineElide_data()
 {
     QTest::addColumn<QQuickText::TextFormat>("format");
@@ -808,7 +903,7 @@ void tst_qquicktext::textFormat()
         QVERIFY(textPrivate);
 
         // underline a mnemonic
-        QVector<QTextLayout::FormatRange> formats;
+        QList<QTextLayout::FormatRange> formats;
         QTextLayout::FormatRange range;
         range.start = 0;
         range.length = 1;
@@ -1033,10 +1128,12 @@ static inline QByteArray msgNotLessThan(int n1, int n2)
 
 void tst_qquicktext::hAlignImplicitWidth()
 {
+    SKIP_IF_NO_WINDOW_GRAB;
+
     QQuickView view(testFileUrl("hAlignImplicitWidth.qml"));
     view.setFlags(view.flags() | Qt::WindowStaysOnTopHint); // Prevent being obscured by other windows.
     view.show();
-    view.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     QQuickText *text = view.rootObject()->findChild<QQuickText*>("textItem");
@@ -1056,9 +1153,6 @@ void tst_qquicktext::hAlignImplicitWidth()
     const int centeredSection3End = centeredSection3 + sectionWidth;
 
     {
-        if (QGuiApplication::platformName() == QLatin1String("minimal"))
-            QSKIP("Skipping due to grabWindow not functional on minimal platforms");
-
         // Left Align
         QImage image = view.grabWindow();
         const int left = numberOfNonWhitePixels(centeredSection1, centeredSection2, image);
@@ -1539,7 +1633,6 @@ void tst_qquicktext::underline()
 {
     QQuickView view(testFileUrl("underline.qml"));
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickText *textObject = view.rootObject()->findChild<QQuickText*>("myText");
     QVERIFY(textObject != nullptr);
@@ -1552,7 +1645,6 @@ void tst_qquicktext::overline()
 {
     QQuickView view(testFileUrl("overline.qml"));
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickText *textObject = view.rootObject()->findChild<QQuickText*>("myText");
     QVERIFY(textObject != nullptr);
@@ -1565,7 +1657,6 @@ void tst_qquicktext::strikeout()
 {
     QQuickView view(testFileUrl("strikeout.qml"));
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickText *textObject = view.rootObject()->findChild<QQuickText*>("myText");
     QVERIFY(textObject != nullptr);
@@ -2134,6 +2225,35 @@ void tst_qquicktext::linkInteraction()
     QCOMPARE(textObject->linkAt(-1, -1), QString());
 }
 
+// QTBUG-131441: styled text link detection is incorrect when Text
+// is in ColumnLayout with Layout.fillWidth and non-left alignment
+void tst_qquicktext::styledTextLinkInColumnLayout()
+{
+    QQuickView view;
+    QVERIFY(QQuickTest::showView(view, testFileUrl("styledTextLinkInColumnLayout.qml")));
+
+    QQuickText *textItem = view.rootObject()->findChild<QQuickText *>("styledTextLink");
+    QVERIFY(textItem);
+    QVERIFY(textItem->width() > textItem->contentWidth());
+
+    const QString plainText("this text has a link in it");
+    const TextMetrics metrics(plainText);
+    const QSizeF bounds(textItem->width(), textItem->height());
+    const int linkCharPos = plainText.indexOf("link") + 2; // middle of "link"
+    const QRectF linkRect = metrics.characterRectangle(linkCharPos, Qt::AlignHCenter, Qt::AlignTop, bounds);
+    const QString expectedLink = "http://qt-project.org/test";
+
+    QCOMPARE(textItem->linkAt(linkRect.center().x(), linkRect.center().y()), expectedLink);
+    QCOMPARE(textItem->linkAt(textItem->width() - 10, linkRect.center().y()), QString());
+
+    // Verify that onLinkHovered actually fires by hovering over the link
+    QQuickText *hoveredLinkText = view.rootObject()->findChild<QQuickText *>("hoveredLink");
+    QVERIFY(hoveredLinkText);
+    const QPoint linkCenter = textItem->mapToScene(linkRect.center()).toPoint();
+    QTest::mouseMove(&view, linkCenter);
+    QTRY_COMPARE(hoveredLinkText->text(), expectedLink);
+}
+
 void tst_qquicktext::baseUrl()
 {
     QUrl localUrl("file:///tests/text.qml");
@@ -2219,7 +2339,7 @@ void tst_qquicktext::embeddedImages()
         });
         QCOMPARE_NE(it, formats.end());
         const QTextImageFormat format = (*it).toImageFormat();
-        QImage image = doc->resource(QTextDocument::ImageResource, format.name()).value<QImage>();
+        QImage image = doc->resource(QTextDocument::ImageResource, QUrl{format.name()}).value<QImage>();
         qCDebug(lcTests) << "found image?" << format.name() << image;
         QCOMPARE(image.size(), expectedImageSize);
     } else {
@@ -2412,6 +2532,44 @@ void tst_qquicktext::implicitSizeMaxLineCount()
 
     textObject->setMaximumLineCount(1);
     QCOMPARE_EQ(textObject->implicitWidth(), referenceWidth);
+}
+
+// implicitWidth should not grow after width is constrained and then released
+void tst_qquicktext::implicitWidthAfterWidthChange()
+{
+    // Test that implicitWidth remains stable when the item width is constrained
+    // and then released, for StyledText with <br> tags, maximumLineCount, wrap, and elide.
+    QScopedPointer<QQuickText> textObject(new QQuickText);
+    textObject->setTextFormat(QQuickText::StyledText);
+    textObject->setText(QStringLiteral("First line<br>Second line<br>"
+                                       "11111111111111111111111111111111111111111111111111111111111"
+                                       "11111111111111111111111111111111111111111"));
+    textObject->setMaximumLineCount(2);
+    textObject->setWrapMode(QQuickText::Wrap);
+    textObject->setElideMode(QQuickText::ElideRight);
+    textObject->componentComplete();
+
+    // Get the unconstrained implicitWidth
+    const qreal originalImplicitWidth = textObject->implicitWidth();
+    QVERIFY(originalImplicitWidth > 0);
+
+    // Constrain the width to something narrow enough to trigger wrapping
+    const qreal narrowWidth = originalImplicitWidth * 0.3;
+    textObject->setWidth(narrowWidth);
+
+    // The implicitWidth should not change just because we constrained the width
+    const qreal constrainedImplicitWidth = textObject->implicitWidth();
+    QCOMPARE_EQ(constrainedImplicitWidth, originalImplicitWidth);
+
+    // Now widen the width back
+    textObject->setWidth(originalImplicitWidth * 2);
+    const qreal widenedImplicitWidth = textObject->implicitWidth();
+    QCOMPARE_EQ(widenedImplicitWidth, originalImplicitWidth);
+
+    // Release the width constraint entirely
+    textObject->resetWidth();
+    const qreal afterImplicitWidth = textObject->implicitWidth();
+    QCOMPARE_EQ(afterImplicitWidth, originalImplicitWidth);
 }
 
 void tst_qquicktext::dependentImplicitSizes()
@@ -3128,7 +3286,6 @@ void tst_qquicktext::lineLaidOutRelayout()
     QScopedPointer<QQuickView> window(createView(testFile("lineLayoutRelayout.qml")));
 
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
 
     QQuickText *myText = window->rootObject()->findChild<QQuickText*>("myText");
@@ -3160,7 +3317,6 @@ void tst_qquicktext::lineLaidOutFontUpdate()
     QScopedPointer<QQuickView> window(createView(testFile("lineLayoutFontUpdate.qml")));
 
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
 
     auto *myText = window->rootObject()->findChild<QQuickText*>("exampleText");
@@ -3406,6 +3562,158 @@ void tst_qquicktext::imgTagsElide()
     QTRY_COMPARE(textPrivate->extra->visibleImgTags.size(), 1);
 }
 
+void tst_qquicktext::imgTagsElideMode_data()
+{
+    QTest::addColumn<QQuickText::TextElideMode>("elideMode");
+
+    QTest::newRow("ElideRight") << QQuickText::ElideRight;
+    QTest::newRow("ElideLeft") << QQuickText::ElideLeft;
+    QTest::newRow("ElideMiddle") << QQuickText::ElideMiddle;
+}
+
+void tst_qquicktext::imgTagsElideMode()
+{
+    QFETCH(QQuickText::TextElideMode, elideMode);
+
+    QScopedPointer<QQuickText> myText(createStyledText(
+        u"AB%1CD%2EF"_s.arg(testImgTag, testImgTag)));
+    QVERIFY(myText);
+    myText->setWidth(50);
+    myText->setElideMode(elideMode);
+
+    QTRY_VERIFY(myText->truncated());
+    QCOMPARE_LE(myText->contentWidth(), myText->width());
+
+    // The text has 2 images but is too wide — at least one must be elided.
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(myText.data());
+    QVERIFY(textPrivate->extra.isAllocated());
+    QCOMPARE_LT(textPrivate->extra->visibleImgTags.size(), 2);
+
+    // Any remaining visible image must be positioned within bounds.
+    for (const auto *img : std::as_const(textPrivate->extra->visibleImgTags)) {
+        QCOMPARE_GE(img->pos.x(), 0);
+        QCOMPARE_LT(img->pos.x(), myText->width());
+    }
+}
+
+// QTBUG-97536, QTBUG-36163: wrap + elide with inline images
+void tst_qquicktext::imgTagsWrapElide_data()
+{
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<qreal>("width");
+    QTest::addColumn<int>("visibleImages");
+
+    QString imagesOnly;
+    for (int i = 0; i < 11; ++i)
+        imagesOnly += testImgTag;
+
+    // 11 images × 20px each, width=80: line 1 = 4 imgs, line 2 = 3 imgs + "…" = 7 visible.
+    QTest::newRow("images only") << imagesOnly << qreal(80) << 7;
+    QTest::newRow("text + image")
+            << u"Some text before %1 and more text after that wraps and eventually gets elided"_s.arg(testImgTag)
+            << qreal(150) << 1;
+}
+
+void tst_qquicktext::imgTagsWrapElide()
+{
+    QFETCH(QString, text);
+    QFETCH(qreal, width);
+    QFETCH(int, visibleImages);
+
+    QScopedPointer<QQuickText> myText(createStyledText(text));
+    QVERIFY(myText);
+    myText->setWidth(width);
+    myText->setElideMode(QQuickText::ElideRight);
+    myText->setMaximumLineCount(2);
+    myText->setWrapMode(QQuickText::Wrap);
+
+    QTRY_VERIFY(myText->truncated());
+    QCOMPARE(myText->lineCount(), 2);
+    QCOMPARE_LE(myText->contentWidth(), myText->width());
+
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(myText.data());
+    QVERIFY(textPrivate->extra.isAllocated());
+    QCOMPARE(textPrivate->extra->visibleImgTags.size(), visibleImages);
+    for (const auto *img : std::as_const(textPrivate->extra->visibleImgTags)) {
+        QCOMPARE_GE(img->pos.x(), 0);
+        QCOMPARE_LT(img->pos.x(), myText->width());
+    }
+}
+
+// QTBUG-113829: WrapAnywhere with inline image
+void tst_qquicktext::imgTagsWrapAnywhere()
+{
+    QScopedPointer<QQuickText> myText(createStyledText(
+        u"ABCDEF%1GHIJKL"_s.arg(testImgTag)));
+    QVERIFY(myText);
+    myText->setWidth(80);
+    myText->setWrapMode(QQuickText::WrapAnywhere);
+
+    QCOMPARE_GT(myText->lineCount(), 1);
+    QCOMPARE_LE(myText->contentWidth(), myText->width());
+
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(myText.data());
+    QVERIFY(textPrivate->extra.isAllocated());
+    QCOMPARE(textPrivate->extra->visibleImgTags.size(), 1);
+    const auto *img = textPrivate->extra->visibleImgTags.first();
+    QCOMPARE_LE(img->pos.x() + img->size.width(), myText->width());
+}
+
+// QTBUG-115285: space before/after img tag is preserved
+void tst_qquicktext::imgTagsSpacing()
+{
+    QScopedPointer<QQuickText> withSpaces(createStyledText(u"A %1 B"_s.arg(testImgTag)));
+    QScopedPointer<QQuickText> noSpaces(createStyledText(u"A%1B"_s.arg(testImgTag)));
+    QScopedPointer<QQuickText> spaceBefore(createStyledText(u"A %1B"_s.arg(testImgTag)));
+    QScopedPointer<QQuickText> spaceAfter(createStyledText(u"A%1 B"_s.arg(testImgTag)));
+    QVERIFY(withSpaces && noSpaces && spaceBefore && spaceAfter);
+
+    // "A <img> B" should be wider than "A<img>B" because of the spaces
+    QCOMPARE_GT(withSpaces->contentWidth(), noSpaces->contentWidth());
+    // Space before and space after should contribute equally
+    QCOMPARE(spaceBefore->contentWidth(), spaceAfter->contentWidth());
+}
+
+// QTBUG-133284: letter spacing should not break inline image positioning
+void tst_qquicktext::imgTagsLetterSpacing()
+{
+    const QString text = u"A%1B"_s.arg(testImgTag);
+
+    QScopedPointer<QQuickText> normal(createStyledText(text));
+    QScopedPointer<QQuickText> spaced(createStyledText(text));
+    QVERIFY(normal && spaced);
+
+    QFont f = spaced->font();
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 10);
+    spaced->setFont(f);
+
+    // With letter spacing the text should be wider (spacing on A and B),
+    // but the image width itself should not be affected by letter spacing.
+    const qreal diff = spaced->contentWidth() - normal->contentWidth();
+    QCOMPARE_GT(diff, 0);
+    QCOMPARE_LT(diff, 30); // 2 chars * 10px spacing + tolerance; old bug gave ~60+
+}
+
+// QTBUG-39107 / QTBUG-43820: images must be visible when onLineLaidOut is connected
+void tst_qquicktext::imgTagsLineLaidOut()
+{
+    QScopedPointer<QQuickText> text(createStyledText(
+        u"Hello %1 World"_s.arg(testImgTag)));
+    QVERIFY(text);
+    text->setWidth(200);
+
+    // Connecting to lineLaidOut activates the customLayout path.
+    connect(text.data(), &QQuickText::lineLaidOut, text.data(), []{});
+
+    // Force re-layout after connecting.
+    text->setText(text->text());
+
+    QQuickTextPrivate *textPrivate = QQuickTextPrivate::get(text.data());
+    QVERIFY(textPrivate->extra.isAllocated());
+    QCOMPARE(textPrivate->extra->visibleImgTags.size(), 1);
+    QCOMPARE_GT(textPrivate->extra->visibleImgTags.first()->pos.x(), 0);
+}
+
 void tst_qquicktext::imgTagsUpdates()
 {
     QScopedPointer<QQuickView> window(createView(testFile("imgTagsUpdates.qml")));
@@ -3445,6 +3753,101 @@ void tst_qquicktext::imgTagsError()
     QQuickText *textObject = qobject_cast<QQuickText*>(object.data());
 
     QVERIFY(textObject != nullptr);
+}
+
+void tst_qquicktext::imgSize_data()
+{
+    QTest::addColumn<QString>("url");
+    QTest::addColumn<qint64>("width");
+    QTest::addColumn<qint64>("height");
+    QTest::addColumn<QQuickText::TextFormat>("format");
+
+    QTest::newRow("negative (styled text)") << QStringLiteral("images/starfish_2.png")
+                                         << qint64(-0x7FFFFF)
+                                         << qint64(-0x7FFFFF)
+                                         << QQuickText::StyledText;
+    QTest::newRow("negative (rich text)") << QStringLiteral("images/starfish_2.png")
+                                         << qint64(-0x7FFFFF)
+                                         << qint64(-0x7FFFFF)
+                                         << QQuickText::RichText;
+    QTest::newRow("large (styled text)") << QStringLiteral("images/starfish_2.png")
+                                         << qint64(0x7FFFFF)
+                                         << qint64(0x7FFFFF)
+                                         << QQuickText::StyledText;
+    QTest::newRow("large (right text)") << QStringLiteral("images/starfish_2.png")
+                                        << qint64(0x7FFFFF)
+                                        << qint64(0x7FFFFF)
+                                        << QQuickText::RichText;
+    QTest::newRow("medium (styled text)") << QStringLiteral("images/starfish_2.png")
+                                         << qint64(0x10000)
+                                         << qint64(0x10000)
+                                         << QQuickText::StyledText;
+    QTest::newRow("medium (right text)") << QStringLiteral("images/starfish_2.png")
+                                        << qint64(0x10000)
+                                        << qint64(0x10000)
+                                        << QQuickText::RichText;
+    QTest::newRow("out-of-bounds (styled text)") << QStringLiteral("images/starfish_2.png")
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << QQuickText::StyledText;
+    QTest::newRow("out-of-bounds (rich text)") << QStringLiteral("images/starfish_2.png")
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << QQuickText::RichText;
+    QTest::newRow("negative out-of-bounds (styled text)") << QStringLiteral("images/starfish_2.png")
+                                                 << (qint64(INT_MIN) - 1)
+                                                 << (qint64(INT_MIN) - 1)
+                                                 << QQuickText::StyledText;
+    QTest::newRow("negative out-of-bounds (rich text)") << QStringLiteral("images/starfish_2.png")
+                                                 << (qint64(INT_MIN) - 1)
+                                                 << (qint64(INT_MIN) - 1)
+                                                 << QQuickText::RichText;
+    QTest::newRow("large non-existent (styled text)") << QStringLiteral("a")
+                                                 << qint64(0x7FFFFF)
+                                                 << qint64(0x7FFFFF)
+                                                 << QQuickText::StyledText;
+    QTest::newRow("medium non-existent (styled text)") << QStringLiteral("a")
+                                                 << qint64(0x10000)
+                                                 << qint64(0x10000)
+                                                 << QQuickText::StyledText;
+    QTest::newRow("out-of-bounds non-existent (styled text)") << QStringLiteral("a")
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << (qint64(INT_MAX) + 1)
+                                                 << QQuickText::StyledText;
+    QTest::newRow("large non-existent (rich text)") << QStringLiteral("a")
+                                                 << qint64(0x7FFFFF)
+                                                 << qint64(0x7FFFFF)
+                                                 << QQuickText::RichText;
+    QTest::newRow("medium non-existent (rich text)") << QStringLiteral("a")
+                                                 << qint64(0x10000)
+                                                 << qint64(0x10000)
+                                                 << QQuickText::RichText;
+}
+
+void tst_qquicktext::imgSize()
+{
+    QFETCH(QString, url);
+    QFETCH(qint64, width);
+    QFETCH(qint64, height);
+    QFETCH(QQuickText::TextFormat, format);
+
+    // Reusing imgTagsUpdates.qml here, since it is just an empty Text component
+    QScopedPointer<QQuickView> window(createView(testFile("imgTagsUpdates.qml")));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QScopedPointer<QQuickText> myText(window->rootObject()->findChild<QQuickText*>("myText"));
+    QVERIFY(myText);
+
+    myText->setTextFormat(format);
+
+    QString imgStr = QStringLiteral("<img src=\"%1\" width=\"%2\" height=\"%3\" />")
+            .arg(url)
+            .arg(width)
+            .arg(height);
+    myText->setText(imgStr);
+
+    QVERIFY(QQuickTest::qWaitForPolish(myText.data()));
 }
 
 void tst_qquicktext::fontSizeMode_data()
@@ -4136,11 +4539,9 @@ static qreal expectedBaselineBold(QQuickText *item)
 static qreal expectedBaselineImage(QQuickText *item)
 {
     QFontMetricsF fm(item->font());
-    // The line is positioned so the bottom of the line is aligned with the bottom of the image,
-    // or image height - line height and the baseline is line position + ascent.  Because
-    // QTextLine's height is rounded up this can give slightly different results to image height
-    // - descent.
-    return 181 - qCeil(fm.height()) + fm.ascent() + item->topPadding();
+    // With AlignBaseline, the inline object's ascent = imageHeight - descent,
+    // so line.ascent() = imageHeight - fm.descent() and baseline = line.ascent().
+    return 181 - fm.descent() + item->topPadding();
 }
 
 static qreal expectedBaselineCustom(QQuickText *item)
@@ -4477,7 +4878,6 @@ void tst_qquicktext::htmlLists()
     textObject->setText(text);
 
     view->show();
-    view->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(view.get()));
 
     QCOMPARE(textPrivate->extra->doc->lineCount(), nbLines);
@@ -4837,8 +5237,7 @@ void tst_qquicktext::verticallyAlignedImageInTable()
 
 void tst_qquicktext::transparentBackground()
 {
-    if (QGuiApplication::platformName() == QLatin1String("minimal"))
-        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
+    SKIP_IF_NO_WINDOW_GRAB;
 
     QScopedPointer<QQuickView> window(new QQuickView);
     window->setSource(testFileUrl("transparentBackground.qml"));
@@ -4857,8 +5256,7 @@ void tst_qquicktext::transparentBackground()
 
 void tst_qquicktext::displaySuperscriptedTag()
 {
-    if (QGuiApplication::platformName() == QLatin1String("minimal"))
-        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
+    SKIP_IF_NO_WINDOW_GRAB;
 
     QScopedPointer<QQuickView> window(new QQuickView);
     window->setSource(testFileUrl("displaySuperscriptedTag.qml"));
@@ -4877,6 +5275,360 @@ void tst_qquicktext::displaySuperscriptedTag()
     QCOMPARE(color.red(), 255);
     QCOMPARE(color.blue(), 255);
     QCOMPARE(color.green(), 255);
+}
+
+void tst_qquicktext::textObjectRespectsDpr_data()
+{
+    QTest::addColumn<qreal>("devicePixelRatio");
+    QTest::newRow("1x") << 1.0;
+    QTest::newRow("2x") << 2.0;
+}
+
+class CustomTextObject : public QObject, public QTextObjectInterface
+{
+    Q_OBJECT
+    Q_INTERFACES(QTextObjectInterface)
+
+public:
+    using QObject::QObject;
+
+    QSizeF intrinsicSize(QTextDocument *, int, const QTextFormat &) override
+    {
+        return {100, 100};
+    }
+
+    void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *,
+                    int, const QTextFormat &) override
+    {
+        drawnDpr = static_cast<QImage*>(painter->device())->devicePixelRatio();
+        drawnRect = rect;
+    }
+
+    qreal drawnDpr = 0.0;
+    QRectF drawnRect;
+};
+
+void tst_qquicktext::textObjectRespectsDpr()
+{
+    QFETCH(qreal, devicePixelRatio);
+
+    // Compute a global scale factor that results in the target devicePixelRatio,
+    // even in the presence of an existing system-level devicePixelRatio.
+    const auto *screen = qGuiApp->primaryScreen();
+    const auto systemDevicePixelRatio = screen->devicePixelRatio();
+    qreal globalScaleFactor = devicePixelRatio / systemDevicePixelRatio;
+    QHighDpiScaling::setGlobalFactor(globalScaleFactor);
+    QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    auto reset = qScopeGuard([]{
+        QHighDpiScaling::setGlobalFactor(1);
+        QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    });
+    QCOMPARE(screen->devicePixelRatio(), devicePixelRatio);
+
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("textObjectDpr.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    auto *text = window->findChild<QQuickText *>();
+    QVERIFY(text);
+    auto *textPrivate = QQuickTextPrivate::get(text);
+    QVERIFY(textPrivate != nullptr);
+    QVERIFY(textPrivate->extra.isAllocated());
+
+    auto *textDocument = textPrivate->extra->doc;
+    QVERIFY(textDocument);
+    auto *documentLayout = textDocument->documentLayout();
+    QVERIFY(documentLayout);
+
+    CustomTextObject customTextObject;
+    documentLayout->registerHandler(QTextCharFormat::UserObject, &customTextObject);
+
+    QTextCursor cursor(textDocument);
+    QTextCharFormat format;
+    format.setObjectType(QTextCharFormat::UserObject);
+    cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+    // We've modified the internal state of the QQuickText, so make sure
+    // to not touch setText or any of the APIs that will update the text
+    // document, while still triggering a relayout/render of the text.
+    text->invalidate();
+
+    QTRY_VERIFY(!customTextObject.drawnRect.isNull());
+
+    QCOMPARE(customTextObject.drawnDpr, devicePixelRatio);
+    QCOMPARE(customTextObject.drawnRect.size(), customTextObject.intrinsicSize(textDocument, 0, {}));
+}
+
+class ColoredTextObject : public QObject, public QTextObjectInterface
+{
+    Q_OBJECT
+    Q_INTERFACES(QTextObjectInterface)
+
+public:
+    using QObject::QObject;
+
+    QSizeF intrinsicSize(QTextDocument *, int, const QTextFormat &) override
+    {
+        return {20, 20};
+    }
+
+    void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *,
+                    int, const QTextFormat &) override
+    {
+        painter->fillRect(rect, Qt::red);
+    }
+};
+
+static int findFirstRedPixelY(const QImage &img, int startY, int endY)
+{
+    for (int y = startY; y < endY; ++y) {
+        for (int x = 0; x < img.width(); ++x) {
+            const QColor c = img.pixelColor(x, y);
+            if (c.red() > 200 && c.green() < 50 && c.blue() < 50)
+                return y;
+        }
+    }
+    return -1;
+}
+
+void tst_qquicktext::textObjectBaselineAlignment()
+{
+    SKIP_IF_NO_WINDOW_GRAB;
+
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("textObjectBaselineAlignment.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    auto *baselineText = window->rootObject()->findChild<QQuickText *>("baselineText");
+    auto *bottomText = window->rootObject()->findChild<QQuickText *>("bottomText");
+    auto *topText = window->rootObject()->findChild<QQuickText *>("topText");
+    QVERIFY(baselineText);
+    QVERIFY(bottomText);
+    QVERIFY(topText);
+
+    auto insertObject = [](QQuickText *text, QTextCharFormat::VerticalAlignment alignment,
+                           ColoredTextObject *obj) {
+        auto *textPrivate = QQuickTextPrivate::get(text);
+        auto *textDocument = textPrivate->extra->doc;
+        auto *documentLayout = textDocument->documentLayout();
+
+        documentLayout->registerHandler(QTextCharFormat::UserObject, obj);
+
+        QTextCursor cursor(textDocument);
+        QTextCharFormat format;
+        format.setObjectType(QTextCharFormat::UserObject);
+        format.setVerticalAlignment(alignment);
+        cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+        text->invalidate();
+    };
+
+    const qreal dpr = window->devicePixelRatio();
+    const int regionHeight = int(100 * dpr);
+
+    ColoredTextObject baselineObj, bottomObj, topObj;
+    insertObject(baselineText, QTextCharFormat::AlignBaseline, &baselineObj);
+    insertObject(bottomText, QTextCharFormat::AlignBottom, &bottomObj);
+    insertObject(topText, QTextCharFormat::AlignTop, &topObj);
+
+    // Wait for all objects to be rendered
+    QImage grab;
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        grab = window->grabWindow();
+        return findFirstRedPixelY(grab, 0, regionHeight) >= 0
+            && findFirstRedPixelY(grab, regionHeight, 2 * regionHeight) >= 0
+            && findFirstRedPixelY(grab, 2 * regionHeight, 3 * regionHeight) >= 0;
+    }(), 5000);
+
+    // Find Y position of the red object relative to each Text item's region
+    const int baselineY = findFirstRedPixelY(grab, 0, regionHeight);
+    const int bottomY = findFirstRedPixelY(grab, regionHeight, 2 * regionHeight) - regionHeight;
+    const int topY = findFirstRedPixelY(grab, 2 * regionHeight, 3 * regionHeight) - 2 * regionHeight;
+
+    QVERIFY2(baselineY >= 0, "AlignBaseline object not found in grab");
+    QVERIFY2(bottomY >= 0, "AlignBottom object not found in grab");
+    QVERIFY2(topY >= 0, "AlignTop object not found in grab");
+
+    // With a single font size, AlignBaseline and AlignBottom produce
+    // approximately the same position. They may differ by 1px due to
+    // QFontMetrics (integer) vs QFixed rounding in line descent.
+    QVERIFY2(qAbs(baselineY - bottomY) <= 1,
+             qPrintable(QString("AlignBaseline (%1) and AlignBottom (%2) should be within 1px")
+                        .arg(baselineY).arg(bottomY)));
+
+    // Sanity check: AlignTop should differ from AlignBottom/AlignBaseline
+    QVERIFY2(topY != bottomY, "AlignTop should differ from AlignBottom");
+}
+
+void tst_qquicktext::textObjectBaselineVsBottomAlignment()
+{
+    SKIP_IF_NO_WINDOW_GRAB;
+
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("textObjectMixedFontAlignment.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    auto *baselineText = window->rootObject()->findChild<QQuickText *>("baselineText");
+    auto *bottomText = window->rootObject()->findChild<QQuickText *>("bottomText");
+    QVERIFY(baselineText);
+    QVERIFY(bottomText);
+
+    // Insert inline objects with a small font (pixelSize 12) into text items
+    // that use a large font (pixelSize 50). This makes line.descent() (from
+    // the 50px text) much larger than QFontMetrics(format.font()).descent()
+    // (from the 12px object format), so AlignBaseline and AlignBottom must
+    // produce different Y positions.
+    auto insertObject = [](QQuickText *text, QTextCharFormat::VerticalAlignment alignment,
+                           ColoredTextObject *obj) {
+        auto *textPrivate = QQuickTextPrivate::get(text);
+        auto *textDocument = textPrivate->extra->doc;
+        auto *documentLayout = textDocument->documentLayout();
+
+        documentLayout->registerHandler(QTextCharFormat::UserObject, obj);
+
+        QTextCursor cursor(textDocument);
+        QTextCharFormat format;
+        format.setObjectType(QTextCharFormat::UserObject);
+        format.setVerticalAlignment(alignment);
+        QFont f;
+        f.setPixelSize(12);
+        format.setFont(f);
+        cursor.insertText(QString(QChar::ObjectReplacementCharacter), format);
+
+        text->invalidate();
+    };
+
+    const qreal dpr = window->devicePixelRatio();
+    const int regionHeight = int(100 * dpr);
+
+    ColoredTextObject baselineObj, bottomObj;
+    insertObject(baselineText, QTextCharFormat::AlignBaseline, &baselineObj);
+    insertObject(bottomText, QTextCharFormat::AlignBottom, &bottomObj);
+
+    QImage grab;
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        grab = window->grabWindow();
+        return findFirstRedPixelY(grab, 0, regionHeight) >= 0
+            && findFirstRedPixelY(grab, regionHeight, 2 * regionHeight) >= 0;
+    }(), 5000);
+
+    const int baselineY = findFirstRedPixelY(grab, 0, regionHeight);
+    const int bottomY = findFirstRedPixelY(grab, regionHeight, 2 * regionHeight) - regionHeight;
+
+    QVERIFY2(baselineY >= 0, "AlignBaseline object not found in grab");
+    QVERIFY2(bottomY >= 0, "AlignBottom object not found in grab");
+
+    // With mixed font sizes, AlignBaseline (uses font descent) and
+    // AlignBottom (uses line descent) must differ
+    QVERIFY2(baselineY != bottomY,
+             qPrintable(QString("AlignBaseline (%1) and AlignBottom (%2) should differ "
+                                "with mixed font sizes").arg(baselineY).arg(bottomY)));
+
+    // AlignBottom should be lower (larger Y) since line.descent() > font descent
+    QVERIFY2(bottomY > baselineY,
+             qPrintable(QString("AlignBottom (%1) should be below AlignBaseline (%2)")
+                        .arg(bottomY).arg(baselineY)));
+}
+
+void tst_qquicktext::clearTruncated()
+{
+    QQmlComponent component(&engine, testFile("ellipsisText.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QQuickText *text = qobject_cast<QQuickText *>(object.data());
+    QVERIFY(text);
+    QVERIFY(text->truncated());
+    text->setText("");
+    QVERIFY(!text->truncated());
+}
+
+// QTBUG-147277: StyledText paragraph direction must be detected from the
+// actual text content, ignoring HTML tags like <span> or <b>.
+void tst_qquicktext::styledTextDirectionWithSpan_data()
+{
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QQuickText::HAlignment>("expectedAlignment");
+
+    QTest::newRow("RTL plain") << u"שלום עולם"_s << QQuickText::AlignRight;
+    QTest::newRow("RTL in <span>") << u"<span>שלום</span> עולם"_s << QQuickText::AlignRight;
+    QTest::newRow("RTL in <b>") << u"<b>שלום</b> עולם"_s << QQuickText::AlignRight;
+    QTest::newRow("RTL in nested tags") << u"<span><b>שלום</b></span> עולם"_s << QQuickText::AlignRight;
+    QTest::newRow("LTR in <span>") << u"<span>Hello</span> World"_s << QQuickText::AlignLeft;
+    QTest::newRow("LTR plain") << u"Hello World"_s << QQuickText::AlignLeft;
+}
+
+void tst_qquicktext::styledTextDirectionWithSpan()
+{
+    QFETCH(QString, text);
+    QFETCH(QQuickText::HAlignment, expectedAlignment);
+
+    QScopedPointer<QQuickText> textItem(new QQuickText);
+    textItem->setTextFormat(QQuickText::StyledText);
+    textItem->setText(text);
+    textItem->componentComplete();
+    QCOMPARE(textItem->effectiveHAlign(), expectedAlignment);
+}
+
+// Verify that effectiveHorizontalAlignmentChanged is emitted at most once
+// (no spurious emission with wrong value followed by correction).
+void tst_qquicktext::styledTextDirectionNoExtraSignal_data()
+{
+    QTest::addColumn<QQuickText::TextFormat>("format");
+    QTest::addColumn<QString>("initialText");
+    QTest::addColumn<QString>("newText");
+    QTest::addColumn<QQuickText::HAlignment>("expectedAlignment");
+    QTest::addColumn<int>("expectedSignalCount");
+
+    // Changing from plain RTL to styled RTL must emit exactly 0 signals
+    // (alignment stays Right throughout).
+    QTest::newRow("StyledText, RTL plain -> RTL in <span>")
+        << QQuickText::StyledText << u"שלום עולם"_s << u"<span>שלום</span> עולם"_s
+        << QQuickText::AlignRight << 0;
+    // Changing from LTR to styled RTL must emit exactly 1 signal.
+    QTest::newRow("StyledText, LTR -> RTL in <span>")
+        << QQuickText::StyledText << u"Hello World"_s << u"<span>שלום</span> עולם"_s
+        << QQuickText::AlignRight << 1;
+    // Changing from RTL to styled LTR must emit exactly 1 signal.
+    QTest::newRow("StyledText, RTL -> LTR in <span>")
+        << QQuickText::StyledText << u"שלום עולם"_s << u"<span>Hello</span> World"_s
+        << QQuickText::AlignLeft << 1;
+    // Same direction, no signal.
+    QTest::newRow("StyledText, LTR -> LTR in <span>")
+        << QQuickText::StyledText << u"Hello World"_s << u"<span>Hello</span> World"_s
+        << QQuickText::AlignLeft << 0;
+    // Plain text RTL -> RTL (no tags), no signal.
+    QTest::newRow("PlainText, RTL -> RTL")
+        << QQuickText::PlainText << u"שלום"_s << u"שלום עולם"_s
+        << QQuickText::AlignRight << 0;
+    // RichText same scenario.
+    QTest::newRow("RichText, RTL plain -> RTL in <span>")
+        << QQuickText::RichText << u"שלום עולם"_s << u"<span>שלום</span> עולם"_s
+        << QQuickText::AlignRight << 0;
+}
+
+void tst_qquicktext::styledTextDirectionNoExtraSignal()
+{
+    QFETCH(QQuickText::TextFormat, format);
+    QFETCH(QString, initialText);
+    QFETCH(QString, newText);
+    QFETCH(QQuickText::HAlignment, expectedAlignment);
+    QFETCH(int, expectedSignalCount);
+
+    QScopedPointer<QQuickText> textItem(new QQuickText);
+    textItem->setTextFormat(format);
+    textItem->setWidth(200);
+    textItem->setText(initialText);
+
+    QSignalSpy spy(textItem.data(), &QQuickText::effectiveHorizontalAlignmentChanged);
+    textItem->setText(newText);
+
+    QCOMPARE(textItem->effectiveHAlign(), expectedAlignment);
+    QCOMPARE(spy.count(), expectedSignalCount);
 }
 
 QT_END_NAMESPACE

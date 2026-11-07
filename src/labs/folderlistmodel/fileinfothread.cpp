@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "fileinfothread_p.h"
 #include <qdiriterator.h>
@@ -11,7 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcFileInfoThread, "qt.labs.folderlistmodel.fileinfothread")
+Q_STATIC_LOGGING_CATEGORY(lcFileInfoThread, "qt.labs.folderlistmodel.fileinfothread")
 
 FileInfoThread::FileInfoThread(QObject *parent)
     : QThread(parent),
@@ -27,6 +28,8 @@ FileInfoThread::FileInfoThread(QObject *parent)
       showDirs(true),
       showDirsFirst(false),
       showDotAndDotDot(false),
+      showDot(false),
+      showDotDot(false),
       showHidden(false),
       showOnlyReadable(false),
       caseSensitive(true)
@@ -160,6 +163,26 @@ void FileInfoThread::setShowDotAndDotDot(bool on)
     initiateScan();
 }
 
+void FileInfoThread::setShowDot(bool on)
+{
+    qCDebug(lcFileInfoThread) << "setShowDot called with on" << on;
+    QMutexLocker locker(&mutex);
+    showDot = on;
+    updateTypes |= UpdateType::Contents;
+    needUpdate = true;
+    initiateScan();
+}
+
+void FileInfoThread::setShowDotDot(bool on)
+{
+    qCDebug(lcFileInfoThread) << "setShowDotDot called with on" << on;
+    QMutexLocker locker(&mutex);
+    showDotDot = on;
+    updateTypes |= UpdateType::Contents;
+    needUpdate = true;
+    initiateScan();
+}
+
 void FileInfoThread::setShowHidden(bool on)
 {
     qCDebug(lcFileInfoThread) << "setShowHidden called with on" << on;
@@ -278,9 +301,9 @@ void FileInfoThread::getFileInfos(const QString &path)
         filter = filter | QDir::Files;
     if (showDirs)
         filter = filter | QDir::AllDirs | QDir::Drives;
-    if (!showDotAndDotDot)
-        filter = filter | QDir::NoDot | QDir::NoDotDot;
-    else if (path == rootPath)
+    if (!showDot && !showDotAndDotDot)
+        filter = filter | QDir::NoDot;
+    if (path == rootPath || (!showDotDot && !showDotAndDotDot))
         filter = filter | QDir::NoDotDot;
     if (showHidden)
         filter = filter | QDir::Hidden;

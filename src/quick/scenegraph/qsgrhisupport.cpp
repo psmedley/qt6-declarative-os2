@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgrhisupport_p.h"
 #include "qsgcontext_p.h"
@@ -9,6 +10,8 @@
 #include <QtQuick/private/qquickwindow_p.h>
 
 #include <QtGui/qwindow.h>
+#include <QtGui/qpa/qplatformintegration.h>
+#include <QtGui/private/qguiapplication_p.h>
 
 #if QT_CONFIG(vulkan)
 #include <QtGui/private/qvulkandefaultinstance_p.h>
@@ -127,8 +130,14 @@ void QSGRhiSupport::adjustToPlatformQuirks()
     if (m_rhiBackend == QRhi::Metal) {
         QRhiMetalInitParams rhiParams;
         if (!QRhi::probe(m_rhiBackend, &rhiParams)) {
-            m_rhiBackend = QRhi::OpenGLES2;
             qCDebug(QSG_LOG_INFO, "Metal does not seem to be supported. Falling back to OpenGL.");
+            m_rhiBackend = QRhi::OpenGLES2;
+            auto *platformIntegration = QGuiApplicationPrivate::platformIntegration();
+            if (platformIntegration
+                && !platformIntegration->hasCapability(QPlatformIntegration::OpenGL)) {
+                qCWarning(QSG_LOG_INFO, "OpenGL not available. Falling back to Null backend.");
+                m_rhiBackend = QRhi::Null;
+            }
         }
     }
 #endif
@@ -868,7 +877,7 @@ int QSGRhiSupport::chooseSampleCount(int samples, QRhi *rhi)
         msaaSampleCount = qEnvironmentVariableIntValue("QSG_SAMPLES");
     msaaSampleCount = qMax(1, msaaSampleCount);
     if (msaaSampleCount > 1) {
-        const QVector<int> supportedSampleCounts = rhi->supportedSampleCounts();
+        const QList<int> supportedSampleCounts = rhi->supportedSampleCounts();
         if (!supportedSampleCounts.contains(msaaSampleCount)) {
             int reducedSampleCount = 1;
             for (int i = supportedSampleCounts.size() - 1; i >= 0; --i) {
@@ -985,10 +994,12 @@ static inline bool isAutomaticPipelineCacheSaveSkippedForWindow(Qt::WindowFlags 
     return wflags.testFlag(Qt::Dialog) || wflags.testFlag(Qt::Popup);
 }
 
+#if !QT_CONFIG(temporaryfile)
 static inline QString pipelineCacheLockFileName(const QString &name)
 {
     return name + QLatin1String(".lck");
 }
+#endif
 
 void QSGRhiSupport::preparePipelineCache(QRhi *rhi, QQuickWindow *window)
 {
@@ -1007,12 +1018,14 @@ void QSGRhiSupport::preparePipelineCache(QRhi *rhi, QQuickWindow *window)
     if (pipelineCacheLoad.isEmpty())
         return;
 
+#if !QT_CONFIG(temporaryfile)
     QLockFile lock(pipelineCacheLockFileName(pipelineCacheLoad));
     if (!lock.lock()) {
         qWarning("Could not create pipeline cache lock file '%s'",
                  qPrintable(lock.fileName()));
         return;
     }
+#endif
 
     QFile f(pipelineCacheLoad);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -1065,16 +1078,16 @@ void QSGRhiSupport::finalizePipelineCache(QRhi *rhi, const QQuickGraphicsConfigu
         return;
     }
 
+
+#if QT_CONFIG(temporaryfile)
+    QSaveFile f(pipelineCacheSave);
+#else
     QLockFile lock(pipelineCacheLockFileName(pipelineCacheSave));
     if (!lock.lock()) {
         qWarning("Could not create pipeline cache lock file '%s'",
                  qPrintable(lock.fileName()));
         return;
     }
-
-#if QT_CONFIG(temporaryfile)
-    QSaveFile f(pipelineCacheSave);
-#else
     QFile f(pipelineCacheSave);
 #endif
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -1147,10 +1160,11 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
     if (pipelineCacheSave)
         flags |= QRhi::EnablePipelineCacheDataSave;
 
+    QRhiAdapter *rhiAdapter = customDevD->type == QQuickGraphicsDevicePrivate::Type::RhiAdapter ? customDevD->u.rhiAdapter : nullptr;
     const QRhi::Implementation backend = rhiBackend();
     if (backend == QRhi::Null) {
         QRhiNullInitParams rhiParams;
-        rhi = QRhi::create(backend, &rhiParams, flags);
+        rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
     }
 #if QT_CONFIG(opengl)
     if (backend == QRhi::OpenGLES2) {
@@ -1165,7 +1179,7 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
             qCDebug(QSG_LOG_INFO, "Using existing QOpenGLContext %p", importDev.context);
             rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
         } else {
-            rhi = QRhi::create(backend, &rhiParams, flags);
+            rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
         }
     }
 #else
@@ -1200,7 +1214,7 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
             qCDebug(QSG_LOG_INFO, "Using existing native Vulkan physical device %p", importDev.physDev);
             rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
         } else {
-            rhi = QRhi::create(backend, &rhiParams, flags);
+            rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
         }
     }
 #else
@@ -1227,8 +1241,8 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
                     importDev.adapterLuidLow, importDev.adapterLuidHigh, importDev.featureLevel);
             rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
         } else {
-            rhi = QRhi::create(backend, &rhiParams, flags);
-            if (!rhi && attemptReinitWithSwRastUponFail() && !flags.testFlag(QRhi::PreferSoftwareRenderer)) {
+            rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
+            if (!rhi && attemptReinitWithSwRastUponFail() && !flags.testFlag(QRhi::PreferSoftwareRenderer) && !rhiAdapter) {
                 qCDebug(QSG_LOG_INFO, "Failed to create a D3D device with default settings; "
                                       "attempting to get a software rasterizer backed device instead");
                 flags |= QRhi::PreferSoftwareRenderer;
@@ -1252,8 +1266,9 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
                     importDev.adapterLuidLow, importDev.adapterLuidHigh, importDev.minimumFeatureLevel);
             rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
         } else {
-            rhi = QRhi::create(backend, &rhiParams, flags);
-            if (!rhi && attemptReinitWithSwRastUponFail() && !flags.testFlag(QRhi::PreferSoftwareRenderer)) {
+            QRhiAdapter *rhiAdapter = customDevD->type == QQuickGraphicsDevicePrivate::Type::RhiAdapter ? customDevD->u.rhiAdapter : nullptr;
+            rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
+            if (!rhi && attemptReinitWithSwRastUponFail() && !flags.testFlag(QRhi::PreferSoftwareRenderer) && !rhiAdapter) {
                 qCDebug(QSG_LOG_INFO, "Failed to create a D3D device with default settings; "
                                       "attempting to get a software rasterizer backed device instead");
                 flags |= QRhi::PreferSoftwareRenderer;
@@ -1273,7 +1288,7 @@ QSGRhiSupport::RhiCreateResult QSGRhiSupport::createRhi(QQuickWindow *window, QS
                     importDev.dev, importDev.cmdQueue);
             rhi = QRhi::create(backend, &rhiParams, flags, &importDev);
         } else {
-            rhi = QRhi::create(backend, &rhiParams, flags);
+            rhi = QRhi::create(backend, &rhiParams, flags, nullptr, rhiAdapter);
         }
     }
 #endif
@@ -1328,7 +1343,7 @@ QImage QSGRhiSupport::grabAndBlockInCurrentFrame(QRhi *rhi, QRhiCommandBuffer *c
     const QImage img(p, result.pixelSize.width(), result.pixelSize.height(), imageFormat);
 
     if (rhi->isYUpInFramebuffer())
-        return img.mirrored();
+        return img.flipped();
 
     return img.copy();
 }
@@ -1387,7 +1402,11 @@ QImage QSGRhiSupport::grabOffscreen(QQuickWindow *window)
 
     // There was no rendercontrol which means a custom render target
     // should not be set either. Set our own, temporarily.
-    window->setRenderTarget(QQuickRenderTarget::fromRhiRenderTarget(rt.data()));
+    auto renderTarget = QQuickRenderTarget::fromRhiRenderTarget(rt.data());
+    // Pass on the scale factor. No need to use effectiveDevicePixelRatio(),
+    // because there is no rendercontrol anyway.
+    renderTarget.setDevicePixelRatio(window->devicePixelRatio());
+    window->setRenderTarget(renderTarget);
 
     QRhiCommandBuffer *cb = nullptr;
     if (rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {

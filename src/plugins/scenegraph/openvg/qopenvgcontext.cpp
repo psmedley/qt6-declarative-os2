@@ -3,7 +3,7 @@
 
 #include <qpa/qplatformnativeinterface.h>
 #include <QtGui/QGuiApplication>
-#include <QtCore/QVector>
+#include <QtCore/QList>
 #include <QtCore/QDebug>
 
 #include "qopenvgcontext_p.h"
@@ -81,7 +81,7 @@ QImage QOpenVGContext::readFramebuffer(const QSize &size)
 {
     QImage framebufferImage(size, QImage::Format_RGB32);
     vgReadPixels(framebufferImage.bits(), framebufferImage.bytesPerLine(), VG_sXRGB_8888, 0, 0, size.width(), size.height());
-    return framebufferImage.mirrored(false, true);
+    return std::move(framebufferImage).flipped(Qt::Vertical);
 }
 
 void QOpenVGContext::getConfigs()
@@ -89,7 +89,7 @@ void QOpenVGContext::getConfigs()
     EGLint configsAvailable = 0;
     eglGetConfigs(m_display, 0, 0, &configsAvailable);
 
-    QVector<EGLConfig> configs(configsAvailable);
+    QList<EGLConfig> configs(configsAvailable);
     eglGetConfigs(m_display, configs.data(), configs.size(), &configsAvailable);
 
     for (EGLConfig config : configs) {

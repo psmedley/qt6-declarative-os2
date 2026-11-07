@@ -28,7 +28,7 @@ class FileProperty
     Q_GADGET
     QML_ANONYMOUS
 public:
-    FileProperty(const QFileInfo &info) :
+    FileProperty(const QFileInfo &info = QFileInfo()) :
         mFileName(info.fileName()),
         mFilePath(info.filePath()),
         mBaseName(info.baseName()),
@@ -40,8 +40,6 @@ public:
         mLastRead(info.lastRead())
     {
     }
-    ~FileProperty()
-    {}
 
     inline QString fileName() const { return mFileName; }
     inline QString filePath() const { return mFilePath; }

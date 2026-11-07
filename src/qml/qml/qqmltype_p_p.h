@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTYPE_P_P_H
 #define QQMLTYPE_P_P_H
@@ -28,6 +29,7 @@
 #include <private/qv4resolvedtypereference_p.h>
 
 #include <QAtomicInteger>
+#include <QtCore/qtyperevision.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -39,7 +41,7 @@ public:
     {
         ~ProxyMetaObjects()
         {
-            for (const QQmlProxyMetaObject::ProxyData &metaObject : data)
+            for (const QQmlProxyMetaObject::ProxyData &metaObject : std::as_const(data))
                 free(metaObject.metaObject);
         }
 
@@ -49,11 +51,18 @@ public:
 
     struct Enums
     {
-        ~Enums() { qDeleteAll(scopedEnums); }
+        enum Scoping { Scoped, Unscoped };
+        ~Enums()
+        {
+            qDeleteAll(scopedEnums);
+            qDeleteAll(unscopedEnums);
+        }
 
         QStringHash<int> enums;
         QStringHash<int> scopedEnumIndex; // maps from enum name to index in scopedEnums
+        QStringHash<int> unscopedEnumIndex; // maps from enum name to index in unscopedEnums
         QList<QStringHash<int> *> scopedEnums;
+        QList<QStringHash<int> *> unscopedEnums;
     };
 
     QQmlTypePrivate(QQmlType::RegistrationType type);
@@ -76,9 +85,10 @@ public:
         }
     }
 
-    const QQmlTypePrivate *attachedPropertiesBase(QQmlEnginePrivate *engine) const
+    const QQmlTypePrivate *attachedPropertiesBase(QQmlTypeLoader *typeLoader) const
     {
-        for (const QQmlTypePrivate *d = this; d; d = d->resolveCompositeBaseType(engine).d.data()) {
+        for (const QQmlTypePrivate *d = this; d;
+             d = d->resolveCompositeBaseType(typeLoader).d.data()) {
             if (d->regType == QQmlType::CppType)
                 return d->extraData.cppTypeData->attachedPropertiesType ? d : nullptr;
 
@@ -98,7 +108,7 @@ public:
         return regType == QQmlType::CppType && !(typeId.flags() & QMetaType::PointerToQObject);
     }
 
-    QQmlType resolveCompositeBaseType(QQmlEnginePrivate *engine) const;
+    QQmlType resolveCompositeBaseType(QQmlTypeLoader *typeLoader) const;
     QQmlPropertyCache::ConstPtr compositePropertyCache(QQmlTypeLoader *typeLoader) const;
 
     struct QQmlCppTypeData
@@ -163,46 +173,118 @@ public:
             const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
             const String &name, bool *ok)
     {
-        return doGetEnumValue(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+        const auto *rv = doGetEnumOp<const int *>(
+                d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
             return enums->enums.value(name);
-        }, ok);
+        }, [](const int *p) { return !!p; }, ok);
+        return rv ? *rv : -1;
     }
 
-    template<typename String>
-    static int scopedEnumIndex(
+    template<Enums::Scoping scoping, typename String>
+    static int enumIndex(
             const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
             const String &name, bool *ok)
     {
-        return doGetEnumValue(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
-            return enums->scopedEnumIndex.value(name);
-        }, ok);
+        const auto *rv = doGetEnumOp<const int *> (
+                d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+            if constexpr (scoping == Enums::Scoped)
+                return enums->scopedEnumIndex.value(name);
+            else
+                return enums->unscopedEnumIndex.value(name);
+        }, [](const int *p) { return !!p; }, ok);
+        return rv ? *rv : -1;
     }
 
-    template<typename String>
-    static int scopedEnumValue(
+    template<Enums::Scoping scoping, typename String>
+    static int enumValue(
             const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader, int index,
             const String &name, bool *ok)
     {
-        return doGetEnumValue(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
-            Q_ASSERT(index > -1 && index < enums->scopedEnums.size());
-            return enums->scopedEnums.at(index)->value(name);
-        }, ok);
+        const auto *rv = doGetEnumOp<const int *>(
+                d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+            if constexpr (scoping == Enums::Scoped) {
+                Q_ASSERT(index > -1 && index < enums->scopedEnums.size());
+                return enums->scopedEnums.at(index)->value(name);
+            } else {
+                Q_ASSERT(index > -1 && index < enums->unscopedEnums.size());
+                return enums->unscopedEnums.at(index)->value(name);
+            }
+        }, [](const int *p) { return !!p; }, ok);
+        return rv ? *rv : -1;
     }
 
-    template<typename String1, typename String2>
-    static int scopedEnumValue(
+    template<Enums::Scoping scoping, typename String1, typename String2>
+    static int enumValue(
             const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
             const String1 &scopedEnumName, const String2 &name, bool *ok)
     {
-        return doGetEnumValue(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) -> const int * {
-            const int *rv = enums->scopedEnumIndex.value(scopedEnumName);
+        const auto *rv = doGetEnumOp<const int *>(
+                d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+            const QStringHash<int> *enumIndex;
+            const QList<QStringHash<int> *> *_enums;
+            if constexpr (scoping == Enums::Scoped) {
+                enumIndex = &enums->scopedEnumIndex;
+                _enums = &enums->scopedEnums;
+            } else {
+                enumIndex = &enums->unscopedEnumIndex;
+                _enums = &enums->unscopedEnums;
+            }
+
+            const int *rv = enumIndex->value(scopedEnumName);
             if (!rv)
-                return nullptr;
+                return static_cast<int *>(nullptr);
 
             const int index = *rv;
-            Q_ASSERT(index > -1 && index < enums->scopedEnums.size());
-            return enums->scopedEnums.at(index)->value(name);
-        }, ok);
+            Q_ASSERT(index > -1 && index < _enums->size());
+            return _enums->at(index)->value(name);
+        }, [](const int *p) { return !!p; }, ok);
+        return rv ? *rv : -1;
+    }
+
+    template<Enums::Scoping scoping>
+    static QString enumKey(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
+            int index, int value, bool *ok)
+    {
+        return doGetEnumOp<QString>(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+            const QList<QStringHash<int> *> *_enums;
+            if constexpr (scoping == Enums::Scoped)
+                _enums = &enums->scopedEnums;
+            else
+                _enums = &enums->unscopedEnums;
+
+            Q_ASSERT(index > -1 && index < _enums->size());
+            const auto hash = _enums->at(index);
+            for (auto it = hash->constBegin(), end = hash->constEnd(); it != end; ++it) {
+                if (it.value() == value)
+                    return QString(it.key());
+            }
+            return QString();
+        }, [](const QString &s) { return !s.isEmpty(); }, ok);
+    }
+
+    template<Enums::Scoping scoping>
+    static QStringList enumKeys(
+            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
+            int index, int value, bool *ok)
+    {
+        return doGetEnumOp<QStringList>(d, typeLoader, [&](const QQmlTypePrivate::Enums *enums) {
+            const QList<QStringHash<int> *> *_enums;
+            if constexpr (scoping == Enums::Scoped)
+                _enums = &enums->scopedEnums;
+            else
+                _enums = &enums->unscopedEnums;
+
+            Q_ASSERT(index > -1 && index < _enums->size());
+            QStringList keys;
+            const auto hash = _enums->at(index);
+            for (auto it = hash->constBegin(), end = hash->constEnd(); it != end; ++it) {
+                if (it.value() == value)
+                    keys.append(QString(it.key()));
+            }
+            std::reverse(keys.begin(), keys.end());
+            return keys;
+        }, [](const QStringList &l) { return !l.empty(); }, ok);
     }
 
     const QMetaObject *metaObject() const
@@ -243,17 +325,10 @@ public:
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit,
             const QString &elementName, QQmlTypeLoader *typeLoader)
     {
-        const QQmlType qmltype = unit->typeNameCache->query<QQmlImport::AllowRecursion>(
+        // Invalid speculative inline component types are either rejected at creation time
+        // (if the base type is already registered) or pruned when the base type registers.
+        return unit->typeNameCache->query<QQmlImport::AllowRecursion>(
                                                             elementName, typeLoader).type;
-
-        if (qmltype.isValid() && qmltype.isInlineComponentType()
-                && !QQmlMetaType::obtainCompilationUnit(qmltype.typeId())) {
-            // If it seems to be an IC type, make sure there is an actual
-            // compilation unit for it. We create inline component types speculatively.
-            return QQmlType();
-        }
-
-        return qmltype;
     }
 
     // Tries the base unit's resolvedTypes first. If successful, that is cheap
@@ -275,13 +350,7 @@ public:
                     typeLoader ? typeLoader : unit->engine->typeLoader());
         }
 
-        if (const QQmlType type = (*it)->type(); type.isValid())
-            return type;
-
-        if (const auto cu = (*it)->compilationUnit())
-            return cu->qmlType;
-
-        return QQmlType();
+        return (*it)->type();
     }
 
 private:
@@ -300,23 +369,22 @@ private:
         bool scoped;
     };
 
-    template<typename Op>
-    static int doGetEnumValue(
-            const QQmlRefPointer<const QQmlTypePrivate> &d, QQmlTypeLoader *typeLoader,
-            Op &&op, bool *ok)
+    template<typename Ret, typename Op, typename Check>
+    static Ret doGetEnumOp(const QQmlRefPointer<const QQmlTypePrivate> &d,
+                           QQmlTypeLoader *typeLoader, Op &&op, Check &&check, bool *ok)
     {
         Q_ASSERT(ok);
         if (d) {
             if (const QQmlTypePrivate::Enums *enums = d->initEnums(typeLoader)) {
-                if (const int *rv = op(enums)) {
+                if (Ret rv = op(enums); check(rv)) {
                     *ok = true;
-                    return *rv;
+                    return rv;
                 }
             }
         }
 
         *ok = false;
-        return -1;
+        return Ret();
     }
 
     const Enums *initEnums(QQmlTypeLoader *typeLoader) const;

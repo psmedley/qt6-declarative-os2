@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKHEADERVIEW_P_P_H
 #define QQUICKHEADERVIEW_P_P_H
@@ -17,9 +18,6 @@
 
 #include <QtCore/QAbstractItemModel>
 #include <QtCore/QPointer>
-#if QT_CONFIG(transposeproxymodel)
-#include <QtCore/QTransposeProxyModel>
-#endif
 #include <QtQuick/private/qquicktableview_p_p.h>
 #include <private/qquickheaderview_p.h>
 
@@ -66,6 +64,8 @@ public:
     QQuickHeaderViewBasePrivate();
     ~QQuickHeaderViewBasePrivate();
 
+    static inline QQuickHeaderViewBasePrivate *get(QQuickHeaderViewBase *q) { return q->d_func(); }
+
     void init();
     Qt::Orientation orientation() const;
     void setOrientation(Qt::Orientation orientation);
@@ -76,18 +76,18 @@ public:
     void syncSyncView() override;
     QAbstractItemModel *selectionSourceModel() override;
 
+    // QQuickTableViewPrivate interface
+    virtual void initItemCallback(int modelIndex, QObject *item) override;
+
 protected:
     QHeaderDataProxyModel m_headerDataProxyModel;
-#if QT_CONFIG(transposeproxymodel)
-    QTransposeProxyModel m_transposeProxyModel;
-#endif
     struct SectionSize
     {
         int section;
         qreal previousSize;
     };
     QStack<SectionSize> m_hiddenSectionSizes;
-    bool m_modelExplicitlySetByUser = false;
+    bool m_modelExplicitlySet = false;
     QString m_textRole;
 
     int logicalRowIndex(const int visualIndex) const final;

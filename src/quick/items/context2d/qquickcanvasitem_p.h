@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKCANVASITEM_P_H
 #define QQUICKCANVASITEM_P_H
@@ -23,6 +24,7 @@ QT_REQUIRE_CONFIG(quick_canvas);
 #include <private/qqmlrefcount_p.h>
 #include <QtCore/QThread>
 #include <QtCore/qmutex.h>
+#include <QtCore/qvariantmap.h>
 #include <QtGui/QImage>
 
 QT_BEGIN_NAMESPACE
@@ -31,6 +33,7 @@ class QQuickCanvasContext;
 
 class QQuickCanvasItemPrivate;
 class QQuickPixmap;
+class QQmlEngine;
 
 class QQuickCanvasPixmap final : public QQmlRefCounted<QQuickCanvasPixmap>
 {

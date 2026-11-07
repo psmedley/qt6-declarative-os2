@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTCOBJECTCREATIONHELPER_P_H
 #define QQMLTCOBJECTCREATIONHELPER_P_H
@@ -17,7 +18,6 @@
 
 #include <QtQml/qqml.h>
 #include <QtCore/private/qglobal_p.h>
-#include <QtCore/qversionnumber.h>
 #include <private/qtqmlglobal_p.h>
 #include <private/qqmltype_p.h>
 

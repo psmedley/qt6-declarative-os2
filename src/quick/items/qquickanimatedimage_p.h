@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKANIMATEDIMAGE_P_H
 #define QQUICKANIMATEDIMAGE_P_H
@@ -32,14 +33,23 @@ class Q_QUICK_EXPORT QQuickAnimatedImage : public QQuickImage
 
     Q_PROPERTY(bool playing READ isPlaying WRITE setPlaying NOTIFY playingChanged)
     Q_PROPERTY(bool paused READ isPaused WRITE setPaused NOTIFY pausedChanged)
-    Q_PROPERTY(int currentFrame READ currentFrame WRITE setCurrentFrame NOTIFY frameChanged)
-    Q_PROPERTY(int frameCount READ frameCount NOTIFY frameCountChanged)
+    Q_PROPERTY(int currentFrame READ currentFrame WRITE setCurrentFrame NOTIFY frameChanged OVERRIDE)
+    Q_PROPERTY(int frameCount READ frameCount NOTIFY frameCountChanged OVERRIDE)
     Q_PROPERTY(qreal speed READ speed WRITE setSpeed NOTIFY speedChanged REVISION(2, 11))
+    Q_PROPERTY(int loops READ loops WRITE setLoops NOTIFY loopsChanged REVISION(6, 12))
+    Q_PROPERTY(FinishBehavior finishBehavior READ finishBehavior WRITE setFinishBehavior NOTIFY
+                       finishBehaviorChanged REVISION(6, 12))
 
     QML_NAMED_ELEMENT(AnimatedImage)
     QML_ADDED_IN_VERSION(2, 0)
 
 public:
+    enum LoopParameters { Infinite = -1 };
+    Q_ENUM(LoopParameters)
+
+    enum FinishBehavior : quint8 { FinishAtInitialFrame, FinishAtFinalFrame };
+    Q_ENUM(FinishBehavior)
+
     QQuickAnimatedImage(QQuickItem *parent=nullptr);
     ~QQuickAnimatedImage();
 
@@ -60,6 +70,12 @@ public:
     // Extends QQuickImage's src property
     void setSource(const QUrl&) override;
 
+    int loops() const;
+    void setLoops(int loops);
+
+    FinishBehavior finishBehavior() const;
+    void setFinishBehavior(FinishBehavior behavior);
+
 Q_SIGNALS:
     void playingChanged();
     void pausedChanged();
@@ -67,12 +83,16 @@ Q_SIGNALS:
     void currentFrameChanged();
     void frameCountChanged();
     Q_REVISION(2, 11) void speedChanged();
+    Q_REVISION(6, 12) void loopsChanged();
+    Q_REVISION(6, 12) void finishBehaviorChanged();
+    Q_REVISION(6, 12) void finished();
 
 private Q_SLOTS:
     void movieUpdate();
     void movieRequestFinished();
     void playingStatusChanged();
     void onCacheChanged();
+    Q_REVISION(6, 12) void onMovieFinished();
 
 protected:
     void load() override;

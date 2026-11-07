@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTABLEVIEW_P_P_H
 #define QQUICKTABLEVIEW_P_P_H
@@ -39,6 +40,8 @@
 #include <QtQuick/private/qquickdroparea_p.h>
 #endif
 
+#include <vector>
+
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcTableViewDelegateLifecycle)
@@ -50,6 +53,7 @@ static const int kEdgeIndexAtEnd = -3;
 
 class FxTableItem;
 class QQuickTableSectionSizeProviderPrivate;
+class QTypeRevision;
 
 /*! \internal
  *  TableView uses QQuickTableViewHoverHandler to track where the pointer is
@@ -210,7 +214,7 @@ public:
             qCDebug(lcTableViewDelegateLifecycle()) << "begin top-left:" << toString();
         }
 
-        void begin(Qt::Edge edgeToLoad, int edgeIndex, const QVector<int> visibleCellsInEdge, QQmlIncubator::IncubationMode incubationMode)
+        void begin(Qt::Edge edgeToLoad, int edgeIndex, const QList<int> visibleCellsInEdge, QQmlIncubator::IncubationMode incubationMode)
         {
             Q_ASSERT(!m_active);
             m_active = true;
@@ -260,7 +264,7 @@ public:
 
     private:
         Qt::Edge m_edge = Qt::Edge(0);
-        QVector<int> m_visibleCellsInEdge;
+        QList<int> m_visibleCellsInEdge;
         int m_edgeIndex = 0;
         int m_currentIndex = 0;
         bool m_active = false;
@@ -334,7 +338,6 @@ public:
     // we need a pointer for that case as well.
     QQmlInstanceModel* model = nullptr;
     QPointer<QQmlTableInstanceModel> tableModel = nullptr;
-    QVariant modelVariant;
 
     // When the applications assignes a new model or delegate to the view, we keep them
     // around until we're ready to take them into use (syncWithPendingChanges).
@@ -393,6 +396,9 @@ public:
 
     bool warnNoSelectionModel = true;
 
+    QQmlDelegateModel::DelegateModelAccess assignedDelegateModelAccess
+            = QQmlDelegateModel::Qt5ReadWrite;
+
     QJSValue rowHeightProvider;
     QJSValue columnWidthProvider;
 
@@ -425,6 +431,7 @@ public:
     QItemSelectionModel::SelectionFlag selectionFlag = QItemSelectionModel::NoUpdate;
     std::function<void(CallBackFlag)> selectableCallbackFunction;
     bool inSelectionModelUpdate = false;
+    bool needsModelSynchronization = false;
 
     int assignedPositionViewAtRowAfterRebuild = 0;
     int assignedPositionViewAtColumnAfterRebuild = 0;
@@ -474,8 +481,19 @@ public:
         int prevIndex = -1;
     };
 
-    QList<SectionData> visualIndices[Qt::Vertical];
-    QList<SectionData> logicalIndices[Qt::Vertical];
+    std::vector<SectionData> horizontalVisualIndices;
+    std::vector<SectionData> verticalVisualIndices;
+    std::vector<SectionData> horizontalLogicalIndices;
+    std::vector<SectionData> verticalLogicalIndices;
+
+    std::vector<SectionData> &visualIndicesForOrientation(Qt::Orientation orientation)
+    {
+        return orientation == Qt::Horizontal ? horizontalVisualIndices : verticalVisualIndices;
+    }
+    std::vector<SectionData> &logicalIndicesForOrientation(Qt::Orientation orientation)
+    {
+        return orientation == Qt::Horizontal ? horizontalLogicalIndices : verticalLogicalIndices;
+    }
 
     SectionState m_sectionState = SectionState::Idle;
 
@@ -534,7 +552,6 @@ public:
     void updateExtents();
     void syncLoadedTableRectFromLoadedTable();
     void syncLoadedTableFromLoadRequest();
-    void shiftLoadedTableRect(const QPointF newPosition);
 
     int nextVisibleEdgeIndex(Qt::Edge edge, int startIndex) const;
     int nextVisibleEdgeIndexAroundLoadedTable(Qt::Edge edge) const;
@@ -592,9 +609,11 @@ public:
     virtual void itemPooledCallback(int modelIndex, QObject *object);
     virtual void itemReusedCallback(int modelIndex, QObject *object);
     virtual void modelUpdated(const QQmlChangeSet &changeSet, bool reset);
+    virtual void updateItemProperties(int flatIndex, QObject *object, bool init);
 
     virtual void syncWithPendingChanges();
     virtual void syncDelegate();
+    virtual void syncDelegateModelAccess();
     virtual QVariant modelImpl() const;
     virtual void setModelImpl(const QVariant &newModel);
     virtual void syncModel();
@@ -614,6 +633,7 @@ public:
     void columnsRemovedCallback(const QModelIndex &parent, int begin, int end);
     void layoutChangedCallback(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint);
     void modelResetCallback();
+    void dataChangedCallback(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QList<int> &roles);
     bool compareModel(const QVariant& model1, const QVariant& model2) const;
 
     void positionViewAtRow(int row, Qt::Alignment alignment, qreal offset, const QRectF subRect = QRectF());
@@ -656,6 +676,8 @@ public:
     bool setCurrentIndexFromKeyEvent(QKeyEvent *e);
     bool canEdit(const QModelIndex tappedIndex, bool warn);
     bool editFromKeyEvent(QKeyEvent *e);
+    void closeEditorAndCommit();
+    QObject *installEventFilterOnFocusObjectInsideEditItem();
 
     // QQuickSelectable
     QQuickItem *selectionPointerHandlerTarget() const override;
@@ -683,10 +705,10 @@ public:
     inline void setActivePointerHandler(QQuickTableViewPointerHandler *handler) { activePtrHandler = handler; }
     inline QQuickTableViewPointerHandler* activePointerHandler() const { return activePtrHandler; }
     // Row/Column reordering
-    void moveSection(int source , int destination, Qt::Orientations orientation);
+    void moveSection(int source , int destination, Qt::Orientation orientation);
     void initializeIndexMapping();
     void clearIndexMapping();
-    void clearSection(Qt::Orientations orientation);
+    void clearSection(Qt::Orientation orientation);
     virtual int logicalRowIndex(const int visualIndex) const;
     virtual int logicalColumnIndex(const int visualIndex) const;
     virtual int visualRowIndex(const int logicalIndex) const;

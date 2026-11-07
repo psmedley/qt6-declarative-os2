@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLMETATYPE_P_H
 #define QQMLMETATYPE_P_H
@@ -20,6 +21,9 @@
 #include <private/qqmlproxymetaobject_p.h>
 #include <private/qqmltype_p.h>
 #include <private/qtqmlglobal_p.h>
+
+#include <QtCore/qset.h>
+#include <QtCore/qtyperevision.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,6 +69,14 @@ public:
                 && aUrl.query() == bUrl.query();
     }
 
+    static QUrl normalizedUrl(const QUrl &unNormalizedUrl)
+    {
+        QUrl normalized(unNormalizedUrl);
+        if (normalized.scheme() == QLatin1String("qrc"))
+            normalized.setHost(QString()); // map qrc:///a.qml to qrc:/a.qml
+        return normalized;
+    }
+
     enum CompositeTypeLookupMode {
         NonSingleton,
         Singleton,
@@ -75,17 +87,16 @@ public:
             const QUrl &url,
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit,
             CompositeTypeLookupMode mode = NonSingleton);
-    static QQmlType findInlineComponentType(
+    static QQmlType findOrCreateFactualInlineComponentType(
             const QUrl &url,
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit);
-    static QQmlType findInlineComponentType(
+    static QQmlType findOrCreateFactualInlineComponentType(
             const QUrl &baseUrl, const QString &name,
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit)
     {
-        return findInlineComponentType(inlineComponentUrl(baseUrl, name), compilationUnit);
+        return findOrCreateFactualInlineComponentType(inlineComponentUrl(baseUrl, name), compilationUnit);
     }
 
-    static void unregisterInternalCompositeType(QMetaType metaType, QMetaType listMetaType);
     static QQmlType registerType(const QQmlPrivate::RegisterType &type);
     static QQmlType registerInterface(const QQmlPrivate::RegisterInterface &type);
     static QQmlType registerSingletonType(
@@ -99,22 +110,22 @@ public:
                                                   const QString &uri, const QString &typeNamespace,
                                                   QTypeRevision version, QList<QQmlError> *errors);
 
-    static QQmlType typeForUrl(const QString &urlString, const QHashedStringRef& typeName,
-                               CompositeTypeLookupMode mode, QList<QQmlError> *errors,
-                               QTypeRevision version = QTypeRevision());
+    static QQmlType typeForUrl(
+            const QUrl &url, const QHashedStringRef &typeName, CompositeTypeLookupMode mode,
+            QList<QQmlError> *errors, QTypeRevision version = QTypeRevision());
 
-    static QQmlType fetchOrCreateInlineComponentTypeForUrl(const QUrl &url);
-    static QQmlType inlineComponentType(const QQmlType &outerType, const QString &name)
+    static QQmlType findOrCreateSpeculativeInlineComponentType(const QUrl &url);
+    static QQmlType findOrCreateSpeculativeInlineComponentType(const QQmlType &outerType, const QString &name)
     {
         return outerType.isComposite()
-                ? fetchOrCreateInlineComponentTypeForUrl(
+                ? findOrCreateSpeculativeInlineComponentType(
                         inlineComponentUrl(outerType.sourceUrl(), name))
                 : QQmlType();
     }
 
     static void unregisterType(int type);
 
-    static void registerMetaObjectForType(const QMetaObject *metaobject, QQmlTypePrivate *type);
+    static void registerMetaObjectForType(const QMetaObject *metaobject, const QQmlTypePrivate *type);
 
     static void registerModule(const char *uri, QTypeRevision version);
     static bool protectModule(const QString &uri, QTypeRevision version,
@@ -140,11 +151,12 @@ public:
     static QQmlType qmlType(const QMetaObject *);
     static QQmlType qmlType(const QMetaObject *metaObject, const QHashedStringRef &module, QTypeRevision version);
     static QQmlType qmlTypeById(int qmlTypeId);
+    static QQmlType firstQmlTypeForAttachmentMetaObject(const QMetaObject *attachmentMetaObject);
 
     static QQmlType qmlType(QMetaType metaType);
     static QQmlType qmlListType(QMetaType metaType);
 
-    static QQmlType qmlType(const QUrl &unNormalizedUrl, bool includeNonFileImports = false);
+    static QQmlType qmlType(const QUrl &unNormalizedUrl);
 
     static QQmlPropertyCache::ConstPtr propertyCache(
             QObject *object, QTypeRevision version = QTypeRevision());
@@ -161,6 +173,9 @@ public:
     static QQmlPropertyCache::ConstPtr rawPropertyCacheForType(
             QMetaType metaType, QTypeRevision version);
 
+    static bool canConvert(QObject *o, QMetaType metaType);
+    static bool canConvert(const QQmlPropertyCache::ConstPtr &from, QMetaType metaType);
+
     static void freeUnusedTypesAndCaches();
 
     static QMetaProperty defaultProperty(const QMetaObject *);
@@ -171,8 +186,8 @@ public:
     static QObject *toQObject(const QVariant &, bool *ok = nullptr);
 
     static QMetaType listValueType(QMetaType type);
-    static QQmlAttachedPropertiesFunc attachedPropertiesFunc(QQmlEnginePrivate *,
-                                                             const QMetaObject *);
+    static QQmlAttachedPropertiesFunc attachedPropertiesFunc(
+            QQmlTypeLoader *typeLoader, const QMetaObject *);
     static bool isInterface(QMetaType type);
     static const char *interfaceIId(QMetaType type);
     static bool isList(QMetaType type);
@@ -226,6 +241,18 @@ public:
         }
     }
 
+    static void removeFromInlineComponents(
+        QSet<QUrl> &container, const QQmlTypePrivate *reference)
+    {
+        const QUrl referenceUrl = QQmlType(reference).sourceUrl();
+        for (auto it = container.begin(), end = container.end(); it != end;) {
+            if (equalBaseUrls(*it, referenceUrl))
+                it = container.erase(it);
+            else
+                ++it;
+        }
+    }
+
     static void registerTypeAlias(int typeId, const QString &name);
 
     static int registerAutoParentFunction(const QQmlPrivate::RegisterAutoParent &autoparent);
@@ -264,6 +291,8 @@ public:
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit);
     static void unregisterInternalCompositeType(
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit);
+    static void deepClearCompositeType(
+            const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &oldUnit);
     static int countInternalCompositeTypeSelfReferences(
             const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit);
     static QQmlRefPointer<QV4::CompiledData::CompilationUnit> obtainCompilationUnit(
@@ -286,13 +315,15 @@ inline const QMetaObject *dynamicQmlMetaObject(const QtPrivate::QMetaTypeInterfa
 // metatype interface for composite QML types
 struct QQmlMetaTypeInterface : QtPrivate::QMetaTypeInterface
 {
-    const QByteArray name;
-    QQmlMetaTypeInterface(const QByteArray &name)
+    QByteArray name;
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wdangling-field") // for .name
+    QQmlMetaTypeInterface(QByteArray name)
         : QMetaTypeInterface {
             /*.revision=*/ QMetaTypeInterface::CurrentRevision,
             /*.alignment=*/ alignof(QObject *),
             /*.size=*/ sizeof(QObject *),
-            /*.flags=*/ QtPrivate::QMetaTypeTypeFlags<QObject *>::Flags,
+            /*.flags=*/ QtPrivate::QMetaTypeForType<QObject *>::flags(),
             /*.typeId=*/ 0,
             /*.metaObjectFn=*/ &dynamicQmlMetaObject,
             /*.name=*/ name.constData(),
@@ -313,21 +344,24 @@ struct QQmlMetaTypeInterface : QtPrivate::QMetaTypeInterface
             /*.dataStreamIn=*/ nullptr,
             /*.legacyRegisterOp=*/ nullptr
         }
-        , name(name) { }
+        , name(std::move(name)) { }
+QT_WARNING_POP
 };
 
 // metatype for qml list types
 struct QQmlListMetaTypeInterface : QtPrivate::QMetaTypeInterface
 {
-    const QByteArray name;
+    QByteArray name;
     // if this interface is for list<type>; valueType stores the interface for type
     const QtPrivate::QMetaTypeInterface *valueType;
-    QQmlListMetaTypeInterface(const QByteArray &name, const QtPrivate::QMetaTypeInterface *valueType)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wdangling-field") // for .name
+    QQmlListMetaTypeInterface(QByteArray name, const QtPrivate::QMetaTypeInterface *valueType)
         : QMetaTypeInterface {
             /*.revision=*/ QMetaTypeInterface::CurrentRevision,
             /*.alignment=*/ alignof(QQmlListProperty<QObject>),
             /*.size=*/ sizeof(QQmlListProperty<QObject>),
-            /*.flags=*/ QtPrivate::QMetaTypeTypeFlags<QQmlListProperty<QObject>>::Flags,
+            /*.flags=*/ QtPrivate::QMetaTypeForType<QQmlListProperty<QObject>>::flags(),
             /*.typeId=*/ 0,
             /*.metaObjectFn=*/ &dynamicQmlListMarker,
             /*.name=*/ name.constData(),
@@ -352,7 +386,8 @@ struct QQmlListMetaTypeInterface : QtPrivate::QMetaTypeInterface
             /*.dataStreamIn=*/ nullptr,
             /*.legacyRegisterOp=*/ nullptr
         }
-        , name(name), valueType(valueType) { }
+        , name(std::move(name)), valueType(valueType) { }
+QT_WARNING_POP
 };
 
 QT_END_NAMESPACE

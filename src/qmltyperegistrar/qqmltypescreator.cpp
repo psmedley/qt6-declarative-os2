@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qanystringviewutils_p.h"
 #include "qqmltyperegistrarconstants_p.h"
@@ -12,7 +13,6 @@
 #include <QtCore/qcbormap.h>
 #include <QtCore/qsavefile.h>
 #include <QtCore/qfile.h>
-#include <QtCore/qversionnumber.h>
 
 #include <QtCore/private/qstringalgorithms_p.h>
 
@@ -34,8 +34,15 @@ static QString convertPrivateClassToUsableForm(QAnyStringView s)
 
 void QmlTypesCreator::writeClassProperties(const QmlTypesClassDescription &collector)
 {
-    if (!collector.file.isEmpty())
+    if (!collector.file.isEmpty()) {
         m_qml.writeStringBinding(S_FILE, collector.file);
+        m_qml.writeNumberBinding(S_LINE_NUMBER, collector.lineNumber);
+    }
+    if (!collector.resolvedFile.isEmpty()) {
+        m_qml.writeStringBinding(S_RESOLVED_FILE, collector.resolvedFile);
+        m_qml.writeNumberBinding(S_LINE_NUMBER_IN_RESOLVED_FILE,
+                                 collector.lineNumberInResolvedFile);
+    }
     m_qml.writeStringBinding(S_NAME, collector.className);
 
     if (!collector.primitiveAliases.isEmpty())
@@ -54,9 +61,11 @@ void QmlTypesCreator::writeClassProperties(const QmlTypesClassDescription &colle
         m_qml.writeStringBinding(S_PROTOTYPE, collector.superClass);
 
     if (!collector.sequenceValueType.isEmpty()) {
-        const QAnyStringView name = collector.sequenceValueType.back() == '*'_L1
+        QAnyStringView name = collector.sequenceValueType.back() == '*'_L1
                 ? collector.sequenceValueType.chopped(1)
                 : collector.sequenceValueType;
+        while (name.back().isSpace())
+            name.chop(1);
         m_qml.writeStringBinding(S_VALUE_TYPE, name);
     }
 
@@ -91,6 +100,8 @@ void QmlTypesCreator::writeClassProperties(const QmlTypesClassDescription &colle
                 << "Extension namespace for" << collector.className << "does not exist";
         m_qml.writeBooleanBinding(S_EXTENSION_IS_NAMESPACE, true);
     }
+    if (collector.isSelfExtension)
+        m_qml.writeBooleanBinding(S_IS_SELF_EXTENSION, true);
 
     if (!collector.implementsInterfaces.isEmpty())
         m_qml.writeStringListBinding(S_INTERFACES, collector.implementsInterfaces);
@@ -181,7 +192,7 @@ void QmlTypesCreator::writeType(QAnyStringView type)
     if (resolved.isPointer)
         m_qml.writeBooleanBinding(S_IS_POINTER, true);
     if (resolved.isConstant)
-        m_qml.writeBooleanBinding(S_IS_CONSTANT, true);
+        m_qml.writeBooleanBinding(S_IS_TYPE_CONSTANT, true);
 }
 
 void QmlTypesCreator::writeProperties(const Property::Container &properties)
@@ -214,6 +225,10 @@ void QmlTypesCreator::writeProperties(const Property::Container &properties)
         if (index != -1) {
             m_qml.writeNumberBinding(S_INDEX, index);
         }
+        const auto lineNumber = obj.lineNumber;
+        if (lineNumber != 0)
+            m_qml.writeNumberBinding(S_LINE_NUMBER, obj.lineNumber);
+
         const auto privateClass = obj.privateClass;
         if (!privateClass.isEmpty()) {
             m_qml.writeStringBinding(
@@ -225,9 +240,13 @@ void QmlTypesCreator::writeProperties(const Property::Container &properties)
 
         if (obj.isFinal)
             m_qml.writeBooleanBinding(S_IS_FINAL, true);
+        if (obj.isVirtual)
+            m_qml.writeBooleanBinding(S_IS_VIRTUAL, true);
+        if (obj.isOverride)
+            m_qml.writeBooleanBinding(S_IS_OVERRIDE, true);
 
         if (obj.isConstant)
-            m_qml.writeBooleanBinding(S_IS_CONSTANT, true);
+            m_qml.writeBooleanBinding(S_IS_PROPERTY_CONSTANT, true);
 
         if (obj.isRequired)
             m_qml.writeBooleanBinding(S_IS_REQUIRED, true);
@@ -256,6 +275,11 @@ void QmlTypesCreator::writeMethods(const Method::Container &methods, QLatin1Stri
             m_qml.writeBooleanBinding(S_IS_CONSTRUCTOR, true);
         if (obj.isJavaScriptFunction)
             m_qml.writeBooleanBinding(S_IS_JAVASCRIPT_FUNCTION, true);
+        if (obj.isConst)
+            m_qml.writeBooleanBinding(S_IS_METHOD_CONSTANT, true);
+        const auto lineNumber = obj.lineNumber;
+        if (lineNumber != 0)
+            m_qml.writeNumberBinding(S_LINE_NUMBER, obj.lineNumber);
 
         const Argument::Container &arguments = obj.arguments;
         for (qsizetype i = 0, end = arguments.size(); i != end; ++i) {
@@ -283,52 +307,18 @@ void QmlTypesCreator::writeEnums(const Enum::Container &enums)
         if (obj.isClass)
             m_qml.writeBooleanBinding(S_IS_SCOPED, true);
         writeType(obj.type);
+        const auto lineNumber = obj.lineNumber;
+        if (lineNumber != 0)
+            m_qml.writeNumberBinding(S_LINE_NUMBER, obj.lineNumber);
         m_qml.writeStringListBinding(S_VALUES, obj.values);
         m_qml.writeEndObject();
     }
 }
 
-template<typename Member>
-bool isAllowedInMajorVersion(const Member &memberObject, QTypeRevision maxMajorVersion)
-{
-    const QTypeRevision memberRevision = memberObject.revision;
-    return !memberRevision.hasMajorVersion()
-            || memberRevision.majorVersion() <= maxMajorVersion.majorVersion();
-}
-
-template<typename Members, typename Postprocess>
-Members members(const Members &candidates, QTypeRevision maxMajorVersion, Postprocess &&process)
-{
-    Members classDefMembers;
-
-    for (const auto &member : candidates) {
-        if (isAllowedInMajorVersion(member, maxMajorVersion))
-            classDefMembers.push_back(process(member));
-    }
-
-    return classDefMembers;
-}
-
-template<typename Members>
-Members members(const Members &candidates, QTypeRevision maxMajorVersion)
-{
-    return members(candidates, maxMajorVersion, [](const auto &member) { return member; });
-}
-
-template<typename Members>
-Members constructors(const Members &candidates, QTypeRevision maxMajorVersion)
-{
-    return members(candidates, maxMajorVersion, [](const auto &member) {
-        auto ctor = member;
-        ctor.isConstructor = true;
-        return ctor;
-    });
-}
-
 void QmlTypesCreator::writeRootMethods(const MetaType &classDef)
 {
     // Hide destroyed() signals
-    Method::Container componentSignals = members(classDef.sigs(), m_version);
+    Method::Container componentSignals = classDef.sigs();
     for (auto it = componentSignals.begin(); it != componentSignals.end();) {
         if (it->name == "destroyed"_L1)
             it = componentSignals.erase(it);
@@ -338,7 +328,7 @@ void QmlTypesCreator::writeRootMethods(const MetaType &classDef)
     writeMethods(componentSignals, S_SIGNAL);
 
     // Hide deleteLater() methods
-    Method::Container componentMethods = members(classDef.methods(), m_version);
+    Method::Container componentMethods = classDef.methods();
     for (auto it = componentMethods.begin(); it != componentMethods.end();) {
         if (it->name == "deleteLater"_L1)
             it = componentMethods.erase(it);
@@ -352,6 +342,7 @@ void QmlTypesCreator::writeRootMethods(const MetaType &classDef)
     toStringMethod.name = "toString"_L1;
     toStringMethod.access = Access::Public;
     toStringMethod.returnType = "QString"_L1;
+    toStringMethod.isConst = true;
     componentMethods.push_back(std::move(toStringMethod));
 
     // Add destroy(int)
@@ -384,17 +375,47 @@ void QmlTypesCreator::writeComponent(const QmlTypesClassDescription &collector)
 
     if (const MetaType &classDef = collector.resolvedClass; !classDef.isEmpty()) {
         writeEnums(classDef.enums());
-        writeProperties(members(classDef.properties(), m_version));
+        writeProperties(classDef.properties());
 
         if (collector.isRootClass) {
             writeRootMethods(classDef);
         } else {
-            writeMethods(members(classDef.sigs(), m_version), S_SIGNAL);
-            writeMethods(members(classDef.methods(), m_version), S_METHOD);
+            writeMethods(classDef.sigs(), S_SIGNAL);
+            writeMethods(classDef.methods(), S_METHOD);
         }
 
-        writeMethods(constructors(classDef.constructors(), m_version), S_METHOD);
+        writeMethods(classDef.constructors(), S_METHOD);
     }
+    m_qml.writeEndObject();
+}
+
+void QmlTypesCreator::writeOpaqueComponent(const QmlTypesClassDescription &collector)
+{
+    m_qml.writeStartObject(S_COMPONENT);
+
+    // we always mark the type as opaque, even if we have some data
+    m_qml.writeBooleanBinding(S_IS_TYPE_OPAQUE, true);
+    // compare writeClassProperties
+    if (!collector.file.isEmpty()) {
+        m_qml.writeStringBinding(S_FILE, collector.file);
+        m_qml.writeNumberBinding(S_LINE_NUMBER, collector.lineNumber);
+    }
+    m_qml.writeStringBinding(S_NAME, collector.className);
+    m_qml.writeStringBinding(S_ACCESS_SEMANTICS, collector.accessSemantics); // restrict instead?
+    // there's no sensible use case for defaultProp and parentProp
+    // as the type is not creatable
+    if (!collector.superClass.isEmpty())
+        m_qml.writeStringBinding(S_PROTOTYPE, collector.superClass);
+    // can't be JSRoot or extension, basically an anonymous type
+
+    if (const MetaType &classDef = collector.resolvedClass; !classDef.isEmpty()) {
+        writeEnums(classDef.enums());
+        writeProperties(classDef.properties());
+        writeMethods(classDef.sigs(), S_SIGNAL);
+        writeMethods(classDef.methods(), S_METHOD);
+        writeMethods(classDef.constructors(), S_METHOD);
+    }
+
     m_qml.writeEndObject();
 }
 
@@ -423,6 +444,13 @@ void QmlTypesCreator::writeComponents()
             writeComponent(collector);
         }
     }
+    for (const MetaType &component : std::as_const(m_opaqueTypes)) {
+        QmlTypesClassDescription collector;
+        collector.collect(component, m_ownTypes, m_foreignTypes,
+                          QmlTypesClassDescription::TopLevel, m_version);
+
+        writeOpaqueComponent(collector);
+    }
 }
 
 bool QmlTypesCreator::generate(const QString &outFileName)
@@ -441,8 +469,11 @@ bool QmlTypesCreator::generate(const QString &outFileName)
     m_qml.writeEndObject();
 
     QSaveFile file(outFileName);
-    if (!file.open(QIODevice::WriteOnly))
+    if (!file.open(QIODevice::WriteOnly)) {
+        qCritical().nospace() << "Error: Failed to open " << file.fileName()
+                              << " for writing: " << file.errorString();
         return false;
+    }
 
     if (file.write(m_output) != m_output.size())
         return false;

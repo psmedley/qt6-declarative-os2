@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKANCHORS_P_P_H
 #define QQUICKANCHORS_P_P_H
@@ -43,7 +44,8 @@ inline bool operator==(const QQuickAnchorLine& a, const QQuickAnchorLine& b)
     return a.item == b.item && a.anchorLine == b.anchorLine;
 }
 
-class QQuickAnchorsPrivate : public QObjectPrivate, public QQuickItemChangeListener
+class QQuickAnchorsPrivate : public QObjectPrivate,
+                             public QSafeQuickItemChangeListener<QQuickAnchorsPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickAnchors)
 public:

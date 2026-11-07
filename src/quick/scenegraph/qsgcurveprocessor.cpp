@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgcurveprocessor_p.h"
 
@@ -10,7 +11,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcSGCurveProcessor, "qt.quick.curveprocessor");
-Q_LOGGING_CATEGORY(lcSGCurveIntersectionSolver, "qt.quick.curveprocessor.intersections");
+Q_STATIC_LOGGING_CATEGORY(lcSGCurveIntersectionSolver, "qt.quick.curveprocessor.intersections");
 
 namespace {
 // Input coordinate space is pre-mapped so that (0, 0) maps to [0, 0] in uv space.
@@ -101,7 +102,7 @@ bool checkEdge(const QVector2D &p1, const QVector2D &p2, const QVector2D &p, flo
 
 // Check if lines l1 and l2 are intersecting and return the respective value. Solutions are stored to
 // the optional pointer solution.
-bool lineIntersection(const LinePoints &l1, const LinePoints &l2, QList<QPair<float, float>> *solution = nullptr)
+bool lineIntersection(const LinePoints &l1, const LinePoints &l2, QList<std::pair<float, float>> *solution = nullptr)
 {
     constexpr double eps2 = 1e-5; // Epsilon for parameter space t1-t2
 
@@ -127,7 +128,7 @@ bool lineIntersection(const LinePoints &l1, const LinePoints &l2, QList<QPair<fl
     bool intersecting = (s >= 0 && s <= 1. - eps2 && t >= 0 && t <= 1. - eps2);
 
     if (solution && intersecting)
-        solution->append(QPair<float, float>(t, s));
+        solution->append(std::pair<float, float>(t, s));
 
     return intersecting;
 }
@@ -217,15 +218,15 @@ static float angleBetween(const QVector2D v1, const QVector2D v2)
     return atan2(cross, dot);
 }
 
-static bool isIntersecting(const TrianglePoints &t1, const TrianglePoints &t2, QList<QPair<float, float>> *solutions = nullptr)
+static bool isIntersecting(const TrianglePoints &t1, const TrianglePoints &t2, QList<std::pair<float, float>> *solutions = nullptr)
 {
     constexpr double eps = 1e-5; // Epsilon for coordinate space x-y
     constexpr double eps2 = 1e-5; // Epsilon for parameter space t1-t2
     constexpr int maxIterations = 7; // Maximum iterations allowed for Newton
 
     // Convert to double to get better accuracy.
-    QPointF td1[3] = { t1[0].toPointF(), t1[1].toPointF(), t1[2].toPointF() };
-    QPointF td2[3] = { t2[0].toPointF(), t2[1].toPointF(), t2[2].toPointF() };
+    std::array<QPointF, 3> td1 = { t1[0].toPointF(), t1[1].toPointF(), t1[2].toPointF() };
+    std::array<QPointF, 3> td2 = { t2[0].toPointF(), t2[1].toPointF(), t2[2].toPointF() };
 
     // F = P1(t1) - P2(t2) where P1 and P2 are bezier curve functions.
     // F = (0, 0) at the intersection.
@@ -304,7 +305,7 @@ static bool isIntersecting(const TrianglePoints &t1, const TrianglePoints &t2, Q
         return false;
 }
 
-static bool isIntersecting(const QQuadPath &path, int e1, int e2, QList<QPair<float, float>> *solutions = nullptr)
+static bool isIntersecting(const QQuadPath &path, int e1, int e2, QList<std::pair<float, float>> *solutions = nullptr)
 {
 
     const QQuadPath::Element &elem1 = path.elementAt(e1);
@@ -324,9 +325,34 @@ static bool isIntersecting(const QQuadPath &path, int e1, int e2, QList<QPair<fl
 struct TriangleData
 {
     TrianglePoints points;
-    int pathElementIndex;
     TrianglePoints normals;
+    std::array<float, 3> extrusions;
+    int pathElementIndex = std::numeric_limits<int>::min();
+
+private:
+#ifndef QT_NO_DEBUG_STREAM
+    friend QDebug operator<<(QDebug, const TriangleData &);
+#endif
 };
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug stream, const TriangleData &td)
+{
+    QDebugStateSaver saver(stream);
+    stream.nospace();
+    stream << "TriangleData(";
+    if (td.pathElementIndex != std::numeric_limits<int>::min())
+        stream << "idx " << td.pathElementIndex;
+    stream << " [" << td.points.at(0).x() << ", " << td.points.at(0).y()
+           << "; " << td.points.at(1).x() << ", " << td.points.at(1).y()
+           << "; " << td.points.at(2).x() << ", " << td.points.at(2).y()
+           << "] normals [" << td.normals.at(0).x() << ", " << td.points.at(0).y()
+           << "; " << td.normals.at(1).x() << ", " << td.normals.at(1).y()
+           << "; " << td.normals.at(2).x() << ", " << td.normals.at(2).y()
+           << "])";
+    return stream;
+}
+#endif
 
 // Returns a normalized vector that is perpendicular to baseLine, pointing to the right
 inline QVector2D normalVector(QVector2D baseLine)
@@ -335,8 +361,11 @@ inline QVector2D normalVector(QVector2D baseLine)
     return normal;
 }
 
-// Returns a vector that is normal to the path and pointing to the right. If endSide is false
-// the vector is normal to the start point, otherwise to the end point
+/*! \internal
+    Returns a vector that is normal to the path and pointing to the right. If \a endSide
+    is \c false, the vector is normal to the start point;
+    if \c true,  the vector is normal to the end point.
+*/
 QVector2D normalVector(const QQuadPath::Element &element, bool endSide = false)
 {
     if (element.isLine())
@@ -347,9 +376,11 @@ QVector2D normalVector(const QQuadPath::Element &element, bool endSide = false)
         return normalVector(element.endPoint() - element.controlPoint());
 }
 
-// Returns a vector that is parallel to the path. If endSide is false
-// the vector starts at the start point and points forward,
-// otherwise it starts at the end point and points backward
+/*! \internal
+    Returns a vector that is parallel to the path and pointing inward. If \a endSide
+    is \c false, it starts at the start point and points forward;
+    if \c true,  it starts at the end point and points backward.
+*/
 QVector2D tangentVector(const QQuadPath::Element &element, bool endSide = false)
 {
     if (element.isLine()) {
@@ -424,7 +455,8 @@ QList<TriangleData> simplePointTriangulator(const QList<QVector2D> &pts, const Q
         int i0 = hull[0];
         int i1 = hull[i];
         int i2 = hull[i+1];
-        ret.append({{pts[i0], pts[i1], pts[i2]}, elementIndex, {normals[i0], normals[i1], normals[i2]}});
+        ret.append({{pts[i0], pts[i1], pts[i2]}, {normals[i0], normals[i1], normals[i2]},
+                     QSGCurveStrokeNode::defaultExtrusions(), elementIndex});
     }
     return ret;
 }
@@ -459,6 +491,100 @@ static QQuadPath subdivide(const QQuadPath &path, int subdivisions)
     return newPath;
 }
 
+/*! \internal
+    Returns {inner1, inner2, outer1, outer2, outerMiter}
+    where inner1 and outer1 are for the end of \a element1,
+    where inner2 and outer2 are for the start of \a element2,
+    and inner1 == inner2 unless we had to give up finding a decent point.
+*/
+static std::array<QVector2D, 5> calculateJoin(const QQuadPath::Element *element1, const QQuadPath::Element *element2,
+                                       float penFactor, float inverseMiterLimit, bool simpleMiter,
+                                       bool &outerBisectorWithinMiterLimit, bool &innerIsRight, bool &giveUp)
+{
+    outerBisectorWithinMiterLimit = true;
+    innerIsRight = true;
+    giveUp = false;
+    if (!element1) {
+        Q_ASSERT(element2);
+        QVector2D n = normalVector(*element2);
+        return {n, n, -n, -n, -n};
+    }
+    if (!element2) {
+        Q_ASSERT(element1);
+        QVector2D n = normalVector(*element1, true);
+        return {n, n, -n, -n, -n};
+    }
+
+    Q_ASSERT(element1->endPoint() == element2->startPoint());
+
+    const auto p1 = element1->isLine() ? element1->startPoint() : element1->controlPoint();
+    const auto p2 = element1->endPoint();
+    const auto p3 = element2->isLine() ? element2->endPoint() : element2->controlPoint();
+
+    const auto v1 = (p1 - p2).normalized();
+    const auto v2 = (p3 - p2).normalized();
+    const auto b = (v1 + v2);
+
+    constexpr float epsilon = 1.0f / 32.0f;
+    const bool smoothJoin = qAbs(b.x()) < epsilon && qAbs(b.y()) < epsilon;
+
+    if (smoothJoin) {
+        // v1 and v2 are almost parallel and pointing in opposite directions
+        // angle bisector formula will give an almost null vector: use normal of bisector of normals instead
+        QVector2D n1(-v1.y(), v1.x());
+        QVector2D n2(-v2.y(), v2.x());
+        QVector2D n = (n2 - n1).normalized();
+        return {n, n, -n, -n, -n};
+    }
+
+    // Calculate the length of the bisector, so it will cover the entire miter.
+    // Using the identity sin(x/2) == sqrt((1 - cos(x)) / 2), and the fact that the
+    // dot product of two unit vectors is the cosine of the angle between them
+    // The length of the miter is w/sin(x/2) where x is the angle between the two elements
+    const auto bisector = b.normalized();
+    const float cos2x = qMin(1.0f, QVector2D::dotProduct(v1, v2)); // Allow for float inaccuracy
+    const float sine = qMax(sqrt((1.0f - cos2x) / 2), 0.01f); // Avoid divide by zero
+    const float length = penFactor / sine;
+    innerIsRight = determinant(p1, p2, p3) > 0;
+
+    // Check if bisector is longer than one of the lines it's trying to bisect
+    auto tooLong = [penFactor, length](QVector2D p1, QVector2D p2, QVector2D n) -> bool {
+        auto v = p2 - p1;
+        // It's too long if the projection onto the bisector is longer than the bisector
+        // and half the projection (v - proj) onto the normal to the bisector
+        // (minus AA margin) is shorter than the pen factor.
+        // (We're also adding a 10% safety margin to length to make room for AA: not exact.)
+        auto projLen = QVector2D::dotProduct(v, n);
+        return projLen * 0.9f < length &&
+                (QSGCurveStrokeNode::expandingStrokeEnabled() ? ((v - n * projLen).length() - 2.0) * 0.5
+                                                              : (v - n * projLen).length() * 0.9) < penFactor;
+    };
+
+    // The angle bisector of the tangent lines is not correct for curved lines. We could fix this by calculating
+    // the exact intersection point, but for now just give up and use the normals.
+    giveUp = !element1->isLine() || !element2->isLine() || tooLong(p1, p2, bisector) || tooLong(p3, p2, bisector);
+    outerBisectorWithinMiterLimit = sine >= inverseMiterLimit / 2.0f;
+    bool simpleJoin = simpleMiter && outerBisectorWithinMiterLimit && !giveUp;
+    const QVector2D bn = bisector / sine;
+
+    if (simpleJoin)
+        return {bn, bn, -bn, -bn, -bn}; // We only have one inner and one outer point TODO: change inner point when conflict/curve
+    const QVector2D n1 = normalVector(*element1, true);
+    const QVector2D n2 = normalVector(*element2);
+    if (giveUp) {
+        if (innerIsRight)
+            return {n1, n2, -n1, -n2, -bn};
+        else
+            return {-n1, -n2, n1, n2, -bn};
+
+    } else {
+        if (innerIsRight)
+            return {bn, bn, -n1, -n2, -bn};
+        else
+            return {bn, bn, n1, n2, -bn};
+    }
+};
+
 static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penWidth, Qt::PenJoinStyle joinStyle, Qt::PenCapStyle capStyle, float miterLimit)
 {
     const bool bevelJoin = joinStyle == Qt::BevelJoin;
@@ -475,105 +601,11 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
 
     const float penFactor = penWidth / 2;
 
-    // Returns {inner1, inner2, outer1, outer2, outerMiter}
-    // where foo1 is for the end of element1 and foo2 is for the start of element2
-    // and inner1 == inner2 unless we had to give up finding a decent point
-    auto calculateJoin = [&](const QQuadPath::Element *element1, const QQuadPath::Element *element2,
-                             bool &outerBisectorWithinMiterLimit, bool &innerIsRight, bool &giveUp) -> std::array<QVector2D, 5>
-    {
-        outerBisectorWithinMiterLimit = true;
-        innerIsRight = true;
-        giveUp = false;
-        if (!element1) {
-            Q_ASSERT(element2);
-            QVector2D n = normalVector(*element2);
-            return {n, n, -n, -n, -n};
-        }
-        if (!element2) {
-            Q_ASSERT(element1);
-            QVector2D n = normalVector(*element1, true);
-            return {n, n, -n, -n, -n};
-        }
-
-        Q_ASSERT(element1->endPoint() == element2->startPoint());
-
-        const auto p1 = element1->isLine() ? element1->startPoint() : element1->controlPoint();
-        const auto p2 = element1->endPoint();
-        const auto p3 = element2->isLine() ? element2->endPoint() : element2->controlPoint();
-
-        const auto v1 = (p1 - p2).normalized();
-        const auto v2 = (p3 - p2).normalized();
-        const auto b = (v1 + v2);
-
-        constexpr float epsilon = 1.0f / 32.0f;
-        bool smoothJoin = qAbs(b.x()) < epsilon && qAbs(b.y()) < epsilon;
-
-        if (smoothJoin) {
-            // v1 and v2 are almost parallel and pointing in opposite directions
-            // angle bisector formula will give an almost null vector: use normal of bisector of normals instead
-            QVector2D n1(-v1.y(), v1.x());
-            QVector2D n2(-v2.y(), v2.x());
-            QVector2D n = (n2 - n1).normalized();
-            return {n, n, -n, -n, -n};
-        }
-        // Calculate the length of the bisector, so it will cover the entire miter.
-        // Using the identity sin(x/2) == sqrt((1 - cos(x)) / 2), and the fact that the
-        // dot product of two unit vectors is the cosine of the angle between them
-        // The length of the miter is w/sin(x/2) where x is the angle between the two elements
-
-        const auto bisector = b.normalized();
-        float cos2x = QVector2D::dotProduct(v1, v2);
-        cos2x = qMin(1.0f, cos2x); // Allow for float inaccuracy
-        float sine = sqrt((1.0f - cos2x) / 2);
-        innerIsRight = determinant(p1, p2, p3) > 0;
-        sine = qMax(sine, 0.01f); // Avoid divide by zero
-        float length = penFactor / sine;
-
-        // Check if bisector is longer than one of the lines it's trying to bisect
-
-        auto tooLong = [](QVector2D p1, QVector2D p2, QVector2D n, float length, float margin) -> bool {
-            auto v = p2 - p1;
-            // It's too long if the projection onto the bisector is longer than the bisector
-            // and the projection onto the normal to the bisector is shorter
-            // than the pen margin (that projection is just v - proj)
-            // (we're adding a 10% safety margin to make room for AA -- not exact)
-            auto projLen = QVector2D::dotProduct(v, n);
-            return projLen * 0.9f < length && (v - n * projLen).length() * 0.9 < margin;
-        };
-
-
-        // The angle bisector of the tangent lines is not correct for curved lines. We could fix this by calculating
-        // the exact intersection point, but for now just give up and use the normals.
-
-        giveUp = !element1->isLine() || !element2->isLine()
-                 || tooLong(p1, p2, bisector, length, penFactor)
-                 || tooLong(p3, p2, bisector, length, penFactor);
-        outerBisectorWithinMiterLimit = sine >= inverseMiterLimit / 2.0f;
-        bool simpleJoin = simpleMiter && outerBisectorWithinMiterLimit && !giveUp;
-        const QVector2D bn = bisector / sine;
-
-        if (simpleJoin)
-            return {bn, bn, -bn, -bn, -bn}; // We only have one inner and one outer point TODO: change inner point when conflict/curve
-        const QVector2D n1 = normalVector(*element1, true);
-        const QVector2D n2 = normalVector(*element2);
-        if (giveUp) {
-            if (innerIsRight)
-                return {n1, n2, -n1, -n2, -bn};
-            else
-                return {-n1, -n2, n1, n2, -bn};
-
-        } else {
-            if (innerIsRight)
-                return {bn, bn, -n1, -n2, -bn};
-            else
-                return {bn, bn, n1, n2, -bn};
-        }
-    };
-
     QList<TriangleData> ret;
 
-    auto triangulateCurve = [&](int idx, const QVector2D &p1, const QVector2D &p2, const QVector2D &p3, const QVector2D &p4,
-                                const QVector2D &n1, const QVector2D &n2, const QVector2D &n3, const QVector2D &n4)
+    auto triangulateCurve = [&ret, &path, penFactor]
+            (int idx, const QVector2D &p1, const QVector2D &p2, const QVector2D &p3, const QVector2D &p4,
+             const QVector2D &n1, const QVector2D &n2, const QVector2D &n3, const QVector2D &n4)
     {
         const auto &element = path.elementAt(idx);
         Q_ASSERT(!element.isLine());
@@ -593,12 +625,12 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
         bool simpleCase = !checkTriangleOverlap(t1, t2);
 
         if (simpleCase) {
-            ret.append({{p1, p2, p5}, idx, {n1, n2, controlPointNormal}});
-            ret.append({{p3, p4, p5}, idx, {n3, n4, controlPointNormal}});
+            ret.append({{p1, p2, p5}, {n1, n2, controlPointNormal}, {}, idx});
+            ret.append({{p3, p4, p5}, {n3, n4, controlPointNormal}, {}, idx});
             if (controlPointOnRight) {
-                ret.append({{p1, p3, p5}, idx, {n1, n3, controlPointNormal}});
+                ret.append({{p1, p3, p5}, {n1, n3, controlPointNormal}, {}, idx});
             } else {
-                ret.append({{p2, p4, p5}, idx, {n2, n4, controlPointNormal}});
+                ret.append({{p2, p4, p5}, {n2, n4, controlPointNormal}, {}, idx});
             }
         } else {
             ret.append(simplePointTriangulator({p1, p2, p5, p3, p4}, {n1, n2, controlPointNormal, n3, n4}, idx));
@@ -659,6 +691,7 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
             bool startBisectorWithinMiterLimit; // Not used
             bool giveUpOnStartJoin; // Not used
             auto startJoin = calculateJoin(prevElement, &element,
+                                           penFactor, inverseMiterLimit, simpleMiter,
                                            startBisectorWithinMiterLimit, startInnerIsRight,
                                            giveUpOnStartJoin);
             const QVector2D &startInner = startJoin[1];
@@ -668,6 +701,7 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
             bool endBisectorWithinMiterLimit;
             bool giveUpOnEndJoin;
             auto endJoin = calculateJoin(&element, nextElement,
+                                         penFactor, inverseMiterLimit, simpleMiter,
                                          endBisectorWithinMiterLimit, endInnerIsRight,
                                          giveUpOnEndJoin);
             QVector2D endInner = endJoin[0];
@@ -711,9 +745,9 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
                 } else if (squareCap) {
                     QVector2D c1 = p1 + capSpace;
                     QVector2D c2 = p2 + capSpace;
-                    ret.append({{p1, s, c1}, -1, {}});
-                    ret.append({{c1, s, c2}, -1, {}});
-                    ret.append({{p2, s, c2}, -1, {}});
+                    ret.append({{p1, s, c1}, {}, {}, -1});
+                    ret.append({{c1, s, c2}, {}, {}, -1});
+                    ret.append({{p2, s, c2}, {}, {}, -1});
                 }
             }
             if (!nextElement) {
@@ -724,15 +758,15 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
                 } else if (squareCap) {
                     QVector2D c3 = p3 + capSpace;
                     QVector2D c4 = p4 + capSpace;
-                    ret.append({{p3, e, c3}, -1, {}});
-                    ret.append({{c3, e, c4}, -1, {}});
-                    ret.append({{p4, e, c4}, -1, {}});
+                    ret.append({{p3, e, c3}, {}, {}, -1});
+                    ret.append({{c3, e, c4}, {}, {}, -1});
+                    ret.append({{p4, e, c4}, {}, {}, -1});
                 }
             }
 
             if (element.isLine()) {
-                ret.append({{p1, p2, p3}, i, {n1, n2, n3}});
-                ret.append({{p2, p3, p4}, i, {n2, n3, n4}});
+                ret.append({{p1, p2, p3}, {n1, n2, n3}, {}, i});
+                ret.append({{p2, p3, p4}, {n2, n3, n4}, {}, i});
             } else {
                 triangulateCurve(i, p1, p2, p3, p4, n1, n2, n3, n4);
             }
@@ -748,27 +782,27 @@ static QList<TriangleData> customTriangulator2(const QQuadPath &path, float penW
                 //const auto inner = e + endInner * penFactor;
 
                 if (bevelJoin || (miterJoin && !endBisectorWithinMiterLimit)) {
-                    ret.append({{outer1, e, outer2}, -1, {}});
+                    ret.append({{outer1, e, outer2}, {}, {}, -1});
                 } else if (roundJoin) {
-                    ret.append({{outer1, e, outer2}, i, {}});
+                    ret.append({{outer1, e, outer2}, {}, {}, i});
                     QVector2D nn = calcNormalVector(outer1, outer2).normalized() * penFactor;
                     if (!innerOnRight)
                         nn = -nn;
-                    ret.append({{outer1, outer1 + nn, outer2}, i, {}});
-                    ret.append({{outer1 + nn, outer2, outer2 + nn}, i, {}});
+                    ret.append({{outer1, outer1 + nn, outer2}, {}, {}, i});
+                    ret.append({{outer1 + nn, outer2, outer2 + nn}, {}, {}, i});
 
                 } else if (miterJoin) {
                     QVector2D outer = e + outerB * penFactor;
-                    ret.append({{outer1, e, outer}, -2, {}});
-                    ret.append({{outer, e, outer2}, -2, {}});
+                    ret.append({{outer1, e, outer}, {}, {}, -2});
+                    ret.append({{outer, e, outer2}, {}, {}, -2});
                 }
 
                 if (!giveUpOnEndJoin) {
                     QVector2D inner = e + endInner * penFactor;
-                    ret.append({{inner, e, outer1}, i, {endInner, {}, endOuter}});
+                    ret.append({{inner, e, outer1}, {endInner, {}, endOuter}, {}, i});
                     // The remaining triangle ought to be done by nextElement, but we don't have start join logic there (yet)
                     int nextIdx = addIdx(i, +1);
-                    ret.append({{inner, e, outer2}, nextIdx, {endInner, {}, nextOuter}});
+                    ret.append({{inner, e, outer2}, {endInner, {}, nextOuter}, {}, nextIdx});
                 }
             }
         }
@@ -859,7 +893,7 @@ bool QSGCurveProcessor::solveOverlaps(QQuadPath &path)
 // triangles that define the elements.
 // We will order the elements first and then pool them depending on their x-values. This should
 // reduce the complexity to O(n log n), where n is the number of elements in the path.
-QList<QPair<int, int>> QSGCurveProcessor::findOverlappingCandidates(const QQuadPath &path)
+QList<std::pair<int, int>> QSGCurveProcessor::findOverlappingCandidates(const QQuadPath &path)
 {
     struct BRect { float xmin; float xmax; float ymin; float ymax; };
 
@@ -887,7 +921,7 @@ QList<QPair<int, int>> QSGCurveProcessor::findOverlappingCandidates(const QQuadP
     std::sort(elementEnds.begin(), elementEnds.end(), compareXmax);
 
     QList<int> bRpool;
-    QList<QPair<int, int>> overlappingBB;
+    QList<std::pair<int, int>> overlappingBB;
 
     // Start from x = xmin and move towards xmax. Add a rectangle to the pool and check for
     // intersections with all other rectangles in the pool. If a rectangles xmax is smaller
@@ -930,7 +964,7 @@ QList<QPair<int, int>> QSGCurveProcessor::findOverlappingCandidates(const QQuadP
             if (!isNeighbor && (r1.ymax < newR.ymin || newR.ymax < r1.ymin))
                 continue;
             // If the bounding boxes are overlapping it is a candidate for an intersection.
-            overlappingBB.append(QPair<int, int>(i, addIndex));
+            overlappingBB.append(std::pair<int, int>(i, addIndex));
         }
         bRpool.append(addIndex); //Add the new element to the pool.
     }
@@ -1097,10 +1131,10 @@ bool QSGCurveProcessor::solveIntersections(QQuadPath &path, bool removeNestedPat
     };
 
     // First make a O(n log n) search for candidates.
-    const QList<QPair<int, int>> candidates = findOverlappingCandidates(path);
+    const QList<std::pair<int, int>> candidates = findOverlappingCandidates(path);
     // Then check the candidates for actual intersections.
     for (const auto &candidate : candidates) {
-        QList<QPair<float,float>> res;
+        QList<std::pair<float,float>> res;
         int e1 = candidate.first;
         int e2 = candidate.second;
         if (isIntersecting(path, e1, e2, &res)) {
@@ -1457,7 +1491,7 @@ bool QSGCurveProcessor::solveIntersections(QQuadPath &path, bool removeNestedPat
             for (int i = 0; i < subPathHandled.size(); i++) {
                 if (!subPathHandled.at(i)) {
 
-                    // Not nesesarrily handled (if findStart return false) but if we find no starting
+                    // Not necessarily handled (if findStart() returns false); but if we find no starting
                     // point, we cannot/don't need to handle it anyway. So just mark it as handled.
                     subPathHandled[i] = true;
 
@@ -1536,23 +1570,31 @@ bool QSGCurveProcessor::solveIntersections(QQuadPath &path, bool removeNestedPat
 
 void QSGCurveProcessor::processStroke(const QQuadPath &strokePath,
                                       float miterLimit,
-                                      float penWidth,
+                                      float penWidth, bool cosmetic,
                                       Qt::PenJoinStyle joinStyle,
                                       Qt::PenCapStyle capStyle,
                                       addStrokeTriangleCallback addTriangle,
                                       int subdivisions)
 {
+    const bool expandingInVertexShader = cosmetic || QSGCurveStrokeNode::expandingStrokeEnabled();
     auto thePath = subdivide(strokePath, subdivisions).flattened(); // TODO: don't flatten, but handle it in the triangulator
-    auto triangles = customTriangulator2(thePath, penWidth, joinStyle, capStyle, miterLimit);
 
     auto addCurveTriangle = [&](const QQuadPath::Element &element, const TriangleData &t) {
+        qCDebug(lcSGCurveProcessor) << element << "->" << t;
+        QSGCurveStrokeNode::TriangleFlags flags;
+        flags.setFlag(QSGCurveStrokeNode::TriangleFlag::Line, element.isLine());
         addTriangle(t.points,
                     { element.startPoint(), element.controlPoint(), element.endPoint() },
-                    t.normals,
-                    element.isLine());
+                    t.normals, t.extrusions, flags);
     };
 
-    auto addBevelTriangle = [&](const TrianglePoints &p)
+    if (!expandingInVertexShader) {
+    // this block is outdented to preserve git line history
+    // TODO remove customTriangulator2 in a future version
+    auto triangles = customTriangulator2(thePath, penWidth, joinStyle, capStyle, miterLimit);
+    qCDebug(lcSGCurveProcessor) << thePath << "->" << triangles;
+
+    auto addBevelTriangle = [&](const TrianglePoints &p, QSGCurveStrokeNode::TriangleFlags flags)
     {
         QVector2D fp1 = p[0];
         QVector2D fp2 = p[2];
@@ -1574,22 +1616,319 @@ void QSGCurveProcessor::processStroke(const QQuadPath &strokePath,
         n[0] = (p[0] - p[1]).normalized();
         n[2] = (p[2] - p[1]).normalized();
 
-        addTriangle(p, { fp1, QVector2D(0.0f, 0.0f), fp2 }, n, true);
+        flags.setFlag(QSGCurveStrokeNode::TriangleFlag::Line);
+        addTriangle(p, { fp1, QVector2D(0.0f, 0.0f), fp2 }, n, {}, flags);
     };
 
-    for (const auto &triangle : triangles) {
+    for (const auto &triangle : std::as_const(triangles)) {
         if (triangle.pathElementIndex < 0) {
-            addBevelTriangle(triangle.points);
+            addBevelTriangle(triangle.points, {});
             continue;
         }
         const auto &element = thePath.elementAt(triangle.pathElementIndex);
         addCurveTriangle(element, triangle);
     }
+
+    return;
+    } // legacy customTriangulator2 if we aren't using the expanding vertex shader
+
+    auto addEdgeTriangle = [&](QVector2D start, QVector2D end, const TriangleData &t) {
+        qCDebug(lcSGCurveProcessor) << "line from" << start << "to" << end << "->" << t;
+        addTriangle(t.points, { start, start, end }, t.normals, t.extrusions, QSGCurveStrokeNode::TriangleFlag::Line);
+    };
+
+    const bool bevelJoin = joinStyle == Qt::BevelJoin;
+    const bool roundJoin = joinStyle == Qt::RoundJoin;
+    const bool miterJoin = !bevelJoin && !roundJoin;
+
+    // Whether to allow a miter to simply be two adjacent triangle-pair stroke
+    // quads coming together at an angle: so far, it only works for round joins
+    // (and even then, only for suitably obtuse angles), because we need
+    // synthetic line-equation coefficients to get straight-edged joins.
+    // When we allow the user-provided endpoints to be visible inside the
+    // triangles, the fragment shader makes round endcaps.
+    const bool simpleMiter = joinStyle == Qt::RoundJoin;
+
+    Q_ASSERT(miterLimit > 0 || !miterJoin);
+    const float inverseMiterLimit = miterJoin ? 1.0f / miterLimit : 1.0;
+    const float penFactor = penWidth / 2;
+
+    auto triangulateCurve = [&](int idx, const QVector2D &p1, const QVector2D &p2, const QVector2D &p3, const QVector2D &p4,
+                                const QVector2D &n1, const QVector2D &n2, const QVector2D &n3, const QVector2D &n4)
+    {
+        const auto &element = thePath.elementAt(idx);
+        Q_ASSERT(!element.isLine());
+        const auto &s = element.startPoint();
+        const auto &c = element.controlPoint();
+        const auto &e = element.endPoint();
+        // TODO: Don't flatten the path in addCurveStrokeNodes, but iterate over the children here instead
+        bool controlPointOnRight = determinant(s, c, e) > 0;
+        QVector2D startNormal = normalVector(element);
+        QVector2D endNormal = normalVector(element, true);
+        QVector2D controlPointNormal = (startNormal + endNormal).normalized();
+        if (controlPointOnRight)
+            controlPointNormal = -controlPointNormal;
+        TrianglePoints t1{p1, p2, c};
+        TrianglePoints t2{p3, p4, c};
+        bool simpleCase = !checkTriangleOverlap(t1, t2);
+        if (simpleCase) {
+            addCurveTriangle(element, {{p1, p2, c}, {n1, n2, controlPointNormal},
+                         QSGCurveStrokeNode::defaultExtrusions(), idx});
+            addCurveTriangle(element, {{p3, p4, c}, {n3, n4, controlPointNormal},
+                         QSGCurveStrokeNode::defaultExtrusions(), idx});
+            if (controlPointOnRight) {
+                addCurveTriangle(element, {{p1, p3, c}, {n1, n3, controlPointNormal},
+                             QSGCurveStrokeNode::defaultExtrusions(), idx});
+            } else {
+                addCurveTriangle(element, {{p2, p4, c}, {n2, n4, controlPointNormal},
+                             QSGCurveStrokeNode::defaultExtrusions(), idx});
+            }
+        } else {
+            const auto &triangles = simplePointTriangulator({p1, p2, c, p3, p4}, {n1, n2, controlPointNormal, n3, n4}, idx);
+            for (const auto &triangle : triangles)
+                addCurveTriangle(element, triangle);
+        }
+    };
+
+    // Each element is calculated independently, so we don't have to special-case closed sub-paths.
+    // Take care so the end points of one element are precisely equal to the start points of the next.
+    // Any additional triangles needed for joining are added at the end of the current element.
+
+    const int count = thePath.elementCount();
+    int subStart = 0;
+    while (subStart < count) {
+        int subEnd = subStart;
+        for (int i = subStart + 1; i < count; ++i) {
+            const auto &e = thePath.elementAt(i);
+            if (e.isSubpathStart()) {
+                subEnd = i - 1;
+                break;
+            }
+            if (i == count - 1) {
+                subEnd = i;
+                break;
+            }
+        }
+        bool closed = thePath.elementAt(subStart).startPoint() == thePath.elementAt(subEnd).endPoint();
+        const int subCount = subEnd - subStart + 1;
+
+        auto addIdx = [&](int idx, int delta) -> int {
+            int subIdx = idx - subStart;
+            if (closed)
+                subIdx = (subIdx + subCount + delta) % subCount;
+            else
+                subIdx += delta;
+            return subStart + subIdx;
+        };
+        auto elementAt = [&](int idx, int delta) -> const QQuadPath::Element * {
+            int subIdx = idx - subStart;
+            if (closed) {
+                subIdx = (subIdx + subCount + delta) % subCount;
+                return &thePath.elementAt(subStart + subIdx);
+            }
+            subIdx += delta;
+            if (subIdx >= 0 && subIdx < subCount)
+                return &thePath.elementAt(subStart + subIdx);
+            return nullptr;
+        };
+
+        for (int i = subStart; i <= subEnd; ++i) {
+            const auto &element = thePath.elementAt(i);
+            const auto *nextElement = elementAt(i, +1);
+            const auto *prevElement = elementAt(i, -1);
+
+            const auto &s = element.startPoint();
+            const auto &e = element.endPoint();
+
+            bool startInnerIsRight;
+            bool startBisectorWithinMiterLimit; // Not used
+            bool giveUpOnStartJoin; // Not used
+            auto startJoin = calculateJoin(prevElement, &element,
+                                           penFactor, inverseMiterLimit, simpleMiter,
+                                           startBisectorWithinMiterLimit, startInnerIsRight,
+                                           giveUpOnStartJoin);
+            const QVector2D &startInner = startJoin[1];
+            const QVector2D &startOuter = startJoin[3];
+
+            bool endInnerIsRight;
+            bool endBisectorWithinMiterLimit;
+            bool giveUpOnEndJoin;
+            auto endJoin = calculateJoin(&element, nextElement,
+                                         penFactor, inverseMiterLimit, simpleMiter,
+                                         endBisectorWithinMiterLimit, endInnerIsRight,
+                                         giveUpOnEndJoin);
+            const QVector2D endInner = endJoin[0];
+            const QVector2D endOuter = endJoin[2];
+            const QVector2D nextOuter = endJoin[3];
+            const QVector2D outerBisector = endJoin[4];
+            const QVector2D startTangent = tangentVector(element, false).normalized();
+            const QVector2D endTangent = tangentVector(element, true).normalized();
+
+            QVector2D n1, n2, n3, n4;
+
+            if (startInnerIsRight) {
+                n1 = startInner;
+                n2 = startOuter;
+            } else {
+                n1 = startOuter;
+                n2 = startInner;
+            }
+
+            // repeat logic above for the other end:
+            if (endInnerIsRight) {
+                n3 = endInner;
+                n4 = endOuter;
+            } else {
+                n3 = endOuter;
+                n4 = endInner;
+            }
+
+            // When we fill triangles that make up square caps with fake lines,
+            // we need the line equations to extend way beyond the triangles,
+            // so that corner roundoff won't occur at any reasonable zoom level.
+            // But if the virtual lines are too long, AA quality suffers.
+            // Multiplying by 50 seems to get it to behave reasonably at zoom levels from 0.01 to 50.
+            static const float artificialLineExtension = 50;
+
+            // End cap triangles
+            if (capStyle != Qt::FlatCap) {
+                const QVector2D capNormalNone(0, 0);
+                // a cap is rendered in 3 triangles: in all cases below, the order is outer, middle, outer
+                if (!prevElement) {
+                    // If the cap happens to be left-facing, "up" means in the -y direction,
+                    // "down" is in the +y direction and so on; otherwise they are all rotated together
+                    const QVector2D capNormalUp(startTangent.y(), -startTangent.x());
+                    const QVector2D capNormalDown = -capNormalUp;
+                    // hypoteneuses of triangles made from normalized vectors are longer: not re-normalized
+                    const QVector2D capNormalUpOut = (capNormalUp - startTangent);
+                    const QVector2D capNormalDownOut = (capNormalDown - startTangent); // not in the magic kingdom
+                    Q_ASSERT(capNormalUpOut.length() == capNormalDownOut.length());
+                    if (capStyle == Qt::RoundCap) {
+                        addCurveTriangle(element, {{s, s, s}, {capNormalUp, capNormalNone, capNormalUpOut},
+                                                    QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addCurveTriangle(element, {{s, s, s}, {capNormalUpOut, capNormalNone, capNormalDownOut},
+                                                    QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addCurveTriangle(element, {{s, s, s}, {capNormalDown, capNormalNone, capNormalDownOut},
+                                                    QSGCurveStrokeNode::defaultExtrusions(), i});
+                    } else { // SquareCap
+                        addEdgeTriangle(element.startPoint(), element.startPoint() - startTangent * penWidth * artificialLineExtension,
+                                        {{s, s, s}, {capNormalUp, capNormalNone, capNormalUpOut},
+                                          QSGCurveStrokeNode::defaultExtrusions(), i});
+                        const auto norm = normalVector(element, false).normalized() * penWidth * artificialLineExtension;
+                        addEdgeTriangle(element.startPoint() - norm, element.startPoint() + norm,
+                                        {{s, s, s}, {capNormalUpOut, capNormalNone, capNormalDownOut}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addEdgeTriangle(element.startPoint(), element.startPoint() - startTangent * penWidth * artificialLineExtension,
+                                        {{s, s, s}, {capNormalDown, capNormalNone, capNormalDownOut}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    }
+                }
+                if (!nextElement) {
+                    const QVector2D capNormalUp(endTangent.y(), -endTangent.x());
+                    const QVector2D capNormalDown = -capNormalUp;
+                    const QVector2D capNormalUpOut = (capNormalUp - endTangent);
+                    const QVector2D capNormalDownOut = (capNormalDown - endTangent);
+                    Q_ASSERT(capNormalUpOut.length() == capNormalDownOut.length());
+                    if (capStyle == Qt::RoundCap) {
+                        addCurveTriangle(element, {{e, e, e}, {capNormalDown, capNormalNone, capNormalDownOut},
+                                            QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addCurveTriangle(element, {{e, e, e}, {capNormalUpOut, capNormalNone, capNormalDownOut},
+                                                    QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addCurveTriangle(element, {{e, e, e}, {capNormalUp, capNormalNone, capNormalUpOut},
+                                                    QSGCurveStrokeNode::defaultExtrusions(), i});
+                    } else { // SquareCap
+                        addEdgeTriangle(element.endPoint() - endTangent * penWidth * artificialLineExtension, element.endPoint(),
+                                        {{e, e, e}, {capNormalDown, capNormalNone, capNormalDownOut}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                        const auto norm = normalVector(element, true).normalized() * penWidth * artificialLineExtension;
+                        addEdgeTriangle(element.endPoint() - norm, element.endPoint() + norm,
+                                        {{e, e, e}, {capNormalUpOut, capNormalNone, capNormalDownOut}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                        addEdgeTriangle(element.endPoint() - endTangent * penWidth * artificialLineExtension, element.endPoint(),
+                                        {{e, e, e}, {capNormalUp, capNormalNone, capNormalUpOut}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    }
+                }
+            }
+
+            if (element.isLine()) {
+                addCurveTriangle(element, {{s, s, e}, {n1, n2, n3}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                addCurveTriangle(element, {{s, e, e}, {n2, n3, n4}, QSGCurveStrokeNode::defaultExtrusions(), i});
+            } else {
+                triangulateCurve(i, s, s, e, e, n1, n2, n3, n4);
+            }
+
+            bool trivialJoin = simpleMiter && endBisectorWithinMiterLimit && !giveUpOnEndJoin;
+            if (!trivialJoin && nextElement) {
+                // inside of join (opposite of bevel) is defined by triangle s, e, next.e
+                bool innerOnRight = endInnerIsRight;
+
+                const auto outer1 = e + endOuter;
+                const auto outer2 = e + nextOuter;
+                QVector2D nn = calcNormalVector(outer1, outer2).normalized();
+                if (!innerOnRight)
+                    nn = -nn;
+                const QVector2D endOuterN = (outer1 - e).normalized();
+                const QVector2D nextOuterN = (outer2 - e).normalized();
+                const QVector2D endOuterBisectorN = (endOuterN + nn.normalized()).normalized();
+                const QVector2D nextOuterBisectorN = (nextOuterN + nn.normalized()).normalized();
+
+                if (bevelJoin || (miterJoin && !endBisectorWithinMiterLimit)) {
+                    const float cosTheta = QVector2D::dotProduct(endOuterN, nextOuterN); // divided by magnitudes, which are 1s
+                    const float cosHalf = cos(acos(cosTheta) / 2);
+                    // draw a line from the end of element to the beginning of the next:
+                    // slope is the average of the two tangents
+                    const auto tan1 = endTangent * penWidth * artificialLineExtension;
+                    const auto tan2 = tangentVector(*nextElement, false).normalized() * penWidth * artificialLineExtension;
+                    const auto bevelTan = (tan2 - tan1) / 2;
+                    // element.endPoint() is not the centerline of the bevel's stroke if full width, so
+                    // we use extrusion (normalExt.z) in the vertex shader to adjust the stroke width so that its edge
+                    // falls in the right place to draw a clean bevel within this triangle: i.e.
+                    // compensate for the triangle becoming smaller as the join angle becomes more acute.
+                    addEdgeTriangle(element.endPoint() - bevelTan, element.endPoint() + bevelTan,
+                                    {{e, e, e}, {endOuterN, {}, nextOuterN}, {cosHalf, cosHalf, cosHalf}, i});
+                } else if (roundJoin) {
+                    addCurveTriangle(element, {{outer1, e, outer2}, {endOuterN, {}, nextOuterN}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    addCurveTriangle(element, {{outer1, outer1 + nn, outer2}, {endOuterN, endOuterBisectorN, nextOuterN}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    addCurveTriangle(element, {{outer1 + nn, outer2, outer2 + nn}, {endOuterBisectorN, nextOuterN, nextOuterBisectorN}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                } else if (miterJoin) {
+                    addEdgeTriangle(element.endPoint(), element.endPoint() - endTangent * penWidth * artificialLineExtension,
+                                    {{e, e, e}, {endOuterN, {}, outerBisector}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    addEdgeTriangle(nextElement->startPoint(),
+                                    nextElement->startPoint() - tangentVector(*nextElement, false).normalized() * penWidth * artificialLineExtension,
+                                    {{e, e, e}, {nextOuterN, {}, outerBisector}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                }
+
+                if (!giveUpOnEndJoin) {
+                    addCurveTriangle(element, {{e, e, e}, {endInner, {}, endOuter}, QSGCurveStrokeNode::defaultExtrusions(), i});
+                    // The remaining triangle ought to be done by nextElement, but we don't have start join logic there (yet)
+                    int nextIdx = addIdx(i, +1);
+                    addCurveTriangle(*nextElement, {{e, e, e}, {endInner, {}, nextOuter}, QSGCurveStrokeNode::defaultExtrusions(), nextIdx});
+                }
+            }
+        }
+        subStart = subEnd + 1;
+    }
 }
 
-// 2x variant of qHash(float)
-inline size_t qHash(QVector2D key, size_t seed = 0) noexcept
+namespace {
+// QVector2D is not hashable; we don't own the type, so we mustn't add a
+// qHash() (ODR violations), so use a small wrapper we _do_ own:
+template <typename T>
+struct HashWrap
 {
+    T wrapped;
+
+    Q_IMPLICIT HashWrap(T &&t) : wrapped(std::move(t)) {}
+    Q_IMPLICIT HashWrap(const T &t) : wrapped(t) {}
+
+    Q_IMPLICIT operator T() const noexcept { return wrapped; }
+
+    friend bool operator==(const HashWrap &lhs, const HashWrap &rhs) noexcept
+    { return lhs.wrapped == rhs.wrapped; }
+    friend bool operator!=(const HashWrap &lhs, const HashWrap &rhs) noexcept
+    { return lhs.wrapped != rhs.wrapped; }
+};
+
+// 2x variant of qHash(float)
+inline size_t qHash(HashWrap<QVector2D> wrap, size_t seed = 0) noexcept
+{
+    auto &key = wrap.wrapped;
     Q_STATIC_ASSERT(sizeof(QVector2D) == sizeof(quint64));
     // ensure -0 gets mapped to 0
     key[0] += 0.0f;
@@ -1598,6 +1937,7 @@ inline size_t qHash(QVector2D key, size_t seed = 0) noexcept
     memcpy(&k, &key, sizeof(QVector2D));
     return QHashPrivate::hash(k, seed);
 }
+} // unnamed namespace
 
 void QSGCurveProcessor::processFill(const QQuadPath &fillPath,
                                     Qt::FillRule fillRule,
@@ -1606,7 +1946,7 @@ void QSGCurveProcessor::processFill(const QQuadPath &fillPath,
     QPainterPath internalHull;
     internalHull.setFillRule(fillRule);
 
-    QMultiHash<QVector2D, int> pointHash;
+    QMultiHash<HashWrap<QVector2D>, int> pointHash;
 
     auto roundVec2D = [](const QVector2D &p) -> QVector2D {
         return { qRound64(p.x() * 32.0f) / 32.0f, qRound64(p.y() * 32.0f) / 32.0f };

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4_OBJECT_H
 #define QV4_OBJECT_H
 
@@ -340,7 +341,7 @@ public:
 
     ReturnedValue resolveLookupGetter(ExecutionEngine *engine, Lookup *lookup) const
     { return vtable()->resolveLookupGetter(this, engine, lookup); }
-    ReturnedValue resolveLookupSetter(ExecutionEngine *engine, Lookup *lookup, const Value &value)
+    bool resolveLookupSetter(ExecutionEngine *engine, Lookup *lookup, const Value &value)
     { return vtable()->resolveLookupSetter(this, engine, lookup, value); }
 
     int metacall(QMetaObject::Call call, int index, void **a)

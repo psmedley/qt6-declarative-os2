@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGABSTRACTRENDERER_P_P_H
 #define QSGABSTRACTRENDERER_P_P_H
@@ -42,7 +43,7 @@ public:
 
     QVarLengthArray<QMatrix4x4, 1> m_projection_matrix;
     QVarLengthArray<QMatrix4x4, 1> m_projection_matrix_native_ndc;
-    uint m_mirrored : 1;
+    uint m_invertFrontFace : 1;
 };
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKIOSTHEME_P_H
 #define QQUICKIOSTHEME_P_H
@@ -15,6 +16,7 @@
 // We mean it.
 //
 
+#include <QtQuickControls2IOS/qtquickcontrols2iosexports.h>
 #include <QtCore/qglobal.h>
 
 QT_BEGIN_NAMESPACE
@@ -24,7 +26,7 @@ class QQuickTheme;
 class QQuickIOSTheme
 {
 public:
-    static void initialize(QQuickTheme *theme);
+    static Q_QUICKCONTROLS2IOS_EXPORT void initialize(QQuickTheme *theme);
 };
 
 QT_END_NAMESPACE

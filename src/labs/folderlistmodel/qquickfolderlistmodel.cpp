@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 //![code]
 #include "qquickfolderlistmodel_p.h"
@@ -11,7 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcFolderListModel, "qt.labs.folderlistmodel")
+Q_STATIC_LOGGING_CATEGORY(lcFolderListModel, "qt.labs.folderlistmodel")
 
 class QQuickFolderListModelPrivate
 {
@@ -34,6 +35,8 @@ public:
     bool showDirs = true;
     bool showDirsFirst = false;
     bool showDotAndDotDot = false;
+    bool showDot = false;
+    bool showDotDot = false;
     bool showOnlyReadable = false;
     bool showHidden = false;
     bool caseSensitive = true;
@@ -128,6 +131,10 @@ void QQuickFolderListModelPrivate::_q_directoryChanged(const QString &directory,
     qCDebug(lcFolderListModel) << "_q_directoryChanged called with directory" << directory;
     Q_Q(QQuickFolderListModel);
     Q_UNUSED(directory);
+    if (!resettingModel) {
+        resettingModel = true;
+        q->beginResetModel();
+    }
 
     data = list;
     q->endResetModel();
@@ -204,6 +211,8 @@ QString QQuickFolderListModelPrivate::resolvePath(const QUrl &path)
 {
     QString localPath = QQmlFile::urlToLocalFileOrQrc(path);
     QUrl localUrl = QUrl(localPath);
+    if (!localUrl.authority().isEmpty())
+        return localPath;
     QString fullPath = localUrl.path();
     if (localUrl.scheme().size())
       fullPath = localUrl.scheme() + QLatin1Char(':') + fullPath;
@@ -211,7 +220,7 @@ QString QQuickFolderListModelPrivate::resolvePath(const QUrl &path)
 }
 
 /*!
-    \qmlmodule Qt.labs.folderlistmodel 2.\QtMinorVersion
+    \qmlmodule Qt.labs.folderlistmodel
     \title Qt Labs FolderListModel QML Types
     \ingroup qmlmodules
     \brief The FolderListModel provides a model of the contents of a file system folder.
@@ -254,7 +263,6 @@ QString QQuickFolderListModelPrivate::resolvePath(const QUrl &path)
     \list
     \li \c fileName (\c string)
     \li \c filePath (\c string)
-    \li \c fileURL (\c url) (since Qt 5.2; deprecated since Qt 5.15)
     \li \c fileUrl (\c url) (since Qt 5.15)
     \li \c fileBaseName (\c string)
     \li \c fileSuffix (\c string)
@@ -336,7 +344,6 @@ QQuickFolderListModel::QQuickFolderListModel(QObject *parent)
     d->roleNames[FileLastReadRole] = "fileAccessed";
     d->roleNames[FileIsDirRole] = "fileIsDir";
     d->roleNames[FileUrlRole] = "fileUrl";
-    d->roleNames[FileURLRole] = "fileURL";
     d->init();
 }
 
@@ -349,38 +356,38 @@ QVariant QQuickFolderListModel::data(const QModelIndex &index, int role) const
     Q_D(const QQuickFolderListModel);
     QVariant rv;
 
-    if (index.row() >= d->data.size())
+    const int row = index.row();
+    if (row < 0 || row >= d->data.size())
         return rv;
 
     switch (role)
     {
         case FileNameRole:
-            rv = d->data.at(index.row()).fileName();
+            rv = d->data.at(row).fileName();
             break;
         case FilePathRole:
-            rv = d->data.at(index.row()).filePath();
+            rv = d->data.at(row).filePath();
             break;
         case FileBaseNameRole:
-            rv = d->data.at(index.row()).baseName();
+            rv = d->data.at(row).baseName();
             break;
         case FileSuffixRole:
-            rv = d->data.at(index.row()).suffix();
+            rv = d->data.at(row).suffix();
             break;
         case FileSizeRole:
-            rv = d->data.at(index.row()).size();
+            rv = d->data.at(row).size();
             break;
         case FileLastModifiedRole:
-            rv = d->data.at(index.row()).lastModified();
+            rv = d->data.at(row).lastModified();
             break;
         case FileLastReadRole:
-            rv = d->data.at(index.row()).lastRead();
+            rv = d->data.at(row).lastRead();
             break;
         case FileIsDirRole:
-            rv = d->data.at(index.row()).isDir();
+            rv = d->data.at(row).isDir();
             break;
         case FileUrlRole:
-        case FileURLRole:
-            rv = QUrl::fromLocalFile(d->data.at(index.row()).filePath());
+            rv = QUrl::fromLocalFile(d->data.at(row).filePath());
             break;
         default:
             break;
@@ -493,9 +500,11 @@ void QQuickFolderListModel::setRootFolder(const QUrl &path)
     QFileInfo info(resolvedPath);
     if (!info.exists() || !info.isDir())
         return;
-
-    d->fileInfoThread.setRootPath(resolvedPath);
-    d->rootDir = path;
+    if (path != d->rootDir) {
+        d->fileInfoThread.setRootPath(resolvedPath);
+        d->rootDir = path;
+        emit rootFolderChanged();
+    }
 }
 
 
@@ -509,20 +518,13 @@ QUrl QQuickFolderListModel::parentFolder() const
 {
     Q_D(const QQuickFolderListModel);
 
-    QString localFile = d->currentDir.toLocalFile();
-    if (!localFile.isEmpty()) {
-        QDir dir(localFile);
-        if (dir.isRoot() || !dir.cdUp())
-            return QUrl();
-        localFile = dir.path();
-    } else {
-        const QString path = d->currentDir.path();
-        const int pos = path.lastIndexOf(QLatin1Char('/'));
-        if (pos <= 0)
-            return QUrl();
-        localFile = path.left(pos);
-    }
-    return QUrl::fromLocalFile(localFile);
+    const QString localFile = d->currentDir.toLocalFile();
+    if (localFile.isEmpty())
+        return QUrl();
+    QDir dir(localFile);
+    if (dir.isRoot() || !dir.cdUp())
+        return QUrl();
+    return QUrl::fromLocalFile(dir.path());
 }
 
 /*!
@@ -554,6 +556,7 @@ void QQuickFolderListModel::setNameFilters(const QStringList &filters)
         return;
     d->fileInfoThread.setNameFilters(filters);
     d->nameFilters = filters;
+    emit nameFilterChanged();
 }
 
 void QQuickFolderListModel::classBegin()
@@ -592,9 +595,11 @@ QQuickFolderListModel::SortField QQuickFolderListModel::sortField() const
 void QQuickFolderListModel::setSortField(SortField field)
 {
     Q_D(QQuickFolderListModel);
+
     if (field != d->sortField) {
         d->sortField = field;
         d->updateSorting();
+        emit sortFieldChanged();
     }
 }
 
@@ -624,6 +629,7 @@ void QQuickFolderListModel::setSortReversed(bool rev)
     if (rev != d->sortReversed) {
         d->sortReversed = rev;
         d->updateSorting();
+        emit sortReversedChanged();
     }
 }
 
@@ -667,8 +673,11 @@ void QQuickFolderListModel::setShowFiles(bool on)
 {
     Q_D(QQuickFolderListModel);
 
-    d->fileInfoThread.setShowFiles(on);
-    d->showFiles = on;
+    if (on != d->showFiles) {
+        d->fileInfoThread.setShowFiles(on);
+        d->showFiles = on;
+        emit showFilesChanged();
+    }
 }
 
 /*!
@@ -693,8 +702,11 @@ void  QQuickFolderListModel::setShowDirs(bool on)
 {
     Q_D(QQuickFolderListModel);
 
-    d->fileInfoThread.setShowDirs(on);
-    d->showDirs = on;
+    if (on != d->showDirs) {
+        d->fileInfoThread.setShowDirs(on);
+        d->showDirs = on;
+        emit showDirsChanged();
+    }
 }
 
 /*!
@@ -716,8 +728,11 @@ void  QQuickFolderListModel::setShowDirsFirst(bool on)
 {
     Q_D(QQuickFolderListModel);
 
-    d->fileInfoThread.setShowDirsFirst(on);
-    d->showDirsFirst = on;
+    if (on != d->showDirsFirst) {
+       d->fileInfoThread.setShowDirsFirst(on);
+       d->showDirsFirst = on;
+       emit showDirsFirstChanged();
+    }
 }
 
 
@@ -729,7 +744,7 @@ void  QQuickFolderListModel::setShowDirsFirst(bool on)
 
     By default, this property is false.
 
-    \sa showDirs
+    \sa showDirs, showDot, showDotDot
 */
 bool QQuickFolderListModel::showDotAndDotDot() const
 {
@@ -744,6 +759,63 @@ void  QQuickFolderListModel::setShowDotAndDotDot(bool on)
     if (on != d->showDotAndDotDot) {
         d->fileInfoThread.setShowDotAndDotDot(on);
         d->showDotAndDotDot = on;
+        emit showDotAndDotDotChanged();
+    }
+}
+
+
+/*!
+    \qmlproperty bool FolderListModel::showDot
+    \since 6.12
+
+    If true, the current "." directory will be included in the model.
+
+    By default, this property is false.
+
+    \sa showDotAndDotDot, showDotDot
+*/
+bool QQuickFolderListModel::showDot() const
+{
+    Q_D(const QQuickFolderListModel);
+    return d->showDot;
+}
+
+void QQuickFolderListModel::setShowDot(bool on)
+{
+    Q_D(QQuickFolderListModel);
+
+    if (on != d->showDot) {
+        d->fileInfoThread.setShowDot(on);
+        d->showDot = on;
+        emit showDotChanged();
+    }
+}
+
+
+/*!
+    \qmlproperty bool FolderListModel::showDotDot
+    \since 6.12
+
+    If true, the ".." (parent) directory will be included in the model.
+
+    By default, this property is false.
+
+    \sa showDotAndDotDot, showDot
+*/
+bool QQuickFolderListModel::showDotDot() const
+{
+    Q_D(const QQuickFolderListModel);
+    return d->showDotDot;
+}
+
+void QQuickFolderListModel::setShowDotDot(bool on)
+{
+    Q_D(QQuickFolderListModel);
+
+    if (on != d->showDotDot) {
+        d->fileInfoThread.setShowDotDot(on);
+        d->showDotDot = on;
+        emit showDotDotChanged();
     }
 }
 
@@ -770,6 +842,7 @@ void QQuickFolderListModel::setShowHidden(bool on)
     if (on != d->showHidden) {
         d->fileInfoThread.setShowHidden(on);
         d->showHidden = on;
+        emit showHiddenChanged();
     }
 }
 
@@ -796,6 +869,7 @@ void QQuickFolderListModel::setShowOnlyReadable(bool on)
     if (on != d->showOnlyReadable) {
         d->fileInfoThread.setShowOnlyReadable(on);
         d->showOnlyReadable = on;
+        emit showOnlyReadableChanged();
     }
 }
 
@@ -821,6 +895,7 @@ void QQuickFolderListModel::setCaseSensitive(bool on)
     if (on != d->caseSensitive) {
         d->fileInfoThread.setCaseSensitive(on);
         d->caseSensitive = on;
+        emit caseSensitiveChanged();
     }
 }
 
@@ -884,6 +959,7 @@ void QQuickFolderListModel::setSortCaseSensitive(bool on)
     if (on != d->sortCaseSensitive) {
         d->sortCaseSensitive = on;
         d->updateSorting();
+        emit sortCaseSensitiveChanged();
     }
 }
 
@@ -896,7 +972,6 @@ void QQuickFolderListModel::setSortCaseSensitive(bool on)
     \list
         \li \c fileName (\c string)
         \li \c filePath (\c string)
-        \li \c fileURL (\c url) (since Qt 5.2; deprecated since Qt 5.15)
         \li \c fileUrl (\c url) (since Qt 5.15)
         \li \c fileBaseName (\c string)
         \li \c fileSuffix (\c string)
@@ -910,7 +985,7 @@ QVariant QQuickFolderListModel::get(int idx, const QString &property) const
 {
     int role = roleFromString(property);
     if (role >= 0 && idx >= 0)
-        return data(index(idx, 0), role);
+        return data(index(idx), role);
     else
         return QVariant();
 }
@@ -925,7 +1000,7 @@ QVariant QQuickFolderListModel::get(int idx, const QString &property) const
 int QQuickFolderListModel::indexOf(const QUrl &file) const
 {
     Q_D(const QQuickFolderListModel);
-    FileProperty toFind(QFileInfo(file.toLocalFile()));
+    FileProperty toFind(QFileInfo(QQmlFile::urlToLocalFileOrQrc(file)));
     return d->data.indexOf(toFind);
 }
 

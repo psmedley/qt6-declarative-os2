@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgrhishadereffectnode_p.h"
 #include "qsgdefaultrendercontext_p.h"
@@ -9,6 +10,9 @@
 #include <private/qsgplaintexture_p.h>
 #include <rhi/qshaderdescription.h>
 #include <QQmlFile>
+
+#include <QtGui/qquaternion.h>
+
 #include <QFile>
 #include <QFileSelector>
 #include <QMutexLocker>
@@ -175,8 +179,7 @@ struct QSGRhiShaderMaterialTypeCache
             : vs(vs),
               fs(fs)
         {
-            QtPrivate::QHashCombine hashGen;
-            hash = hashGen(hashGen(0, vs), fs);
+            hash = qHashMulti(0, vs, fs);
         }
         bool operator==(const Key &other) const {
             return vs == other.vs && fs == other.fs;
@@ -526,7 +529,7 @@ QSGRhiShaderEffectMaterial::~QSGRhiShaderEffectMaterial()
     delete m_dummyTexture;
 }
 
-static bool hasAtlasTexture(const QVector<QSGTextureProvider *> &textureProviders)
+static bool hasAtlasTexture(const QList<QSGTextureProvider *> &textureProviders)
 {
     for (QSGTextureProvider *tp : textureProviders) {
         if (tp && tp->texture() && tp->texture()->isAtlasTexture())
@@ -596,7 +599,7 @@ QSGMaterialShader *QSGRhiShaderEffectMaterial::createShader(QSGRendererInterface
 void QSGRhiShaderEffectMaterial::updateTextureProviders(bool layoutChange)
 {
     if (layoutChange) {
-        for (QSGTextureProvider *tp : m_textureProviders) {
+        for (QSGTextureProvider *tp : std::as_const(m_textureProviders)) {
             if (tp) {
                 QObject::disconnect(tp, SIGNAL(textureChanged()), m_node,
                                     SLOT(handleTextureChange()));
@@ -894,7 +897,7 @@ void QSGRhiShaderEffectNode::handleTextureProviderDestroyed(QObject *object)
 
 void QSGRhiShaderEffectNode::preprocess()
 {
-    for (QSGTextureProvider *tp : m_material.m_textureProviders) {
+    for (QSGTextureProvider *tp : std::as_const(m_material.m_textureProviders)) {
         if (tp) {
             if (QSGDynamicTexture *texture = qobject_cast<QSGDynamicTexture *>(tp->texture()))
                 texture->updateTexture();
@@ -968,13 +971,24 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
     const QShaderDescription desc = result->rhiShader.description();
 
     int ubufBinding = -1;
-    const QVector<QShaderDescription::UniformBlock> ubufs = desc.uniformBlocks();
+    const QList<QShaderDescription::UniformBlock> ubufs = desc.uniformBlocks();
     const int ubufCount = ubufs.size();
     for (int i = 0; i < ubufCount; ++i) {
         const QShaderDescription::UniformBlock &ubuf(ubufs[i]);
         if (ubufBinding == -1 && ubuf.binding >= 0) {
             ubufBinding = ubuf.binding;
             for (const QShaderDescription::BlockVariable &member : ubuf.members) {
+                // The uniform buffer is sized from ubuf.size, while the members are
+                // written at their own offsets, so a member reaching outside the block
+                // would have updateUniformData() write past the buffer.
+                if (member.offset < 0 || member.size < 0
+                    || member.offset > ubuf.size - member.size)
+                {
+                    qWarning("Uniform block member %s at offset %d with size %d does not fit "
+                             "the %d byte block; shader will not be used",
+                             member.name.constData(), member.offset, member.size, ubuf.size);
+                    return false;
+                }
                 ShaderInfo::Variable v;
                 v.type = ShaderInfo::Constant;
                 v.name = member.name;
@@ -988,7 +1002,7 @@ bool QSGRhiGuiThreadShaderEffectManager::reflect(ShaderInfo *result)
         }
     }
 
-    const QVector<QShaderDescription::InOutVariable> combinedImageSamplers = desc.combinedImageSamplers();
+    const QList<QShaderDescription::InOutVariable> combinedImageSamplers = desc.combinedImageSamplers();
     const int samplerCount = combinedImageSamplers.size();
     for (int i = 0; i < samplerCount; ++i) {
         const QShaderDescription::InOutVariable &combinedImageSampler(combinedImageSamplers[i]);

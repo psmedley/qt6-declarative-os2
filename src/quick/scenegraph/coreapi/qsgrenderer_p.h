@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGRENDERER_P_H
 #define QSGRENDERER_P_H
@@ -28,9 +29,6 @@ class QRhiRenderTarget;
 class QRhiCommandBuffer;
 class QRhiRenderPassDescriptor;
 class QRhiResourceUpdateBatch;
-
-Q_QUICK_EXPORT bool qsg_test_and_clear_fatal_render_error();
-Q_QUICK_EXPORT void qsg_set_fatal_renderer_error();
 
 class Q_QUICK_EXPORT QSGRenderTarget
 {

@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickabstractcolorpicker_p_p.h"
 
@@ -92,6 +93,13 @@ QQuickAbstractColorPicker::QQuickAbstractColorPicker(QQuickAbstractColorPickerPr
 {
     setActiveFocusOnTab(true);
     setAcceptedMouseButtons(Qt::LeftButton);
+}
+
+QQuickAbstractColorPicker::~QQuickAbstractColorPicker()
+{
+    Q_D(QQuickAbstractColorPicker);
+    if (d->m_handle)
+        d->removeImplicitSizeListener(d->m_handle);
 }
 
 QColor QQuickAbstractColorPicker::color() const

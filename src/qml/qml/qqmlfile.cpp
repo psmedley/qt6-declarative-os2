@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlfile.h"
 
@@ -22,16 +23,6 @@ QT_BEGIN_NAMESPACE
     and file names the way \l{QQmlEngine} does when loading content from them.
 */
 
-/*!
-    \internal
-
-    \enum QQmlFile::Status
-    \value Null
-    \value Ready
-    \value Error
-    \value Loading
- */
-
 static char qrc_string[] = "qrc";
 static char file_string[] = "file";
 
@@ -42,6 +33,25 @@ static char authority_externalstorage[] = "com.android.externalstorage.documents
 static char authority_downloads_documents[] = "com.android.providers.downloads.documents";
 static char authority_media_documents[] = "com.android.providers.media.documents";
 #endif
+
+#if defined(Q_OS_WASM)
+static char weblocalfile_string[] = "weblocalfile";
+#endif
+
+#if QT_DEPRECATED_SINCE(6, 11)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+
+/*!
+    \internal
+    \deprecated [6.11]
+
+    \enum QQmlFile::Status
+    \value Null
+    \value Ready
+    \value Error
+    \value Loading
+ */
 
 class QQmlFilePrivate;
 
@@ -88,7 +98,7 @@ public:
     QByteArray data;
 
     enum Error {
-        None, NotFound, CaseMismatch, Network
+        None, NotFound, Network
     };
 
     Error error;
@@ -272,6 +282,7 @@ QQmlFile::Status QQmlFile::status() const
 
 /*!
     \internal
+    \deprecated [6.11]
  */
 QString QQmlFile::error() const
 {
@@ -281,13 +292,12 @@ QString QQmlFile::error() const
         return QString();
     case QQmlFilePrivate::NotFound:
         return QLatin1String("File not found");
-    case QQmlFilePrivate::CaseMismatch:
-        return QLatin1String("File name case mismatch");
     }
 }
 
 /*!
     \internal
+    \deprecated [6.11]
  */
 qint64 QQmlFile::size() const
 {
@@ -296,6 +306,7 @@ qint64 QQmlFile::size() const
 
 /*!
     \internal
+    \deprecated [6.11]
  */
 const char *QQmlFile::data() const
 {
@@ -304,6 +315,7 @@ const char *QQmlFile::data() const
 
 /*!
     \internal
+    \deprecated [6.11]
  */
 QByteArray QQmlFile::dataByteArray() const
 {
@@ -312,6 +324,8 @@ QByteArray QQmlFile::dataByteArray() const
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Loads content at \a url using \a engine.
  */
 void QQmlFile::load(QQmlEngine *engine, const QUrl &url)
@@ -322,10 +336,9 @@ void QQmlFile::load(QQmlEngine *engine, const QUrl &url)
     d->url = url;
 
     if (isLocalFile(url)) {
-        QString lf = urlToLocalFileOrQrc(url);
-
-        if (!QQml_isFileCaseCorrect(lf)) {
-            d->error = QQmlFilePrivate::CaseMismatch;
+        const QString lf = urlToLocalFileOrQrc(url);
+        if (!QQmlTypeLoader::get(engine)->fileExists(lf)) {
+            d->error = QQmlFilePrivate::NotFound;
             return;
         }
 
@@ -346,6 +359,8 @@ void QQmlFile::load(QQmlEngine *engine, const QUrl &url)
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Loads content at \a url using \a engine.
  */
 void QQmlFile::load(QQmlEngine *engine, const QString &url)
@@ -357,10 +372,9 @@ void QQmlFile::load(QQmlEngine *engine, const QString &url)
     d->urlString = url;
 
     if (isLocalFile(url)) {
-        QString lf = urlToLocalFileOrQrc(url);
-
-        if (!QQml_isFileCaseCorrect(lf)) {
-            d->error = QQmlFilePrivate::CaseMismatch;
+        const QString lf = urlToLocalFileOrQrc(url);
+        if (!QQmlTypeLoader::get(engine)->fileExists(lf)) {
+            d->error = QQmlFilePrivate::NotFound;
             return;
         }
 
@@ -384,6 +398,7 @@ void QQmlFile::load(QQmlEngine *engine, const QString &url)
 
 /*!
     \internal
+    \deprecated [6.11]
  */
 void QQmlFile::clear()
 {
@@ -395,6 +410,8 @@ void QQmlFile::clear()
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Redirects to the other clear() overload, ignoring \a object.
  */
 void QQmlFile::clear(QObject *object)
@@ -421,6 +438,8 @@ bool QQmlFile::connectFinished(QObject *object, const char *method)
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Connects \a method of \a object to the internal \c{finished} signal.
  */
 bool QQmlFile::connectFinished(QObject *object, int method)
@@ -436,6 +455,8 @@ bool QQmlFile::connectFinished(QObject *object, int method)
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Connects \a method of \a object to the internal \c{downloadProgress} signal.
  */
 bool QQmlFile::connectDownloadProgress(QObject *object, const char *method)
@@ -451,6 +472,8 @@ bool QQmlFile::connectDownloadProgress(QObject *object, const char *method)
 
 /*!
     \internal
+    \deprecated [6.11]
+
     Connects \a method of \a object to the internal \c{downloadProgress} signal.
  */
 bool QQmlFile::connectDownloadProgress(QObject *object, int method)
@@ -464,6 +487,9 @@ bool QQmlFile::connectDownloadProgress(QObject *object, int method)
                                 object, method);
 }
 #endif
+
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(6, 11)
 
 /*!
     \internal
@@ -487,6 +513,11 @@ bool QQmlFile::isSynchronous(const QUrl &url)
     } else if (scheme.length() == 6 && 0 == scheme.compare(QLatin1String(assets_string), Qt::CaseInsensitive)) {
         return true;
     } else if (scheme.length() == 7 && 0 == scheme.compare(QLatin1String(content_string), Qt::CaseInsensitive)) {
+        return true;
+#endif
+
+#if defined(Q_OS_WASM)
+    } else if (scheme.length() == 12 && 0 == scheme.compare(QLatin1String(weblocalfile_string), Qt::CaseInsensitive)) {
         return true;
 #endif
 
@@ -538,17 +569,29 @@ bool QQmlFile::isSynchronous(const QString &url)
     }
 #endif
 
+#if defined(Q_OS_WASM)
+    else if (f == QLatin1Char('w') || f == QLatin1Char('W')) {
+        return url.length() >= 14 /* weblocalfile:/ */ &&
+               url.startsWith(QLatin1String(weblocalfile_string), Qt::CaseInsensitive) &&
+               url[12] == QLatin1Char(':') && url[13] == QLatin1Char('/');
+    }
+#endif
+
     return false;
 }
 
 #if defined(Q_OS_ANDROID)
-static bool hasLocalContentAuthority(const QUrl &url)
+static bool isLocalContentAuthority(QStringView authority)
 {
-    const QString authority = url.authority();
     return authority.isEmpty()
             || authority == QLatin1String(authority_externalstorage)
             || authority == QLatin1String(authority_downloads_documents)
             || authority == QLatin1String(authority_media_documents);
+}
+
+static bool hasLocalContentAuthority(const QUrl &url)
+{
+    return isLocalContentAuthority(url.authority());
 }
 #endif
 
@@ -580,6 +623,12 @@ bool QQmlFile::isLocalFile(const QUrl &url)
     if (scheme.length() == 7
          && scheme.startsWith(QLatin1String(content_string), Qt::CaseInsensitive))
         return hasLocalContentAuthority(url);
+#endif
+
+#if defined(Q_OS_WASM)
+    if (scheme.length() == 12
+         && scheme.startsWith(QLatin1String(weblocalfile_string), Qt::CaseInsensitive))
+        return true;
 #endif
 
     return false;
@@ -625,10 +674,10 @@ static bool hasLocalContentAuthority(const QString &url, qsizetype schemeLength)
     if (offset == -1)
         return true; // no authority is a local authority.
 
-    const QString authorityAndPath = url.sliced(offset);
-    return authorityAndPath.startsWith(QLatin1String(authority_externalstorage))
-         || authorityAndPath.startsWith(QLatin1String(authority_downloads_documents))
-         || authorityAndPath.startsWith(QLatin1String(authority_media_documents));
+    const qsizetype slash = url.indexOf(QLatin1Char('/'), offset);
+    const qsizetype end = slash == -1 ? url.size() : slash;
+    const QStringView authority = QStringView(url).sliced(offset, end - offset);
+    return isLocalContentAuthority(authority);
 }
 
 #endif
@@ -672,6 +721,11 @@ bool QQmlFile::isLocalFile(const QString &url)
         return hasScheme(url, content_string, strlen(content_string))
             && hasLocalContentAuthority(url, strlen(content_string));
 #endif
+#if defined(Q_OS_WASM)
+    case 'w':
+    case 'W':
+        return hasScheme(url, weblocalfile_string, strlen(weblocalfile_string));
+#endif
     default:
         break;
     }
@@ -694,14 +748,20 @@ QString QQmlFile::urlToLocalFileOrQrc(const QUrl& url)
     }
 
 #if defined(Q_OS_ANDROID)
-    if (url.scheme().compare(QLatin1String("assets"), Qt::CaseInsensitive) == 0)
+    if (url.scheme().compare(QLatin1String(assets_string), Qt::CaseInsensitive) == 0)
         return url.authority().isEmpty() ? url.toString() : QString();
-    if (url.scheme().compare(QLatin1String("content"), Qt::CaseInsensitive) == 0) {
+    if (url.scheme().compare(QLatin1String(content_string), Qt::CaseInsensitive) == 0) {
         if (hasLocalContentAuthority(url))
             return url.toString();
         return QString();
     }
 #endif
+
+#if defined(Q_OS_WASM)
+    if (url.scheme().compare(QLatin1String("weblocalfile"), Qt::CaseInsensitive) == 0)
+        return url.toString();
+#endif
+
     return url.toLocalFile();
 }
 
@@ -760,10 +820,15 @@ QString QQmlFile::urlToLocalFileOrQrc(const QString& url)
     }
 
 #if defined(Q_OS_ANDROID)
-    if (url.startsWith(QLatin1String("assets:"), Qt::CaseInsensitive))
-        return isDoubleSlashed(url, strlen("assets:")) ? QString() : url;
+    if (hasScheme(url, assets_string, strlen(assets_string)))
+        return authorityOffset(url, strlen(assets_string)) == -1 ? url : QString();
     if (hasScheme(url, content_string, strlen(content_string)))
         return hasLocalContentAuthority(url, strlen(content_string)) ? url : QString();
+#endif
+
+#if defined(Q_OS_WASM)
+    if (hasScheme(url, weblocalfile_string, strlen(weblocalfile_string)))
+        return url;
 #endif
 
     return toLocalFile(url);

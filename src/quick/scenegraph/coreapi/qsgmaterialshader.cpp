@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgmaterial.h"
 #include "qsgrenderer_p.h"
@@ -210,7 +211,6 @@ void QSGMaterialShaderPrivate::prepare(QShader::Variant vertexShaderVariant)
     for (QShader::Stage stage : { QShader::VertexStage, QShader::FragmentStage }) {
         auto it = shaderFileNames.constFind(stage);
         if (it != shaderFileNames.cend()) {
-            QString fn = *it;
             const QShader s = loadShader(*it);
             if (!s.isValid())
                 continue;
@@ -227,7 +227,7 @@ void QSGMaterialShaderPrivate::prepare(QShader::Variant vertexShaderVariant)
         vsIt->qt_order_attrib_location = -1;
 
         const QShaderDescription desc = vsIt->shader.description();
-        const QVector<QShaderDescription::InOutVariable> vertexInputs = desc.inputVariables();
+        const QList<QShaderDescription::InOutVariable> vertexInputs = desc.inputVariables();
         for (const QShaderDescription::InOutVariable &v : vertexInputs) {
             if (vertexShaderVariant == QShader::BatchableVertexShader
                 && v.name == QByteArrayLiteral("_qt_order")) {
@@ -246,7 +246,7 @@ void QSGMaterialShaderPrivate::prepare(QShader::Variant vertexShaderVariant)
     for (auto it = shaders.begin(); it != shaders.end(); ++it) {
         const QShaderDescription desc = it->shader.description();
 
-        const QVector<QShaderDescription::UniformBlock> ubufs = desc.uniformBlocks();
+        const QList<QShaderDescription::UniformBlock> ubufs = desc.uniformBlocks();
         const int ubufCount = ubufs.size();
         if (ubufCount > 1) {
             qWarning("Multiple uniform blocks found in shader. "
@@ -254,6 +254,13 @@ void QSGMaterialShaderPrivate::prepare(QShader::Variant vertexShaderVariant)
         }
         for (int i = 0; i < ubufCount; ++i) {
             const QShaderDescription::UniformBlock &ubuf(ubufs[i]);
+            if (ubuf.size <= 0) {
+                // QByteArray::fill() would treat a negative size as "keep the current
+                // size", leaving a buffer that every member offset then writes past.
+                qWarning("Uniform block %s has an invalid size (%d); ignored",
+                         ubuf.blockName.constData(), ubuf.size);
+                continue;
+            }
             if (ubufBinding == -1 && ubuf.binding >= 0) {
                 ubufBinding = ubuf.binding;
                 ubufSize = ubuf.size;
@@ -271,7 +278,7 @@ void QSGMaterialShaderPrivate::prepare(QShader::Variant vertexShaderVariant)
             }
         }
 
-        const QVector<QShaderDescription::InOutVariable> imageSamplers = desc.combinedImageSamplers();
+        const QList<QShaderDescription::InOutVariable> imageSamplers = desc.combinedImageSamplers();
         const int imageSamplersCount = imageSamplers.size();
         for (int i = 0; i < imageSamplersCount; ++i) {
             const QShaderDescription::InOutVariable &var(imageSamplers[i]);
@@ -353,6 +360,11 @@ void QSGMaterialShader::setShader(Stage stage, const QShader &shader)
     Sets the \a filename for the shader for the specified \a stage.
 
     The file is expected to contain a serialized QShader.
+
+    \warning Shaders, including \c{.qsb} files, are assumed to be trusted
+    content. Application developers are advised to carefully consider the
+    potential implications before allowing the loading of user-provided content
+    that is not part of the application.
  */
 void QSGMaterialShader::setShaderFileName(Stage stage, const QString &filename)
 {
@@ -366,11 +378,16 @@ void QSGMaterialShader::setShaderFileName(Stage stage, const QString &filename)
     The file is expected to contain a serialized QShader.
 
     This overload is used when enabling \l{QSGMaterial::viewCount()}{multiview}
-    rendering, in particular when the \l{Qt Shader Tools Build System
-    Integration}{build system's MULTIVIEW convenience option} is used.
+    rendering, in particular when the \l{qt_add_shaders}
+    {build system's MULTIVIEW convenience option} is used.
 
     \a viewCount should be 2, 3, or 4. The \a filename is adjusted automatically
     based on this.
+
+    \warning Shaders, including \c{.qsb} files, are assumed to be trusted
+    content. Application developers are advised to carefully consider the
+    potential implications before allowing the loading of user-provided content
+    that is not part of the application.
 
     \since 6.8
  */

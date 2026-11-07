@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGDISTANCEFIELDGLYPHNODE_P_H
 #define QSGDISTANCEFIELDGLYPHNODE_P_H
@@ -21,6 +22,8 @@
 #include <QtQuick/private/qquicktext_p.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcSgText)
 
 class QSGRenderContext;
 class QSGDistanceFieldTextMaterial;
@@ -44,9 +47,11 @@ public:
     void update() override;
     void preprocess() override;
 
-    void invalidateGlyphs(const QVector<quint32> &glyphs) override;
+    void invalidateGlyphs(const QList<quint32> &glyphs) override;
 
     void updateGeometry();
+
+    void recycle() override;
 
 private:
     enum DistanceFieldGlyphNodeType {
@@ -54,6 +59,7 @@ private:
         SubGlyphNode
     };
 
+    void cleanup();
     void setGlyphNodeType(DistanceFieldGlyphNodeType type) { m_glyphNodeType = type; }
     void updateMaterial();
 
@@ -75,8 +81,8 @@ private:
     int m_renderTypeQuality;
 
     struct GlyphInfo {
-        QVector<quint32> indexes;
-        QVector<QPointF> positions;
+        QList<quint32> indexes;
+        QList<QPointF> positions;
     };
     QSet<quint32> m_allGlyphIndexesLookup;
     // m_glyphs holds pointers to the GlyphInfo.indexes and positions arrays, so we need to hold on to them
@@ -84,8 +90,6 @@ private:
 
     uint m_dirtyGeometry: 1;
     uint m_dirtyMaterial: 1;
-
-    static qint64 m_totalAllocation; // all SG glyph vertices and indices; only for qCDebug metrics
 };
 
 QT_END_NAMESPACE

@@ -17,6 +17,10 @@
 
 #include <QtQuickTemplates2/private/qquickapplicationwindow_p.h>
 
+#include <QtTest/qtest.h>
+#include <QtTest/private/qtestresult_p.h>
+#include <QtQml/qqmlfileselector.h>
+#include <QtQuickControls2/qquickstyle.h>
 #include <QtQuickTest/QtQuickTest>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
@@ -24,7 +28,7 @@
 // We need these for Windows, because FolderListModel returns a lowercase drive letter; e.g.:
 // "file:///c:/blah.txt", whereas other API returns "file:///C:/blah.txt".
 #define COMPARE_URL(url1, url2) \
-    QCOMPARE(QFileInfo(url1.toLocalFile()).absoluteFilePath(), QFileInfo(url2.toLocalFile()).absoluteFilePath());
+    QCOMPARE(QFileInfo(url1.toLocalFile()).canonicalFilePath(), QFileInfo(url2.toLocalFile()).canonicalFilePath());
 
 // Store a copy of the arguments in case { ... } list initializer syntax is used as an argument,
 // which could result in two different lists being created and passed to std::transform()
@@ -34,11 +38,11 @@
     const QList<QUrl> actualUrlsCopy = actualUrls; \
     QList<QString> actualPaths; \
     std::transform(actualUrlsCopy.begin(), actualUrlsCopy.end(), std::back_insert_iterator(actualPaths), \
-        [](const QUrl &url) { return QFileInfo(url.toLocalFile()).absoluteFilePath(); }); \
+        [](const QUrl &url) { return QFileInfo(url.toLocalFile()).canonicalFilePath(); }); \
     const QList<QUrl> expectedUrlsCopy = expectedUrls; \
     QList<QString> expectedPaths; \
     std::transform(expectedUrlsCopy.begin(), expectedUrlsCopy.end(), std::back_insert_iterator(expectedPaths), \
-        [](const QUrl &url) { return QFileInfo(url.toLocalFile()).absoluteFilePath(); }); \
+        [](const QUrl &url) { return QFileInfo(url.toLocalFile()).canonicalFilePath(); }); \
     QCOMPARE(actualPaths, expectedPaths); \
 }
 
@@ -80,6 +84,12 @@ public:
         if (!appHelper.ready)
             return;
 
+        // The QQmlFileSelector constructor will append itself to the typeloader's
+        // QQmlTypeLoaderConfiguredData::urlInterceptors list.
+        // QQmlApplicationEnginePrivate::init() does the same thing for normal quick applications,
+        // but we need to do it again here, to enable file selector functionality for dialog tests.
+        fileSelector = new QQmlFileSelector(&appHelper.engine);
+
         dialog = appHelper.window->property("dialog").value<DialogType*>();
         if (!dialog) {
             appHelper.errorMessage = "\"dialog\" property is not valid";
@@ -88,6 +98,11 @@ public:
 
         appHelper.window->show();
         appHelper.window->requestActivate();
+    }
+
+    ~DialogTestHelper()
+    {
+        dialog->close();
     }
 
     Q_REQUIRED_RESULT bool isWindowInitialized() const
@@ -165,6 +180,7 @@ public:
     QQuickVisualTestUtils::QQuickApplicationHelper appHelper;
     DialogType *dialog = nullptr;
     QuickDialogType *quickDialog = nullptr;
+    QQmlFileSelector *fileSelector = nullptr;
 };
 
 bool verifyFileDialogDelegates(QQuickListView *fileDialogListView, const QStringList &expectedFiles, QString &failureMessage);
@@ -175,6 +191,32 @@ QQuickAbstractButton *findDialogButton(QQuickDialogButtonBox *box, const QString
 
 void enterText(QWindow *window, const QString &textToEnter);
 }
+
+#define QTEST_QUICKDIALOGS_MAIN(TestCase) \
+int main(int argc, char *argv[]) \
+{ \
+    qputenv("QML_NO_TOUCH_COMPRESSION", "1"); \
+    QGuiApplication app(argc, argv); \
+    TestCase tc; \
+    QTEST_SET_MAIN_SOURCE_PATH \
+    int res = 0; \
+    QTest::qInit(&tc, argc, argv); \
+    const QByteArray testObjectName = QTestResult::currentTestObjectName(); \
+    QByteArray testName; \
+    const QStringList allStyles = {"Basic", "Fusion", "Imagine", "Material", "Universal"}; \
+    const QStringList styles = qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_STYLE") ? QStringList{qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE")} : allStyles; \
+    for (const QString &style : styles) { \
+        qmlClearTypeRegistrations(); \
+        QQuickStyle::setStyle(style); \
+        testName = testObjectName + "::" + style.toLocal8Bit(); \
+        QTestResult::setCurrentTestObject(testName); \
+        res += QTest::qRun(); \
+    } \
+    QTestResult::setCurrentTestObject(testObjectName); \
+    QTest::qCleanup(); \
+    return res; \
+}
+
 
 QT_END_NAMESPACE
 

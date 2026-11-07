@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4vme_moth_p.h"
 
@@ -122,6 +123,7 @@ static int qt_v4BreakpointCount = 0;
 static bool qt_v4IsDebugging = false;
 static bool qt_v4IsStepping = false;
 
+namespace {
 class Breakpoint
 {
 public:
@@ -139,10 +141,10 @@ public:
     QString condition;     // optional
 };
 
-static QVector<Breakpoint> qt_v4Breakpoints;
-static Breakpoint qt_v4LastStop;
+QList<Breakpoint> qt_v4Breakpoints;
+Breakpoint qt_v4LastStop;
 
-static void qt_v4TriggerBreakpoint(const Breakpoint &bp, QV4::Function *function)
+void qt_v4TriggerBreakpoint(const Breakpoint &bp, QV4::Function *function)
 {
     qt_v4LastStop = bp;
 
@@ -154,6 +156,8 @@ static void qt_v4TriggerBreakpoint(const Breakpoint &bp, QV4::Function *function
         functionNameUtf8 = functionName->toQString().toUtf8();
 
     qt_v4TriggeredBreakpointHook(); // Trigger Breakpoint.
+}
+
 }
 
 int qt_v4DebuggerHook(const char *json)
@@ -395,6 +399,7 @@ static bool compareEqualInt(QV4::Value &accumulator, QV4::Value lhs, int rhs)
         } \
     } while (false)
 
+namespace {
 struct AOTCompiledMetaMethod
 {
 public:
@@ -409,6 +414,7 @@ public:
 private:
     const Function::AOTCompiledFunction *aotCompiledFunction = nullptr;
 };
+}
 
 void VME::exec(MetaTypesStackFrame *frame, ExecutionEngine *engine)
 {
@@ -599,14 +605,14 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
     MOTH_BEGIN_INSTR(LoadGlobalLookup)
         STORE_IP();
         QV4::Lookup *l = function->executableCompilationUnit()->runtimeLookups + index;
-        acc = l->globalGetter(l, engine);
+        acc = l->globalGetter(engine);
         CHECK_EXCEPTION;
     MOTH_END_INSTR(LoadGlobalLookup)
 
     MOTH_BEGIN_INSTR(LoadQmlContextPropertyLookup)
         STORE_IP();
         QV4::Lookup *l = function->executableCompilationUnit()->runtimeLookups + index;
-        acc = l->qmlContextPropertyGetter(l, engine, nullptr);
+        acc = l->contextGetter(engine, nullptr);
         CHECK_EXCEPTION;
     MOTH_END_INSTR(LoadQmlContextPropertyLookup)
 
@@ -664,14 +670,17 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
         QV4::Lookup *l = function->executableCompilationUnit()->runtimeLookups + index;
 
         if (accumulator.isNullOrUndefined()) {
-            QString message = QStringLiteral("Cannot read property '%1' of %2")
-                    .arg(engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[l->nameIndex]->toQString())
-                    .arg(accumulator.toQStringNoThrow());
+            const QString message =
+                    QStringLiteral("Cannot read property '%1' of %2")
+                            .arg(engine->currentStackFrame->v4Function->compilationUnit
+                                         ->runtimeStrings[l->nameIndex]
+                                         ->toQString(),
+                                 accumulator.toQStringNoThrow());
             acc = engine->throwTypeError(message);
             goto handleUnwind;
         }
 
-        acc = l->getter(l, engine, accumulator);
+        acc = l->getter(engine, accumulator);
         CHECK_EXCEPTION;
     MOTH_END_INSTR(GetLookup)
 
@@ -684,7 +693,7 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
         if (accumulator.isNullOrUndefined()) {
             code += offset;
         } else {
-            acc = l->getter(l, engine, accumulator);
+            acc = l->getter(engine, accumulator);
         }
     CHECK_EXCEPTION;
     MOTH_END_INSTR(GetOptionalLookup)
@@ -700,7 +709,7 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
         STORE_IP();
         STORE_ACC();
         QV4::Lookup *l = function->executableCompilationUnit()->runtimeLookups + index;
-        if (!l->setter(l, engine, STACK_VALUE(base), accumulator) && function->isStrict())
+        if (!l->setter(engine, STACK_VALUE(base), accumulator) && function->isStrict())
             engine->throwTypeError();
         CHECK_EXCEPTION;
     MOTH_END_INSTR(SetLookup)
@@ -784,25 +793,30 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
         Lookup *l = function->executableCompilationUnit()->runtimeLookups + lookupIndex;
 
         if (STACK_VALUE(base).isNullOrUndefined()) {
-            QString message = QStringLiteral("Cannot call method '%1' of %2")
-                    .arg(engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[l->nameIndex]->toQString())
-                    .arg(STACK_VALUE(base).toQStringNoThrow());
+            const QString message =
+                    QStringLiteral("Cannot call method '%1' of %2")
+                            .arg(engine->currentStackFrame->v4Function->compilationUnit
+                                         ->runtimeStrings[l->nameIndex]
+                                         ->toQString(),
+                                 STACK_VALUE(base).toQStringNoThrow());
             acc = engine->throwTypeError(message);
             goto handleUnwind;
         }
 
         // ok to have the value on the stack here
-        Value f = Value::fromReturnedValue(l->getter(l, engine, STACK_VALUE(base)));
+        Value f = Value::fromReturnedValue(l->getter(engine, STACK_VALUE(base)));
 
         if (Q_LIKELY(f.isFunctionObject())) {
             acc = static_cast<FunctionObject &>(f).call(stack + base, stack + argv, argc);
         } else if (QmlSignalHandler *handler = f.as<QmlSignalHandler>()) {
             acc = handler->call(stack + base, stack + argv, argc);
         } else {
-            const QString message = QStringLiteral("Property '%1' of object %2 is not a function")
-                    .arg(engine->currentStackFrame->v4Function->compilationUnit
-                                                   ->runtimeStrings[l->nameIndex]->toQString())
-                    .arg(STACK_VALUE(base).toQStringNoThrow());
+            const QString message =
+                    QStringLiteral("Property '%1' of object %2 is not a function")
+                            .arg(engine->currentStackFrame->v4Function->compilationUnit
+                                         ->runtimeStrings[l->nameIndex]
+                                         ->toQString(),
+                                 STACK_VALUE(base).toQStringNoThrow());
             acc = engine->throwTypeError(message);
             goto handleUnwind;
         }
@@ -903,7 +917,7 @@ QV4::ReturnedValue VME::interpret(JSTypesStackFrame *frame, ExecutionEngine *eng
         acc = engine->hasException ? engine->exceptionValue->asReturnedValue()
                                    : Value::emptyValue().asReturnedValue();
         engine->hasException = false;
-    MOTH_END_INSTR(HasException)
+    MOTH_END_INSTR(GetException)
 
     MOTH_BEGIN_INSTR(SetException)
         if (acc != Value::emptyValue().asReturnedValue()) {

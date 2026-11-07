@@ -33,18 +33,6 @@
     \title Felgo QML Hot Reload Tool
 */
 /*!
-    \externalpage https://doc.qt.io/qtcreator/creator-debugging-qml.html
-    \title Qt Creator: QML Debugger
-*/
-/*!
-    \externalpage https://doc.qt.io/qtcreator/creator-qml-performance-monitor.html
-    \title Qt Creator: QML Profiler
-*/
-/*!
-    \externalpage https://doc.qt.io/qtcreator/creator-live-preview-desktop.html
-    \title Qt Creator: QML Preview On Desktop
-*/
-/*!
     \externalpage https://fontawesome.com/
     \title Font Awesome
 */
@@ -86,10 +74,36 @@
     \title Android: Activity
 */
 /*!
+    \externalpage https://developer.android.com/reference/android/view/View#event-handling-and-threading
+    \title Android: Event Handling and Threading
+*/
+/*!
     \externalpage https://kotlinlang.org/api/latest/jvm/stdlib/kotlin/-int/
     \title Kotlin: Int
 */
 /*!
     \externalpage https://kotlinlang.org/api/latest/jvm/stdlib/kotlin/-string/
     \title Kotlin: String
+*/
+/*!
+    \externalpage https://developer.android.com/reference/android/view/View#event-handling-and-threading
+    \title Android: Event Handling and Threading
+*/
+/*!
+    \externalpage https://developer.android.com/reference/android/widget/FrameLayout
+    \title Android: FrameLayout
+*/
+/*!
+    \externalpage https://developer.android.com/reference/android/widget/FrameLayout.LayoutParams
+    \title Android: FrameLayout.LayoutParams
+*/
+
+/*!
+    \externalpage https://doc-snapshots.qt.io/qtbridges-dev/qtbridges-csharp-index.html
+    \title Qt Bridges for C#
+*/
+
+/*!
+    \externalpage https://doc-snapshots.qt.io/qtbridges-dev/qtbridges-rust-index.html
+    \title Qt Bridges for Rust
 */

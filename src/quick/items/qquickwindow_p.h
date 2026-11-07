@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKWINDOW_P_H
 #define QQUICKWINDOW_P_H
@@ -142,13 +143,16 @@ public:
     QQuickItem *cursorItem = nullptr;
     QQuickPointerHandler *cursorHandler = nullptr;
     void updateCursor(const QPointF &scenePos, QQuickItem *rootItem = nullptr);
-    QPair<QQuickItem*, QQuickPointerHandler*> findCursorItemAndHandler(QQuickItem *item, const QPointF &scenePos) const;
+    std::pair<QQuickItem*, QQuickPointerHandler*> findCursorItemAndHandler(QQuickItem *item,
+            const QPointF &localPos, const QPointF &scenePos) const;
 #endif
 
     void clearFocusObject() override;
     void setFocusToTarget(FocusTarget, Qt::FocusReason) override;
 
-    void dirtyItem(QQuickItem *);
+    void maybeSynthesizeContextMenuEvent(QMouseEvent *event) override;
+
+    void dirtyItem(QQuickItem *item, bool maySkipUpdate = false);
     void cleanup(QSGNode *);
 
     void ensureCustomRenderTarget();
@@ -188,10 +192,11 @@ public:
     QQuickItem *dirtyItemList;
     QList<QSGNode *> cleanupNodeList;
 
-    QVector<QQuickItem *> itemsToPolish;
+    QList<QQuickItem *> itemsToPolish;
 
     qreal lastReportedItemDevicePixelRatio;
     QMetaObject::Connection physicalDpiChangedConnection;
+    std::array<QMetaObject::Connection, 7> connections;
 
     void updateDirtyNodes();
     void cleanupNodes();
@@ -242,15 +247,6 @@ public:
     static bool defaultAlphaBuffer;
     static QQuickWindow::TextRenderType textRenderType;
 
-    // vvv currently in use in Controls 2; TODO remove
-    static bool dragOverThreshold(qreal d, Qt::Axis axis, const QEventPoint *tp, int startDragThreshold = -1)
-    { return QQuickDeliveryAgentPrivate::dragOverThreshold(d, axis, *tp, startDragThreshold); }
-    static bool dragOverThreshold(qreal d, Qt::Axis axis, QMouseEvent *event, int startDragThreshold = -1)
-    { return QQuickDeliveryAgentPrivate::dragOverThreshold(d, axis, event, startDragThreshold); }
-    void clearFocusInScope(QQuickItem *scope, QQuickItem *item, Qt::FocusReason reason)
-    { deliveryAgentPrivate()->clearFocusInScope(scope, item, reason); }
-    // ^^^ currently in use in Controls 2; TODO remove
-
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
     static qsizetype data_count(QQmlListProperty<QObject> *);
@@ -286,6 +282,7 @@ public:
     uint updatesEnabled : 1;
     bool pendingFontUpdate = false;
     bool windowEventDispatch = false;
+    bool rmbContextMenuEventEnabled = false; // true after right-mouse press, false when menu opened
     QPointer<QQuickPalette> windowPaletteRef;
 
 private:

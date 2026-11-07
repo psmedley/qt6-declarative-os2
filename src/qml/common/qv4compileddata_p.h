@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4COMPILEDDATA_P_H
 #define QV4COMPILEDDATA_P_H
 
@@ -25,7 +26,8 @@
 #include <QtCore/qstringlist.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qvector.h>
-#include <QtCore/qversionnumber.h>
+#include <QtCore/qtyperevision.h>
+#include <QtCore/qxpfunctional.h>
 
 #if QT_CONFIG(temporaryfile)
 #include <QtCore/qsavefile.h>
@@ -51,7 +53,8 @@ QT_BEGIN_NAMESPACE
 // Also change the comment behind the number to describe the latest change. This has the added
 // benefit that if another patch changes the version too, it will result in a merge conflict, and
 // not get removed silently.
-#define QV4_DATA_STRUCTURE_VERSION 0x42 // Change metatype computation of AOT-compiled functions
+// Also update the comparison functions in qqmlpreviewdiff.cpp when you change the data structures.
+#define QV4_DATA_STRUCTURE_VERSION 0x4f // Add sourceChecksum for content-based cache validation
 
 class QIODevice;
 class QQmlTypeNameCache;
@@ -82,7 +85,7 @@ class ResolvedTypeReference;
 namespace CompiledData {
 
 // index is per-object binding index
-using BindingPropertyData = QVector<const QQmlPropertyData *>;
+using BindingPropertyData = QList<const QQmlPropertyData *>;
 
 // map from name index
 struct ResolvedTypeReferenceMap: public QHash<int, ResolvedTypeReference*>
@@ -103,9 +106,26 @@ struct TableIterator
     const Container *container;
     int index;
 
-    const ItemType *operator->() { return (container->*IndexedGetter)(index); }
-    ItemType operator*() {return *operator->();}
-    void operator++() { ++index; }
+    const ItemType *operator->() const { return (container->*IndexedGetter)(index); }
+    ItemType operator*() const {return *operator->();}
+
+    TableIterator &operator++()
+    {
+        ++index;
+        return *this;
+    }
+
+    TableIterator operator++(int)
+    {
+        TableIterator result(container, index);
+        ++index;
+        return result;
+    }
+
+    TableIterator operator+(int offset) const { return TableIterator(container, index + offset); }
+    TableIterator operator-(int offset) const { return TableIterator(container, index - offset); }
+    int operator-(TableIterator other) const { return index - other.index; }
+
     bool operator==(const TableIterator &rhs) const { return index == rhs.index; }
     bool operator!=(const TableIterator &rhs) const { return index != rhs.index; }
 };
@@ -132,10 +152,11 @@ struct Location
         return QT_PREPEND_NAMESPACE(qHash)(location.m_data.data(), seed);
     }
 
-    friend bool operator==(const Location &a, const Location &b)
+    friend bool comparesEqual(const Location &a, const Location &b) noexcept
     {
         return a.m_data.data()== b.m_data.data();
     }
+    Q_DECLARE_EQUALITY_COMPARABLE(Location)
 
     void set(quint32 line, quint32 column)
     {
@@ -156,7 +177,7 @@ static_assert(sizeof(Location) == 4, "Location structure needs to have the expec
 
 struct RegExp
 {
-    enum Flags : unsigned int {
+    enum Flag : quint8 {
         RegExp_NoFlags    = 0x0,
         RegExp_Global     = 0x01,
         RegExp_IgnoreCase = 0x02,
@@ -164,6 +185,8 @@ struct RegExp
         RegExp_Sticky     = 0x08,
         RegExp_Unicode    = 0x10,
     };
+
+    Q_DECLARE_FLAGS(Flags, Flag);
 
     RegExp() : m_data(QSpecialIntegerBitfieldZero) {}
     RegExp(quint32 flags, quint32 stringIndex) : RegExp()
@@ -429,11 +452,10 @@ struct Function
     const char *code() const { return reinterpret_cast<const char *>(this) + codeOffset; }
 
     static int calculateSize(
-            int nFormals, int nLocals, int nLinesAndStatements, int nInnerfunctions,
-            int labelInfoSize, int codeSize)
+            int nFormals, int nLocals, int nLinesAndStatements, int labelInfoSize, int codeSize)
     {
-        int trailingData = nFormals * sizeof(Parameter)
-                + (nLocals + nInnerfunctions  + labelInfoSize) * sizeof (quint32)
+        const size_t trailingData = nFormals * sizeof(Parameter)
+                + (nLocals + labelInfoSize) * sizeof (quint32)
                 + nLinesAndStatements * sizeof(CodeOffsetToLineAndStatement);
         size_t size = align(align(sizeof(Function)) + size_t(trailingData)) + align(codeSize);
         Q_ASSERT(size < INT_MAX);
@@ -590,6 +612,8 @@ struct Binding
     union {
         bool b;
         quint32_le constantValueIndex;
+        qint32_le resolvedEnumValue;    // used when Type_Number and IsResolvedEnum: enum values are
+                                        // integers and stored inline rather than in the constant table
         quint32_le compiledScriptIndex; // used when Type_Script
         quint32_le objectIndex;
         quint32_le translationDataIndex; // used when Type_Translation
@@ -732,9 +756,8 @@ struct EnumValue
 {
     quint32_le nameIndex;
     qint32_le value;
-    Location location;
 };
-static_assert(sizeof(EnumValue) == 12, "EnumValue structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
+static_assert(sizeof(EnumValue) == 8, "EnumValue structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
 struct Enum
 {
@@ -785,9 +808,34 @@ struct Signal
 };
 static_assert(sizeof(Signal) == 12, "Signal structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
+/*
+ * We aim to minimize the size of a struct as much as possible, while preserving at least 28 bits
+ * for each index.
+ *
+ * Note that Name and Type indices are provided by StringTableGenerator, containing a hashmap
+ * (and a list) of unique strings within one Compilation Unit. It sounds rather unrealistic to have
+ * 2^28 (260+ million) unique strings within 1 CU (even if it's some form of global registry), not
+ * to mention the amount of memory needed to maintain such a StringTableGenerator.
+ * Therefore, after some preliminary analysis, it seems that even 20 bits
+ * should be a rather conservative cap.
+ *
+ * However it doesn't seem to easily provide many benefits atm other than better (logically) grouped
+ * unions like, let's say nameIndexAndAttributes.
+ *
+ * Atm 32-bit member nameIndexAndVirtSpecifiers looks smth like this:
+ *
+ *          NameIndexField        IsVirtualField IsOverrideField IsFinalField
+ * |10100000101000111000001110000|     0        |      1        |     0      |
+ *
+ */
 struct Property
 {
 private:
+    using NameIndexField = quint32_le_bitfield_member<0, 29>;
+    using IsVirtualField = quint32_le_bitfield_member<29, 1>;
+    using IsOverrideField = quint32_le_bitfield_member<30, 1>;
+    using IsFinalField = quint32_le_bitfield_member<31, 1>;
+
     using CommonTypeOrTypeNameIndexField = quint32_le_bitfield_member<0, 28>;
     using IsRequiredField = quint32_le_bitfield_member<28, 1>;
     using IsCommonTypeField = quint32_le_bitfield_member<29, 1>;
@@ -795,7 +843,8 @@ private:
     using IsReadOnlyField = quint32_le_bitfield_member<31, 1>;
 
 public:
-    quint32_le nameIndex;
+    quint32_le_bitfield_union<NameIndexField, IsVirtualField, IsOverrideField, IsFinalField>
+            nameIndexAndVirtSpecifiers;
     quint32_le_bitfield_union<
             CommonTypeOrTypeNameIndexField,
             IsRequiredField,
@@ -804,6 +853,24 @@ public:
             IsReadOnlyField> data;
     Location location;
 
+    quint32 nameIndex() const { return nameIndexAndVirtSpecifiers.get<NameIndexField>(); }
+    void setNameIndex(int nameIndex) { nameIndexAndVirtSpecifiers.set<NameIndexField>(nameIndex); }
+
+    bool isVirtual() const { return nameIndexAndVirtSpecifiers.get<IsVirtualField>(); }
+    void setIsVirtual(bool isVirtual)
+    {
+        nameIndexAndVirtSpecifiers.set<IsVirtualField>(isVirtual ? 1 : 0);
+    }
+
+    bool isOverride() const { return nameIndexAndVirtSpecifiers.get<IsOverrideField>(); }
+    void setIsOverride(bool isOverride)
+    {
+        nameIndexAndVirtSpecifiers.set<IsOverrideField>(isOverride ? 1 : 0);
+    }
+
+    bool isFinal() const { return nameIndexAndVirtSpecifiers.get<IsFinalField>(); }
+    void setIsFinal(bool isFinal) { nameIndexAndVirtSpecifiers.set<IsFinalField>(isFinal ? 1 : 0); }
+
     void setCommonType(CommonType t)
     {
         data.set<CommonTypeOrTypeNameIndexField>(static_cast<quint32>(t));
@@ -811,7 +878,7 @@ public:
     }
 
     CommonType commonType() const {
-        if (data.get<IsCommonTypeField>() != 0)
+        if (isCommonType())
             return CommonType(data.get<CommonTypeOrTypeNameIndexField>());
         return CommonType::Invalid;
     }
@@ -847,98 +914,44 @@ struct RequiredPropertyExtraData {
 
 static_assert (sizeof(RequiredPropertyExtraData) == 4, "RequiredPropertyExtraData structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
-struct Alias {
-private:
-    using NameIndexField = quint32_le_bitfield_member<0, 29>;
-    using FlagsField = quint32_le_bitfield_member<29, 3>;
+struct Alias
+{
+    bool isReadOnly() const { return m_nameIndexAndFlags.get<IsReadOnlyField>(); }
+    void setIsReadOnly(bool isReadOnly) { m_nameIndexAndFlags.set<IsReadOnlyField>(isReadOnly); }
 
-    // object id index (in QQmlContextData::idValues)
-    using TargetObjectIdField = quint32_le_bitfield_member<0, 31>;
-    using AliasToLocalAliasField = quint32_le_bitfield_member<31, 1>;
-    using IdIndexField = quint32_le_bitfield_member<0, 32>;
-
-public:
-
-    enum Flag : unsigned int {
-        IsReadOnly = 0x1,
-        Resolved = 0x2,
-        AliasPointsToPointerObject = 0x4
-    };
-    Q_DECLARE_FLAGS(Flags, Flag)
-
-    quint32_le_bitfield_union<NameIndexField, FlagsField> nameIndexAndFlags;
-    quint32_le_bitfield_union<IdIndexField, TargetObjectIdField, AliasToLocalAliasField>
-                idIndexAndTargetObjectIdAndAliasToLocalAlias;
-
-    union {
-        quint32_le propertyNameIndex; // string index
-        qint32_le encodedMetaPropertyIndex;
-        quint32_le localAliasIndex; // index in list of aliases local to the object (if targetObjectId == objectId)
-    };
-    Location location;
-    Location referenceLocation;
-
-    bool hasFlag(Flag flag) const
-    {
-        return nameIndexAndFlags.get<FlagsField>() & flag;
-    }
-
-    void setFlag(Flag flag)
-    {
-        nameIndexAndFlags.set<FlagsField>(nameIndexAndFlags.get<FlagsField>() | flag);
-    }
-
-    void clearFlags()
-    {
-        nameIndexAndFlags.set<FlagsField>(0);
-    }
-
-    quint32 nameIndex() const
-    {
-        return nameIndexAndFlags.get<NameIndexField>();
-    }
-
+    quint32 nameIndex() const { return m_nameIndexAndFlags.get<NameIndexField>(); }
     void setNameIndex(quint32 nameIndex)
     {
-        nameIndexAndFlags.set<NameIndexField>(nameIndex);
+        m_nameIndexAndFlags.set<NameIndexField>(nameIndex);
     }
 
-    bool isObjectAlias() const
+    quint32 idIndex() const { return m_idIndexField; }
+    void setIdIndex(quint32 idIndex) { m_idIndexField = idIndex; }
+
+    quint32 propertyNameIndex() const { return m_propertyNameIndex; }
+    void setPropertyNameIndex(quint32 propertyNameIndex)
     {
-        Q_ASSERT(hasFlag(Resolved));
-        return encodedMetaPropertyIndex == -1;
+        m_propertyNameIndex = propertyNameIndex;
     }
 
-    quint32 idIndex() const
+    Location location() const { return m_location; }
+    void setLocation(Location location) { m_location = location; }
+
+    Location referenceLocation() const { return m_referenceLocation; }
+    void setReferenceLocation(Location referenceLocation)
     {
-        return idIndexAndTargetObjectIdAndAliasToLocalAlias.get<IdIndexField>();
+        m_referenceLocation = referenceLocation;
     }
 
-    void setIdIndex(quint32 idIndex)
-    {
-        idIndexAndTargetObjectIdAndAliasToLocalAlias.set<IdIndexField>(idIndex);
-    }
+private:
+    using NameIndexField = quint32_le_bitfield_member<0, 31>;
+    using IsReadOnlyField = quint32_le_bitfield_member<31, 1>;
 
-
-    bool isAliasToLocalAlias() const
-    {
-        return idIndexAndTargetObjectIdAndAliasToLocalAlias.get<AliasToLocalAliasField>();
-    }
-
-    void setIsAliasToLocalAlias(bool isAliasToLocalAlias)
-    {
-        idIndexAndTargetObjectIdAndAliasToLocalAlias.set<AliasToLocalAliasField>(isAliasToLocalAlias);
-    }
-
-    quint32 targetObjectId() const
-    {
-        return idIndexAndTargetObjectIdAndAliasToLocalAlias.get<TargetObjectIdField>();
-    }
-
-    void setTargetObjectId(quint32 targetObjectId)
-    {
-        idIndexAndTargetObjectIdAndAliasToLocalAlias.set<TargetObjectIdField>(targetObjectId);
-    }
+    quint32_le_bitfield_union<NameIndexField, IsReadOnlyField> m_nameIndexAndFlags;
+    quint32_le m_idIndexField;
+    quint32_le m_propertyNameIndex; // string index
+    Location m_location;
+    Location m_referenceLocation;
 };
 static_assert(sizeof(Alias) == 20, "Alias structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
@@ -1193,7 +1206,6 @@ struct QmlUnit
 };
 static_assert(sizeof(QmlUnit) == 16, "QmlUnit structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
-enum { QmlCompileHashSpace = 48 };
 static const char magic_str[] = "qv4cdata";
 
 struct Unit
@@ -1201,12 +1213,22 @@ struct Unit
     // DO NOT CHANGE THESE FIELDS EVER
     char magic[8];
     quint32_le version;
-    quint32_le qtVersion;
-    qint64_le sourceTimeStamp;
-    quint32_le unitSize; // Size of the Unit and any depending data.
     // END DO NOT CHANGE THESE FIELDS EVER
 
-    char libraryVersionHash[QmlCompileHashSpace];
+    quint32_le reserved; // For predictable alignment and size. Used to be Qt version.
+
+    // A sourceTimeStamp of -1 marks a unit that is validated by source content hashing rather
+    // than by time stamp. In that case sourceChecksum holds the checksum of the source code and
+    // is compared against the freshly computed checksum of the source on load. This is used for
+    // cache files generated at run time, where the source's time stamp may be unreliable (e.g.
+    // reproducible builds that pin mtimes via SOURCE_DATE_EPOCH). Units generated by qmlcachegen
+    // at compile time keep their actual time stamp and leave sourceChecksum zeroed.
+    qint64_le sourceTimeStamp;
+    quint32_le unitSize; // Size of the Unit and any depending data.
+
+    // Kept before md5Checksum, and therefore outside its coverage, so that it can be patched in
+    // when saving a unit to disk without invalidating md5Checksum.
+    char sourceChecksum[16];
 
     char md5Checksum[16]; // checksum of all bytes following this field.
     char dependencyMD5Checksum[16];
@@ -1280,6 +1302,16 @@ struct Unit
     bool isSingleton() const {
         return flags & Unit::IsSingleton;
     }
+
+    bool isListPropertyAssignReplace() const {
+        // ListPropertyAssignReplace is the combination of both replace bits, so it must be tested
+        // for an exact match.
+        return (flags & Unit::ListPropertyAssignReplace) == Unit::ListPropertyAssignReplace;
+    }
+
+    bool isListPropertyAssignReplaceIfNotDefault() const {
+        return flags & Unit::ListPropertyAssignReplaceIfNotDefault;
+    }
     /* end QML specific fields*/
 
     QString stringAtInternal(uint idx) const {
@@ -1298,7 +1330,7 @@ struct Unit
         QString qstr(str->size, Qt::Uninitialized);
         QChar *ch = qstr.data();
         for (int i = 0; i < str->size; ++i)
-             ch[i] = QChar(characters[i]);
+             ch[i] = QChar(quint16(characters[i]));
          return qstr;
 #endif
     }
@@ -1377,7 +1409,7 @@ struct Unit
     bool verifyHeader(QDateTime expectedSourceTimeStamp, QString *errorString) const;
 };
 
-static_assert(sizeof(Unit) == 248, "Unit structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
+static_assert(sizeof(Unit) == 216, "Unit structure needs to have the expected size to be binary compatible on disk when generated by host compiler and loaded by target");
 
 struct TypeReference
 {
@@ -1410,15 +1442,6 @@ struct TypeReferenceMap : QHash<int, TypeReference>
             r.errorWhenNotFound = true;
         }
 
-        auto prop = obj->propertiesBegin();
-        auto const propEnd = obj->propertiesEnd();
-        for ( ; prop != propEnd; ++prop) {
-            if (!prop->isCommonType()) {
-                TypeReference &r = this->add(prop->commonTypeOrTypeNameIndex(), prop->location);
-                r.errorWhenNotFound = true;
-            }
-        }
-
         auto binding = obj->bindingsBegin();
         auto const bindingEnd = obj->bindingsEnd();
         for ( ; binding != bindingEnd; ++binding) {
@@ -1446,23 +1469,15 @@ using DependentTypesHasher = std::function<QByteArray()>;
 struct InlineComponentData {
 
     InlineComponentData() = default;
-    InlineComponentData(
-            const QQmlType &qmlType, int objectIndex, int nameIndex, int totalObjectCount,
-            int totalBindingCount, int totalParserStatusCount)
+    InlineComponentData(const QQmlType &qmlType, int objectIndex, int nameIndex)
         : qmlType(qmlType)
         , objectIndex(objectIndex)
         , nameIndex(nameIndex)
-        , totalObjectCount(totalObjectCount)
-        , totalBindingCount(totalBindingCount)
-        , totalParserStatusCount(totalParserStatusCount)
     {}
 
     QQmlType qmlType;
     int objectIndex = -1;
     int nameIndex = -1;
-    int totalObjectCount = 0;
-    int totalBindingCount = 0;
-    int totalParserStatusCount = 0;
 };
 
 struct CompilationUnit final : public QQmlRefCounted<CompilationUnit>
@@ -1473,22 +1488,19 @@ struct CompilationUnit final : public QQmlRefCounted<CompilationUnit>
     const QmlUnit *qmlData = nullptr;
     QStringList dynamicStrings;
     const QQmlPrivate::AOTCompiledFunction *aotCompiledFunctions = nullptr;
+    LookupValidationFn validateLookupSignatures = nullptr;
 
     // pointers either to data->constants() or little-endian memory copy.
     const StaticValue *constants = nullptr;
 
     std::unique_ptr<CompilationUnitMapper> backingFile;
 
-    int m_totalBindingsCount = 0; // Number of bindings used in this type
-    int m_totalParserStatusCount = 0; // Number of instantiated types that are QQmlParserStatus subclasses
-    int m_totalObjectCount = 0; // Number of objects explicitly instantiated
-
     QHash<QString, InlineComponentData> inlineComponentData;
 
     // index is object index. This allows fast access to the
     // property data when initializing bindings, avoiding expensive
     // lookups by string (property name).
-    QVector<BindingPropertyData> bindingPropertyDataPerObject;
+    QList<BindingPropertyData> bindingPropertyDataPerObject;
 
     ResolvedTypeReferenceMap resolvedTypes;
     QQmlRefPointer<QQmlTypeNameCache> typeNameCache;
@@ -1497,7 +1509,7 @@ struct CompilationUnit final : public QQmlRefCounted<CompilationUnit>
 
     QQmlType qmlType;
 
-    QVector<QQmlRefPointer<QQmlScriptData>> dependentScripts;
+    QList<QQmlRefPointer<QQmlScriptData>> dependentScripts;
 
 public:
     // --- interface for QQmlPropertyCacheCreator
@@ -1516,11 +1528,15 @@ public:
         bool contains(int) { return false; }
     };
 
-    explicit CompilationUnit(const Unit *unitData, const QQmlPrivate::AOTCompiledFunction *aotCompiledFunctions,
-                             const QString &fileName = QString(), const QString &finalUrlString = QString())
+    explicit CompilationUnit(const Unit *unitData,
+                             const QQmlPrivate::AOTCompiledFunction *aotCompiledFunctions,
+                             LookupValidationFn validateLookupSignatures,
+                             const QString &fileName = QString(),
+                             const QString &finalUrlString = QString())
         : CompilationUnit(unitData, fileName, finalUrlString)
     {
         this->aotCompiledFunctions = aotCompiledFunctions;
+        this->validateLookupSignatures = validateLookupSignatures;
     }
 
     Q_QML_EXPORT CompilationUnit(
@@ -1609,13 +1625,26 @@ public:
     {
         if (binding->type() != CompiledData::Binding::Type_Number)
             return 0.0;
+        if (binding->hasFlag(CompiledData::Binding::IsResolvedEnum))
+            return binding->value.resolvedEnumValue;
         return constants[binding->value.constantValueIndex].doubleValue();
     }
 
     Q_QML_EXPORT static QString localCacheFilePath(const QUrl &url);
+
+    // sourceChecksum is invoked to obtain the checksum of the current source code. It is only
+    // called when the cached unit is in content-hash mode (sourceTimeStamp == -1), so units
+    // validated by time stamp never pay the cost of reading and hashing the source.
     Q_QML_EXPORT bool loadFromDisk(
-            const QUrl &url, const QDateTime &sourceTimeStamp, QString *errorString);
-    Q_QML_EXPORT bool saveToDisk(const QUrl &unitUrl, QString *errorString);
+            const QUrl &url, const QDateTime &sourceTimeStamp,
+            qxp::function_ref<QByteArray() const> sourceChecksum, QString *errorString);
+
+    // saveToDisk always stores the unit in content-hash mode: it sets sourceTimeStamp to -1 and
+    // writes the result of sourceChecksum() into the unit. It is used for cache files generated
+    // at run time.
+    Q_QML_EXPORT bool saveToDisk(
+            const QUrl &unitUrl, qxp::function_ref<QByteArray() const> sourceChecksum,
+            QString *errorString) const;
 
     int importCount() const { return qmlData->nImports; }
     const CompiledData::Import *importAt(int index) const { return qmlData->importAt(index); }
@@ -1648,15 +1677,41 @@ public:
 
     QQmlPropertyCache::ConstPtr rootPropertyCache() const
     {
-        return propertyCaches.at(/*root object*/0);
+        return propertyCaches.isEmpty()
+                ? QQmlPropertyCache::ConstPtr()
+                : propertyCaches.at(/*root object*/0);
     }
 
     int objectCount() const { return qmlData->nObjects; }
-    const CompiledObject *objectAt(int index) const { return qmlData->objectAt(index); }
 
-    int totalBindingsCount(const QString &inlineComponentRootName) const;
-    int totalParserStatusCount(const QString &inlineComponentRootName) const;
-    int totalObjectCount(const QString &inlineComponentRootName) const;
+    // Resolves implicit component wrapper indices (>= objectCount()) to the
+    // wrapped child object index.  Returns the index unchanged for real objects.
+    int resolvedIndex(int index) const
+    {
+        if (index < objectCount())
+            return index;
+        const QQmlPropertyData *p = propertyCaches.at(index)->defaultProperty();
+        Q_ASSERT(p && p->isComponentWrapper());
+        return p->wrappedObjectIndex();
+    }
+
+    const CompiledObject *objectAt(int index) const
+    {
+        return qmlData->objectAt(resolvedIndex(index));
+    }
+
+    // Returns the index of the implicit component wrapper, or -1.
+    // Scans property caches at indices >= objectCount().
+    int implicitComponentForObject(int index) const
+    {
+        for (int i = objectCount(), end = propertyCaches.count(); i < end; ++i) {
+            const QQmlPropertyData *p = propertyCaches.at(i)->defaultProperty();
+            Q_ASSERT(p && p->isComponentWrapper());
+            if (p->wrappedObjectIndex() == index)
+                return i;
+        }
+        return -1;
+    }
 
     int inlineComponentId(const QString &inlineComponentName) const
     {
@@ -1678,9 +1733,10 @@ public:
     enum class ListPropertyAssignBehavior { Append, Replace, ReplaceIfNotDefault };
     ListPropertyAssignBehavior listPropertyAssignBehavior() const
     {
-        if (unitData()->flags & CompiledData::Unit::ListPropertyAssignReplace)
+        const CompiledData::Unit *unit = unitData();
+        if (unit->isListPropertyAssignReplace())
             return ListPropertyAssignBehavior::Replace;
-        if (unitData()->flags & CompiledData::Unit::ListPropertyAssignReplaceIfNotDefault)
+        if (unit->isListPropertyAssignReplaceIfNotDefault())
             return ListPropertyAssignBehavior::ReplaceIfNotDefault;
         return ListPropertyAssignBehavior::Append;
     }

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpainteditem.h"
 #include <private/qquickpainteditem_p.h>
@@ -62,9 +63,14 @@ public:
     can potentially be slow if the item is large. This render target allows high quality
     anti-aliasing and fast item resizing.
 
-    \value FramebufferObject As of Qt 6.0, this value is ignored.
+    \value FramebufferObject As of Qt 6.9, this value will enable
+    hardware-accelerated painting as long as the rendering API used is OpenGL,
+    otherwise it will be ignored. For versions Qt 6.0 to Qt 6.8, it will be
+    ignored on all rendering APIs. This will usually give better rendering
+    performance, but at the expense of antialiasing quality.
 
-    \value InvertedYFramebufferObject As of Qt 6.0, this value is ignored.
+    \value InvertedYFramebufferObject Same as FramebufferObject, but with the
+    rendering flipped around the X axis.
 
     \sa setRenderTarget()
 */
@@ -537,7 +543,7 @@ QSGNode *QQuickPaintedItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
         QSize itemSize(qRound(width()), qRound(height()));
         node->setSize(itemSize);
         QSize textureSize = (hasTextureSize ? d->textureSize : itemSize)
-                            * window()->effectiveDevicePixelRatio();
+                            * d->effectiveDevicePixelRatio();
         node->setTextureSize(textureSize);
     }
 

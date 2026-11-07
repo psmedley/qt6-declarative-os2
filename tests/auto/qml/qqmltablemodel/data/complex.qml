@@ -1,8 +1,8 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-import QtQuick 2.13
-import Qt.labs.qmlmodels 1.0
+import QtQuick
+import Qt.labs.qmlmodels
 
 TableView {
     width: 100
@@ -22,11 +22,9 @@ TableView {
 
         TableModelColumn {
             display: function(modelIndex) { return testModel.rows[modelIndex.row][0].name }
-            setDisplay: function(modelIndex, cellData) { testModel.rows[modelIndex.row][0].name = cellData }
         }
         TableModelColumn {
             display: function(modelIndex) { return testModel.rows[modelIndex.row][1].age }
-            setDisplay: function(modelIndex, cellData) { testModel.rows[modelIndex.row][1].age = cellData }
         }
 
         rows: [

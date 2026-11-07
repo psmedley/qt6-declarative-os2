@@ -1,11 +1,14 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGCURVESTROKENODE_P_H
 #define QSGCURVESTROKENODE_P_H
 
 #include <QtQuick/qtquickexports.h>
 #include <QtQuick/qsgnode.h>
+
+#include <QtQuick/private/qsggradientcache_p.h>
 
 #include "qsgcurveabstractnode_p.h"
 #include "qsgcurvestrokenode_p_p.h"
@@ -39,29 +42,71 @@ public:
         return m_color;
     }
 
+    void setCosmeticStroke(bool c)
+    {
+        m_cosmetic = c;
+        markDirty(DirtyMaterial);
+    }
+
     void setStrokeWidth(float width)
     {
         m_strokeWidth = width;
         markDirty(DirtyMaterial);
     }
 
-    float strokeWidth() const
+    QGradient::Type gradientType() const
     {
-        return m_strokeWidth;
+        return m_gradientType;
     }
 
-    void appendTriangle(const std::array<QVector2D, 3> &v, // triangle vertices
-                        const std::array<QVector2D, 3> &p, // curve points
-                        const std::array<QVector2D, 3> &n); // vertex normals
-    void appendTriangle(const std::array<QVector2D, 3> &v, // triangle vertices
-                        const std::array<QVector2D, 2> &p, // line points
-                        const std::array<QVector2D, 3> &n); // vertex normals
+    void setGradientType(QGradient::Type type)
+    {
+        m_gradientType = type;
+        markDirty(DirtyMaterial);
+    }
+
+    const QSGGradientCache::GradientDesc *strokeGradient() const
+    {
+        return &m_strokeGradient;
+    }
+
+    void setStrokeGradient(const QSGGradientCache::GradientDesc &strokeGradient)
+    {
+        m_strokeGradient = strokeGradient;
+        markDirty(DirtyMaterial);
+    }
+
+    float strokeWidth() const
+    {
+        // Negative stroke width would not normally mean anything;
+        // here we use it to mean that the stroke is cosmetic.
+        return (m_cosmetic ? -1.0 : 1.0) * qAbs(m_strokeWidth);
+    }
+
+    enum class TriangleFlag {
+        None = 0,
+        Line = 1 << 0,
+    };
+    Q_DECLARE_FLAGS(TriangleFlags, TriangleFlag)
+
+    static constexpr std::array<float, 3> defaultExtrusions() { return {1.0f, 1.0f, 1.0f}; }
+
+    void appendTriangle(const std::array<QVector2D, 3> &vtx,    // triangle vertices
+                        const std::array<QVector2D, 3> &ctl,    // curve points
+                        const std::array<QVector2D, 3> &normal, // vertex normals
+                        const std::array<float, 3> &extrusions = defaultExtrusions());
+    void appendTriangle(const std::array<QVector2D, 3> &vtx,    // triangle vertices
+                        const std::array<QVector2D, 2> &ctl,    // line points
+                        const std::array<QVector2D, 3> &normal, // vertex normals
+                        const std::array<float, 3> &extrusions = defaultExtrusions());
 
     void cookGeometry() override;
 
     static const QSGGeometry::AttributeSet &attributes();
 
-    QVector<quint32> uncookedIndexes() const
+    static bool expandingStrokeEnabled();
+
+    QList<quint32> uncookedIndexes() const
     {
         return m_uncookedIndexes;
     }
@@ -86,6 +131,16 @@ public:
         return m_localScale;
     }
 
+    bool useStandardDerivatives() const
+    {
+        return m_useStandardDerivatives;
+    }
+
+    void setUseStandardDerivatives(bool useStandardDerivatives) override
+    {
+        m_useStandardDerivatives = useStandardDerivatives;
+    }
+
 private:
 
     struct StrokeVertex
@@ -94,24 +149,32 @@ private:
         float ax, ay;
         float bx, by;
         float cx, cy;
-        float nx, ny; //normal vector: direction to move vertext to account for AA
+        float nx, ny;       // normal vector: direction to move vertex to account for AA
+        float extrusion;    // stroke width multiplier (* uniform strokeWidth)
     };
 
     void updateMaterial();
 
     static std::array<QVector2D, 3> curveABC(const std::array<QVector2D, 3> &p);
 
+    static const bool envStrokeExpanding;
     QColor m_color;
+    ushort m_cosmetic = false; // packs alongside QColor; could be turned into flags if needed
     float m_strokeWidth = 0.0f;
     float m_debug = 0.0f;
     float m_localScale = 1.0f;
+    bool m_useStandardDerivatives = false;
+    QSGGradientCache::GradientDesc m_strokeGradient;
+    QGradient::Type m_gradientType = QGradient::NoGradient;
 
 protected:
     QScopedPointer<QSGCurveStrokeMaterial> m_material;
 
-    QVector<StrokeVertex> m_uncookedVertexes;
-    QVector<quint32> m_uncookedIndexes;
+    QList<StrokeVertex> m_uncookedVertexes;
+    QList<quint32> m_uncookedIndexes;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QSGCurveStrokeNode::TriangleFlags)
 
 QT_END_NAMESPACE
 

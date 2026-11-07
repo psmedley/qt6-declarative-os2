@@ -1,10 +1,16 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlvaluetypeproxybinding_p.h"
 
 QT_BEGIN_NAMESPACE
 
+/*!
+    \class QQmlValueTypeProxyBinding
+    \inmodule QtQml
+    \internal
+*/
 QQmlValueTypeProxyBinding::QQmlValueTypeProxyBinding(QObject *o, QQmlPropertyIndex index)
     : QQmlAbstractBinding(),
       m_bindings(nullptr)
@@ -31,11 +37,6 @@ void QQmlValueTypeProxyBinding::setEnabled(bool e, QQmlPropertyData::WriteFlags 
     }
 }
 
-QQmlAbstractBinding *QQmlValueTypeProxyBinding::subBindings() const
-{
-    return m_bindings.data();
-}
-
 QQmlAbstractBinding *QQmlValueTypeProxyBinding::binding(QQmlPropertyIndex propertyIndex) const
 {
     QQmlAbstractBinding *binding = m_bindings.data();
@@ -47,7 +48,9 @@ QQmlAbstractBinding *QQmlValueTypeProxyBinding::binding(QQmlPropertyIndex proper
 }
 
 /*!
-Removes a collection of bindings, corresponding to the set bits in \a mask.
+    \internal
+    Removes a collection of bindings, corresponding to the set bits
+    in \a mask.
 */
 void QQmlValueTypeProxyBinding::removeBindings(quint32 mask)
 {

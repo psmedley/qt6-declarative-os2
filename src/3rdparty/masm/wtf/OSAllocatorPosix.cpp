@@ -33,11 +33,13 @@
 #include "PageAllocation.h"
 #include <errno.h>
 #include <sys/mman.h>
+#include <string.h>
 #include <wtf/Assertions.h>
 #include <wtf/UnusedParam.h>
 
 #if OS(LINUX)
 #include <sys/syscall.h>
+#include <linux/limits.h>
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC         0x0001U
 #endif

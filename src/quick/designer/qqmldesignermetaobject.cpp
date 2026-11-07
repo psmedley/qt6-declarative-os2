@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmldesignermetaobject_p.h"
 
@@ -16,14 +17,14 @@ static QHash<QDynamicMetaObjectData *, bool> nodeInstanceMetaObjectList;
 static void (*notifyPropertyChangeCallBack)(QObject*, const QQuickDesignerSupport::PropertyName &propertyName) = nullptr;
 
 struct MetaPropertyData {
-    inline QPair<QVariant, bool> &getDataRef(int idx) {
+    inline std::pair<QVariant, bool> &getDataRef(int idx) {
         while (m_data.size() <= idx)
-            m_data << QPair<QVariant, bool>(QVariant(), false);
+            m_data << std::pair<QVariant, bool>(QVariant(), false);
         return m_data[idx];
     }
 
     inline QVariant &getData(int idx) {
-        QPair<QVariant, bool> &prop = getDataRef(idx);
+        std::pair<QVariant, bool> &prop = getDataRef(idx);
         if (!prop.second) {
             prop.first = QVariant();
             prop.second = true;
@@ -39,7 +40,7 @@ struct MetaPropertyData {
 
     inline int count() { return m_data.size(); }
 
-    QVector<QPair<QVariant, bool> > m_data;
+    QList<std::pair<QVariant, bool> > m_data;
 };
 
 QQmlDesignerMetaObject* QQmlDesignerMetaObject::getNodeInstanceMetaObject(QObject *object, QQmlEngine *engine)
@@ -113,7 +114,7 @@ int QQmlDesignerMetaObject::createProperty(const char *name, const char *passAlo
 
 void QQmlDesignerMetaObject::setValue(int id, const QVariant &value)
 {
-    QPair<QVariant, bool> &prop = m_data->getDataRef(id);
+    std::pair<QVariant, bool> &prop = m_data->getDataRef(id);
     prop.first = propertyWriteValue(id, value);
     prop.second = true;
     QMetaObject::activate(myObject(), id + type()->signalOffset(), nullptr);
@@ -145,7 +146,7 @@ int QQmlDesignerMetaObject::openMetaCall(QObject *o, QMetaObject::Call call, int
         } else if (call == QMetaObject::WriteProperty) {
             if (propId <= m_data->count() || m_data->m_data[propId].first != *reinterpret_cast<QVariant *>(a[0]))  {
                 //propertyWrite(propId);
-                QPair<QVariant, bool> &prop = m_data->getDataRef(propId);
+                std::pair<QVariant, bool> &prop = m_data->getDataRef(propId);
                 prop.first = propertyWriteValue(propId, *reinterpret_cast<QVariant *>(a[0]));
                 prop.second = true;
                 //propertyWritten(propId);

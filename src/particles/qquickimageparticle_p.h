@@ -170,7 +170,7 @@ class Q_QUICKPARTICLES_EXPORT QQuickImageParticle : public QQuickParticlePainter
     Q_PROPERTY(qreal alpha READ alpha WRITE setAlpha NOTIFY alphaChanged RESET resetColor)
     Q_PROPERTY(qreal alphaVariation READ alphaVariation WRITE setAlphaVariation NOTIFY alphaVariationChanged RESET resetColor)
 
-    Q_PROPERTY(qreal rotation READ rotation WRITE setRotation NOTIFY rotationChanged RESET resetRotation)
+    Q_PROPERTY(qreal rotation READ rotation WRITE setRotation NOTIFY rotationChanged RESET resetRotation OVERRIDE)
     Q_PROPERTY(qreal rotationVariation READ rotationVariation WRITE setRotationVariation NOTIFY rotationVariationChanged RESET resetRotation)
     Q_PROPERTY(qreal rotationVelocity READ rotationVelocity WRITE setRotationVelocity NOTIFY rotationVelocityChanged RESET resetRotation)
     Q_PROPERTY(qreal rotationVelocityVariation READ rotationVelocityVariation WRITE setRotationVelocityVariation NOTIFY rotationVelocityVariationChanged RESET resetRotation)
@@ -379,7 +379,7 @@ private:
     QSGNode *m_outgoingNode;
     QHash<int, QSGGeometryNode *> m_nodes;
     QHash<int, int> m_idxStarts;//TODO: Proper resizing will lead to needing a spriteEngine per particle - do this after sprite engine gains transparent sharing?
-    QList<QPair<int, int> > m_startsIdx;//Same data, optimized for alternate retrieval
+    QList<std::pair<int, int> > m_startsIdx;//Same data, optimized for alternate retrieval
 
     int m_lastIdxStart;
     QSGMaterial *m_material;
@@ -407,7 +407,7 @@ private:
     bool m_explicitRotation;
     bool m_explicitDeformation;
     bool m_explicitAnimation;
-    QHash<int, QVector<QQuickParticleData*> > m_shadowData;
+    QHash<int, QList<QQuickParticleData*> > m_shadowData;
     void clearShadows();
     QQuickParticleData* getShadowDatum(QQuickParticleData* datum);
 

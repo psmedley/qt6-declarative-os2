@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #####################################################################
-## qtquickcontrols2basicstyleplugin Plugin:
+## QuickControls2Basic Module:
 #####################################################################
 
 set(qml_files
@@ -22,10 +22,12 @@ set(qml_files
     "Dial.qml"
     "Dialog.qml"
     "DialogButtonBox.qml"
+    "DoubleSpinBox.qml"
     "Drawer.qml"
     "Frame.qml"
     "GroupBox.qml"
     "HorizontalHeaderView.qml"
+    "HorizontalHeaderViewDelegate.qml"
     "ItemDelegate.qml"
     "Label.qml"
     "Menu.qml"
@@ -45,6 +47,7 @@ set(qml_files
     "ScrollBar.qml"
     "ScrollIndicator.qml"
     "ScrollView.qml"
+    "SearchField.qml"
     "SelectionRectangle.qml"
     "Slider.qml"
     "SpinBox.qml"
@@ -64,8 +67,9 @@ set(qml_files
     "ToolTip.qml"
     "Tumbler.qml"
     "VerticalHeaderView.qml"
+    "VerticalHeaderViewDelegate.qml"
 )
-if (QT_FEATURE_quicktemplates2_calendar)
+if(QT_FEATURE_quicktemplates2_calendar)
     list(APPEND qml_files
         "Calendar.qml"
         "CalendarModel.qml"
@@ -74,7 +78,16 @@ if (QT_FEATURE_quicktemplates2_calendar)
         "WeekNumberColumn.qml"
     )
 endif()
-if (QT_FEATURE_quick_treeview)
+if(QT_FEATURE_quick_tableview)
+    list(APPEND qml_files
+        "TableViewDelegate.qml"
+    )
+
+    set_source_files_properties(TableViewDelegate.qml PROPERTIES
+        QT_QML_SOURCE_VERSIONS "6.9"
+    )
+endif()
+if(QT_FEATURE_quick_treeview)
     list(APPEND qml_files
         "TreeViewDelegate.qml"
     )
@@ -86,7 +99,7 @@ set_source_files_properties(Action.qml PROPERTIES
 set_source_files_properties(ActionGroup.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.3;6.0"
 )
-if (QT_FEATURE_quicktemplates2_calendar)
+if(QT_FEATURE_quicktemplates2_calendar)
     set_source_files_properties(Calendar.qml PROPERTIES
         QT_QML_SINGLETON_TYPE TRUE
         QT_QML_SOURCE_VERSIONS "6.3"
@@ -110,6 +123,9 @@ set_source_files_properties(DialogButtonBox.qml PROPERTIES
 set_source_files_properties(HorizontalHeaderView.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.15;6.0"
 )
+set_source_files_properties(HorizontalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
 set_source_files_properties(MenuBar.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.3;6.0"
 )
@@ -119,7 +135,7 @@ set_source_files_properties(MenuBarItem.qml PROPERTIES
 set_source_files_properties(MenuSeparator.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.1;6.0"
 )
-if (QT_FEATURE_quicktemplates2_calendar)
+if(QT_FEATURE_quicktemplates2_calendar)
     set_source_files_properties(MonthGrid.qml PROPERTIES
         QT_QML_SOURCE_VERSIONS "6.3"
     )
@@ -142,11 +158,20 @@ set_source_files_properties(ToolSeparator.qml PROPERTIES
 set_source_files_properties(VerticalHeaderView.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.15;6.0"
 )
-if (QT_FEATURE_quicktemplates2_calendar)
+set_source_files_properties(VerticalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+if(QT_FEATURE_quicktemplates2_calendar)
     set_source_files_properties(WeekNumberColumn.qml PROPERTIES
         QT_QML_SOURCE_VERSIONS "6.3"
     )
 endif()
+set_source_files_properties(SearchField.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+set_source_files_properties(DoubleSpinBox.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.11"
+)
 
 add_subdirectory(impl)
 
@@ -162,7 +187,6 @@ qt_internal_add_qml_module(QuickControls2Basic
     NO_PLUGIN_OPTIONAL
     NO_GENERATE_PLUGIN_SOURCE
     SOURCES
-        qquickbasicstyle.cpp qquickbasicstyle_p.h
         qquickbasictheme.cpp qquickbasictheme_p.h
         qtquickcontrols2basicforeign.cpp qtquickcontrols2basicforeign_p.h
     QML_FILES
@@ -178,8 +202,7 @@ qt_internal_add_qml_module(QuickControls2Basic
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    OS2_SHORT_NAME QuCoBaSt
-    )
+)
 
 target_sources(qtquickcontrols2basicstyleplugin
     PRIVATE
@@ -201,6 +224,10 @@ set(qtquickcontrols2basicstyle_resource_files
     "images/check@2x.png"
     "images/check@3x.png"
     "images/check@4x.png"
+    "images/close_circle.png"
+    "images/close_circle@2x.png"
+    "images/close_circle@3x.png"
+    "images/close_circle@4x.png"
     "images/dial-indicator.png"
     "images/dial-indicator@2x.png"
     "images/dial-indicator@3x.png"
@@ -213,6 +240,10 @@ set(qtquickcontrols2basicstyle_resource_files
     "images/drop-indicator@2x.png"
     "images/drop-indicator@3x.png"
     "images/drop-indicator@4x.png"
+    "images/search-magnifier.png"
+    "images/search-magnifier@2x.png"
+    "images/search-magnifier@3x.png"
+    "images/search-magnifier@4x.png"
 )
 
 qt_internal_add_resource(QuickControls2Basic "qtquickcontrols2basicstyle"

@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QTEXTSYNCHRONIZATION_P_H
 #define QTEXTSYNCHRONIZATION_P_H
@@ -15,8 +16,8 @@
 // We mean it.
 //
 
-#include "qqmlcodemodel_p.h"
-#include "qlanguageserver_p.h"
+#include <private/qlanguageserver_p.h>
+#include <private/qqmlcodemodelmanager_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -24,11 +25,9 @@ class TextSynchronization : public QLanguageServerModule
 {
     Q_OBJECT
 public:
-    TextSynchronization(QmlLsp::QQmlCodeModel *codeModel, QObject *parent = nullptr);
-    QString name() const override;
+    TextSynchronization(QmlLsp::QQmlCodeModelManager *codeModelManager, QObject *parent = nullptr);
     void registerHandlers(QLanguageServer *server, QLanguageServerProtocol *protocol) override;
-    void setupCapabilities(const QLspSpecification::InitializeParams &clientInfo,
-                           QLspSpecification::InitializeResult &) override;
+    void setupCapabilities(QLspSpecification::ServerCapabilities &caps) override;
 
 public Q_SLOTS:
     void didOpenTextDocument(const QLspSpecification::DidOpenTextDocumentParams &params);
@@ -36,7 +35,7 @@ public Q_SLOTS:
     void didCloseTextDocument(const QLspSpecification::DidCloseTextDocumentParams &params);
 
 private:
-    QmlLsp::QQmlCodeModel *m_codeModel;
+    QmlLsp::QQmlCodeModelManager *m_codeModelManager;
 };
 
 QT_END_NAMESPACE

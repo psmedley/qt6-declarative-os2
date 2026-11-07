@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPROPERTYCACHEVECTOR_P_H
 #define QQMLPROPERTYCACHEVECTOR_P_H
@@ -40,6 +41,9 @@ public:
         // the property cache vector will never contain more thant INT_MAX many elements
         return int(data.size());
     }
+
+    bool isEmpty() const { return data.isEmpty(); }
+
     void clear()
     {
         for (int i = 0; i < data.size(); ++i)
@@ -94,7 +98,8 @@ public:
             oldCache->release();
         }
         data[index] = replacement.data();
-        replacement->addref();
+        if (replacement)
+            replacement->addref();
         Q_ASSERT(data[index].isT1());
     }
 
@@ -137,7 +142,7 @@ private:
 
     Q_DISABLE_COPY(QQmlPropertyCacheVector)
     using BiPointer = QBiPointer<const QQmlPropertyCache, QQmlPropertyCache>;
-    QVector<BiPointer> data;
+    QList<BiPointer> data;
 };
 
 QT_END_NAMESPACE

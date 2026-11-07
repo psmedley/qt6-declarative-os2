@@ -1,5 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
+
 #ifndef QQMLTYPECOMPILER_P_H
 #define QQMLTYPECOMPILER_P_H
 
@@ -19,6 +21,7 @@
 #include <qhash.h>
 #include <private/qqmltypeloader_p.h>
 #include <private/qqmlirbuilder_p.h>
+#include <private/qqmlpropertyresolver_p.h>
 #include <private/qqmlpropertycachecreator_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -27,6 +30,7 @@ class QQmlEnginePrivate;
 class QQmlError;
 class QQmlTypeData;
 class QQmlImports;
+class QTypeRevision;
 
 namespace QmlIR {
 struct Document;
@@ -43,7 +47,7 @@ struct QQmlTypeCompiler
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlTypeCompiler)
 public:
-    QQmlTypeCompiler(QQmlEnginePrivate *engine,
+    QQmlTypeCompiler(QQmlTypeLoader *typeLoader,
                      QQmlTypeData *typeData,
                      QmlIR::Document *document,
                      QV4::CompiledData::ResolvedTypeReferenceMap *resolvedTypeCache,
@@ -57,16 +61,26 @@ public:
     // Deliberate choice of map over hash here to ensure stable generated output.
     using IdToObjectMap = QMap<int, int>;
 
-    const QmlIR::Object *objectAt(int index) const { return document->objects.at(index); }
-    QmlIR::Object *objectAt(int index) { return document->objects.at(index); }
+    const QmlIR::Object *objectAt(int index) const
+    {
+        return document->objects.at(resolvedIndex(index));
+    }
+
+    QmlIR::Object *objectAt(int index)
+    {
+        return document->objects.at(resolvedIndex(index));
+    }
+
     int objectCount() const { return document->objects.size(); }
+    int resolvedIndex(int index) const;
+    int implicitComponentForObject(int childIndex) const;
     QString stringAt(int idx) const;
     QmlIR::PoolList<QmlIR::Function>::Iterator objectFunctionsBegin(const QmlIR::Object *object) const { return object->functionsBegin(); }
     QmlIR::PoolList<QmlIR::Function>::Iterator objectFunctionsEnd(const QmlIR::Object *object) const { return object->functionsEnd(); }
     QV4::CompiledData::ResolvedTypeReferenceMap *resolvedTypes = nullptr;
     ListPropertyAssignBehavior listPropertyAssignBehavior() const
     {
-        for (const QmlIR::Pragma *pragma: document->pragmas) {
+        for (const QmlIR::Pragma *pragma : std::as_const(document->pragmas)) {
             if (pragma->type == QmlIR::Pragma::ListPropertyAssignBehavior)
                 return pragma->listPropertyAssignBehavior;
         }
@@ -87,10 +101,9 @@ public:
     const QV4::CompiledData::Unit *qmlUnit() const;
 
     QUrl url() const { return typeData->finalUrl(); }
-    QQmlEnginePrivate *enginePrivate() const { return engine; }
-    QQmlTypeLoader *typeLoader() const { return &engine->typeLoader; }
+    QQmlTypeLoader *typeLoader() const { return loader; }
     const QQmlImports *imports() const;
-    QVector<QmlIR::Object *> *qmlObjects() const;
+    QList<QmlIR::Object *> *qmlObjects() const;
     QQmlPropertyCacheVector *propertyCaches();
     const QQmlPropertyCacheVector *propertyCaches() const;
     QQmlJS::MemoryPool *memoryPool();
@@ -121,7 +134,7 @@ public:
 
 private:
     QList<QQmlError> errors;
-    QQmlEnginePrivate *engine;
+    QQmlTypeLoader *loader;
     const QV4::CompiledData::DependentTypesHasher &dependencyHasher;
     QmlIR::Document *document;
     // index is string index of type name (use obj->inheritedTypeNameIndex)
@@ -160,14 +173,16 @@ public:
     bool resolveSignalHandlerExpressions();
 
 private:
-    bool resolveSignalHandlerExpressions(const QmlIR::Object *obj, const QString &typeName,
-                                         const QQmlPropertyCache::ConstPtr &propertyCache);
+    bool resolveSignalHandlerExpressions(
+            const QmlIR::Object *obj, const QString &typeName,
+            const QQmlPropertyCache::ConstPtr &propertyCache,
+            QQmlPropertyResolver::RevisionCheck revisionCheck
+                    = QQmlPropertyResolver::CheckRevision);
 
-    QQmlEnginePrivate *enginePrivate;
-    const QVector<QmlIR::Object*> &qmlObjects;
+    QQmlTypeLoader *typeLoader;
+    const QList<QmlIR::Object*> &qmlObjects;
     const QQmlImports *imports;
     const QHash<int, QQmlCustomParser*> &customParsers;
-    const QSet<QString> &illegalNames;
     const QQmlPropertyCacheVector * const propertyCaches;
 };
 
@@ -183,10 +198,10 @@ public:
     bool resolveEnumBindings();
 
 private:
-    bool assignEnumToBinding(QmlIR::Binding *binding, QStringView enumName, int enumValue, bool isQtObject);
-    bool assignEnumToBinding(QmlIR::Binding *binding, const QString &enumName, int enumValue, bool isQtObject)
+    bool assignEnumToBinding(QmlIR::Binding *binding, QStringView enumName, int enumValue);
+    bool assignEnumToBinding(QmlIR::Binding *binding, const QString &enumName, int enumValue)
     {
-        return assignEnumToBinding(binding, QStringView(enumName), enumValue, isQtObject);
+        return assignEnumToBinding(binding, QStringView(enumName), enumValue);
     }
     bool tryQualifiedEnumAssignment(
             const QmlIR::Object *obj, const QQmlPropertyCache::ConstPtr &propertyCache,
@@ -194,7 +209,7 @@ private:
     int evaluateEnum(const QString &scope, QStringView enumName, QStringView enumValue, bool *ok) const;
 
 
-    const QVector<QmlIR::Object*> &qmlObjects;
+    const QList<QmlIR::Object*> &qmlObjects;
     const QQmlPropertyCacheVector * const propertyCaches;
     const QQmlImports *imports;
 };
@@ -209,7 +224,7 @@ public:
 private:
     void scanObjectRecursively(int objectIndex, bool annotateScriptBindings = false);
 
-    const QVector<QmlIR::Object*> &qmlObjects;
+    const QList<QmlIR::Object*> &qmlObjects;
     const QHash<int, QQmlCustomParser*> &customParsers;
 };
 
@@ -221,7 +236,7 @@ public:
 
     void annotateBindingsToAliases();
 private:
-    const QVector<QmlIR::Object*> &qmlObjects;
+    const QList<QmlIR::Object*> &qmlObjects;
     const QQmlPropertyCacheVector * const propertyCaches;
 };
 
@@ -233,7 +248,7 @@ public:
     void scan();
 
 private:
-    const QVector<QmlIR::Object*> &qmlObjects;
+    const QList<QmlIR::Object*> &qmlObjects;
     const QQmlPropertyCacheVector * const propertyCaches;
 };
 
@@ -249,25 +264,11 @@ private:
     enum class ScopeDeferred { False, True };
     bool scanObject(int objectIndex, ScopeDeferred scopeDeferred);
 
-    QVector<QmlIR::Object*> *qmlObjects;
+    QList<QmlIR::Object*> *qmlObjects;
     const QQmlPropertyCacheVector * const propertyCaches;
     const QHash<int, QQmlCustomParser*> &customParsers;
 
     bool _seenObjectWithId;
-};
-
-class QQmlDefaultPropertyMerger : public QQmlCompilePass
-{
-public:
-    QQmlDefaultPropertyMerger(QQmlTypeCompiler *typeCompiler);
-
-    void mergeDefaultProperties();
-
-private:
-    void mergeDefaultProperties(int objectIndex);
-
-    const QVector<QmlIR::Object*> &qmlObjects;
-    const QQmlPropertyCacheVector * const propertyCaches;
 };
 
 QT_END_NAMESPACE

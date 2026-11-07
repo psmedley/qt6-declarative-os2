@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgrhidistancefieldglyphcache_p.h"
 #include "qsgcontext_p.h"
@@ -41,7 +42,7 @@ QSGRhiDistanceFieldGlyphCache::~QSGRhiDistanceFieldGlyphCache()
 void QSGRhiDistanceFieldGlyphCache::requestGlyphs(const QSet<glyph_t> &glyphs)
 {
     QList<GlyphPosition> glyphPositions;
-    QVector<glyph_t> glyphsToRender;
+    QList<glyph_t> glyphsToRender;
 
     if (m_areaAllocator == nullptr)
         m_areaAllocator = new QSGAreaAllocator(QSize(maxTextureSize(), m_maxTextureCount * maxTextureSize()));
@@ -62,13 +63,15 @@ void QSGRhiDistanceFieldGlyphCache::requestGlyphs(const QSet<glyph_t> &glyphs)
                 glyph_t unusedGlyph = *m_unusedGlyphs.constBegin();
 
                 TexCoord unusedCoord = glyphTexCoord(unusedGlyph);
-                QRectF unusedGlyphBoundingRect = glyphData(unusedGlyph).boundingRect;
-                int unusedGlyphWidth = qCeil(unusedGlyphBoundingRect.width() + distanceFieldRadius() * 2);
-                int unusedGlyphHeight = qCeil(unusedGlyphBoundingRect.height() + distanceFieldRadius() * 2);
-                m_areaAllocator->deallocate(QRect(unusedCoord.x - padding,
-                                                  unusedCoord.y - padding,
-                                                  padding * 2 + unusedGlyphWidth,
-                                                  padding * 2 + unusedGlyphHeight));
+                if (!unusedCoord.isNull()) {
+                    QRectF unusedGlyphBoundingRect = glyphData(unusedGlyph).boundingRect;
+                    int unusedGlyphWidth = qCeil(unusedGlyphBoundingRect.width() + distanceFieldRadius() * 2);
+                    int unusedGlyphHeight = qCeil(unusedGlyphBoundingRect.height() + distanceFieldRadius() * 2);
+                    m_areaAllocator->deallocate(QRect(unusedCoord.x - padding,
+                                                      unusedCoord.y - padding,
+                                                      padding * 2 + unusedGlyphWidth,
+                                                      padding * 2 + unusedGlyphHeight));
+                }
 
                 m_unusedGlyphs.remove(unusedGlyph);
                 m_glyphsTexture.remove(unusedGlyph);
@@ -109,12 +112,11 @@ bool QSGRhiDistanceFieldGlyphCache::isActive() const
 
 void QSGRhiDistanceFieldGlyphCache::storeGlyphs(const QList<QDistanceField> &glyphs)
 {
-    typedef QHash<TextureInfo *, QVector<glyph_t> > GlyphTextureHash;
+    typedef QHash<TextureInfo *, QList<glyph_t> > GlyphTextureHash;
     typedef GlyphTextureHash::const_iterator GlyphTextureHashConstIt;
 
     GlyphTextureHash glyphTextures;
 
-    QVarLengthArray<QRhiTextureUploadEntry, 32> uploads;
     for (int i = 0; i < glyphs.size(); ++i) {
         QDistanceField glyph = glyphs.at(i);
         glyph_t glyphIndex = glyph.glyph();
@@ -122,6 +124,9 @@ void QSGRhiDistanceFieldGlyphCache::storeGlyphs(const QList<QDistanceField> &gly
         TextureInfo *texInfo = m_glyphsTexture.value(glyphIndex);
 
         resizeTexture(texInfo, texInfo->allocatedArea.width(), texInfo->allocatedArea.height());
+
+        if (!texInfo->texture)
+            continue;
 
         glyphTextures[texInfo].append(glyphIndex);
 
@@ -149,7 +154,7 @@ void QSGRhiDistanceFieldGlyphCache::storeGlyphs(const QList<QDistanceField> &gly
     QRhiResourceUpdateBatch *resourceUpdates = m_rc->glyphCacheResourceUpdates();
     for (int i = 0; i < glyphs.size(); ++i) {
         TextureInfo *texInfo = m_glyphsTexture.value(glyphs.at(i).glyph());
-        if (!texInfo->uploads.isEmpty()) {
+        if (!texInfo->uploads.isEmpty() && texInfo->texture) {
             QRhiTextureUploadDescription desc;
             desc.setEntries(texInfo->uploads.cbegin(), texInfo->uploads.cend());
             resourceUpdates->uploadTexture(texInfo->texture, desc);
@@ -190,22 +195,28 @@ void QSGRhiDistanceFieldGlyphCache::createTexture(TextureInfo *texInfo,
                                                   int height,
                                                   const void *pixels)
 {
+    QRhiTexture *newTexture = m_rhi->newTexture(QRhiTexture::RED_OR_ALPHA8, QSize(width, height), 1, QRhiTexture::UsedAsTransferSource);
+    if (!newTexture->create()) {
+        qWarning("Failed to create distance field glyph cache");
+        delete newTexture;
+        texInfo->texture = nullptr;
+        texInfo->size = QSize();
+        texInfo->image = QDistanceField();
+        return;
+    }
+
     if (useTextureResizeWorkaround() && texInfo->image.isNull()) {
         texInfo->image = QDistanceField(width, height);
         memcpy(texInfo->image.bits(), pixels, width * height);
     }
 
-    texInfo->texture = m_rhi->newTexture(QRhiTexture::RED_OR_ALPHA8, QSize(width, height), 1, QRhiTexture::UsedAsTransferSource);
-    if (texInfo->texture->create()) {
-        QRhiResourceUpdateBatch *resourceUpdates = m_rc->glyphCacheResourceUpdates();
-        QRhiTextureSubresourceUploadDescription subresDesc(pixels, width * height);
-        subresDesc.setSourceSize(QSize(width, height));
-        resourceUpdates->uploadTexture(texInfo->texture, QRhiTextureUploadEntry(0, 0, subresDesc));
-    } else {
-        qWarning("Failed to create distance field glyph cache");
-    }
-
+    texInfo->texture = newTexture;
     texInfo->size = QSize(width, height);
+
+    QRhiResourceUpdateBatch *resourceUpdates = m_rc->glyphCacheResourceUpdates();
+    QRhiTextureSubresourceUploadDescription subresDesc(pixels, width * height);
+    subresDesc.setSourceSize(QSize(width, height));
+    resourceUpdates->uploadTexture(texInfo->texture, QRhiTextureUploadEntry(0, 0, subresDesc));
 }
 
 void QSGRhiDistanceFieldGlyphCache::resizeTexture(TextureInfo *texInfo, int width, int height)
@@ -217,6 +228,12 @@ void QSGRhiDistanceFieldGlyphCache::resizeTexture(TextureInfo *texInfo, int widt
 
     QRhiTexture *oldTexture = texInfo->texture;
     createTexture(texInfo, width, height);
+
+    if (!texInfo->texture) {
+        if (oldTexture)
+            m_rc->deferredReleaseGlyphCacheTexture(oldTexture);
+        return;
+    }
 
     if (!oldTexture)
         return;
@@ -331,7 +348,7 @@ bool QSGRhiDistanceFieldGlyphCache::loadPregeneratedCache(const QRawFont &font)
     if (qtdfTable.isEmpty())
         return false;
 
-    typedef QHash<TextureInfo *, QVector<glyph_t> > GlyphTextureHash;
+    typedef QHash<TextureInfo *, QList<glyph_t> > GlyphTextureHash;
 
     GlyphTextureHash glyphTextures;
 
@@ -418,10 +435,28 @@ bool QSGRhiDistanceFieldGlyphCache::loadPregeneratedCache(const QRawFont &font)
             }
 
             TextureInfo *tex = textureInfo(i);
-            tex->allocatedArea.setX(Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedX));
-            tex->allocatedArea.setY(Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedY));
-            tex->allocatedArea.setWidth(Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedWidth));
-            tex->allocatedArea.setHeight(Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedHeight));
+            // Stored as quint32 in the table, but QRect uses int.
+            const quint32 allocX = Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedX);
+            const quint32 allocY = Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedY);
+            const quint32 allocWidth = Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedWidth);
+            const quint32 allocHeight = Qtdf::fetch<quint32>(textureRecord, Qtdf::allocatedHeight);
+            const quint32 maxSize = quint32(m_maxTextureSize);
+            // maxSize is the slice height of the area allocator, and a glyph that crosses a slice
+            // boundary expands the texture it is assigned to past the slice, by up to one glyph
+            // height - and a glyph can be no taller than the slice itself. The
+            // tallest valid texture is therefore 2 * maxSize - 1.
+            const quint32 maxTexHeight = maxSize * 2 - 1;
+            if (allocX > maxSize || allocY > maxSize
+                || allocWidth > maxSize || allocHeight > maxTexHeight) {
+                qWarning("Invalid texture geometry in qtdf table in font '%s'",
+                         qPrintable(font.familyName()));
+                return false;
+            }
+
+            tex->allocatedArea.setX(int(allocX));
+            tex->allocatedArea.setY(int(allocY));
+            tex->allocatedArea.setWidth(int(allocWidth));
+            tex->allocatedArea.setHeight(int(allocHeight));
             tex->padding = Qtdf::fetch<quint8>(textureRecord, Qtdf::texturePadding);
         }
 
@@ -477,6 +512,11 @@ bool QSGRhiDistanceFieldGlyphCache::loadPregeneratedCache(const QRawFont &font)
 
             int width = texInfo->allocatedArea.width();
             int height = texInfo->allocatedArea.height();
+            if (width <= 0 || height <= 0) {
+                qWarning("Invalid texture size in qtdf table in font '%s'",
+                         qPrintable(font.familyName()));
+                return false;
+            }
             qint64 size = qint64(width) * height;
             if (qtdfTableEnd - reinterpret_cast<const char *>(textureData) < size) {
                 qWarning("qtdf table too small in font '%s'.",
@@ -485,16 +525,18 @@ bool QSGRhiDistanceFieldGlyphCache::loadPregeneratedCache(const QRawFont &font)
             }
 
             createTexture(texInfo, width, height, textureData);
+            textureData += size;
 
-            QVector<glyph_t> glyphs = glyphTextures.value(texInfo);
+            if (!texInfo->texture)
+                continue;
+
+            QList<glyph_t> glyphs = glyphTextures.value(texInfo);
 
             Texture t;
             t.texture = texInfo->texture;
             t.size = texInfo->size;
 
             setGlyphsTexture(glyphs, t);
-
-            textureData += size;
         }
     }
 

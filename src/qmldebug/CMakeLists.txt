@@ -13,6 +13,8 @@ qt_internal_add_module(QmlDebugPrivate
     SOURCES
         qqmldebugclient.cpp qqmldebugclient_p.h
         qqmldebugclient_p_p.h
+        qqmldebugcommandlistener.cpp qqmldebugcommandlistener_p.h
+        qqmldebugconsole.cpp qqmldebugconsole_p.h
         qqmldebugconnection.cpp qqmldebugconnection_p.h
         qqmldebugmessageclient.cpp qqmldebugmessageclient_p.h
         qqmldebugtranslationclient.cpp qqmldebugtranslationclient_p.h
@@ -31,7 +33,9 @@ qt_internal_add_module(QmlDebugPrivate
         qqmlprofilereventlocation.cpp qqmlprofilereventlocation_p.h
         qqmlprofilereventreceiver.cpp qqmlprofilereventreceiver_p.h
         qqmlprofilereventtype.cpp qqmlprofilereventtype_p.h
+        qqmlprofilerqtdwriter.cpp qqmlprofilerqtdwriter_p.h
         qqmlprofilertypedevent.cpp qqmlprofilertypedevent_p.h
+        qquickeventreplayclient.cpp qquickeventreplayclient_p.h
         qv4debugclient.cpp qv4debugclient_p.h
         qv4debugclient_p_p.h
     PUBLIC_LIBRARIES

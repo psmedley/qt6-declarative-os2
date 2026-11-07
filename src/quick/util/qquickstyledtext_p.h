@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSTYLEDTEXT_H
 #define QQUICKSTYLEDTEXT_H
@@ -41,11 +42,14 @@ public:
         Top
     };
 
+    // Horizontal margin (in pixels) added on each side of an inline image
+    // to provide visual spacing between the image and adjacent text/images.
+    static constexpr qreal HMargin = 1.0;
+
     QUrl url;
     QPointF pos;
     QSize size;
     int position = 0;
-    qreal offset = 0.0; // this offset allows us to compensate for flooring reserved space
     Align align = QQuickStyledTextImgTag::Bottom;
     QScopedPointer<QQuickPixmap> pix;
 };

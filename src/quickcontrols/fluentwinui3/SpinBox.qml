@@ -1,10 +1,11 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
+import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Templates as T
-import QtQuick.Controls.FluentWinUI3.impl
 
 T.SpinBox {
     id: control
@@ -22,20 +23,21 @@ T.SpinBox {
         enabled && (down.pressed || up.pressed) && "pressed",
         !enabled && "disabled"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var config: Config.controls.spinbox[__controlState] || {}
-    readonly property var downConfig: value == from ? Config.controls.spinbox["atlimit"] : config
-    readonly property var upConfig: value == to ? Config.controls.spinbox["atlimit"] : config
+    readonly property var __config: Config.controls.spinbox[__controlState] || {}
+    readonly property var __downConfig: value == from ? Config.controls.spinbox["atlimit"] : __config
+    readonly property var __upConfig: value == to ? Config.controls.spinbox["atlimit"] : __config
+    readonly property bool __isHighContrast: Application.styleHints.accessibility.contrastPreference === Qt.HighContrast
 
-    spacing: config.contentItem.spacing || 0
-    leftPadding: ((!mirrored ? config.leftPadding : config.rightPadding) || 0) + (mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
-    rightPadding: ((!mirrored ? config.rightPadding : config.leftPadding) || 0) + (!mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
-    topPadding: config.topPadding || 0
-    bottomPadding: config?.bottomPadding || 0
+    spacing: __config.contentItem.spacing || 0
+    leftPadding: ((!mirrored ? __config.leftPadding : __config.rightPadding) || 0) + (mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
+    rightPadding: ((!mirrored ? __config.rightPadding : __config.leftPadding) || 0) + (!mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
+    topPadding: __config.topPadding || 0
+    bottomPadding: __config?.bottomPadding || 0
 
-    topInset: -config.topInset || 0
-    bottomInset: -config.bottomInset || 0
-    leftInset: -config.leftInset || 0
-    rightInset: -config.rightInset || 0
+    topInset: -__config.topInset || 0
+    bottomInset: -__config.bottomInset || 0
+    leftInset: -__config.leftInset || 0
+    rightInset: -__config.rightInset || 0
 
     validator: IntValidator {
         locale: control.locale.name
@@ -49,7 +51,7 @@ T.SpinBox {
         opacity: control.enabled ? 1 : 0.3
 
         font: control.font
-        color: control.palette.text
+        color: control.palette.buttonText
         selectionColor: control.palette.highlight
         selectedTextColor: control.palette.highlightedText
         horizontalAlignment: control.mirrored ? Text.AlignRight : Text.AlignLeft
@@ -58,49 +60,87 @@ T.SpinBox {
         readOnly: !control.editable
         validator: control.validator
         inputMethodHints: control.inputMethodHints
+
+        ContextMenu.menu: Impl.TextEditingContextMenu {
+            editor: parent
+        }
     }
 
-    down.indicator: StyleImage {
+    down.indicator: ItemGroup {
         x: !control.mirrored ? control.up.indicator ? (control.up.indicator.x - width) : 0
-                             : control.config.rightPadding
+                             : control.__config.rightPadding
         y: control.topPadding
-        height: control.availableHeight
-        imageConfig: control.downConfig.indicator_down_background
-
-        StyleImage {
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
-            imageConfig: control.downConfig.indicator_down_icon
+        Impl.StyleImage {
+            height: control.availableHeight
+            visible: !control.__isHighContrast
+            imageConfig: control.__downConfig.indicator_down_background
+        }
+        Rectangle {
+            height: control.availableHeight
+            visible: control.__isHighContrast && control.down.pressed
+            color: control.down.pressed ? control.palette.highlight : control.palette.button
+            radius: control.__config.indicator_down_background.bottomOffset
+        }
+        ColorImage {
+            // Hack: Use Math.ceil/floor to avoid subpixel rendering issues
+            x: Math.ceil((parent.width - width) / 2)
+            y: Math.floor((parent.height - height) / 2)
+            width: implicitWidth
+            height: implicitHeight
+            source: control.__downConfig.indicator_down_icon.filePath
+            color: !control.__isHighContrast ? defaultColor : control.down.pressed ? control.palette.button : control.palette.buttonText
         }
     }
 
-    up.indicator: StyleImage {
-        x: control.mirrored ? control.config.rightPadding + (control.down.indicator ? control.down.indicator.width : 0)
-                            : control.width - width - control.config.rightPadding
+    up.indicator: ItemGroup {
+        x: control.mirrored ? control.__config.rightPadding + (control.down.indicator ? control.down.indicator.width : 0)
+                            : control.width - width - control.__config.rightPadding
         y: control.topPadding
-        height: control.availableHeight
-        imageConfig: control.upConfig.indicator_up_background
-
-        StyleImage {
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
-            imageConfig: control.upConfig.indicator_up_icon
+        Impl.StyleImage {
+            height: control.availableHeight
+            visible: !control.__isHighContrast
+            imageConfig: control.__upConfig.indicator_up_background
         }
-    }
+        Rectangle {
+            visible: control.__isHighContrast && control.up.pressed
+            height: control.availableHeight
+            color: control.up.pressed ? control.palette.highlight : control.palette.button
+            radius: control.__config.indicator_up_background.bottomOffset
+        }
+        ColorImage {
+            // Hack: Use Math.ceil/floor to avoid subpixel rendering issues
+            x: Math.ceil((parent.width - width) / 2)
+            y: Math.floor((parent.height - height) / 2)
+            width: implicitWidth
+            height: implicitHeight
+            source: control.__upConfig.indicator_up_icon.filePath
+            color: !control.__isHighContrast ? defaultColor : control.up.pressed ? control.palette.button : control.palette.buttonText
+        }
+   }
 
-    background: StyleImage {
-        imageConfig: control.config.background
-        Item {
-            visible: control.activeFocus
-            width: parent.width
-            height: 2
-            y: parent.height - height
-            FocusStroke {
+    background: ItemGroup {
+        Impl.StyleImage {
+            visible: !control.__isHighContrast
+            imageConfig: control.__config.background
+            Item {
+                visible: control.activeFocus
                 width: parent.width
-                height: parent.height
-                radius: control.config.background.bottomOffset
-                color: control.palette.accent
+                height: 2
+                y: parent.height - height
+                Impl.FocusStroke {
+                    width: parent.width
+                    height: parent.height
+                    radius: control.__config.background.bottomOffset
+                    color: control.palette.accent
+                }
             }
+        }
+        Rectangle {
+            visible: control.__isHighContrast
+            color: control.palette.window
+            border.color: control.enabled && control.hovered || control.activeFocus ? control.palette.accent : control.palette.buttonText
+            border.width: control.editable && control.activeFocus ? 2 : 1
+            radius: control.__config.background.bottomOffset
         }
     }
 }

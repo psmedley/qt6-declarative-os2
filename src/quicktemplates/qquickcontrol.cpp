@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickcontrol_p.h"
 #include "qquickcontrol_p_p.h"
@@ -16,8 +17,11 @@
 #include "qquickpopup_p.h"
 #include "qquickpopupitem_p_p.h"
 #include "qquickapplicationwindow_p.h"
+#include "qquickapplicationwindow_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
 #include "qquickcontentitem_p.h"
+#include "qquicktooltip_p.h"
+#include "qquicktooltip_p_p.h"
 
 #if QT_CONFIG(accessibility)
 #include <QtQuick/private/qquickaccessibleattached_p.h>
@@ -44,6 +48,7 @@ Q_LOGGING_CATEGORY(lcItemManagement, "qt.quick.controls.control.itemmanagement")
     The following diagram illustrates the layout of a typical control:
 
     \image qtquickcontrols-control.png
+           {Basic control showing structure}
 
     The \l {Item::}{implicitWidth} and \l {Item::}{implicitHeight} of a control
     are typically based on the implicit sizes of the background and the content
@@ -136,6 +141,9 @@ void QQuickControlPrivate::init()
 {
     Q_Q(QQuickControl);
     QObject::connect(q, &QQuickItem::baselineOffsetChanged, q, &QQuickControl::baselineOffsetChanged);
+#if QT_CONFIG(accessibility)
+    setAccessible();
+#endif
 }
 
 #if QT_CONFIG(quicktemplates2_multitouch)
@@ -586,22 +594,13 @@ void QQuickControlPrivate::updateFontRecur(QQuickItem *item, const QFont &font)
 
 QLocale QQuickControlPrivate::calcLocale(const QQuickItem *item)
 {
-    const QQuickItem *p = item;
-    while (p) {
+    for (const QQuickItem *p = item; p; p = p->parentItem())
         if (const QQuickControl *control = qobject_cast<const QQuickControl *>(p))
             return control->locale();
 
-        QVariant v = p->property("locale");
-        if (v.isValid() && v.userType() == QMetaType::QLocale)
-            return v.toLocale();
-
-        p = p->parentItem();
-    }
-
-    if (item) {
+    if (item)
         if (QQuickApplicationWindow *window = qobject_cast<QQuickApplicationWindow *>(item->window()))
             return window->locale();
-    }
 
     return QLocale();
 }
@@ -702,6 +701,17 @@ bool QQuickControlPrivate::calcHoverEnabled(const QQuickItem *item)
         // environment variable or style hint.
         if (qobject_cast<const QQuickPopupItem *>(p))
             break;
+
+        auto *applicationWindow = qobject_cast<QQuickApplicationWindow *>(p->window());
+        if (applicationWindow) {
+            const auto *applicationWindowPrivate = QQuickApplicationWindowPrivate::get(applicationWindow);
+            if (p == applicationWindowPrivate->control) {
+                // Don't let the next check get hit, because it will return
+                // false since it's a plain QQuickControl. Instead, skip to the
+                // global flags.
+                break;
+            }
+        }
 
         if (QQuickTemplatesUtils::isInteractiveControlType(p)) {
             const QVariant hoverEnabledProperty = p->property("hoverEnabled");
@@ -1035,14 +1045,16 @@ QFont QQuickControl::font() const
     Q_D(const QQuickControl);
     QFont font = d->resolvedFont;
     // The resolveMask should inherit from the requestedFont
-    font.setResolveMask(d->extra.value().requestedFont.resolveMask());
+    font.setResolveMask(d->extra.isAllocated() ? d->extra->requestedFont.resolveMask() : 0);
     return font;
 }
 
 void QQuickControl::setFont(const QFont &font)
 {
     Q_D(QQuickControl);
-    if (d->extra.value().requestedFont.resolveMask() == font.resolveMask() && d->extra.value().requestedFont == font)
+    if (d->extra.isAllocated()
+            && d->extra.value().requestedFont.resolveMask() == font.resolveMask()
+            && d->extra.value().requestedFont == font)
         return;
 
     d->extra.value().requestedFont = font;
@@ -1754,6 +1766,23 @@ void QQuickControl::resetVerticalPadding()
 qreal QQuickControl::implicitContentWidth() const
 {
     Q_D(const QQuickControl);
+
+    if (auto *safeArea = static_cast<QQuickSafeArea*>(
+        qmlAttachedPropertiesObject<QQuickSafeArea>(this, false))) {
+        // If the control's padding is tied to the safe area we may in
+        // some cases end up with a binding loop if the implicit size
+        // moves the control further into the non-safe area. Detect this
+        // and break the binding loop by returning a constrained content
+        // size based on an earlier known good implicit size.
+        static constexpr auto kLastKnownGoodImplicitWidth = "_q_lastKnownGoodImplicitWidth";
+        if (safeArea->detectedPossibleBindingLoop) {
+            const auto lastImplicitWidth = safeArea->property(kLastKnownGoodImplicitWidth).value<int>();
+            return lastImplicitWidth - leftPadding() - rightPadding();
+        } else {
+            safeArea->setProperty(kLastKnownGoodImplicitWidth, implicitWidth());
+        }
+    }
+
     return d->implicitContentWidth;
 }
 
@@ -1782,6 +1811,23 @@ qreal QQuickControl::implicitContentWidth() const
 qreal QQuickControl::implicitContentHeight() const
 {
     Q_D(const QQuickControl);
+
+    if (auto *safeArea = static_cast<QQuickSafeArea*>(
+        qmlAttachedPropertiesObject<QQuickSafeArea>(this, false))) {
+        // If the control's padding is tied to the safe area we may in
+        // some cases end up with a binding loop if the implicit size
+        // moves the control further into the non-safe area. Detect this
+        // and break the binding loop by returning a constrained content
+        // size based on an earlier known good implicit size.
+        static constexpr auto kLastKnownGoodImplicitHeight = "_q_lastKnownGoodImplicitHeight";
+        if (safeArea->detectedPossibleBindingLoop) {
+            const auto lastImplicitHeight = safeArea->property(kLastKnownGoodImplicitHeight).value<int>();
+            return lastImplicitHeight - topPadding() - bottomPadding();
+        } else {
+            safeArea->setProperty(kLastKnownGoodImplicitHeight, implicitHeight());
+        }
+    }
+
     return d->implicitContentHeight;
 }
 
@@ -2114,6 +2160,7 @@ void QQuickControl::fontChange(const QFont &newFont, const QFont &oldFont)
 #if QT_CONFIG(quicktemplates2_hover)
 void QQuickControl::hoverChange()
 {
+    QQuickToolTipAttachedPrivate::maybeSetVisibleImplicitly(this, isHovered());
 }
 #endif
 

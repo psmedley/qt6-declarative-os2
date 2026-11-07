@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKRANGESLIDER_P_H
 #define QQUICKRANGESLIDER_P_H
@@ -39,6 +40,11 @@ class Q_QUICKTEMPLATES2_EXPORT QQuickRangeSlider : public QQuickControl
     Q_PROPERTY(bool vertical READ isVertical NOTIFY orientationChanged FINAL REVISION(2, 3))
     // 2.5 (Qt 5.12)
     Q_PROPERTY(qreal touchDragThreshold READ touchDragThreshold WRITE setTouchDragThreshold RESET resetTouchDragThreshold NOTIFY touchDragThresholdChanged FINAL REVISION(2, 5))
+    // 6.12 (Qt 6.12)
+    Q_PROPERTY(bool crossingEnabled READ isCrossingEnabled WRITE setCrossingEnabled NOTIFY crossingEnabledChanged REVISION(6, 12))
+    Q_PROPERTY(bool handlesCrossed READ handlesCrossed NOTIFY handlesCrossedChanged REVISION(6, 12))
+    Q_PROPERTY(qreal effectiveFirstValue READ effectiveFirstValue NOTIFY effectiveFirstValueChanged REVISION(6, 12))
+    Q_PROPERTY(qreal effectiveSecondValue READ effectiveSecondValue NOTIFY effectiveSecondValueChanged REVISION(6, 12))
     QML_NAMED_ELEMENT(RangeSlider)
     QML_ADDED_IN_VERSION(2, 0)
 
@@ -87,6 +93,13 @@ public:
     void resetTouchDragThreshold();
     Q_REVISION(2, 5) Q_INVOKABLE qreal valueAt(qreal position) const;
 
+    // 6.12 (Qt 6.12)
+    bool isCrossingEnabled() const;
+    void setCrossingEnabled(bool enabled);
+    bool handlesCrossed() const;
+    qreal effectiveFirstValue() const;
+    qreal effectiveSecondValue() const;
+
 Q_SIGNALS:
     void fromChanged();
     void toChanged();
@@ -97,6 +110,11 @@ Q_SIGNALS:
     Q_REVISION(2, 2) void liveChanged();
     // 2.5 (Qt 5.12)
     Q_REVISION(2, 5) void touchDragThresholdChanged();
+    // 6.12 (Qt 6.12)
+    Q_REVISION(6, 12) void crossingEnabledChanged();
+    Q_REVISION(6, 12) void handlesCrossedChanged();
+    Q_REVISION(6, 12) void effectiveFirstValueChanged();
+    Q_REVISION(6, 12) void effectiveSecondValueChanged();
 
 protected:
     void focusInEvent(QFocusEvent *event) override;
@@ -119,6 +137,9 @@ protected:
 
 private:
     friend class QQuickRangeSliderNode;
+    void updateHandleCrossing();
+    void effectiveValueChange(QQuickRangeSliderNode* node);
+    void updateFocusOrder();
 
     Q_DISABLE_COPY(QQuickRangeSlider)
     Q_DECLARE_PRIVATE(QQuickRangeSlider)
@@ -185,6 +206,8 @@ Q_SIGNALS:
     /*Q_REVISION(2, 5)*/ void implicitHandleHeightChanged();
 
 private:
+    void updateHandleCrossing();
+
     Q_DISABLE_COPY(QQuickRangeSliderNode)
     Q_DECLARE_PRIVATE(QQuickRangeSliderNode)
 };

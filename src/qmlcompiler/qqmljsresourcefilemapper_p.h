@@ -1,5 +1,7 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
+
 #ifndef QQMLJSRESOURCEFILEMAPPER_P_H
 #define QQMLJSRESOURCEFILEMAPPER_P_H
 
@@ -26,9 +28,9 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSResourceFileMapper
 {
     struct Entry
     {
-        QString resourcePath;
+        QString resourcePath; // can be empty to denote the root path `qrc:/`
         QString filePath;
-        bool isValid() const { return !resourcePath.isEmpty() && !filePath.isEmpty(); }
+        bool isValid() const { return !filePath.isEmpty(); }
     };
 
     enum FilterMode {
@@ -53,7 +55,7 @@ struct Q_QMLCOMPILER_EXPORT QQmlJSResourceFileMapper
     QQmlJSResourceFileMapper(const QStringList &resourceFiles);
 
     bool isEmpty() const;
-    bool isFile(const QString &resourcePath) const;
+    bool isFile(QStringView resourcePath) const;
 
     QList<Entry> filter(const Filter &filter) const;
     QStringList filePaths(const Filter &filter) const;

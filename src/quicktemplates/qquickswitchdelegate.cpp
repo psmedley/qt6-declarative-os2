@@ -1,9 +1,12 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickswitchdelegate_p.h"
 
 #include "qquickitemdelegate_p_p.h"
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -17,6 +20,7 @@ QT_BEGIN_NAMESPACE
     \brief Item delegate with a switch indicator that can be toggled on or off.
 
     \image qtquickcontrols-switchdelegate.gif
+           {Switch delegates showing on and off states}
 
     SwitchDelegate presents an item delegate that can be toggled on (checked) or
     off (unchecked). Switch delegates are typically used to select one or more
@@ -119,7 +123,7 @@ qreal QQuickSwitchDelegate::position() const
 void QQuickSwitchDelegate::setPosition(qreal position)
 {
     Q_D(QQuickSwitchDelegate);
-    position = qBound<qreal>(0.0, position, 1.0);
+    position = std::clamp(position, qreal(0.0),  qreal(1.0));
     if (qFuzzyCompare(d->position, position))
         return;
 
@@ -147,8 +151,10 @@ void QQuickSwitchDelegate::mouseMoveEvent(QMouseEvent *event)
     Q_D(QQuickSwitchDelegate);
     if (!keepMouseGrab()) {
         const QPointF movePoint = event->position();
-        if (d->canDrag(movePoint))
-            setKeepMouseGrab(QQuickWindowPrivate::dragOverThreshold(movePoint.x() - d->pressPoint.x(), Qt::XAxis, event));
+        if (d->canDrag(movePoint)) {
+            setKeepMouseGrab(QQuickDeliveryAgentPrivate::dragOverThreshold(movePoint.x() - d->pressPoint.x(),
+                                                                           Qt::XAxis, event));
+        }
     }
     QQuickItemDelegate::mouseMoveEvent(event);
 }
@@ -161,8 +167,10 @@ void QQuickSwitchDelegate::touchEvent(QTouchEvent *event)
         for (const QTouchEvent::TouchPoint &point : event->points()) {
             if (point.id() != d->touchId || point.state() != QEventPoint::Updated)
                 continue;
-            if (d->canDrag(point.position()))
-                setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.position().x() - d->pressPoint.x(), Qt::XAxis, &point));
+            if (d->canDrag(point.position())) {
+                setKeepTouchGrab(QQuickDeliveryAgentPrivate::dragOverThreshold(point.position().x() - d->pressPoint.x(),
+                                                                               Qt::XAxis, point));
+            }
         }
     }
     QQuickItemDelegate::touchEvent(event);

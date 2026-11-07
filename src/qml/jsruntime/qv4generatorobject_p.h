@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QV4GENERATOROBJECT_P_H
 #define QV4GENERATOROBJECT_P_H
@@ -77,7 +78,7 @@ struct GeneratorFunction : ArrowFunction
 
     static inline constexpr quint8 IsTailCallable = false;
 
-    static Heap::FunctionObject *create(ExecutionContext *scope, Function *function);
+    static Q_QML_EXPORT Heap::FunctionObject *create(ExecutionContext *scope, Function *function);
     static ReturnedValue virtualCall(const FunctionObject *f, const Value *thisObject, const Value *argv, int argc);
 };
 

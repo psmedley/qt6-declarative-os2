@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4ARRAYBUFFER_H
 #define QV4ARRAYBUFFER_H
 
@@ -40,8 +41,8 @@ struct Q_QML_EXPORT SharedArrayBuffer : Object {
     void setSharedArrayBuffer(bool shared) noexcept { isShared = shared; }
     bool isSharedArrayBuffer() const noexcept { return isShared; }
 
-    char *arrayData() noexcept { return arrayDataPointer()->data(); }
-    const char *constArrayData() const noexcept { return constArrayDataPointer()->data(); }
+    char *arrayData() noexcept { return arrayDataPointer().data(); }
+    const char *constArrayData() const noexcept { return constArrayDataPointer().data(); }
     uint arrayDataLength() const noexcept { return constArrayDataPointer().size; }
 
     bool hasSharedArrayData() const noexcept { return constArrayDataPointer().isShared(); }

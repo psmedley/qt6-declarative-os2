@@ -27,6 +27,7 @@ qt_internal_add_test(tst_qqmlbinding
         Qt::CorePrivate
         Qt::Gui
         Qt::GuiPrivate
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QmlMetaPrivate
         Qt::QuickPrivate
@@ -42,6 +43,7 @@ qt_internal_add_test(tst_qqmlbinding_no_deferred_properties
         Qt::CorePrivate
         Qt::Gui
         Qt::GuiPrivate
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QmlMetaPrivate
         Qt::QuickPrivate
@@ -54,6 +56,7 @@ qt_internal_add_test(tst_qqmlbinding_no_deferred_properties
 set_target_properties(tst_qqmlbinding PROPERTIES
     QT_QML_MODULE_URI "test"
     QT_QML_MODULE_VERSION 1.0
+    QT_QML_MODULE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 _qt_internal_qml_type_registration(tst_qqmlbinding)
@@ -61,6 +64,7 @@ _qt_internal_qml_type_registration(tst_qqmlbinding)
 set_target_properties(tst_qqmlbinding_no_deferred_properties PROPERTIES
     QT_QML_MODULE_URI "test"
     QT_QML_MODULE_VERSION 1.0
+    QT_QML_MODULE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 _qt_internal_qml_type_registration(tst_qqmlbinding_no_deferred_properties)

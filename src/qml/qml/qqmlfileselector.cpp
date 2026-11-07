@@ -1,5 +1,6 @@
 // Copyright (C) 2016 BlackBerry Limited. All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <QtCore/QFileSelector>
 #include <QtQml/QQmlAbstractUrlInterceptor>
@@ -90,21 +91,24 @@ QQmlFileSelector::~QQmlFileSelector()
 QFileSelector *QQmlFileSelector::selector() const noexcept
 {
     Q_D(const QQmlFileSelector);
-    return d->selector;
+    return d->selector.data();
 }
 
 QQmlFileSelectorPrivate::QQmlFileSelectorPrivate()
 {
-    Q_Q(QQmlFileSelector);
-    ownSelector = true;
-    selector = new QFileSelector(q);
+    selector = QTaggedPointer(new QFileSelector, Owned::Yes);
     myInstance.reset(new QQmlFileSelectorInterceptor(this));
 }
 
 QQmlFileSelectorPrivate::~QQmlFileSelectorPrivate()
 {
-    if (ownSelector)
-        delete selector;
+    deleteSelectorIfOwned();
+}
+
+void QQmlFileSelectorPrivate::deleteSelectorIfOwned()
+{
+    if (selector.tag() == Owned::Yes)
+        delete selector.data();
 }
 
 /*!
@@ -116,17 +120,18 @@ QQmlFileSelectorPrivate::~QQmlFileSelectorPrivate()
 void QQmlFileSelector::setSelector(QFileSelector *selector)
 {
     Q_D(QQmlFileSelector);
+
+    using Owned = QQmlFileSelectorPrivate::Owned;
+
     if (selector) {
-        if (d->ownSelector) {
-            delete d->selector;
-            d->ownSelector = false;
-        }
-        d->selector = selector;
+        d->deleteSelectorIfOwned();
+        d->selector = QTaggedPointer(selector, Owned::No);
+    } else if (d->selector.tag() == Owned::No) {
+        // Replace previous explicit file selector with default one.
+        d->selector = QTaggedPointer(new QFileSelector, Owned::Yes);
     } else {
-        if (!d->ownSelector) {
-            d->ownSelector = true;
-            d->selector = new QFileSelector(this);
-        } // Do nothing if already using internal selector
+        // Do nothing if already using internal selector and none given.
+        // NB: The internal one has to be the default one.
     }
 }
 
@@ -167,7 +172,8 @@ QQmlFileSelector* QQmlFileSelector::get(QQmlEngine* engine)
     }
 
     const QUrl nonEmptyInvalid(QLatin1String(":"));
-    for (QQmlAbstractUrlInterceptor *interceptor : enginePrivate->urlInterceptors) {
+    const auto interceptors = QQmlTypeLoader::get(engine)->urlInterceptors();
+    for (QQmlAbstractUrlInterceptor *interceptor : interceptors) {
         const QUrl result = interceptor->intercept(
                     nonEmptyInvalid, QQmlAbstractUrlInterceptor::UrlString);
         if (result.scheme() == QLatin1String("type")

@@ -4,9 +4,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(rhiunderqml LANGUAGES CXX)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick ShaderTools)
+find_package(Qt6 REQUIRED COMPONENTS Core GuiPrivate Qml Quick ShaderTools)
 
-qt_standard_project_setup()
+qt_standard_project_setup(REQUIRES 6.9)
 
 qt_add_executable(rhiunderqml WIN32 MACOSX_BUNDLE
     main.cpp
@@ -54,7 +54,6 @@ install(TARGETS rhiunderqml
 qt_generate_deploy_qml_app_script(
     TARGET rhiunderqml
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

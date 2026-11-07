@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGADAPTATIONLAYER_P_H
 #define QSGADAPTATIONLAYER_P_H
@@ -32,6 +33,7 @@
 #include <private/qdistancefield_p.h>
 #include <private/qintrusivelist_p.h>
 #include <rhi/qshader.h>
+#include <QtQuick/qsgtextnode.h>
 
 // ### remove
 #include <QtQuick/private/qquicktext_p.h>
@@ -114,6 +116,10 @@ public:
     virtual void setTopRightRadius(qreal radius) = 0;
     virtual void setBottomLeftRadius(qreal radius) = 0;
     virtual void setBottomRightRadius(qreal radius) = 0;
+    virtual void resetTopLeftRadius() = 0;
+    virtual void resetTopRightRadius() = 0;
+    virtual void resetBottomLeftRadius() = 0;
+    virtual void resetBottomRightRadius() = 0;
     virtual void setAntialiasing(bool antialiasing) { Q_UNUSED(antialiasing); }
     virtual void setAligned(bool aligned) = 0;
 
@@ -270,7 +276,7 @@ public:
         QString name; // optional, f.ex. the filename, used for debugging purposes only
         QShader rhiShader;
         Type type;
-        QVector<Variable> variables;
+        QList<Variable> variables;
 
         // Vertex inputs are not tracked here as QSGGeometry::AttributeSet
         // hardwires that anyways so it is up to the shader to provide
@@ -325,7 +331,7 @@ public:
         ShaderData() {}
         bool hasShaderCode = false;
         QSGGuiThreadShaderEffectManager::ShaderInfo shaderInfo;
-        QVector<VariableData> varData;
+        QList<VariableData> varData;
     };
 
     struct SyncData {
@@ -371,7 +377,7 @@ public:
         HighQualitySubPixelAntialiasing
     };
 
-    QSGGlyphNode() {}
+    QSGGlyphNode(QSGTextNode::RenderType renderType) : m_renderType(renderType) {}
     ~QSGGlyphNode() override;
 
     virtual void setGlyphs(const QPointF &position, const QGlyphRun &glyphs) = 0;
@@ -386,11 +392,16 @@ public:
     virtual void setPreferredAntialiasingMode(AntialiasingMode) = 0;
     virtual void setRenderTypeQuality(int renderTypeQuality) { Q_UNUSED(renderTypeQuality) }
 
+    QSGTextNode::RenderType renderType() const { return m_renderType; }
+
+    virtual void recycle();
+
     virtual void update() = 0;
 
-    void accept(QSGNodeVisitorEx *visitor) override { if (visitor->visit(this)) visitor->visitChildren(this); visitor->endVisit(this); }
+    void accept(QSGNodeVisitorEx *visitor) override { visitor->visit(this); visitor->endVisit(this); }
 protected:
     QRectF m_bounding_rect;
+    QSGTextNode::RenderType m_renderType;
 };
 
 class Q_QUICK_EXPORT QSGDistanceFieldGlyphConsumer
@@ -398,7 +409,7 @@ class Q_QUICK_EXPORT QSGDistanceFieldGlyphConsumer
 public:
     virtual ~QSGDistanceFieldGlyphConsumer();
 
-    virtual void invalidateGlyphs(const QVector<quint32> &glyphs) = 0;
+    virtual void invalidateGlyphs(const QList<quint32> &glyphs) = 0;
     QIntrusiveListNode node;
 };
 typedef QIntrusiveList<QSGDistanceFieldGlyphConsumer, &QSGDistanceFieldGlyphConsumer::node> QSGDistanceFieldGlyphConsumerList;
@@ -460,8 +471,8 @@ public:
     inline TexCoord glyphTexCoord(glyph_t glyph);
     inline const Texture *glyphTexture(glyph_t glyph);
 
-    void populate(const QVector<glyph_t> &glyphs);
-    void release(const QVector<glyph_t> &glyphs);
+    void populate(const QList<glyph_t> &glyphs);
+    void release(const QList<glyph_t> &glyphs);
 
     void update();
 
@@ -496,8 +507,8 @@ protected:
     virtual void releaseGlyphs(const QSet<glyph_t> &glyphs) = 0;
 
     void setGlyphsPosition(const QList<GlyphPosition> &glyphs);
-    void setGlyphsTexture(const QVector<glyph_t> &glyphs, const Texture &tex);
-    void markGlyphsToRender(const QVector<glyph_t> &glyphs);
+    void setGlyphsTexture(const QList<glyph_t> &glyphs, const Texture &tex);
+    void markGlyphsToRender(const QList<glyph_t> &glyphs);
     inline void removeGlyph(glyph_t glyph);
 
     void updateRhiTexture(QRhiTexture *oldTex, QRhiTexture *newTex, const QSize &newTexSize);

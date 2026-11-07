@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
+#include <QtCore/qtconfigmacros.h>
 #undef QT_NO_FOREACH // this file contains unported legacy Q_FOREACH uses
 
 #include "qquickparticlepainter_p.h"
@@ -39,6 +40,12 @@ QQuickParticlePainter::QQuickParticlePainter(QQuickItem *parent)
     , m_windowChanged(false)
     , m_groupIdsNeedRecalculation(false)
 {
+}
+
+QQuickParticlePainter::~QQuickParticlePainter()
+{
+    if (m_system)
+        m_system->unregisterParticlePainter(this);
 }
 
 void QQuickParticlePainter::itemChange(ItemChange change, const ItemChangeData &data)
@@ -90,6 +97,8 @@ void QQuickParticlePainter::recalculateGroupIds() const
 void QQuickParticlePainter::setSystem(QQuickParticleSystem *arg)
 {
     if (m_system != arg) {
+        if (m_system)
+            m_system->unregisterParticlePainter(this);
         m_system = arg;
         m_groupIdsNeedRecalculation = true;
         if (m_system){
@@ -102,12 +111,22 @@ void QQuickParticlePainter::setSystem(QQuickParticleSystem *arg)
 
 void QQuickParticlePainter::setGroups(const QStringList &arg)
 {
-    if (m_groups != arg) {
-        m_groups = arg;
-        m_groupIdsNeedRecalculation = true;
-        //Note: The system watches this as it has to recalc things when groups change. It will request a reset if necessary
-        Q_EMIT groupsChanged(arg);
+    if (m_groups == arg)
+        return;
+    m_groups = arg;
+    m_groupIdsNeedRecalculation = true;
+
+    if (m_system) {
+        QMetaObject::invokeMethod(
+                m_system,
+                [self = QPointer<QQuickParticlePainter>(this)]() {
+                    if (self)
+                        self->m_system->loadPainter(self);
+                },
+                Qt::QueuedConnection);
     }
+
+    Q_EMIT groupsChanged(arg);
 }
 
 void QQuickParticlePainter::load(QQuickParticleData* d)
@@ -115,14 +134,14 @@ void QQuickParticlePainter::load(QQuickParticleData* d)
     initialize(d->groupId, d->index);
     if (m_pleaseReset)
         return;
-    m_pendingCommits << qMakePair(d->groupId, d->index);
+    m_pendingCommits << std::make_pair(d->groupId, d->index);
 }
 
 void QQuickParticlePainter::reload(QQuickParticleData* d)
 {
     if (m_pleaseReset)
         return;
-    m_pendingCommits << qMakePair(d->groupId, d->index);
+    m_pendingCommits << std::make_pair(d->groupId, d->index);
 }
 
 void QQuickParticlePainter::reset()
@@ -156,7 +175,7 @@ void QQuickParticlePainter::calcSystemOffset(bool resetPending)
         }
     }
 }
-typedef QPair<int,int> intPair;
+typedef std::pair<int,int> intPair;
 void QQuickParticlePainter::performPendingCommits()
 {
     calcSystemOffset();

@@ -1,7 +1,7 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 #include <QProcess>
-#include <QtTest>
+#include <QTest>
 
 class tst_TestFiltering : public QObject
 {
@@ -21,7 +21,7 @@ private slots:
 
 
 const QString testExe =
-#if defined(Q_OS_DOSLIKE)
+#if defined(Q_OS_WIN)
     QFINDTESTDATA("quicktestmain/quicktestmain.exe");
 #else
     QFINDTESTDATA("quicktestmain/quicktestmain");

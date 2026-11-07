@@ -19,6 +19,7 @@
 #include <private/qqmldebugserviceinterfaces_p.h>
 
 #include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlcomponent.h>
 #include <private/qqmlengine_p.h>
 #include <QtCore/qbasictimer.h>
 #include <QtGui/QOffscreenSurface>
@@ -60,17 +61,38 @@ QQuickWidgetOffscreenWindow::QQuickWidgetOffscreenWindow(QQuickWindowPrivate &dd
     setObjectName(QString::fromLatin1("QQuickWidgetOffscreenWindow"));
 }
 
-// override setVisble to prevent accidental offscreen window being created
-// by base class.
-class QQuickWidgetOffscreenWindowPrivate: public QQuickWindowPrivate {
+class QQuickWidgetOffscreenWindowPrivate: public QQuickWindowPrivate
+{
 public:
-    void setVisible(bool visible) override {
+    // override setVisible to prevent accidental offscreen window being created
+    // by base class.
+    void setVisible(bool visible) override
+    {
         Q_Q(QWindow);
         // this stays always invisible
         visibility = visible ? QWindow::Windowed : QWindow::Hidden;
         q->visibilityChanged(visibility); // workaround for QTBUG-49054
     }
 };
+
+/*
+    Returns the widget that \a widget's content is composited into.
+
+    The widget layer flushes a widget's content to the backing store of the
+    closest ancestor that has a window, keyed by that ancestor's own window,
+    so that is the widget whose window the content ends up in. It is the top
+    level unless some widget in between has Qt::WA_NativeWindow set.
+
+    See QWidgetRepaintManager::markNeedsFlush().
+*/
+static QWidget *compositingWidgetFor(QWidget *widget)
+{
+    if (widget->windowHandle())
+        return widget;
+    if (QWidget *nativeParent = widget->nativeParentWidget())
+        return nativeParent;
+    return widget->window();
+}
 
 class QQuickWidgetRenderControlPrivate;
 
@@ -93,23 +115,37 @@ public:
     {
     }
 
-    bool isRenderWindow(const QWindow *w) override {
+    bool isRenderWindow(const QWindow *w) override
+    {
 #if QT_CONFIG(graphicsview)
         QWidgetPrivate *widgetd = QWidgetPrivate::get(m_quickWidget);
         auto *proxy = (widgetd && widgetd->extra) ? widgetd->extra->proxyWidget : nullptr;
         auto *scene = proxy ? proxy->scene() : nullptr;
         if (scene) {
             for (const auto &view : scene->views()) {
-                if (view->window()->windowHandle() == w)
+                if (compositingWidgetFor(view)->windowHandle() == w)
                     return true;
             }
         }
-
-        return m_quickWidget->window()->windowHandle() == w;
 #endif
+        return QQuickRenderControlPrivate::isRenderWindow(w);
     }
     QQuickWidget *m_quickWidget;
 };
+
+#if QT_CONFIG(accessibility)
+QAccessibleInterface *QQuickWidgetOffscreenWindow::accessibleRoot() const
+{
+    Q_D(const QQuickWidgetOffscreenWindow);
+    if (d->renderControl) {
+        auto *priv = static_cast<QQuickWidgetRenderControlPrivate *>(
+            QQuickRenderControlPrivate::get(d->renderControl)
+        );
+        return QAccessible::queryAccessibleInterface(priv->m_quickWidget);
+    }
+    return nullptr;
+}
+#endif // QT_CONFIG(accessibility)
 
 QQuickWidgetRenderControl::QQuickWidgetRenderControl(QQuickWidget *quickWidget)
     : QQuickRenderControl(*(new QQuickWidgetRenderControlPrivate(this, quickWidget)), nullptr)
@@ -119,12 +155,11 @@ QQuickWidgetRenderControl::QQuickWidgetRenderControl(QQuickWidget *quickWidget)
 QWindow *QQuickWidgetRenderControl::renderWindow(QPoint *offset)
 {
     Q_D(QQuickWidgetRenderControl);
-    if (offset)
-        *offset = d->m_quickWidget->mapTo(d->m_quickWidget->window(), QPoint());
 
-    QWindow *result = nullptr;
+    QQuickWidget *quickWidget = d->m_quickWidget;
+
 #if QT_CONFIG(graphicsview)
-    QWidgetPrivate *widgetd = QWidgetPrivate::get(d->m_quickWidget);
+    QWidgetPrivate *widgetd = QWidgetPrivate::get(quickWidget);
     if (widgetd->extra) {
         if (auto proxy = widgetd->extra->proxyWidget) {
             auto scene = proxy->scene();
@@ -134,16 +169,18 @@ QWindow *QQuickWidgetRenderControl::renderWindow(QPoint *offset)
                     // Get the first QGV containing the proxy. Not ideal, but the callers
                     // of this function aren't prepared to handle more than one render window.
                     auto candidateView = views.first();
-                    result = candidateView->window()->windowHandle();
+                    return compositingWidgetFor(candidateView)->windowHandle();
                 }
             }
         }
     }
 #endif
-    if (!result)
-        result = d->m_quickWidget->window()->windowHandle();
 
-    return result;
+    QWidget *renderWidget = compositingWidgetFor(quickWidget);
+    if (offset)
+        *offset = quickWidget->mapTo(renderWidget, QPoint());
+
+    return renderWidget->windowHandle();
 }
 
 void QQuickWidgetPrivate::initOffscreenWindow()
@@ -249,6 +286,17 @@ void QQuickWidgetPrivate::invalidateRenderControl()
     renderControl->invalidate();
 }
 
+void QQuickWidgetPrivate::handleWindowAboutToChange()
+{
+    Q_Q(QQuickWidget);
+    if (rhi)
+        rhi->removeCleanupCallback(q);
+
+    invalidateRenderControl();
+    deviceLost = true;
+    rhi = nullptr;
+}
+
 void QQuickWidgetPrivate::handleWindowChange()
 {
     Q_Q(QQuickWidget);
@@ -272,6 +320,9 @@ void QQuickWidgetPrivate::handleWindowChange()
 
     renderControl = new QQuickWidgetRenderControl(q);
     initOffscreenWindow();
+
+    if (oldOffScreenWindow)
+        offscreenWindow->setColor(oldOffScreenWindow->color());
 
     QObject::connect(renderControl, SIGNAL(renderRequested()), q, SLOT(triggerUpdate()));
     QObject::connect(renderControl, SIGNAL(sceneChanged()), q, SLOT(triggerUpdate()));
@@ -303,6 +354,20 @@ QQuickWidgetPrivate::QQuickWidgetPrivate()
 {
 }
 
+void QQuickWidgetPrivate::executeHelper()
+{
+    ensureEngine();
+
+    if (root) {
+        delete root;
+        root = nullptr;
+    }
+    if (component) {
+        delete component;
+        component = nullptr;
+    }
+}
+
 void QQuickWidgetPrivate::destroy()
 {
     Q_Q(QQuickWidget);
@@ -316,16 +381,8 @@ void QQuickWidgetPrivate::destroy()
 void QQuickWidgetPrivate::execute()
 {
     Q_Q(QQuickWidget);
-    ensureEngine();
+    executeHelper();
 
-    if (root) {
-        delete root;
-        root = nullptr;
-    }
-    if (component) {
-        delete component;
-        component = nullptr;
-    }
     if (!source.isEmpty()) {
         component = new QQmlComponent(engine.data(), source, q);
         if (!component->isLoading()) {
@@ -334,6 +391,20 @@ void QQuickWidgetPrivate::execute()
             QObject::connect(component, SIGNAL(statusChanged(QQmlComponent::Status)),
                              q, SLOT(continueExecute()));
         }
+    }
+}
+
+void QQuickWidgetPrivate::execute(QAnyStringView uri, QAnyStringView typeName)
+{
+    Q_Q(QQuickWidget);
+    executeHelper();
+
+    component = new QQmlComponent(engine.data(), uri, typeName, q);
+    if (!component->isLoading()) {
+        q->continueExecute();
+    } else {
+        QObject::connect(component, SIGNAL(statusChanged(QQmlComponent::Status)),
+                         q, SLOT(continueExecute()));
     }
 }
 
@@ -459,7 +530,7 @@ QImage QQuickWidgetPrivate::grabFramebuffer()
                                 readResult.pixelSize.width(), readResult.pixelSize.height(),
                                 QImage::Format_RGBA8888_Premultiplied);
             if (rhi->isYUpInFramebuffer())
-                return wrapperImage.mirrored();
+                return wrapperImage.flipped();
             else
                 return wrapperImage.copy();
         }
@@ -610,12 +681,6 @@ QImage QQuickWidgetPrivate::grabFramebuffer()
     Qt::WA_TranslucentBackground on the top-level window, request an alpha channel, and
     change the Qt Quick Scenegraph's clear color to Qt::transparent via setClearColor().
 
-    \section1 Tab Key Handling
-
-    On press of the \c[TAB] key, the item inside the QQuickWidget gets focus. If
-    this item can handle \c[TAB] key press, focus will change accordingly within
-    the item, otherwise the next widget in the focus chain gets focus.
-
     \sa {Exposing Attributes of C++ Types to QML}, {Qt Quick Widgets Example}, QQuickView
 */
 
@@ -646,6 +711,19 @@ QQuickWidget::QQuickWidget(const QUrl &source, QWidget *parent)
     : QQuickWidget(parent)
 {
     setSource(source);
+}
+
+/*!
+  \since 6.9
+  Constructs a QQuickWidget with the element specified by \a uri and \a typeName
+  and parent \a parent.
+  The default value of \a parent is \c{nullptr}.
+  \sa loadFromModule
+ */
+QQuickWidget::QQuickWidget(QAnyStringView uri, QAnyStringView typeName, QWidget *parent)
+    : QQuickWidget(parent)
+{
+    loadFromModule(uri, typeName);
 }
 
 /*!
@@ -733,6 +811,42 @@ void QQuickWidget::setContent(const QUrl& url, QQmlComponent *component, QObject
 
     d->setRootObject(item);
     emit statusChanged(status());
+}
+/*!
+   Sets the initial properties \a initialProperties with which the QML
+   component gets initialized after calling \l QQuickWidget::setSource().
+
+   \note You can only use this function to initialize top-level properties.
+   \note This function should always be called before setSource, as it has
+   no effect once the component has become \c Ready.
+
+   \sa QQmlComponent::createWithInitialProperties()
+   \since 6.9
+*/
+void QQuickWidget::setInitialProperties(const QVariantMap &initialProperties)
+{
+    Q_D(QQuickWidget);
+    d->initialProperties = initialProperties;
+}
+
+/*!
+    \since 6.9
+    Loads the QML component identified by \a uri and \a typeName. If the component
+    is backed by a QML file, \l{source} will be set accordingly. For types defined
+    in \c{C++}, \c{source} will be empty.
+
+    If any \l{source} was set before this method was called, it will be cleared.
+
+    Calling this method multiple times with the same \a uri and \a typeName will result
+    in the QML component being reinstantiated.
+
+    \sa setSource, QQmlComponent::loadFromModule, QQmlApplicationEngine::loadFromModule
+ */
+void QQuickWidget::loadFromModule(QAnyStringView uri, QAnyStringView typeName)
+{
+    Q_D(QQuickWidget);
+    d->source = {}; // clear URL
+    d->execute(uri, typeName);
 }
 
 /*!
@@ -1027,8 +1141,17 @@ void QQuickWidgetPrivate::initializeWithRhi()
     // when reparenting, the rhi may suddenly be different
     if (rhi) {
         QRhi *backingStoreRhi = QWidgetPrivate::rhi();
-        if (backingStoreRhi && rhi != backingStoreRhi)
-            rhi = nullptr;
+        if (backingStoreRhi && rhi != backingStoreRhi) {
+            // Can get here not just when reparenting to a new top-level window,
+            // but also when switching over from the offscreen infrastructure.
+            // Do the same that the Window[AboutTo]ChangeInternal events would do.
+            if (rhi == offscreenRenderer.rhi()) {
+                handleWindowAboutToChange();
+                handleWindowChange();
+            } else {
+                rhi = nullptr;
+            }
+        }
     }
 
     // On hide-show we may invalidate() (when !isPersistentSceneGraph) but our
@@ -1250,7 +1373,9 @@ void QQuickWidget::continueExecute()
         return;
     }
 
-    QObject *obj = d->component->create();
+    std::unique_ptr<QObject> obj(d->initialProperties.empty()
+                                     ? d->component->create()
+                                     : d->component->createWithInitialProperties(d->initialProperties));
 
     if (d->component->isError()) {
         const QList<QQmlError> errorList = d->component->errors();
@@ -1262,19 +1387,24 @@ void QQuickWidget::continueExecute()
         return;
     }
 
-    d->setRootObject(obj);
+    // If we used loadFromModule, we might not have a URL so far.
+    // Thus, query the component to retrieve the associated URL, if any
+    if (d->source.isEmpty())
+        d->source = d->component->url();
+
+    d->setRootObject(obj.release());
     emit statusChanged(status());
 }
-
 
 /*!
   \internal
 */
-void QQuickWidgetPrivate::setRootObject(QObject *obj)
+bool QQuickWidgetPrivate::setRootObject(QObject *obj)
 {
     Q_Q(QQuickWidget);
     if (root == obj)
-        return;
+        return true;
+
     if (QQuickItem *sgItem = qobject_cast<QQuickItem *>(obj)) {
         root = sgItem;
         sgItem->setParentItem(offscreenWindow->contentItem());
@@ -1298,7 +1428,10 @@ void QQuickWidgetPrivate::setRootObject(QObject *obj)
             q->resize(initialSize);
         }
         initResize();
+        return true;
     }
+
+    return false;
 }
 
 QPlatformBackingStoreRhiConfig QQuickWidgetPrivate::rhiConfig() const
@@ -1380,9 +1513,10 @@ QSize QQuickWidget::initialSize() const
 }
 
 /*!
-  Returns the view's root \l {QQuickItem} {item}. Can be null
+  Returns the view's root \l {QQuickItem} {item}. Can be \nullptr
   when setSource() has not been called, if it was called with
-  broken QtQuick code or while the QtQuick contents are being created.
+  broken \l[QML]{QtQuick} code or if the root item is otherwise
+  undefined.
  */
 QQuickItem *QQuickWidget::rootObject() const
 {
@@ -1740,11 +1874,7 @@ bool QQuickWidget::event(QEvent *e)
         }
 
     case QEvent::WindowAboutToChangeInternal:
-        if (d->rhi)
-            d->rhi->removeCleanupCallback(this);
-        d->invalidateRenderControl();
-        d->deviceLost = true;
-        d->rhi = nullptr;
+        d->handleWindowAboutToChange();
         break;
 
     case QEvent::WindowChangeInternal:

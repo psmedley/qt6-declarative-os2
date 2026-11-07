@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QHASHEDSTRING_P_H
 #define QHASHEDSTRING_P_H
@@ -51,6 +52,9 @@ private:
     friend class QHashedStringRef;
     friend class QStringHashNode;
 
+    friend size_t qHash(const QHashedString &key, size_t seed = 0)
+    { return size_t{key.hash()} ^ seed; }
+
     inline void computeHash() const;
     mutable quint32 m_hash = 0;
 };
@@ -86,7 +90,7 @@ public:
     bool endsWith(const QString &) const;
     int indexOf(const QChar &, int from=0) const;
     QHashedStringRef mid(int, int) const;
-    QVector<QHashedStringRef> split(const QChar sep) const;
+    QList<QHashedStringRef> split(const QChar sep) const;
 
     inline bool isEmpty() const;
     inline int length() const;
@@ -98,6 +102,9 @@ public:
 
 private:
     friend class QHashedString;
+
+    friend size_t qHash(const QHashedStringRef &key, size_t seed = 0)
+    { return size_t{key.hash()} ^ seed; }
 
     inline void computeHash() const;
 
@@ -132,16 +139,6 @@ private:
     int m_length = 0;
     mutable quint32 m_hash = 0;
 };
-
-inline size_t qHash(const QHashedString &string)
-{
-    return uint(string.hash());
-}
-
-inline size_t qHash(const QHashedStringRef &string)
-{
-    return uint(string.hash());
-}
 
 QHashedString::QHashedString()
 : QString()

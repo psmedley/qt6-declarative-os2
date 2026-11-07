@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSTYPEDESCRIPTIONREADER_P_H
 #define QQMLJSTYPEDESCRIPTIONREADER_P_H
@@ -25,13 +26,16 @@
 
 QT_BEGIN_NAMESPACE
 
+class QTypeRevision;
+
 class Q_QMLCOMPILER_EXPORT QQmlJSTypeDescriptionReader
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlJSTypeDescriptionReader)
 public:
-    QQmlJSTypeDescriptionReader() = default;
     explicit QQmlJSTypeDescriptionReader(QString fileName, QString data)
         : m_fileName(std::move(fileName)), m_source(std::move(data)) {}
+
+    Q_DISABLE_COPY_MOVE(QQmlJSTypeDescriptionReader)
 
     bool operator()(QList<QQmlJSExportedScope> *objects, QStringList *dependencies);
 
@@ -77,6 +81,7 @@ private:
     QList<QQmlJSExportedScope> *m_objects = nullptr;
     QStringList *m_dependencies = nullptr;
     int m_currentCtorIndex = 0;
+    int m_currentMethodIndex = 0;
 };
 
 QT_END_NAMESPACE

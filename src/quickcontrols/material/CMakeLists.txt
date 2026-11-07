@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #####################################################################
-## qtquickcontrols2materialstyleplugin Plugin:
+## QuickControls2Material Module:
 #####################################################################
 
 set(qml_files
@@ -16,10 +16,12 @@ set(qml_files
     "Dial.qml"
     "Dialog.qml"
     "DialogButtonBox.qml"
+    "DoubleSpinBox.qml"
     "Drawer.qml"
     "Frame.qml"
     "GroupBox.qml"
     "HorizontalHeaderView.qml"
+    "HorizontalHeaderViewDelegate.qml"
     "ItemDelegate.qml"
     "Label.qml"
     "Menu.qml"
@@ -39,6 +41,7 @@ set(qml_files
     "ScrollView.qml"
     "ScrollBar.qml"
     "ScrollIndicator.qml"
+    "SearchField.qml"
     "SelectionRectangle.qml"
     "Slider.qml"
     "SpinBox.qml"
@@ -59,6 +62,7 @@ set(qml_files
     "TreeViewDelegate.qml"
     "Tumbler.qml"
     "VerticalHeaderView.qml"
+    "VerticalHeaderViewDelegate.qml"
 )
 set_source_files_properties(DelayButton.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.2;6.0"
@@ -71,6 +75,9 @@ set_source_files_properties(DialogButtonBox.qml PROPERTIES
 )
 set_source_files_properties(HorizontalHeaderView.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.15;6.0"
+)
+set_source_files_properties(HorizontalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
 )
 set_source_files_properties(MenuBar.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.3;6.0"
@@ -92,6 +99,15 @@ set_source_files_properties(ToolSeparator.qml PROPERTIES
 )
 set_source_files_properties(VerticalHeaderView.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.15;6.0"
+)
+set_source_files_properties(VerticalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+set_source_files_properties(SearchField.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+set_source_files_properties(DoubleSpinBox.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.11"
 )
 
 add_subdirectory(impl)
@@ -125,7 +141,7 @@ qt_internal_add_qml_module(QuickControls2Material
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    OS2_SHORT_NAME QuCoMaSt
+        Qt::QuickControls2BasicPrivate
 )
 
 target_sources(qtquickcontrols2materialstyleplugin
@@ -150,10 +166,18 @@ qt_internal_add_resource(QuickControls2Material "qtquickcontrols2materialstyle"
         "images/check@2x.png"
         "images/check@3x.png"
         "images/check@4x.png"
+        "images/close_circle.png"
+        "images/close_circle@2x.png"
+        "images/close_circle@3x.png"
+        "images/close_circle@4x.png"
         "images/drop-indicator.png"
         "images/drop-indicator@2x.png"
         "images/drop-indicator@3x.png"
         "images/drop-indicator@4x.png"
+        "images/search-magnifier.png"
+        "images/search-magnifier@2x.png"
+        "images/search-magnifier@3x.png"
+        "images/search-magnifier@4x.png"
 )
 
 qt_internal_add_shaders(QuickControls2Material "qtquickcontrols2materialstyle_shaders"

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
+#include <QtTest/QSignalSpy>
 
 #include <private/qqmldata_p.h>
 #include <qjsengine.h>
@@ -20,6 +21,12 @@
 #include <QtQml/qqmllist.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <private/qv4functionobject_p.h>
+#include <QItemSelection>
+#include <QItemSelectionRange>
+#include <QJsonArray>
+#include <QQueue>
+#include <QStack>
+#include <QTranslator>
 
 #ifdef Q_CC_MSVC
 #define NO_INLINE __declspec(noinline)
@@ -260,6 +267,7 @@ private slots:
     void importModuleRelative();
     void importModuleWithLexicallyScopedVars();
     void importExportErrors();
+    void importModuleRuntimeError();
 
     void registerModule();
     void registerModuleQObject();
@@ -277,6 +285,8 @@ private slots:
     void concatAfterUnshift();
     void sortSparseArray();
     void compileBrokenRegexp();
+    void deeplyNestedRegexpDoesNotCrash();
+    void regexpAfterMoveToThread();
     void sortNonStringArray();
     void iterateInvalidProxy();
     void applyOnHugeArray();
@@ -284,6 +294,7 @@ private slots:
     void jsonStringifyHugeArray();
 
     void tostringRecursionCheck();
+    void arrayJoinRecursionCheck();
     void arrayIncludesWithLargeArray();
     void printCircularArray();
     void typedArraySet();
@@ -336,10 +347,25 @@ private slots:
 
     void multiMatchingRegularExpression();
 
+#if QT_CONFIG(icu)
+    void toLocaleLowerCase_data();
+    void toLocaleLowerCase();
+    void toLocaleLowerStringWithQLocale();
+
+    void toLocaleUpperCase_data();
+    void toLocaleUpperCase();
+    void toLocaleUpperStringWithQLocale();
+#endif
+
+    void evalInGlobalContext();
+    void truncateArrayData();
+    void rebuildInternalClassIndexOnResurrectedMember();
+
 public:
     Q_INVOKABLE QJSValue throwingCppMethod1();
     Q_INVOKABLE void throwingCppMethod2();
     Q_INVOKABLE QJSValue throwingCppMethod3();
+    Q_INVOKABLE QJSValue throwingCppMethod4();
 
 signals:
     void testSignal();
@@ -612,7 +638,7 @@ void tst_QJSEngine::toScriptValueBuiltin_data()
     vm.clear(); vm.insert("point1", QPointF(42.24, 24.42)); vm.insert("point2", QPointF(42.24, 24.42));
     QTest::newRow("qvariantmap_point") << QVariant(vm);
     QTest::newRow("qvariant") << QVariant(QVariant(42));
-    QTest::newRow("QList<QString>") << QVariant::fromValue(QVector<QString>() << "1" << "2" << "3" << "4");
+    QTest::newRow("QList<QString>") << QVariant::fromValue(QList<QString>() << "1" << "2" << "3" << "4");
     QTest::newRow("QStringList") << QVariant::fromValue(QStringList() << "1" << "2" << "3" << "4");
     QTest::newRow("QMap<QString, QString>") << QVariant::fromValue(QMap<QString, QString>{{ "1", "2" }, { "3", "4" }});
     QTest::newRow("QHash<QString, QString>") << QVariant::fromValue(QHash<QString, QString>{{ "1", "2" }, { "3", "4" }});
@@ -745,6 +771,8 @@ void tst_QJSEngine::toScriptValuenotroundtripped()
 
 void tst_QJSEngine::newVariant()
 {
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     QJSEngine eng;
     {
         QJSValue opaque = eng.toScriptValue(QVariant(QPoint(1, 2)));
@@ -756,6 +784,7 @@ void tst_QJSEngine::newVariant()
         QCOMPARE(opaque.prototype().isVariant(), false);
         QVERIFY(opaque.property("valueOf").callWithInstance(opaque).equals(opaque));
     }
+    QT_WARNING_POP
 }
 
 void tst_QJSEngine::newVariant_valueOfToString()
@@ -939,7 +968,7 @@ void tst_QJSEngine::newQObjectRace()
         void run() override
         {
             int newObjectCount = 1000;
-#if defined(Q_OS_QNX)
+#if defined(Q_OS_QNX) || defined(Q_OS_VXWORKS)
             newObjectCount = 128;
 #endif
             for (int i=0;i<newObjectCount;++i)
@@ -1051,12 +1080,13 @@ public:
         One,
         Two
     };
+    Q_ENUM(Enum1)
     enum Enum2 {
         A = 0,
         B,
         C
     };
-    Q_ENUMS(Enum1 Enum2)
+    Q_ENUM(Enum2)
 
     Q_INVOKABLE TestQMetaObject() {}
     Q_INVOKABLE TestQMetaObject(int)
@@ -1093,7 +1123,7 @@ void tst_QJSEngine::newQObjectPropertyCache()
         engine.newQObject(obj.data());
         QVERIFY(QQmlData::get(obj.data())->propertyCache);
     }
-    QVERIFY(!QQmlData::get(obj.data())->propertyCache);
+    QVERIFY(QQmlData::get(obj.data())->propertyCache);
 }
 
 void tst_QJSEngine::newQMetaObject() {
@@ -1662,7 +1692,7 @@ Q_DECLARE_METATYPE(Foo)
 Q_DECLARE_METATYPE(Foo*)
 
 Q_DECLARE_METATYPE(QList<Foo>)
-Q_DECLARE_METATYPE(QVector<QChar>)
+Q_DECLARE_METATYPE(QList<QChar>)
 Q_DECLARE_METATYPE(QStack<int>)
 Q_DECLARE_METATYPE(QQueue<char>)
 
@@ -4467,7 +4497,7 @@ void tst_QJSEngine::translationFilePath_data()
     QTest::newRow("relative") << QStringLiteral("script.js");
     QTest::newRow("absolute unix") << QStringLiteral("/script.js");
     QTest::newRow("absolute /windows/") << QStringLiteral("c:/script.js");
-#ifdef Q_OS_DOSLIKE
+#ifdef Q_OS_WIN
     QTest::newRow("absolute \\windows\\") << QStringLiteral("c:\\script.js");
 #endif
     QTest::newRow("relative url") << QStringLiteral("file://script.js");
@@ -5109,6 +5139,14 @@ void tst_QJSEngine::returnError()
     QCOMPARE(result.property("lineNumber").toString(), "1");
     QCOMPARE(result.property("message").toString(), "Something is wrong");
     QVERIFY(!result.property("stack").isUndefined());
+
+    // NB: evaluate() does not return an ErrorObject if the exception is not an ErrorObject.
+    //     This is documented.
+    QStringList exceptionStackTrace;
+    result = engine.evaluate("testCase.throwingCppMethod4()", "foo.js", 1, &exceptionStackTrace);
+    QVERIFY(!exceptionStackTrace.isEmpty());
+    QVERIFY(result.isString());
+    QCOMPARE(result.toString(), "JSValue from string");
 }
 
 void tst_QJSEngine::catchError()
@@ -5140,6 +5178,13 @@ QJSValue tst_QJSEngine::throwingCppMethod3()
     QJSEngine *engine = qjsEngine(this);
     engine->throwError(engine->newErrorObject(QJSValue::EvalError, "Something is wrong"));
     return QJSValue(31);
+}
+
+QJSValue tst_QJSEngine::throwingCppMethod4()
+{
+    QJSEngine *engine = qjsEngine(this);
+    engine->throwError(QJSValue("JSValue from string"));
+    return QJSValue(32);
 }
 
 void tst_QJSEngine::mathMinMax()
@@ -5235,6 +5280,28 @@ void tst_QJSEngine::importExportErrors()
         QJSValue result = engine.importModule(QStringLiteral(":/exporterror1.mjs"));
         QVERIFY(result.isError());
         QCOMPARE(result.property("lineNumber").toInt(), 2);
+    }
+}
+
+// QTBUG-146158: importModule must return an error QJSValue when the module
+// throws at runtime (explicit throw or implicit ReferenceError), matching the
+// documented contract that the return value has isError() == true on failure.
+void tst_QJSEngine::importModuleRuntimeError()
+{
+    // Explicit throw inside a module
+    {
+        QJSEngine engine;
+        QJSValue result = engine.importModule(QStringLiteral(":/modulethrowerror.mjs"));
+        QVERIFY2(result.isError(), "importModule should return an error when the module throws");
+        QCOMPARE(result.property("message").toString(), QLatin1String("Module error"));
+    }
+    // Implicit ReferenceError from accessing an undefined variable
+    {
+        QJSEngine engine;
+        QJSValue result = engine.importModule(QStringLiteral(":/modulereferenceerror.mjs"));
+        QVERIFY2(result.isError(),
+                 "importModule should return an error when the module has a ReferenceError");
+        QCOMPARE(result.property("name").toString(), QLatin1String("ReferenceError"));
     }
 }
 
@@ -5522,6 +5589,52 @@ void tst_QJSEngine::compileBrokenRegexp()
     QCOMPARE(value.toString(), "SyntaxError: Invalid flags supplied to RegExp constructor");
 }
 
+void tst_QJSEngine::deeplyNestedRegexpDoesNotCrash()
+{
+    // verify that we detect when a regular expression would run out of stack space
+    QString result;
+    bool isError = true;
+    std::unique_ptr<QThread> worker(QThread::create([&result, &isError]() {
+        QJSEngine engine;
+        const QJSValue value = engine.evaluate(
+            "(function() {"
+            "    var n = 50000;"
+            "    var src = '('.repeat(n) + 'a' + ')'.repeat(n);"
+            "    try { new RegExp(src); return 'compiled'; }"
+            "    catch (e) { return e instanceof SyntaxError ? 'SyntaxError' : String(e); }"
+            "})();"
+        );
+        isError = value.isError();
+        result = value.toString();
+    }));
+    worker->setStackSize(512 * 1024);
+    worker->start();
+    QVERIFY(worker->wait());
+
+    QVERIFY(!isError);
+    QCOMPARE(result, QLatin1String("SyntaxError"));
+}
+
+void tst_QJSEngine::regexpAfterMoveToThread()
+{
+    // Check that we use the correct stack limit after a thread move
+    QJSEngine *engine = new QJSEngine();
+    QThread worker;
+    engine->moveToThread(&worker);
+
+    QString result;
+    QObject::connect(&worker, &QThread::started, engine, [&]() {
+        result = engine->evaluate("\"abc\".replace(/b/, \"_\")").toString();
+        engine->deleteLater();
+        worker.quit();
+    });
+
+    worker.start();
+    QVERIFY(worker.wait());
+
+    QCOMPARE(result, u"a_c"_s);
+}
+
 void tst_QJSEngine::tostringRecursionCheck()
 {
     QJSEngine engine;
@@ -5538,6 +5651,20 @@ void tst_QJSEngine::tostringRecursionCheck()
     }
     main();
     )js");
+
+    QVERIFY(value.isError());
+    QCOMPARE(value.toString(), QLatin1String("RangeError: Maximum call stack size exceeded."));
+}
+
+void tst_QJSEngine::arrayJoinRecursionCheck()
+{
+    QJSEngine engine;
+    auto value = engine.evaluate(R"js(
+    a=[0,1];
+    a[0]=a;
+    a+0
+    )js");
+
     QVERIFY(value.isError());
     QCOMPARE(value.toString(), QLatin1String("RangeError: Maximum call stack size exceeded."));
 }
@@ -5635,9 +5762,12 @@ JSON.stringify([], v3);
 void tst_QJSEngine::typedArraySet()
 {
     QJSEngine engine;
+    // The length need only be large enough that offset + length overflows
+    // a uint32; keep it small so the two Int8Array allocations fit on
+    // memory-constrained targets such as the QNX QEMU CI.
     const auto value = engine.evaluate(
         "(function() {"
-        "   var length = 0xfffffe0;"
+        "   var length = 0x1000;"
         "   var offset = 0xfffffff0;"
         "   var e1;"
         "   var e2;"
@@ -6448,7 +6578,6 @@ void tst_QJSEngine::emptyStringLiteralEvaluatesToANonNullString() {
   QVERIFY(result.toString().isEmpty());
 }
 
-
 static unsigned stringListFetchCount = 0;
 class StringListProvider : public QObject
 {
@@ -6479,6 +6608,7 @@ void tst_QJSEngine::consoleLogSequence()
     engine.evaluate(QStringLiteral("console.log(object.strings)"));
     QCOMPARE(stringListFetchCount, 1);
 }
+
 
 void tst_QJSEngine::generatorFunctionInTailCallPosition() {
   QJSEngine engine;
@@ -6620,6 +6750,309 @@ void tst_QJSEngine::multiMatchingRegularExpression()
 
     QVERIFY(result2.isString());
     QCOMPARE(result2.toString(), "4F15 9D7A D402 55D9 4A5B 7EB9 AAAC D740 8C79 245D "_L1);
+}
+
+#if QT_CONFIG(icu)
+void tst_QJSEngine::toLocaleLowerCase_data()
+{
+    QTest::addColumn<QString>("expected");
+    QTest::addColumn<QString>("toBeLocaleLowerCased");
+    QTest::addColumn<QString>("locales");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<QJSValue::ErrorType>("errorType");
+    QTest::addColumn<QString>("expectedFailureComment");
+    // As there are no "NoError", the default error is set to GenericError
+    // We only check the error if the call is not valid
+    QTest::addRow("In Turkic (tr), U+0307 preceded by Capital Letter I is dropped.")
+            << u"abci"_s << u"\"aBcI\u0307\""_s << u"\"tr\""_s << true << QJSValue::GenericError
+            << "";
+    QTest::addRow("In Turkic (az), U+0307 preceded by Capital Letter I is dropped.")
+            << u"abci"_s << u"\"aBcI\u0307\""_s << u"\"az\""_s << true << QJSValue::GenericError
+            << "";
+    QTest::addRow("U+0307 preceded by Capital Letter I is dropped.")
+            << u"abci"_s << u"\"aBcI\u0307\""_s << u"[\"tr\", \"en\"]"_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("concatened string.") << u"abcde"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u""_s
+                                        << true << QJSValue::GenericError << "";
+    QTest::addRow("concatened string in filipino.")
+            << u"abcde"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u"\"fil\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("concatened string in structurally valid language.")
+            << u"abcde"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u"\"longlang\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("english locale keeps U+0307.")
+            << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"en\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("english (en-GB) locale keeps U+0307.")
+            << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"en-GB\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("klingon locale.") << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"i-klingon\""_s
+                                     << true << QJSValue::GenericError << "";
+    QTest::addRow("enochian locale.")
+            << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"i-enochian\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("x-foobar locale.") << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"x-foobar\""_s
+                                      << true << QJSValue::GenericError << "";
+    QTest::addRow("zh-Hant-TW locale.")
+            << u"abci\u0307"_s << u"\"aBcI\u0307\""_s << u"\"zh-Hant-TW\""_s << true
+            << QJSValue::GenericError << "";
+    // cases not handled
+    QTest::addRow("String ArrayBuffer error.")
+            << u"[object arraybuffer]"_s << u"(new String(new ArrayBuffer()))"_s << u"\"fil\""_s
+            << false << QJSValue::GenericError << "Should return [object arraybuffer]";
+
+    QTest::addRow("undefined in Intl error.")
+            << u"abc"_s << u"abc"_s << u"Intl.GetDefaultLocale"_s << false << QJSValue::GenericError
+            << "Intl.GetDefaultLocale is undefined, however, as Intl is not defined in the tests, "
+               "we fail due to it";
+}
+
+void tst_QJSEngine::toLocaleLowerCase()
+{
+    QFETCH(QString, expected);
+    QFETCH(QString, toBeLocaleLowerCased);
+    QFETCH(QString, locales);
+    QFETCH(bool, valid);
+    QFETCH(QJSValue::ErrorType, errorType);
+    QFETCH(QString, expectedFailureComment);
+
+    QJSEngine engine;
+    engine.installExtensions(QJSEngine::ConsoleExtension);
+
+    const QString program =
+            QString::fromUtf8("%1.toLocaleLowerCase(%2);").arg(toBeLocaleLowerCased, locales);
+
+    const QJSValue result = engine.evaluate(program);
+
+    if (!expectedFailureComment.isEmpty()) {
+        QEXPECT_FAIL("", expectedFailureComment.toLocal8Bit().data(), Abort);
+    }
+    QVERIFY(expectedFailureComment.isEmpty());
+    QCOMPARE(!result.isError(), valid);
+    if (valid) {
+        QVERIFY(result.isString());
+        QCOMPARE(result.toString(), expected);
+    }
+    if (!valid) {
+        QCOMPARE(result.errorType(), errorType);
+    }
+}
+
+void tst_QJSEngine::toLocaleLowerStringWithQLocale()
+{
+    QQmlEngine engine;
+    QQmlComponent comp(&engine);
+    comp.setData(R"(
+        import QtQml 2.15
+        QtObject {
+            id: root
+            property string loweredCase
+            property string loweredCaseArray
+            Component.onCompleted: () => {
+                const myLocale = Qt.locale("tr_TR")
+                root.loweredCase = "aBcI\u0307".toLocaleLowerCase(myLocale);
+                root.loweredCaseArray = "aBcI\u0307".toLocaleLowerCase([myLocale]);
+            }
+        }
+    )", QUrl("testdata"));
+    QScopedPointer<QObject> root {comp.create()};
+    const auto error = comp.errorString();
+    if (!error.isEmpty())
+        qDebug() << error;
+    QVERIFY(root);
+    QCOMPARE(root->property("loweredCase").toString(), QLatin1String("abci"));
+    QCOMPARE(root->property("loweredCaseArray").toString(), QLatin1String("abci"));
+}
+
+void tst_QJSEngine::toLocaleUpperCase_data()
+{
+    QTest::addColumn<QString>("expected");
+    QTest::addColumn<QString>("toBeLocaleUpperCased");
+    QTest::addColumn<QString>("locales");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<QJSValue::ErrorType>("errorType");
+    QTest::addColumn<QString>("expectedFailureComment");
+    // As there are no "NoError", the default error is set to GenericError
+    // We only check the error if the call is not valid
+    QTest::addRow("OneByte input with buffer size increase")
+            << u"ABCSS"_s << u"\"abCß\""_s << u"\"tr\""_s << true << QJSValue::GenericError << "";
+    QTest::addRow("concatened string.") << u"ABCDE"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u""_s
+                                        << true << QJSValue::GenericError << "";
+    QTest::addRow("concatened string in filipino.")
+            << u"ABCDE"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u"\"fil\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("concatened string in structurally valid language.")
+            << u"ABCDE"_s << u"(\"a\" + \"b\" + \"cde\")"_s << u"\"longlang\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("english locale keeps U+0307.")
+            << u"ABCI\u0307"_s << u"\"aBcI\u0307\""_s << u"\"en\""_s << true
+            << QJSValue::GenericError << "";
+    QTest::addRow("english (en-GB) locale keeps U+0307.")
+            << u"ABCI\u0307"_s << u"\"aBcI\u0307\""_s << u"\"en-GB\""_s << true
+            << QJSValue::GenericError << "";
+
+    // Greek uppercasing: not covered by intl402/String/*, yet. Tonos (U+0301) and
+    // other diacritic marks are dropped.  See
+    // http://bugs.icu-project.org/trac/ticket/5456#comment:19 for more examples.
+    // See also http://bugs.icu-project.org/trac/ticket/12845 .
+    QTest::addRow("Greek uppercasing.")
+            << u"A"_s << u"\"α\u0301\""_s << u"\"el-GR\""_s << true << QJSValue::GenericError
+            << "Greek uppercasing: not covered by intl402/String/*, yet. Tonos (U+0301) and other "
+               "diacritic marks are dropped. See "
+               "http://bugs.icu-project.org/trac/ticket/5456#comment:19 for more examples. See "
+               "also http://bugs.icu-project.org/trac/ticket/12845";
+    QTest::addRow("Greek uppercasing 2.")
+            << u"A"_s << u"\"α\u0301\""_s << u"\"el-Grek\""_s << true << QJSValue::GenericError
+            << "Greek uppercasing: not covered by intl402/String/*, yet. Tonos (U+0301) and other "
+               "diacritic marks are dropped. See "
+               "http://bugs.icu-project.org/trac/ticket/5456#comment:19 for more examples. See "
+               "also http://bugs.icu-project.org/trac/ticket/12845";
+    QTest::addRow("Greek uppercasing 3.")
+            << u"A"_s << u"\"α\u0301\""_s << u"\"el-Grek-GR\""_s << true << QJSValue::GenericError
+            << "Greek uppercasing: not covered by intl402/String/*, yet. Tonos (U+0301) and other "
+               "diacritic marks are dropped. See "
+               "http://bugs.icu-project.org/trac/ticket/5456#comment:19 for more examples. See "
+               "also http://bugs.icu-project.org/trac/ticket/12845";
+    QTest::addRow("Greek uppercasing 4.") << u"ΡΩΜΕΪΚΑ"_s << u"\"ρωμέικα\""_s << u"\"el\""_s << true
+                                          << QJSValue::GenericError << "";
+    QTest::addRow("In other locales, U+0301 is preserved.")
+            << u"Α\u0301Ο\u0301Υ\u0301Ω\u0301"_s << u"\"α\u0301ο\u0301υ\u0301ω\u0301\""_s
+            << u"\"en\""_s << true << QJSValue::GenericError << "";
+    // cases not handled
+    QTest::addRow("String ArrayBuffer error.")
+            << u"[OBJECT ARRAYBUFFER]"_s << u"(new String(new ArrayBuffer()))"_s << u"\"fil\""_s
+            << false << QJSValue::GenericError << "Should return [OBJECT ARRAYBUFFER]";
+
+    QTest::addRow("undefined in Intl error.")
+            << u"abc"_s << u"abc"_s << u"Intl.GetDefaultLocale"_s << false << QJSValue::GenericError
+            << "Intl.GetDefaultLocale is undefined, however, as Intl is not defined in the tests, "
+               "we fail due to it";
+}
+
+void tst_QJSEngine::toLocaleUpperCase()
+{
+    QFETCH(QString, expected);
+    QFETCH(QString, toBeLocaleUpperCased);
+    QFETCH(QString, locales);
+    QFETCH(bool, valid);
+    QFETCH(QJSValue::ErrorType, errorType);
+    QFETCH(QString, expectedFailureComment);
+
+    QJSEngine engine;
+    engine.installExtensions(QJSEngine::ConsoleExtension);
+
+    const QString program =
+            QString::fromUtf8("%1.toLocaleUpperCase(%2);").arg(toBeLocaleUpperCased, locales);
+
+    const QJSValue result = engine.evaluate(program);
+
+    if (!expectedFailureComment.isEmpty()) {
+        QEXPECT_FAIL("", expectedFailureComment.toLocal8Bit().data(), Abort);
+    }
+    QVERIFY(expectedFailureComment.isEmpty());
+    QCOMPARE(!result.isError(), valid);
+    if (valid) {
+        QVERIFY(result.isString());
+        QCOMPARE(result.toString(), expected);
+    }
+    if (!valid) {
+        QCOMPARE(result.errorType(), errorType);
+    }
+}
+
+void tst_QJSEngine::toLocaleUpperStringWithQLocale()
+{
+    QQmlEngine engine;
+    QQmlComponent comp(&engine);
+    comp.setData(R"(
+        import QtQml 2.15
+        QtObject {
+            id: root
+            property string upperedCase
+            property string upperedCaseArray
+            Component.onCompleted: () => {
+                const myLocale = Qt.locale("tr_TR")
+                root.upperedCase = "abCß".toLocaleUpperCase(myLocale);
+                root.upperedCaseArray = "abCß".toLocaleUpperCase([myLocale]);
+            }
+        }
+    )", QUrl("testdata"));
+    QScopedPointer<QObject> root {comp.create()};
+    const auto error = comp.errorString();
+    if (!error.isEmpty())
+        qDebug() << error;
+    QVERIFY(root);
+    QCOMPARE(root->property("upperedCase").toString(), QLatin1String("ABCSS"));
+    QCOMPARE(root->property("upperedCaseArray").toString(), QLatin1String("ABCSS"));
+}
+#endif
+
+void tst_QJSEngine::evalInGlobalContext()
+{
+    QJSEngine myEngine;
+    const QJSValue fun = myEngine.globalObject().property(QLatin1String("eval"));
+    const QJSValue ret = fun.call({ QLatin1String("99") });
+    QCOMPARE(ret.toString(), QLatin1String("99"));
+}
+
+void tst_QJSEngine::truncateArrayData()
+{
+    QJSEngine engine;
+
+    QJSValue array = engine.newArray();
+    array.setProperty(0, QJSValue::NullValue);
+    array.setProperty(1, QJSValue(14));
+    array.setProperty(2, QJSValue(QLatin1String("aaa")));
+
+    // Append a JavaScript-owned object to the array and don't keep a local reference.
+    QJSValue object = engine.newQObject(new QObject());
+    QSignalSpy spy(object.toQObject(), &QObject::destroyed);
+    // std::move won't do here because setProperty() doesn't accept rvalue refs
+    array.setProperty(3, std::exchange(object, QJSValue()));
+    QVERIFY(object.isUndefined());
+
+    QCOMPARE(array.property("length").toInt(), 4);
+
+    gc(*engine.handle());
+    QCOMPARE(spy.count(), 0);
+    QCOMPARE(array.property("length").toInt(), 4);
+
+    // Truncating the array allows the GC to collect the QObject, which results in its deletion.
+    array.setProperty("length", 3);
+    QCOMPARE(array.property("length").toInt(), 3);
+    gc(*engine.handle());
+    QCOMPARE(spy.count(), 1);
+}
+
+void tst_QJSEngine::rebuildInternalClassIndexOnResurrectedMember()
+{
+    // the tests depends on InternalClass::MaxRedundantTransitions being 255
+    // it tests that we correctly handle property indices when cleanInternalClass
+    // rebuilds the hierarchy
+    QJSEngine engine;
+    QJSValue result = engine.evaluate(QStringLiteral(R"(
+        (function() {
+            var o = {};
+            var COUNT = 256;
+            for (var i = 0; i < COUNT; i++)
+                o["k" + i] = i;
+
+            // Delete 254 distinct keys. Each delete adds one redundant
+            // transition, bringing the count to just below the rebuild
+            // threshold. Only the last two keys stay alive,
+            // so the rebuilt class is small enough to have no
+            // out-of-line member data at all.
+            for (var i = 0; i < 254; i++)
+                delete o["k" + i];
+
+            // Re-add a just-deleted, high-index key; triggers the rebuild
+            o["k253"] = 42;
+
+            return o["k253"] + "," + o["k254"] + "," + o["k255"];
+        })()
+    )")); // should not crash
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.toString(), QStringLiteral("42,254,255"));
 }
 
 QTEST_MAIN(tst_QJSEngine)

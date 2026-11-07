@@ -37,10 +37,15 @@ private slots:
 
     void windowDestroyed();
     void windowLifetimeFollowsContainer();
+
+    void focusNavigation();
+
 #if TEST_WINDOW_PARENT
     void deferredVisibilityWithoutWindow();
     void windowComponent();
 #endif
+
+    void invisibleChildWindowFocus();
 
     void updateStackingOrderPerformance();
 
@@ -138,6 +143,43 @@ void tst_QQuickWindowContainer::windowLifetimeFollowsContainer()
     QVERIFY(windowGuard);
 }
 
+void tst_QQuickWindowContainer::focusNavigation()
+{
+    if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
+        QSKIP("Test requires Qt::TabFocusAllControls tab focus behavior");
+
+    auto *topLevelWindow = qobject_cast<QQuickWindow*>(m_engine->rootObjects().first());
+    auto *childWindow = topLevelWindow->findChild<QWindow *>("childWindow");
+    QVERIFY(childWindow);
+
+    QQuickItem *rect1 = topLevelWindow->findChild<QQuickItem *>("rect1");
+    QQuickItem *rect2 = topLevelWindow->findChild<QQuickItem *>("rect2");
+    QVERIFY(rect1);
+    QVERIFY(rect2);
+
+    QQuickItem *rect1Embedded = childWindow->findChild<QQuickItem *>("rect1embedded");
+    QQuickItem *rect2Embedded = childWindow->findChild<QQuickItem *>("rect2embedded");
+    QVERIFY(rect1Embedded);
+    QVERIFY(rect2Embedded);
+
+    topLevelWindow->show();
+    QVERIFY(QTest::qWaitForWindowExposed(topLevelWindow));
+    if (!QTest::qWaitForWindowFocused(topLevelWindow))
+        QSKIP("Window failed to activate and be focused, skipping test");
+    rect1->forceActiveFocus();
+
+    auto verifyFocusChain = [](const QList<QQuickItem *> &focusChain, Qt::Key key) {
+        for (QQuickItem *expectedFocusTarget : focusChain) {
+            const QByteArray objectName = expectedFocusTarget->objectName().toLatin1();
+            QTRY_VERIFY2(expectedFocusTarget->hasActiveFocus(), "expectedFocusTarget: " + objectName);
+            QTest::keyClick(QGuiApplication::focusWindow(), key);
+        }
+    };
+
+    verifyFocusChain({rect1, rect2, rect1Embedded, rect2Embedded}, Qt::Key_Tab);
+    verifyFocusChain({rect1, rect2Embedded, rect1Embedded, rect2, rect1}, Qt::Key_Backtab);
+}
+
 #if TEST_WINDOW_PARENT
 void tst_QQuickWindowContainer::deferredVisibilityWithoutWindow()
 {
@@ -197,6 +239,39 @@ void tst_QQuickWindowContainer::windowComponent()
     QCOMPARE(qobject_cast<QQuickWindow *>(window_window_parent)->parent(), windowParent);
 }
 #endif // TEST_WINDOW_PARENT
+
+void tst_QQuickWindowContainer::invisibleChildWindowFocus()
+{
+    // QTBUG-141450: Test that an invisible child window doesn't steal focus when
+    // the stacking order is updated.
+    QQuickWindow quickWindow;
+    QWindow childWindow;
+    QQuickWindowContainer container;
+
+    // Start invisible so childWindow is never shown and never grabs focus.
+    container.setVisible(false);
+    container.setParentItem(quickWindow.contentItem());
+    container.setContainedWindow(&childWindow);
+
+    quickWindow.show();
+    QVERIFY(QQuickTest::qWaitForPolish(&quickWindow));
+    // Child is parented but not visible
+    QCOMPARE(childWindow.parent(), &quickWindow);
+    QVERIFY(!childWindow.isVisible());
+
+    if (!QTest::qWaitForWindowActive(&quickWindow))
+        QSKIP("Window failed to activate, skipping test");
+
+    // With childWindow invisible, quickWindow must be the focus window
+    QTRY_COMPARE(QGuiApplication::focusWindow(), &quickWindow);
+
+    // Trigger a stacking order update. This should not affect which window
+    // has focus.
+    auto *windowPrivate = QQuickWindowPrivate::get(&quickWindow);
+    windowPrivate->updateChildWindowStackingOrder();
+    QCoreApplication::processEvents();
+    QCOMPARE(QGuiApplication::focusWindow(), &quickWindow);
+}
 
 void tst_QQuickWindowContainer::updateStackingOrderPerformance()
 {

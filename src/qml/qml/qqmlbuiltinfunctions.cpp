@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlbuiltinfunctions_p.h"
 
@@ -13,6 +14,7 @@
 #include <private/qqmlstringconverters_p.h>
 
 #include <private/qv4dateobject_p.h>
+#include <private/qv4domerrors_p.h>
 #include <private/qv4engine_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4include_p.h>
@@ -33,10 +35,11 @@
 #include <QtCore/qsize.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qurl.h>
+#include <QtCore/qvarlengtharray.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcRootProperties, "qt.qml.rootObjectProperties");
+Q_STATIC_LOGGING_CATEGORY(lcRootProperties, "qt.qml.rootObjectProperties");
 Q_LOGGING_CATEGORY(lcQml, "qml");
 Q_LOGGING_CATEGORY(lcJs, "js");
 
@@ -140,7 +143,7 @@ The following functions are also on the Qt object.
 */
 
 /*!
-    \qmlproperty object Qt::platform
+    \qmlproperty var Qt::platform
     \since 5.1
 
     The \c platform object provides info about the underlying platform.
@@ -215,7 +218,7 @@ The following functions are also on the Qt object.
 */
 
 /*!
-    \qmlproperty object Qt::styleHints
+    \qmlproperty QtObject Qt::styleHints
     \since 5.5
 
     The \c styleHints object provides platform-specific style hints and settings.
@@ -229,7 +232,7 @@ The following functions are also on the Qt object.
 */
 
 /*!
-\qmlmethod object Qt::include(string url, jsobject callback)
+\qmlmethod var Qt::include(string url, jsobject callback)
 \deprecated
 
 This method should not be used. Use ECMAScript modules, and the native
@@ -265,6 +268,10 @@ current context.
 QtObject::QtObject(ExecutionEngine *engine)
     : m_engine(engine)
 {
+#if QT_CONFIG(translation)
+    connect(m_engine->jsEngine(), &QJSEngine::uiLanguageChanged,
+            this, &QtObject::uiLanguageChanged);
+#endif
 }
 
 QtObject::Contexts QtObject::getContexts() const
@@ -315,6 +322,8 @@ bool QtObject::isQtObject(const QJSValue &value) const
 
     Returns the color corresponding to the given \a name (i.e. red or #ff0000).
     If there is no such color, \c null is returned.
+
+    \note Prefer using the typed \l{Color::fromString}
 */
 QVariant QtObject::color(const QString &name) const
 {
@@ -332,17 +341,15 @@ QVariant QtObject::color(const QString &name) const
 
     Returns a color with the specified \a red, \a green, \a blue, and \a alpha
     components. All components should be in the range 0-1 (inclusive).
+
+    \note Prefer using the typed \l{Color::rgba}
 */
 QVariant QtObject::rgba(double r, double g, double b, double a) const
 {
-    if (r < 0.0) r=0.0;
-    if (r > 1.0) r=1.0;
-    if (g < 0.0) g=0.0;
-    if (g > 1.0) g=1.0;
-    if (b < 0.0) b=0.0;
-    if (b > 1.0) b=1.0;
-    if (a < 0.0) a=0.0;
-    if (a > 1.0) a=1.0;
+    r = qBound(0.0, r, 1.0);
+    g = qBound(0.0, g, 1.0);
+    b = qBound(0.0, b, 1.0);
+    a = qBound(0.0, a, 1.0);
 
     return QQml_colorProvider()->fromRgbF(r, g, b, a);
 }
@@ -352,6 +359,8 @@ QVariant QtObject::rgba(double r, double g, double b, double a) const
 
     Returns a color with the specified \a hue, \a saturation, \a lightness, and \a alpha
     components. All components should be in the range 0-1 (inclusive).
+
+    \note Prefer using the typed \l{Color::hsla}
 */
 QVariant QtObject::hsla(double h, double s, double l, double a) const
 {
@@ -371,6 +380,7 @@ QVariant QtObject::hsla(double h, double s, double l, double a) const
     Returns a color with the specified \a hue, \a saturation, \a value and \a alpha
     components. All components should be in the range 0-1 (inclusive).
 
+    \note Prefer using the typed \l{Color::hsva}
 */
 QVariant QtObject::hsva(double h, double s, double v, double a) const
 {
@@ -390,6 +400,8 @@ QVariant QtObject::hsva(double h, double s, double v, double a) const
     arguments may be either color values or string values. If a string value
     is supplied it must be convertible to a color, as described for the
     \l{colorvaluetypedocs}{color} value type.
+
+    \note Prefer using the typed \l{Color::equal}
 */
 bool QtObject::colorEqual(const QVariant &lhs, const QVariant &rhs) const
 {
@@ -453,7 +465,7 @@ QSizeF QtObject::size(double w, double h) const
 }
 
 /*!
-    \qmlmethod font Qt::font(object fontSpecifier)
+    \qmlmethod font Qt::font(var fontSpecifier)
 
     Returns a font with the properties specified in the \a fontSpecifier object
     or the nearest matching font.  The \a fontSpecifier object should contain
@@ -648,6 +660,8 @@ static QVariant colorVariantFromJSValue(const QJSValue &color, bool *ok)
     by factor and converts the color back to RGB.
 
     If \a factor is not supplied, returns a color that is 50% lighter than \a baseColor (factor 1.5).
+
+    \note Prefer using the typed \l{Color::lighter}
 */
 QVariant QtObject::lighter(const QJSValue &color, double factor) const
 {
@@ -671,6 +685,8 @@ QVariant QtObject::lighter(const QJSValue &color, double factor) const
     by factor and converts the color back to RGB.
 
     If \a factor is not supplied, returns a color that is 50% darker than \a baseColor (factor 2.0).
+
+    \note Prefer using the typed \l{Color::darker}
 */
 QVariant QtObject::darker(const QJSValue &color, double factor) const
 {
@@ -685,6 +701,8 @@ QVariant QtObject::darker(const QJSValue &color, double factor) const
     Returns \a baseColor with an alpha value of \a value.
 
     \a value is a real ranging from 0 (completely transparent) to 1 (completely opaque).
+
+    \note Prefer using the typed \l{Color::transparent}
 */
 QVariant QtObject::alpha(const QJSValue &baseColor, double value) const
 {
@@ -714,10 +732,13 @@ QVariant QtObject::alpha(const QJSValue &baseColor, double value) const
         }
     }
     \endqml
-    \image declarative-rect_tint.png
+    \image declarative-rect_tint.png {Side-by-side representation of a light
+     steel blue square and a light steel blue square with a tint applied}
 
     Tint is most useful when a subtle change is intended to be conveyed due to some event;
     you can then use tinting to more effectively tune the visible color.
+
+    \note Prefer using the typed \l{Color::tint}
 */
 QVariant QtObject::tint(const QJSValue &baseColor, const QJSValue &tintColor) const
 {
@@ -987,7 +1008,7 @@ default locale. Otherwise, \a format should be either:
 \li A \c locale object.
 \endlist
 
-If \a format specifies a locale object, \dateTime is formatted
+If \a format specifies a locale object, \a dateTime is formatted
 with \l{QLocale::toString}. In this case, \a localeFormatOption can hold a value
 of type \l {QLocale::FormatType} to further tune the formatting. If none is
 provided, \l {QLocale::FormatType}{Locale.ShortFormat} is used.
@@ -1136,11 +1157,22 @@ QString QtObject::formatDateTime(const QString &string, const QLocale &locale,
     Attempts to open the specified \a target url in an external application, based on the user's
     desktop preferences. Returns \c true if it succeeds, \c false otherwise.
 
+    If \a target is a relative URL, it will be resolved. Afterwards, the URL will be forwarded
+    to \l{QDesktopServices::openUrl}.
+
     \warning A return value of \c true indicates that the application has successfully requested
     the operating system to open the URL in an external application. The external application may
     still fail to launch or fail to open the requested URL. This result will not be reported back
     to the application.
+
+    \warning Passing untrusted URLs to openUrlExternally can result in unexpected behaviour.
+    If untrusted URLs are to be passed to this function, create a JavaScript URL object
+    and check its \c{protocol} property against a list of allowed protocols. You can also do
+    further filtering based on other properties like \c{host}.
 */
+// TODO: \l{QDesktopServices::setUrlHandler}  doesn't help, as it doesn't allow a catch-all
+// handler. If it would, that could be used for global rejection of undesired schemes.
+// Amend documentation if this should change.
 bool QtObject::openUrlExternally(const QUrl &url) const
 {
     return QQml_guiProvider()->openUrlExternally(resolvedUrl(url));
@@ -1224,25 +1256,186 @@ QString QtObject::md5(const QString &data) const
 }
 
 /*!
-\qmlmethod string Qt::btoa(data)
-Binary to ASCII - this function returns a base64 encoding of \a data.
+\qmlmethod string Qt::escapeHtml(string data)
+\since 6.12
+
+Returns \a data with HTML special characters escaped.
+
+This function converts the plain text string \a data to an HTML string with
+HTML metacharacters \c{<}, \c{>}, \c{&}, and \c{"} replaced by HTML entities.
+
+Example:
+\qml
+var plain = "<script>alert('XSS')</script>";
+var escaped = Qt.escapeHtml(plain);
+// escaped is now "&lt;script&gt;alert('XSS')&lt;/script&gt;"
+\endqml
+
+\sa QString::toHtmlEscaped()
+*/
+QString QtObject::escapeHtml(const QString &data) const
+{
+    return data.toHtmlEscaped();
+}
+
+/*!
+\qmlmethod string Qt::btoa(string data)
+\deprecated [6.11] This method performs a UTF-8 conversion of the string before encoding it.
+
+Binary to ASCII --- this function returns a base64 encoding of \a data.
 */
 QString QtObject::btoa(const QString &data) const
 {
+    qWarning("Qt.btoa(string): This method is deprecated. "
+             "Its output differs from the common Web API. "
+             "Use the overloads that take array-likes.");
     return QLatin1String(data.toUtf8().toBase64());
 }
 
 /*!
-\qmlmethod string Qt::atob(data)
-ASCII to binary - this function decodes the base64 encoded \a data string and returns it.
+\qmlmethod string Qt::atob(string data)
+\deprecated [6.11] This method performs a Latin-1 conversion of the string before decoding it
+                   and then interprets the result as UTF-8.
+
+ASCII to binary --- this function decodes the base64 encoded \a data string and returns it.
 */
 QString QtObject::atob(const QString &data) const
 {
+    qWarning("Qt.atob(string): This method is deprecated. "
+             "Its output differs from the common Web API. "
+             "Use the overloads that take array-likes.");
     return QString::fromUtf8(QByteArray::fromBase64(data.toLatin1()));
 }
 
 /*!
-    \qmlmethod Qt::quit()
+\qmlmethod ArrayBuffer Qt::btoa(ArrayBuffer data)
+\since 6.11
+
+Binary to ASCII --- this function returns a base64 encoding of \a data.
+
+You can pass any array-like as \a data, and it will try to convert
+it into a byte array. In particular this works with a list of numbers
+and a list of one-character strings. The most efficient way to do this,
+however, is passing either a QByteArray or a JavaScript ArrayBuffer
+object.
+
+If the conversion fails and it turns out that the \a data is not of
+the expected form, an \c{Invalid Character} exception is thrown and an
+empty array is returned.
+
+*/
+QByteArray QtObject::btoa(const QByteArray &data) const
+{
+    return data.toBase64();
+}
+
+static QV4::ReturnedValue throwInvalidCharacter(QV4::ExecutionEngine *engine)
+{
+    QV4::Scope scope(engine);
+    THROW_DOM(DOMEXCEPTION_INVALID_CHARACTER_ERR, "Invalid character");
+}
+
+/*!
+\qmlmethod ArrayBuffer Qt::atob(ArrayBuffer data)
+\since 6.11
+
+ASCII to binary --- this function decodes the base64 encoded \a data and returns it.
+
+You can pass any array-like as \a data, and it will try to convert
+it into a byte array. In particular this works with a list of numbers
+and a list of one-character strings. The most efficient way to do this,
+however, is passing either a QByteArray or a JavaScript ArrayBuffer
+object.
+
+If the conversion fails and it turns out that the \a data is not of
+the expected form, an \c{Invalid Character} exception is thrown and an
+empty array is returned.
+
+*/
+QByteArray QtObject::atob(const QByteArray &data) const
+{
+    const auto result
+            = QByteArray::fromBase64Encoding(data, QByteArray::AbortOnBase64DecodingErrors);
+    if (result.decodingStatus == QByteArray::Base64DecodingStatus::Ok)
+        return result.decoded;
+
+    throwInvalidCharacter(v4Engine());
+    return QByteArray();
+}
+
+static QByteArray convertVariantList(const QVariantList &data, QV4::ExecutionEngine *engine)
+{
+    const auto fail = [&]() {
+        throwInvalidCharacter(engine);
+        return QByteArray();
+    };
+
+    QByteArray result;
+
+    const auto append = [&](auto value) {
+        if (value < 0 || value >= 256)
+            return false;
+        result.append(char(value));
+        return true;
+    };
+
+    for (const QVariant &entry : data) {
+        switch (entry.typeId()) {
+        case QMetaType::Char:
+            result.append(*static_cast<const char *>(entry.constData()));
+            break;
+        case QMetaType::Int: {
+            if (!append(*static_cast<const int *>(entry.constData())))
+                return fail();
+            break;
+        }
+        case QMetaType::Double: {
+            if (!append(*static_cast<const double *>(entry.constData())))
+                return fail();
+            break;
+        }
+        case QMetaType::QString: {
+            const QString *string = static_cast<const QString *>(entry.constData());
+            if (string->length() != 1)
+                return fail();
+            if (!append(string->at(0).unicode()))
+                return fail();
+            break;
+        }
+        default:
+            return fail();
+        }
+    }
+
+    return result;
+}
+
+/*!
+\qmlmethod var Qt::btoa(var data)
+\overload
+\since 6.11
+
+Binary to ASCII --- this function returns a base64 encoding of \a data.
+*/
+QByteArray QtObject::btoa(const QVariantList &data) const
+{
+    return btoa(convertVariantList(data, v4Engine()));
+}
+
+/*!
+\qmlmethod var Qt::atob(var data)
+\overload
+\since 6.11
+
+ASCII to binary --- this function decodes the base64 encoded \a data and returns it.
+*/
+QByteArray QtObject::atob(const QVariantList &data) const
+{
+    return atob(convertVariantList(data, v4Engine()));
+}
+
+/*!
+    \qmlmethod void Qt::quit()
 
     This function causes the QQmlEngine::quit() signal to be emitted.
     Within the \l {Prototyping with the QML Runtime Tool}{qml tool},
@@ -1259,7 +1452,7 @@ void QtObject::quit() const
 }
 
 /*!
-    \qmlmethod Qt::exit(int retCode)
+    \qmlmethod void Qt::exit(int retCode)
 
     This function causes the QQmlEngine::exit(int) signal to be emitted.
     Within the \l {Prototyping with the QML Runtime Tool}{qml tool},
@@ -1277,7 +1470,7 @@ void QtObject::exit(int retCode) const
 }
 
 /*!
-\qmlmethod object Qt::createQmlObject(string qml, object parent, url url)
+\qmlmethod QtObject Qt::createQmlObject(string qml, QtObject parent, url url)
 
 Compiles the given \a qml string into a component and then returns a new object created from
 that component. The new object will have the specified \a parent. Returns \c null if there was
@@ -1373,13 +1566,20 @@ QObject *QtObject::createQmlObject(const QString &qml, QObject *parent, const QU
         return nullptr;
     }
 
-    QQmlRefPointer<QQmlTypeData> typeData = QQmlEnginePrivate::get(engine)->typeLoader.getType(
+    QQmlRefPointer<QQmlTypeData> typeData = v4Engine()->typeLoader()->getType(
                 qml.toUtf8(), resolvedUrl, QQmlTypeLoader::Synchronous);
-    Q_ASSERT(typeData->isCompleteOrError());
+
+    if (!typeData->isCompleteOrError()) {
+        v4Engine()->throwError(
+                QStringLiteral("Qt.createQmlObject(): Failed to force synchronous loading "
+                               "of asynchronous URL '%1'").arg(resolvedUrl.toString()));
+        return nullptr;
+    }
+
     QQmlComponent component(engine);
     QQmlComponentPrivate *componentPrivate = QQmlComponentPrivate::get(&component);
     componentPrivate->fromTypeData(typeData);
-    componentPrivate->progress = 1.0;
+    componentPrivate->setProgress(1.0);
 
     Scope scope(v4Engine());
     if (component.isError()) {
@@ -1414,6 +1614,7 @@ QObject *QtObject::createQmlObject(const QString &qml, QObject *parent, const QU
     }
     component.completeCreate();
 
+    v4Engine()->trimCompilationUnitsForUrl(resolvedUrl);
     if (component.isError()) {
         ScopedValue v(scope, Error::create(scope.engine, component.errors()));
         scope.engine->throwError(v);
@@ -1500,11 +1701,18 @@ QQmlComponent *QtObject::createComponent(const QUrl &url, QObject *parent) const
     return createComponent(url, QQmlComponent::PreferSynchronous, parent);
 }
 
+Q_DECL_COLD_FUNCTION
+static void throw_invalid_compilation_mode(QV4::ExecutionEngine *engine, QQmlComponent::CompilationMode mode)
+{
+    engine->throwError(QStringLiteral("Invalid compilation mode %1").arg(int(mode)));
+    //                                                                   ^ QTBUG-131906
+}
+
 QQmlComponent *QtObject::createComponent(const QUrl &url, QQmlComponent::CompilationMode mode,
                                          QObject *parent) const
 {
     if (mode != QQmlComponent::Asynchronous && mode != QQmlComponent::PreferSynchronous) {
-        v4Engine()->throwError(QStringLiteral("Invalid compilation mode %1").arg(mode));
+        throw_invalid_compilation_mode(v4Engine(), mode);
         return nullptr;
     }
 
@@ -1520,7 +1728,7 @@ QQmlComponent *QtObject::createComponent(const QUrl &url, QQmlComponent::Compila
         return nullptr;
 
     QQmlComponent *c = new QQmlComponent(engine, context->resolvedUrl(url), mode, parent);
-    QQmlComponentPrivate::get(c)->creationContext = effectiveContext;
+    QQmlComponentPrivate::get(c)->setCreationContext(std::move(effectiveContext));
     QQmlData::get(c, true)->explicitIndestructibleSet = false;
     QQmlData::get(c)->indestructible = false;
     return c;
@@ -1535,7 +1743,7 @@ QQmlComponent *QtObject::createComponent(const QString &moduleUri, const QString
 QQmlComponent *QtObject::createComponent(const QString &moduleUri, const QString &typeName, QQmlComponent::CompilationMode mode, QObject *parent) const
 {
     if (mode != QQmlComponent::Asynchronous && mode != QQmlComponent::PreferSynchronous) {
-        v4Engine()->throwError(QStringLiteral("Invalid compilation mode %1").arg(mode));
+        throw_invalid_compilation_mode(v4Engine(), mode);
         return nullptr;
     }
 
@@ -1555,7 +1763,7 @@ QQmlComponent *QtObject::createComponent(const QString &moduleUri, const QString
         v4Engine()->throwTypeError(
                     QStringLiteral("Invalid arguments; did you swap mode and parent"));
     }
-    QQmlComponentPrivate::get(c)->creationContext = effectiveContext;
+    QQmlComponentPrivate::get(c)->setCreationContext(std::move(effectiveContext));
     QQmlData::get(c, true)->explicitIndestructibleSet = false;
     QQmlData::get(c)->indestructible = false;
     return c;
@@ -1585,7 +1793,7 @@ QBindable<QString> QtObject::uiLanguageBindable()
 
 #if QT_CONFIG(qml_locale)
 /*!
-    \qmlmethod Qt::locale(name)
+    \qmlmethod locale Qt::locale(name)
 
     Returns a JS object representing the locale with the specified
     \a name, which has the format "language[_territory][.codeset][@modifier]"
@@ -1601,6 +1809,8 @@ QBindable<QString> QtObject::uiLanguageBindable()
     valid ISO 369 code, the "C" locale is used instead. If country
     is not present, or is not a valid ISO 3166 code, the most
     appropriate country is chosen for the specified language.
+
+    The returned object is of an anonymous QML type backed by \l QLocale.
 
     \sa Locale
 */
@@ -1642,7 +1852,7 @@ QQmlSourceLocation QQmlBindingFunction::currentLocation() const
 DEFINE_OBJECT_VTABLE(QQmlBindingFunction);
 
 /*!
-    \qmlmethod Qt::binding(function)
+    \qmlmethod var Qt::binding(var function)
 
     Returns a JavaScript object representing a \l{Property Binding}{property binding},
     with a \a function that evaluates the binding.
@@ -1703,6 +1913,77 @@ void QtObject::callLater(QQmlV4FunctionPtr args)
     m_engine->delayedCallQueue()->addUniquelyAndExecuteLater(m_engine, args);
 }
 
+/*!
+    \qmlmethod real Qt::enumStringToValue(enumType, keyName)
+
+    Returns the numeric value of key \a keyName in enum \a enumType. If the
+    enum could not be found, a \c TypeError is thrown. If the key is not an
+    entry of the enum, a \c ReferenceError is thrown.
+ */
+double QtObject::enumStringToValue(const QJSManagedValue &enumType, const QString &string)
+{
+    return retrieveFromEnum<double>(
+            enumType,
+            [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.scopedEnumValue(typeLoader, enumIndex, string, ok);
+            }, [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.unscopedEnumValue(typeLoader, enumIndex, string, ok);
+            }, m_engine);
+}
+
+/*!
+    \qmlmethod string Qt::enumValueToString(enumType, keyValue)
+
+    Returns the string representation of a key of enum \a enumType that has the
+    value \a keyValue. If the enum could not be found, a \c TypeError is
+    thrown. If the value does not match any key of the enum, a
+    \c ReferenceError is thrown.
+
+    \note If multiple keys match the value of \a keyValue, which of the
+    matching keys will be returned is unspecified. Use enumValueToStrings in
+    that case.
+ */
+QString QtObject::enumValueToString(const QJSManagedValue &enumType, double value)
+{
+    // Undefined -> double = NaN
+    if (std::isnan(value)) {
+        m_engine->throwReferenceError("Invalid second argument, entry"_L1);
+        return {};
+    }
+
+    return retrieveFromEnum<QString>(
+            enumType,
+            [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.scopedEnumKey(typeLoader, enumIndex, QtPrivate::qSaturateRound(value), ok);
+            }, [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.unscopedEnumKey(typeLoader, enumIndex, QtPrivate::qSaturateRound(value), ok);
+            }, m_engine);
+}
+
+/*!
+    \qmlmethod list<string> Qt::enumValueToStrings(enumType, keyValue)
+
+    Returns a list of the string representation of all the keys of enum
+    \a enumType that have the value \a keyValue. If the enum could not be
+    found, a \c TypeError is thrown. If no key in the enum has value
+    \a keyValue, a \c ReferenceError is thrown.
+ */
+QStringList QtObject::enumValueToStrings(const QJSManagedValue &enumType, double value)
+{
+    // Undefined -> double = NaN
+    if (std::isnan(value)) {
+        m_engine->throwReferenceError("Invalid second argument, entry"_L1);
+        return {};
+    }
+
+    return retrieveFromEnum<QStringList>(
+            enumType,
+            [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.scopedEnumKeys(typeLoader, enumIndex, QtPrivate::qSaturateRound(value), ok);
+            }, [&](const QQmlType &type, QQmlTypeLoader *typeLoader, int enumIndex, bool *ok) {
+                return type.unscopedEnumKeys(typeLoader, enumIndex, QtPrivate::qSaturateRound(value), ok);
+            }, m_engine);
+}
 
 QQmlPlatform *QtObject::platform()
 {
@@ -2012,7 +2293,7 @@ ReturnedValue ConsoleObject::method_trace(const FunctionObject *b, const Value *
     QV4::CppStackFrame *frame = v4->currentStackFrame;
     QMessageLogger(frame->source().toUtf8().constData(), frame->lineNumber(),
                    frame->function().toUtf8().constData())
-        .debug(v4->qmlEngine() ? lcQml : lcJs, "%s", qPrintable(stack));
+            .debug(v4->qmlEngine() ? lcQml() : lcJs(), "%s", qPrintable(stack));
 
     return QV4::Encode::undefined();
 }
@@ -2420,25 +2701,56 @@ ReturnedValue GlobalExtensions::method_gc(const FunctionObject *b, const Value *
 ReturnedValue GlobalExtensions::method_string_arg(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
 {
     QV4::Scope scope(b);
-    if (argc != 1)
+    if (argc < 1)
         THROW_GENERIC_ERROR("String.arg(): Invalid arguments");
 
     QString value = thisObject->toQString();
 
-    QV4::ScopedValue arg(scope, argv[0]);
-    if (arg->isInteger())
-        RETURN_RESULT(scope.engine->newString(value.arg(arg->integerValue())));
-    else if (arg->isDouble())
-        RETURN_RESULT(scope.engine->newString(value.arg(arg->doubleValue())));
-    else if (arg->isBoolean())
-        RETURN_RESULT(scope.engine->newString(value.arg(arg->booleanValue())));
+    // Fast path for single argument
+    if (argc == 1) {
+        QV4::ScopedValue arg(scope, argv[0]);
+        if (arg->isInteger())
+            value = value.arg(arg->integerValue());
+        else if (arg->isDouble())
+            value = value.arg(arg->doubleValue());
+        else if (arg->isBoolean())
+            value = value.arg(arg->booleanValue());
+        else
+            value = value.arg(arg->toQString());
+        RETURN_RESULT(scope.engine->newString(value));
+    }
 
-    RETURN_RESULT(scope.engine->newString(value.arg(arg->toQString())));
+    // Preallocate for up to 10 arguments on the stack
+    constexpr int PreallocArgCount = 10;
+
+    // Convert QV4 values to QStringViewArg for QtPrivate::argToQString
+    QVarLengthArray<QString, PreallocArgCount> argStrings(argc);
+    QVarLengthArray<QtPrivate::QStringViewArg, PreallocArgCount> args(argc);
+    QVarLengthArray<const QtPrivate::ArgBase *, PreallocArgCount> argBases(argc);
+
+    for (int i = 0; i < argc; ++i) {
+        QV4::ScopedValue arg(scope, argv[i]);
+
+        if (arg->isInteger())
+            argStrings[i] = QString::number(arg->integerValue());
+        else if (arg->isDouble())
+            argStrings[i] = QString::number(arg->doubleValue());
+        else if (arg->isBoolean())
+            argStrings[i] = QString::number(arg->booleanValue());
+        else
+            argStrings[i] = arg->toQString();
+
+        args[i] = QtPrivate::QStringViewArg(argStrings[i]);
+        argBases[i] = &args[i];
+    }
+
+    QString result = QtPrivate::argToQString(value, argc, argBases.data());
+    RETURN_RESULT(scope.engine->newString(result));
 }
 
 /*!
-\qmlmethod Qt::callLater(function)
-\qmlmethod Qt::callLater(function, argument1, argument2, ...)
+\qmlmethod void Qt::callLater(function)
+\qmlmethod void Qt::callLater(function, argument1, argument2, ...)
 \since 5.8
 Use this function to eliminate redundant calls to a function or signal.
 

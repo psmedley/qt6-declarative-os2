@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGCURVEPROCESSOR_P_H
 #define QSGCURVEPROCESSOR_P_H
@@ -16,9 +17,14 @@
 //
 
 #include <QtQuick/qtquickexports.h>
-#include "util/qquadpath_p.h"
+#include <QtQuick/private/qquadpath_p.h>
+#include "qsgcurvestrokenode_p.h"
+
+#include <QtCore/qloggingcategory.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcSGCurveProcessor);
 
 class Q_QUICK_EXPORT QSGCurveProcessor
 {
@@ -27,10 +33,11 @@ public:
     typedef std::function<void(const std::array<QVector2D, 3> &,
                                const std::array<QVector2D, 3> &,
                                uvForPointCallback)> addTriangleCallback;
-    typedef std::function<void(const std::array<QVector2D, 3> &,
-                               const std::array<QVector2D, 3> &,
-                               const std::array<QVector2D, 3> &,
-                               bool)> addStrokeTriangleCallback;
+    typedef std::function<void(const std::array<QVector2D, 3> &, // vertex coordinates
+                               const std::array<QVector2D, 3> &, // start, control, end
+                               const std::array<QVector2D, 3> &, // normals
+                               const std::array<float, 3> &, // extrusions
+                               QSGCurveStrokeNode::TriangleFlags)> addStrokeTriangleCallback;
 
     static void processFill(const QQuadPath &path,
                             Qt::FillRule fillRule,
@@ -38,12 +45,13 @@ public:
     static void processStroke(const QQuadPath &strokePath,
                               float miterLimit,
                               float penWidth,
+                              bool cosmetic,
                               Qt::PenJoinStyle joinStyle,
                               Qt::PenCapStyle capStyle,
                               addStrokeTriangleCallback addTriangle,
                               int subdivisions = 3);
     static bool solveOverlaps(QQuadPath &path);
-    static QList<QPair<int, int>> findOverlappingCandidates(const QQuadPath &path);
+    static QList<std::pair<int, int>> findOverlappingCandidates(const QQuadPath &path);
     static bool removeNestedSubpaths(QQuadPath &path);
     static bool solveIntersections(QQuadPath &path, bool removeNestedPaths = true);
 };

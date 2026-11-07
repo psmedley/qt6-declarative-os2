@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef ERRORMESSAGE_H
 #define ERRORMESSAGE_H
@@ -29,7 +30,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(domLog);
+QT_DECLARE_EXPORTED_QT_LOGGING_CATEGORY(domLog, QMLDOM_EXPORT);
 
 namespace QQmlJS {
 namespace Dom {
@@ -38,7 +39,6 @@ QMLDOM_EXPORT ErrorLevel errorLevelFromQtMsgType(QtMsgType msgType);
 
 class ErrorGroups;
 class DomItem;
-using std::function;
 
 #define NewErrorGroup(name) QQmlJS::Dom::ErrorGroup(QT_TRANSLATE_NOOP("ErrorGroup", name))
 
@@ -88,7 +88,7 @@ public:
 
     static int cmp(const ErrorGroups &g1, const ErrorGroups &g2);
 
-    QVector<ErrorGroup> groups;
+    QList<ErrorGroup> groups;
 };
 
 inline bool operator==(const ErrorGroups& lhs, const ErrorGroups& rhs){ return ErrorGroups::cmp(lhs,rhs) == 0; }

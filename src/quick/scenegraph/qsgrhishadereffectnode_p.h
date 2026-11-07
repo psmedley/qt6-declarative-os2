@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGRHISHADEREFFECTNODE_P_H
 #define QSGRHISHADEREFFECTNODE_P_H
@@ -78,7 +79,7 @@ public:
     QSGMaterialType *m_materialType = nullptr;
     void *m_materialTypeCacheKey = nullptr;
     QSGRhiShaderLinker m_linker;
-    QVector<QSGTextureProvider *> m_textureProviders; // [binding] = QSGTextureProvider
+    QList<QSGTextureProvider *> m_textureProviders; // [binding] = QSGTextureProvider
     bool m_geometryUsesTextureSubRect = false;
     QSGShaderEffectNode::CullMode m_cullMode = QSGShaderEffectNode::NoCulling;
     bool m_hasCustomVertexShader = false;

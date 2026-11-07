@@ -5,6 +5,36 @@
 ## QuickControls2 Module:
 #####################################################################
 
+# Need to evaluate QuickControls features early. We can't wait until
+# qt_internal_add_qml_module() is executed because we need feature evaluation
+# to determine the optional imports.
+qt_feature_evaluate_features("${CMAKE_CURRENT_SOURCE_DIR}/configure.cmake")
+
+if(QT_FEATURE_quickcontrols2_fusion)
+    list(APPEND optional_imports "QtQuick.Controls.Fusion/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_imagine)
+    list(APPEND optional_imports "QtQuick.Controls.Imagine/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_material)
+    list(APPEND optional_imports "QtQuick.Controls.Material/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_universal)
+    list(APPEND optional_imports "QtQuick.Controls.Universal/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_fluentwinui3)
+    list(APPEND optional_imports "QtQuick.Controls.FluentWinUI3/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_macos)
+    list(APPEND optional_imports "QtQuick.Controls.macOS/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_ios)
+    list(APPEND optional_imports "QtQuick.Controls.iOS/auto")
+endif()
+if(QT_FEATURE_quickcontrols2_windows)
+    list(APPEND optional_imports "QtQuick.Controls.Windows/auto")
+endif()
+
 qt_internal_add_qml_module(QuickControls2
     URI "QtQuick.Controls"
     VERSION "${PROJECT_VERSION}"
@@ -12,15 +42,10 @@ qt_internal_add_qml_module(QuickControls2
     DESIGNER_SUPPORTED
     CLASS_NAME QtQuickControls2Plugin
     PLUGIN_TARGET qtquickcontrols2plugin
+    DEPENDENCIES
+        QtQuick/auto
     OPTIONAL_IMPORTS
-        QtQuick.Controls.Fusion/auto
-        QtQuick.Controls.Material/auto
-        QtQuick.Controls.Imagine/auto
-        QtQuick.Controls.Universal/auto
-        QtQuick.Controls.FluentWinUI3/auto
-        QtQuick.Controls.Windows/auto
-        QtQuick.Controls.macOS/auto
-        QtQuick.Controls.iOS/auto
+        ${optional_imports}
     DEFAULT_IMPORTS
         QtQuick.Controls.Basic/auto
     NO_PLUGIN_OPTIONAL
@@ -44,7 +69,6 @@ qt_internal_add_qml_module(QuickControls2
         Qt::Core
         Qt::Gui
         Qt::Quick
-    OS2_SHORT_NAME Qt6QuiCo
 )
 
 qt_internal_extend_target(qtquickcontrols2plugin
@@ -62,6 +86,10 @@ qt_internal_add_resource(qtquickcontrols2plugin "indirectBasic"
     FILES
         qmldir
 )
+
+if(QT_FEATURE_quickcontrols2_macos OR QT_FEATURE_quickcontrols2_windows)
+    add_subdirectory(quicknativestyle)
+endif()
 
 if(QT_FEATURE_quick_designer)
     add_subdirectory(designer)
@@ -99,6 +127,8 @@ endif()
 if(QT_FEATURE_quickcontrols2_windows)
     add_subdirectory(windows)
 endif()
+
+add_subdirectory(native)
 
 qt_internal_add_docs(QuickControls2
     doc/qtquickcontrols.qdocconf

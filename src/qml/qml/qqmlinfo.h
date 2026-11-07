@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLINFO_H
 #define QQMLINFO_H
@@ -21,8 +22,11 @@ Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me);
 Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QQmlError &error);
 Q_QML_EXPORT QQmlInfo qmlInfo(const QObject *me, const QList<QQmlError> &errors);
 
+Q_DECL_COLD_FUNCTION
 Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me);
+Q_DECL_COLD_FUNCTION
 Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QQmlError &error);
+Q_DECL_COLD_FUNCTION
 Q_QML_EXPORT QQmlInfo qmlWarning(const QObject *me, const QList<QQmlError> &errors);
 
 class QQmlInfoPrivate;

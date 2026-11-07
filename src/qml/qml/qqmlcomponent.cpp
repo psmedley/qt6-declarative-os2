@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlcomponent.h"
 #include "qqmlcomponent_p.h"
@@ -36,7 +37,7 @@ namespace {
     Q_CONSTINIT thread_local int creationDepth = 0;
 }
 
-Q_LOGGING_CATEGORY(lcQmlComponentGeneral, "qt.qml.qmlcomponent")
+Q_STATIC_LOGGING_CATEGORY(lcQmlComponentGeneral, "qt.qml.qmlcomponent")
 
 QT_BEGIN_NAMESPACE
 
@@ -78,8 +79,17 @@ V4_DEFINE_EXTENSION(QQmlComponentExtension, componentExtension);
     \code
     QQmlEngine *engine = new QQmlEngine;
     QQmlComponent component(engine, QUrl::fromLocalFile("main.qml"));
+    if (component.isError()) {
+        qWarning() << "Failed to load main.qml:" << component.errors();
+        return 1;
+    }
 
     QObject *myObject = component.create();
+    if (component.isError()) {
+        qWarning() << "Failed to create instance of main.qml:" << component.errors();
+        return 1;
+    }
+
     QQuickItem *item = qobject_cast<QQuickItem*>(myObject);
     int width = item->width();  // width = 200
     \endcode
@@ -280,73 +290,71 @@ V4_DEFINE_EXTENSION(QQmlComponentExtension, componentExtension);
     \value Asynchronous Load/compile the component in a background thread.
 */
 
-void QQmlComponentPrivate::typeDataReady(QQmlTypeData *)
+void QQmlComponentPrivate::ready(QQmlNotifyingBlob *)
 {
     Q_Q(QQmlComponent);
 
-    Q_ASSERT(typeData);
+    Q_ASSERT(m_typeData);
 
-    fromTypeData(typeData);
-    typeData.reset();
-    progress = 1.0;
-
+    fromTypeData(m_typeData);
+    m_typeData.reset();
+    setProgress(1.0);
     emit q->statusChanged(q->status());
-    emit q->progressChanged(progress);
 }
 
-void QQmlComponentPrivate::typeDataProgress(QQmlTypeData *, qreal p)
+void QQmlComponentPrivate::progress(QQmlNotifyingBlob *, qreal p)
 {
-    Q_Q(QQmlComponent);
-
-    progress = p;
-
-    emit q->progressChanged(p);
+    setProgress(p);
 }
 
 void QQmlComponentPrivate::fromTypeData(const QQmlRefPointer<QQmlTypeData> &data)
 {
-    url = data->finalUrl();
+    m_url = data->finalUrl();
     if (auto cu = data->compilationUnit())
-        compilationUnit = engine->handle()->executableCompilationUnit(std::move(cu));
+        m_compilationUnit = m_engine->handle()->executableCompilationUnit(std::move(cu));
 
-    if (!compilationUnit) {
+    if (!m_compilationUnit) {
         Q_ASSERT(data->isError());
-        state.errors.clear();
-        state.appendErrors(data->errors());
+        m_state.errors.clear();
+        m_state.appendErrors(data->errors());
     }
 }
 
 bool QQmlComponentPrivate::hadTopLevelRequiredProperties() const
 {
-    return state.creator()->componentHadTopLevelRequiredProperties();
+    return m_state.creator()->componentHadTopLevelRequiredProperties();
 }
 
 void QQmlComponentPrivate::clear()
 {
-    if (typeData) {
-        typeData->unregisterCallback(this);
-        typeData.reset();
+    if (m_typeData) {
+        m_typeData->unregisterCallback(this);
+        m_typeData.reset();
     }
 
-    compilationUnit.reset();
-    loadedType = {};
-    inlineComponentName.reset();
+    if (m_loadHelper) {
+        m_loadHelper->unregisterCallback(this);
+        m_loadHelper.reset();
+    }
+
+    m_compilationUnit.reset();
+    m_inlineComponentName.reset();
 }
 
 QObject *QQmlComponentPrivate::doBeginCreate(QQmlComponent *q, QQmlContext *context)
 {
-    if (!engine) {
+    if (!m_engine) {
         // ###Qt6: In Qt 6, it should be impossible for users to create a QQmlComponent without an engine, and we can remove this check
         qWarning("QQmlComponent: Must provide an engine before calling create");
         return nullptr;
     }
     if (!context)
-        context = engine->rootContext();
+        context = m_engine->rootContext();
     return q->beginCreate(context);
 }
 
 static void removePendingQPropertyBinding(
-    QV4::Value *object, const QString &propertyName, QQmlObjectCreator *creator)
+    QV4::Value *object, const QString &propertyName, const QQmlObjectCreator *creator)
 {
     if (!creator)
         return;
@@ -362,7 +370,7 @@ static void removePendingQPropertyBinding(
     if (QQmlData *ddata = QQmlData::get(o)) {
         const QQmlPropertyData *propData = ddata->propertyCache->property(
             propertyName, o, ddata->outerContext);
-        if (propData && propData->isBindable())
+        if (propData && propData->acceptsQBinding())
             creator->removePendingBinding(o, propData->coreIndex());
         return;
     }
@@ -377,62 +385,68 @@ static void removePendingQPropertyBinding(
 bool QQmlComponentPrivate::setInitialProperty(
         QObject *base, const QString &name, const QVariant &value)
 {
-    const QStringList properties = name.split(u'.');
+    bool isComplexProperty = name.contains(u'.');
+    QQmlProperty prop;
+    // we don't allow "fixing" inner required properties - that would seriously hamper local reasoning
+    if (m_state.hasUnsetRequiredProperties() && !isComplexProperty)
+        prop = QQmlComponentPrivate::removePropertyFromRequired(
+                    base, name, m_state.requiredProperties(), m_engine);
+    else if (QQmlContext *ctxt = qmlContext(base); ctxt)
+        prop = QQmlProperty(base, name, ctxt);
+    else
+        prop = QQmlProperty(base, name, m_engine);
 
-    if (properties.size() > 1) {
-        QV4::Scope scope(engine->handle());
+    if (!prop.isValid()) {
+        // Having extra properties in the object that contains initial properties is not a problem.
+        // In JavaScript you can hardly ensure the _absence_ of properties. There are implicitly
+        // added properties on many objects, properties added via prototype, etc.
+        if (!isComplexProperty)
+            return true;
+
+        // QQmlProperty can't handle accesses on value types
+        const QStringList properties = name.split(u'.');
+        QV4::Scope scope(m_engine->handle());
         QV4::ScopedObject object(scope, QV4::QObjectWrapper::wrap(scope.engine, base));
         QV4::ScopedString segment(scope);
-
         for (int i = 0; i < properties.size() - 1; ++i) {
             segment = scope.engine->newString(properties.at(i));
             object = object->get(segment);
-            if (scope.engine->hasException)
+            if (scope.engine->hasException || object->isNullOrUndefined())
                 break;
         }
+
         const QString lastProperty = properties.last();
-        segment = scope.engine->newString(lastProperty);
-        QV4::ScopedValue v(scope, scope.engine->metaTypeToJS(value.metaType(), value.constData()));
-        object->put(segment, v);
+        if (!object->isNullOrUndefined()) {
+            segment = scope.engine->newString(lastProperty);
+            QV4::ScopedValue v(scope, scope.engine->metaTypeToJS(value.metaType(), value.constData()));
+            object->put(segment, v);
+        } else {
+            return false;
+        }
+
         if (scope.engine->hasException) {
             qmlWarning(base, scope.engine->catchExceptionAsQmlError());
             scope.engine->hasException = false;
             return false;
         }
 
-        removePendingQPropertyBinding(object, lastProperty, state.creator());
+        removePendingQPropertyBinding(object, lastProperty, m_state.creator());
         return true;
     }
 
-    QQmlProperty prop;
-    if (state.hasUnsetRequiredProperties())
-        prop = QQmlComponentPrivate::removePropertyFromRequired(
-                    base, name, state.requiredProperties(), engine);
-    else
-        prop = QQmlProperty(base, name, engine);
-    QQmlPropertyPrivate *privProp = QQmlPropertyPrivate::get(prop);
-    const bool isValid = prop.isValid();
-    if (isValid && privProp->writeValueProperty(value, {})) {
+    if (QQmlPropertyPrivate::get(prop)->writeValueProperty(value, {})) {
         if (prop.isBindable()) {
-            if (QQmlObjectCreator *creator = state.creator())
+            if (QQmlObjectCreator *creator = m_state.creator())
                 creator->removePendingBinding(prop.object(), prop.index());
         }
-    } else {
-        QQmlError error{};
-        error.setUrl(url);
-        if (isValid) {
-            error.setDescription(QStringLiteral("Could not set initial property %1").arg(name));
-        } else {
-            error.setDescription(QStringLiteral("Setting initial properties failed: "
-                                                "%2 does not have a property called %1")
-                                         .arg(name, QQmlMetaType::prettyTypeName(base)));
-        }
-        qmlWarning(base, error);
-        return false;
+        return true;
     }
 
-    return true;
-
+    QQmlError error{};
+    error.setUrl(m_url);
+    error.setDescription(QStringLiteral("Could not set initial property %1").arg(name));
+    qmlWarning(base, error);
+    return false;
 }
 
 /*!
@@ -450,27 +464,28 @@ QQmlComponent::~QQmlComponent()
 {
     Q_D(QQmlComponent);
 
-    if (d->state.isCompletePending()) {
+    if (d->m_state.isCompletePending()) {
         qWarning("QQmlComponent: Component destroyed while completion pending");
 
         if (isError()) {
             qWarning() << "This may have been caused by one of the following errors:";
-            for (const QQmlComponentPrivate::AnnotatedQmlError &e : std::as_const(d->state.errors))
+            for (const QQmlComponentPrivate::AnnotatedQmlError &e : std::as_const(d->m_state.errors))
                 qWarning().nospace().noquote() << QLatin1String("    ") << e.error;
         }
 
         // we might not have the creator anymore if the engine is gone
-        if (d->state.hasCreator())
+        if (d->m_state.hasCreator())
             d->completeCreate();
     }
 
-    if (d->typeData) {
-        d->typeData->unregisterCallback(d);
-        if (d->engine) {
-            QQmlEnginePrivate::get(d->engine)->typeLoader.drop(
-                    QQmlDataBlob::Ptr(d->typeData.data()));
+    if (d->m_typeData) {
+        d->m_typeData->unregisterCallback(d);
+        if (d->m_engine && !d->m_typeData->isCompleteOrError()) {
+            // In this case we have to send it to the type loader thread to be dropped. It will
+            // manipulate its "waiting" lists that other blobs may be using concurrently.
+            QQmlTypeLoader::get(d->m_engine)->drop(QQmlDataBlob::Ptr(d->m_typeData.data()));
         }
-        d->typeData.reset();
+        d->m_typeData.reset();
     }
 }
 
@@ -495,12 +510,14 @@ QQmlComponent::Status QQmlComponent::status() const
 {
     Q_D(const QQmlComponent);
 
-    if (d->typeData)
+    if (d->m_typeData)
         return Loading;
-    else if (!d->state.errors.isEmpty())
+    else if (!d->m_state.errors.isEmpty())
         return Error;
-    else if (d->engine && (d->compilationUnit || d->loadedType.isValid()))
+    else if (d->m_engine && (d->m_compilationUnit || d->loadedType().isValid()))
         return Ready;
+    else if (d->m_loadHelper)
+        return Loading;
     else
         return Null;
 }
@@ -563,7 +580,7 @@ bool QQmlComponent::isBound() const
 qreal QQmlComponent::progress() const
 {
     Q_D(const QQmlComponent);
-    return d->progress;
+    return d->m_progress;
 }
 
 /*!
@@ -588,10 +605,10 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, QObject *parent)
     : QObject(*(new QQmlComponentPrivate), parent)
 {
     Q_D(QQmlComponent);
-    d->engine = engine;
+    d->m_engine = engine;
     QObject::connect(engine, &QObject::destroyed, this, [d]() {
-        d->state.clear();
-        d->engine = nullptr;
+        d->m_state.clear();
+        d->m_engine = nullptr;
     });
 }
 
@@ -599,7 +616,7 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, QObject *parent)
     Create a QQmlComponent from the given \a url and give it the
     specified \a parent and \a engine.
 
-    \include qqmlcomponent.qdoc url-note
+    \include qqmlcomponent.qdocinc url-note
 
     \sa loadUrl()
 */
@@ -613,7 +630,7 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, const QUrl &url, QObject *paren
     specified \a parent and \a engine. If \a mode is \l Asynchronous,
     the component will be loaded and compiled asynchronously.
 
-    \include qqmlcomponent.qdoc url-note
+    \include qqmlcomponent.qdocinc url-note
 
     \sa loadUrl()
 */
@@ -695,16 +712,49 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, QV4::ExecutableCompilationUnit 
     : QQmlComponent(engine, parent)
 {
     Q_D(QQmlComponent);
-    d->compilationUnit.reset(compilationUnit);
-    d->start = start;
-    d->url = compilationUnit->finalUrl();
-    d->progress = 1.0;
+    d->m_compilationUnit.reset(compilationUnit);
+    d->m_start = start;
+    d->m_url = compilationUnit->finalUrl();
+    d->m_progress = 1.0;
+}
+
+void QQmlComponentPrivate::setData(const QByteArray &data, const QUrl &url, QQmlComponent::CompilationMode compilationMode)
+{
+    if (!m_engine) {
+        // ###Qt6: In Qt 6, it should be impossible for users to create a QQmlComponent without an engine, and we can remove this check
+        qWarning("QQmlComponent: Must provide an engine before calling setData");
+        return;
+    }
+
+    clear();
+
+    m_url = url;
+
+    // trim existing components with same URL; they would bloat the cache
+    // While the warning tries to discourage it, using an empty URL for the
+    // creation of a one-off component is a somewhat common use-case
+    m_engine->handle()->trimCompilationUnitsForUrl(url);
+
+    QQmlTypeLoader::Mode mode = compilationMode == QQmlComponent::Asynchronous
+                                    ? QQmlTypeLoader::Asynchronous
+                                    : QQmlTypeLoader::PreferSynchronous;
+    QQmlRefPointer<QQmlTypeData> typeData = QQmlTypeLoader::get(m_engine)->getType(data, url, mode);
+
+    if (typeData->isCompleteOrError()) {
+        fromTypeData(typeData);
+        setProgress(1.0);
+    } else {
+        m_typeData = typeData;
+        m_typeData->registerCallback(this);
+        setProgress(typeData->progress());
+    }
 }
 
 /*!
     Sets the QQmlComponent to use the given QML \a data. If \a url
     is provided, it is used to set the component name and to provide
-    a base path for items resolved by this component.
+    a base path for items resolved by this component. The component will
+    be loaded and compiled synchronously.
 
     \warning The new component will shadow any existing component of
     the same URL. You should not pass a URL of an existing component.
@@ -712,29 +762,8 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, QV4::ExecutableCompilationUnit 
 void QQmlComponent::setData(const QByteArray &data, const QUrl &url)
 {
     Q_D(QQmlComponent);
-
-    if (!d->engine) {
-        // ###Qt6: In Qt 6, it should be impossible for users to create a QQmlComponent without an engine, and we can remove this check
-        qWarning("QQmlComponent: Must provide an engine before calling setData");
-        return;
-    }
-
-    d->clear();
-
-    d->url = url;
-
-    QQmlRefPointer<QQmlTypeData> typeData = QQmlEnginePrivate::get(d->engine)->typeLoader.getType(data, url);
-
-    if (typeData->isCompleteOrError()) {
-        d->fromTypeData(typeData);
-    } else {
-        d->typeData = typeData;
-        d->typeData->registerCallback(d);
-    }
-
-    d->progress = 1.0;
+    d->setData(data, url, PreferSynchronous);
     emit statusChanged(status());
-    emit progressChanged(d->progress);
 }
 
 /*!
@@ -744,8 +773,8 @@ void QQmlComponent::setData(const QByteArray &data, const QUrl &url)
 QQmlContext *QQmlComponent::creationContext() const
 {
     Q_D(const QQmlComponent);
-    if (!d->creationContext.isNull())
-        return d->creationContext->asQQmlContext();
+    if (!d->m_creationContext.isNull())
+        return d->m_creationContext->asQQmlContext();
 
     return qmlContext(this);
 }
@@ -758,13 +787,13 @@ QQmlContext *QQmlComponent::creationContext() const
 QQmlEngine *QQmlComponent::engine() const
 {
     Q_D(const QQmlComponent);
-    return d->engine;
+    return d->m_engine;
 }
 
 /*!
     Load the QQmlComponent from the provided \a url.
 
-    \include qqmlcomponent.qdoc url-note
+    \include qqmlcomponent.qdocinc url-note
 */
 void QQmlComponent::loadUrl(const QUrl &url)
 {
@@ -776,7 +805,7 @@ void QQmlComponent::loadUrl(const QUrl &url)
     Load the QQmlComponent from the provided \a url.
     If \a mode is \l Asynchronous, the component will be loaded and compiled asynchronously.
 
-    \include qqmlcomponent.qdoc url-note
+    \include qqmlcomponent.qdocinc url-note
 */
 void QQmlComponent::loadUrl(const QUrl &url, QQmlComponent::CompilationMode mode)
 {
@@ -791,8 +820,8 @@ void QQmlComponentPrivate::loadUrl(const QUrl &newUrl, QQmlComponent::Compilatio
 
     if (newUrl.isRelative()) {
         // The new URL is a relative URL like QUrl("main.qml").
-        url = engine->baseUrl().resolved(QUrl(newUrl.toString()));
-    } else if (engine->baseUrl().isLocalFile() && newUrl.isLocalFile() && !QDir::isAbsolutePath(newUrl.toLocalFile())) {
+        m_url = m_engine->baseUrl().resolved(QUrl(newUrl.toString()));
+    } else if (m_engine->baseUrl().isLocalFile() && newUrl.isLocalFile() && !QDir::isAbsolutePath(newUrl.toLocalFile())) {
         // The new URL is a file on disk but it's a relative path; e.g.:
         // QUrl::fromLocalFile("main.qml") or QUrl("file:main.qml")
         // We need to remove the scheme so that it becomes a relative URL with a relative path:
@@ -800,40 +829,41 @@ void QQmlComponentPrivate::loadUrl(const QUrl &newUrl, QQmlComponent::Compilatio
         fixedUrl.setScheme(QString());
         // Then, turn it into an absolute URL with an absolute path by resolving it against the engine's baseUrl().
         // This is a compatibility hack for QTBUG-58837.
-        url = engine->baseUrl().resolved(fixedUrl);
+        m_url = m_engine->baseUrl().resolved(fixedUrl);
     } else {
-        url = newUrl;
+        m_url = newUrl;
+    }
+
+    if (m_url.scheme() == "qrc"_L1 && !m_url.path().startsWith("/"_L1)) {
+        qWarning().nospace().noquote()
+                << "QQmlComponent: attempted to load via a relative URL '" << m_url.toString()
+                << "' in resource file system. This is not fully supported and may not work";
     }
 
     if (newUrl.isEmpty()) {
         QQmlError error;
         error.setDescription(QQmlComponent::tr("Invalid empty URL"));
-        state.errors.emplaceBack(error);
+        m_state.errors.emplaceBack(error);
         return;
     }
 
-    if (progress != 0.0) {
-        progress = 0.0;
-        emit q->progressChanged(progress);
-    }
+    setProgress(0.0);
 
     QQmlTypeLoader::Mode loaderMode = (mode == QQmlComponent::Asynchronous)
             ? QQmlTypeLoader::Asynchronous
             : QQmlTypeLoader::PreferSynchronous;
-    QQmlRefPointer<QQmlTypeData> data = QQmlEnginePrivate::get(engine)->typeLoader.getType(url, loaderMode);
+    QQmlRefPointer<QQmlTypeData> data = QQmlTypeLoader::get(m_engine)->getType(m_url, loaderMode);
 
     if (data->isCompleteOrError()) {
         fromTypeData(data);
-        progress = 1.0;
+        setProgress(1.0);
     } else {
-        typeData = data;
-        typeData->registerCallback(this);
-        progress = data->progress();
+        m_typeData = data;
+        m_typeData->registerCallback(this);
+        setProgress(data->progress());
     }
 
     emit q->statusChanged(q->status());
-    if (progress != 0.0)
-        emit q->progressChanged(progress);
 }
 
 /*!
@@ -844,8 +874,8 @@ QList<QQmlError> QQmlComponent::errors() const
 {
     Q_D(const QQmlComponent);
     QList<QQmlError> errors;
-    errors.reserve(d->state.errors.size());
-    for (const QQmlComponentPrivate::AnnotatedQmlError &annotated : d->state.errors)
+    errors.reserve(d->m_state.errors.size());
+    for (const QQmlComponentPrivate::AnnotatedQmlError &annotated : d->m_state.errors)
         errors.emplaceBack(annotated.error);
     return errors;
 }
@@ -871,11 +901,8 @@ QString QQmlComponent::errorString() const
     QString ret;
     if(!isError())
         return ret;
-    for (const QQmlComponentPrivate::AnnotatedQmlError &annotated : d->state.errors) {
-        const QQmlError &e = annotated.error;
-        ret += e.url().toString() + QLatin1Char(':') +
-               QString::number(e.line()) + QLatin1Char(' ') +
-               e.description() + QLatin1Char('\n');
+    for (const QQmlComponentPrivate::AnnotatedQmlError &annotated : d->m_state.errors) {
+        ret += annotated.error.toString() + QLatin1Char('\n');
     }
     return ret;
 }
@@ -893,7 +920,7 @@ QString QQmlComponent::errorString() const
 QUrl QQmlComponent::url() const
 {
     Q_D(const QQmlComponent);
-    return d->url;
+    return d->m_url;
 }
 
 /*!
@@ -923,7 +950,8 @@ QQmlComponent::QQmlComponent(QQmlComponentPrivate &dd, QObject *parent)
 QObject *QQmlComponent::create(QQmlContext *context)
 {
     Q_D(QQmlComponent);
-    return d->createWithProperties(nullptr, QVariantMap {}, context);
+    return d->createWithProperties(
+            nullptr, QVariantMap {}, context, QQmlComponentPrivate::CreateBehavior::Cpp);
 }
 
 /*!
@@ -938,33 +966,40 @@ QObject *QQmlComponent::create(QQmlContext *context)
     there are unset required properties, the object creation fails and returns
     \c nullptr, in which case \l isError() will return \c true.
 
+    If \a context is \nullptr (the default), it will create the instance in the
+    \l {QQmlEngine::rootContext()}{root context} of the engine.
+
+    The ownership of the returned object instance is transferred to the caller.
+
     \sa QQmlComponent::create
     \since 5.14
 */
-QObject *QQmlComponent::createWithInitialProperties(const QVariantMap& initialProperties, QQmlContext *context)
+QObject *QQmlComponent::createWithInitialProperties(
+        const QVariantMap& initialProperties, QQmlContext *context)
 {
     Q_D(QQmlComponent);
-    return d->createWithProperties(nullptr, initialProperties, context);
+    return d->createWithProperties(
+            nullptr, initialProperties, context, QQmlComponentPrivate::CreateBehavior::Cpp);
 }
 
 static void QQmlComponent_setQmlParent(QObject *me, QObject *parent); // forward declaration
 
 /*! \internal
  */
-QObject *QQmlComponentPrivate::createWithProperties(QObject *parent, const QVariantMap &properties,
-                                                    QQmlContext *context, CreateBehavior behavior,
-                                                    bool createFromQml)
+QObject *QQmlComponentPrivate::createWithProperties(
+        QObject *parent, const QVariantMap &properties,
+        QQmlContext *context, CreateBehavior behavior)
 {
     Q_Q(QQmlComponent);
 
     QObject *rv = doBeginCreate(q, context);
     if (!rv) {
-        if (state.isCompletePending()) {
+        if (m_state.isCompletePending()) {
             // overridden completCreate might assume that
             // the object has actually been created
             ++creationDepth;
-            QQmlEnginePrivate *ep = QQmlEnginePrivate::get(engine);
-            complete(ep, &state);
+            QQmlEnginePrivate *ep = QQmlEnginePrivate::get(m_engine);
+            complete(ep, &m_state);
             --creationDepth;
         }
         return nullptr;
@@ -972,24 +1007,28 @@ QObject *QQmlComponentPrivate::createWithProperties(QObject *parent, const QVari
 
     QQmlComponent_setQmlParent(rv, parent); // internally checks if parent is nullptr
 
-    if (createFromQml) {
+    if (behavior == CreateBehavior::Qml) {
+        bool ok = true;
         for (auto it = properties.cbegin(), end = properties.cend(); it != end; ++it)
-            setInitialProperty(rv, it.key(), it.value());
-    } else {
-        q->setInitialProperties(rv, properties);
-    }
-    q->completeCreate();
-
-    if (state.hasUnsetRequiredProperties()) {
-        if (behavior == CreateWarnAboutRequiredProperties) {
-            for (const auto &unsetRequiredProperty : std::as_const(*state.requiredProperties())) {
+            ok = setInitialProperty(rv, it.key(), it.value()) && ok;
+        q->completeCreate();
+        if (m_state.hasUnsetRequiredProperties()) {
+            for (const auto &unsetRequiredProperty : std::as_const(*m_state.requiredProperties())) {
                 const QQmlError error = unsetRequiredPropertyToQQmlError(unsetRequiredProperty);
                 qmlWarning(rv, error);
             }
+            delete std::exchange(rv, nullptr);
+        } else if (!ok) {
+            // We've already warned about this before
+            delete std::exchange(rv, nullptr);
         }
-        delete rv;
-        rv = nullptr;
+    } else {
+        setInitialProperties(rv, properties);
+        q->completeCreate();
+        if (m_state.hasUnsetRequiredProperties())
+            delete std::exchange(rv, nullptr);
     }
+
     return rv;
 }
 
@@ -1049,8 +1088,8 @@ QObject *QQmlComponentPrivate::beginCreate(QQmlRefPointer<QQmlContextData> conte
 {
     Q_Q(QQmlComponent);
     auto cleanup = qScopeGuard([this] {
-        if (!state.errors.isEmpty() && lcQmlComponentGeneral().isDebugEnabled()) {
-            for (const auto &e : std::as_const(state.errors)) {
+        if (!m_state.errors.isEmpty() && lcQmlComponentGeneral().isDebugEnabled()) {
+            for (const auto &e : std::as_const(m_state.errors)) {
                 qCDebug(lcQmlComponentGeneral) << "QQmlComponent: " << e.error.toString();
             }
         }
@@ -1065,20 +1104,20 @@ QObject *QQmlComponentPrivate::beginCreate(QQmlRefPointer<QQmlContextData> conte
         return nullptr;
     }
 
-    if (context->engine() != engine) {
+    if (context->engine() != m_engine) {
         qWarning("QQmlComponent: Must create component in context from the same QQmlEngine");
         return nullptr;
     }
 
-    if (state.isCompletePending()) {
+    if (m_state.isCompletePending()) {
         qWarning("QQmlComponent: Cannot create new component instance before completing the previous");
         return nullptr;
     }
 
     // filter out temporary errors as they do not really affect component's
     // state (they are not part of the document compilation)
-    state.errors.removeIf([](const auto &e) { return e.isTransient; });
-    state.clearRequiredProperties();
+    m_state.errors.removeIf([](const auto &e) { return e.isTransient; });
+    m_state.clearRequiredProperties();
 
     if (!q->isReady()) {
         qWarning("QQmlComponent: Component is not ready");
@@ -1092,55 +1131,14 @@ QObject *QQmlComponentPrivate::beginCreate(QQmlRefPointer<QQmlContextData> conte
         return nullptr;
     }
 
-    QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(engine);
+    QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(m_engine);
 
     enginePriv->inProgressCreations++;
-    state.errors.clear();
-    state.setCompletePending(true);
+    m_state.errors.clear();
+    m_state.setCompletePending(true);
 
     QObject *rv = nullptr;
-
-    if (!loadedType.isValid()) {
-        enginePriv->referenceScarceResources();
-        const QString *icName = inlineComponentName.get();
-        state.initCreator(context, compilationUnit, creationContext, icName ? *icName : QString());
-
-        QQmlObjectCreator::CreationFlags flags;
-        if (icName) {
-            flags = QQmlObjectCreator::InlineComponent;
-            if (start == -1)
-                start = compilationUnit->inlineComponentId(*icName);
-            Q_ASSERT(start > 0);
-        } else {
-            flags = QQmlObjectCreator::NormalObject;
-        }
-
-        rv = state.creator()->create(start, nullptr, nullptr, flags);
-        if (!rv)
-            state.appendCreatorErrors();
-        enginePriv->dereferenceScarceResources();
-    } else {
-        // TODO: extract into function
-        rv = loadedType.createWithQQmlData();
-        QQmlPropertyCache::ConstPtr propertyCache = QQmlData::ensurePropertyCache(rv);
-        if (QQmlParserStatus *parserStatus = parserStatusCast(loadedType, rv)) {
-            parserStatus->classBegin();
-            state.ensureRequiredPropertyStorage(rv);
-        } else if (loadedType.finalizerCast() != -1) {
-            state.ensureRequiredPropertyStorage(rv);
-        }
-
-        for (int i = 0, propertyCount = propertyCache->propertyCount(); i < propertyCount; ++i) {
-            if (const QQmlPropertyData *propertyData = propertyCache->property(i); propertyData->isRequired()) {
-                state.ensureRequiredPropertyStorage(rv);
-                RequiredPropertyInfo info;
-                info.propertyName = propertyData->name(rv);
-                state.addPendingRequiredProperty(rv, propertyData, info);
-            }
-        }
-    }
-
-    if (rv) {
+    auto setupDData = [&]() {
         QQmlData *ddata = QQmlData::get(rv);
         Q_ASSERT(ddata);
         // top-level objects should never get JS ownership.
@@ -1154,6 +1152,57 @@ QObject *QQmlComponentPrivate::beginCreate(QQmlRefPointer<QQmlContextData> conte
             ddata->outerContext = context.data();
         if (!ddata->context)
             ddata->context = context.data();
+    };
+
+    const QQmlType type = loadedType();
+    if (!type.isValid()) {
+        enginePriv->referenceScarceResources();
+        const QString *icName = m_inlineComponentName.get();
+        m_state.initCreator(
+                context, m_compilationUnit, m_creationContext, icName ? *icName : QString());
+
+        QQmlObjectCreator::CreationFlags flags;
+        if (icName) {
+            flags = QQmlObjectCreator::InlineComponent;
+            if (m_start == -1)
+                m_start = m_compilationUnit->inlineComponentId(*icName);
+            Q_ASSERT(m_start > 0);
+        } else {
+            flags = QQmlObjectCreator::NormalObject;
+        }
+
+        rv = m_state.creator()->create(m_start, nullptr, nullptr, flags);
+        if (!rv)
+            m_state.appendCreatorErrors();
+        else
+            setupDData();
+        enginePriv->dereferenceScarceResources();
+    } else {
+        // TODO: extract into function
+        rv = type.createWithQQmlData();
+        QQmlPropertyCache::ConstPtr propertyCache = QQmlData::ensurePropertyCache(rv);
+        setupDData();
+        if (QQmlParserStatus *parserStatus = parserStatusCast(type, rv)) {
+            parserStatus->classBegin();
+            m_state.ensureRequiredPropertyStorage(rv);
+        } else if (type.finalizerCast() != -1) {
+            m_state.ensureRequiredPropertyStorage(rv);
+        }
+
+        if (propertyCache) {
+            for (int i = 0, propertyCount = propertyCache->propertyCount(); i < propertyCount; ++i) {
+                if (const QQmlPropertyData *propertyData = propertyCache->property(i); propertyData->isRequired()) {
+                    m_state.ensureRequiredPropertyStorage(rv);
+                    RequiredPropertyInfo info;
+                    info.propertyName = propertyData->name(rv);
+                    m_state.addPendingRequiredProperty(rv, propertyData, info);
+                }
+            }
+        } else {
+            // we couldn't get a propertyCache from ensurePropertyCache
+            // it is unclear what we can do in that case
+            // ### TOOD: QTBUG-136560
+        }
     }
 
     return rv;
@@ -1230,40 +1279,51 @@ void QQmlComponentPrivate::complete(QQmlEnginePrivate *enginePriv, ConstructionS
     setInitialProperties.
  */
 QQmlProperty QQmlComponentPrivate::removePropertyFromRequired(
-        QObject *createdComponent, const QString &name, RequiredProperties *requiredProperties,
+        QObject *target, const QString &name, RequiredProperties *requiredProperties,
         QQmlEngine *engine, bool *wasInRequiredProperties)
 {
     Q_ASSERT(requiredProperties);
-    QQmlProperty prop(createdComponent, name, engine);
-    auto privProp = QQmlPropertyPrivate::get(prop);
-    if (prop.isValid()) {
-        // resolve outstanding required properties
-        const QQmlPropertyData *targetProp = &privProp->core;
-        if (targetProp->isAlias()) {
-            auto target = createdComponent;
-            QQmlPropertyIndex originalIndex(targetProp->coreIndex());
-            QQmlPropertyIndex propIndex;
-            QQmlPropertyPrivate::findAliasTarget(target, originalIndex, &target, &propIndex);
-            QQmlData *data = QQmlData::get(target);
-            Q_ASSERT(data && data->propertyCache);
-            targetProp = data->propertyCache->property(propIndex.coreIndex());
-        } else {
-            // we need to get the pointer from the property cache instead of directly using
-            // targetProp else the lookup will fail
-            QQmlData *data = QQmlData::get(createdComponent);
-            Q_ASSERT(data && data->propertyCache);
-            targetProp = data->propertyCache->property(targetProp->coreIndex());
-        }
-        auto it = requiredProperties->constFind({createdComponent, targetProp});
-        if (it != requiredProperties->cend()) {
-            if (wasInRequiredProperties)
-                *wasInRequiredProperties = true;
-            requiredProperties->erase(it);
-        } else {
-            if (wasInRequiredProperties)
-                *wasInRequiredProperties = false;
-        }
+
+    const QQmlProperty prop(target, name, engine);
+    if (!prop.isValid()) {
+        if (wasInRequiredProperties)
+            *wasInRequiredProperties = false;
+        return prop;
     }
+
+    const QQmlPropertyPrivate *privProp = QQmlPropertyPrivate::get(prop);
+    bool found = false;
+
+    // resolve outstanding required properties
+    const QQmlPropertyData *targetProp = &privProp->core;
+    QQmlData *data = QQmlData::get(target);
+    Q_ASSERT(data && data->propertyCache);
+
+    if (targetProp->isAlias()) {
+        if (requiredProperties->remove(
+                    { target, data->propertyCache->property(targetProp->coreIndex()) })) {
+            found = true;
+        }
+
+        QQmlPropertyIndex originalIndex(targetProp->coreIndex());
+        QQmlPropertyIndex propIndex;
+        QQmlPropertyPrivate::findAliasTarget(target, originalIndex, &target, &propIndex);
+        data = QQmlData::get(target);
+        Q_ASSERT(data && data->propertyCache);
+        targetProp = data->propertyCache->property(propIndex.coreIndex());
+    } else {
+        // we need to get the pointer from the property cache instead of directly using
+        // targetProp, or else the lookup will fail
+        targetProp = data->propertyCache->property(targetProp->coreIndex());
+    }
+
+    // Check if the resolved target property itself is required.
+    if (requiredProperties->remove({target, targetProp}))
+        found = true;
+
+    if (wasInRequiredProperties)
+        *wasInRequiredProperties = found;
+
     return prop;
 }
 
@@ -1286,19 +1346,20 @@ void QQmlComponent::completeCreate()
 
 void QQmlComponentPrivate::completeCreate()
 {
-    if (state.hasUnsetRequiredProperties()) {
-        for (const auto& unsetRequiredProperty: std::as_const(*state.requiredProperties())) {
+    if (m_state.hasUnsetRequiredProperties()) {
+        for (const auto& unsetRequiredProperty: std::as_const(*m_state.requiredProperties())) {
             QQmlError error = unsetRequiredPropertyToQQmlError(unsetRequiredProperty);
-            state.errors.push_back(QQmlComponentPrivate::AnnotatedQmlError { error, true });
+            m_state.errors.push_back(QQmlComponentPrivate::AnnotatedQmlError { error, true });
         }
     }
 
-    if (loadedType.isValid()) {
-        QObject *rv = state.target();
-        if (QQmlParserStatus *parserStatus = parserStatusCast(loadedType, rv))
+    const QQmlType type = loadedType();
+    if (type.isValid()) {
+        QObject *rv = m_state.target();
+        if (QQmlParserStatus *parserStatus = parserStatusCast(type, rv))
             parserStatus->componentComplete();
 
-        if (const int finalizerCast = loadedType.finalizerCast(); finalizerCast != -1) {
+        if (const int finalizerCast = type.finalizerCast(); finalizerCast != -1) {
             auto *hook = reinterpret_cast<QQmlFinalizerHook *>(
                     reinterpret_cast<char *>(rv) + finalizerCast);
             hook->componentFinalized();
@@ -1309,12 +1370,12 @@ void QQmlComponentPrivate::completeCreate()
            with setting up pending bindings, but that cannot happen here, as we're
            dealing with a pure C++ type, which cannot have pending bindings
         */
-        state.setCompletePending(false);
-        QQmlEnginePrivate::get(engine)->inProgressCreations--;
-    } else if (state.isCompletePending()) {
+        m_state.setCompletePending(false);
+        QQmlEnginePrivate::get(m_engine)->inProgressCreations--;
+    } else if (m_state.isCompletePending()) {
         ++creationDepth;
-        QQmlEnginePrivate *ep = QQmlEnginePrivate::get(engine);
-        complete(ep, &state);
+        QQmlEnginePrivate *ep = QQmlEnginePrivate::get(m_engine);
+        complete(ep, &m_state);
         --creationDepth;
     }
 }
@@ -1377,23 +1438,36 @@ void QQmlComponent::loadFromModule(QAnyStringView uri, QAnyStringView typeName,
                                    QQmlComponent::CompilationMode mode)
 {
     Q_D(QQmlComponent);
-    auto [status, type] = d->prepareLoadFromModule(uri, typeName);
-    d->completeLoadFromModule(uri, typeName, type, status, mode);
+
+    QQmlTypeLoader::Mode typeLoaderMode = QQmlTypeLoader::Synchronous;
+    switch (mode) {
+    case QQmlComponent::PreferSynchronous:
+        typeLoaderMode = QQmlTypeLoader::PreferSynchronous;
+        break;
+    case QQmlComponent::Asynchronous:
+        typeLoaderMode = QQmlTypeLoader::Asynchronous;
+        break;
+    }
+
+    d->prepareLoadFromModule(uri, typeName, typeLoaderMode);
+    if (d->m_loadHelper->isCompleteOrError())
+        d->completeLoadFromModule(uri, typeName);
+    else
+        d->m_loadHelper->registerCallback(d);
 }
 
-LoadHelper::ResolveTypeResult QQmlComponentPrivate::prepareLoadFromModule(QAnyStringView uri,
-                                                                          QAnyStringView typeName)
+void QQmlComponentPrivate::prepareLoadFromModule(
+        QAnyStringView uri, QAnyStringView typeName, QQmlTypeLoader::Mode mode)
 {
-    auto enginePriv = QQmlEnginePrivate::get(engine);
-    // LoadHelper must be on the Heap as it derives from QQmlRefCount
-    auto loadHelper = QQml::makeRefPointer<LoadHelper>(&enginePriv->typeLoader, uri);
+    // Don't let any old loadHelper call us back anymore.
+    if (m_loadHelper)
+        m_loadHelper->unregisterCallback(this);
 
-    return loadHelper->resolveType(typeName);
+    // LoadHelper must be on the Heap as it derives from QQmlRefCount
+    m_loadHelper = QQml::makeRefPointer<LoadHelper>(QQmlTypeLoader::get(m_engine), uri, typeName, mode);
 }
 
-void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyStringView typeName, QQmlType type,
-                                                  LoadHelper::ResolveTypeResult::Status moduleStatus,
-                                                  QQmlComponent::CompilationMode mode)
+void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyStringView typeName)
 {
     Q_Q(QQmlComponent);
 
@@ -1401,38 +1475,45 @@ void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyString
     auto reportError = [&](QString msg) {
         QQmlError error;
         error.setDescription(msg);
-        state.errors.push_back(std::move(error));
-        progress = 1;
-        emit q->progressChanged(1);
+        m_state.errors.push_back(std::move(error));
+        setProgress(1);
         emit q->statusChanged(q->Error);
     };
-    auto emitProgressReset = [&](){
-        if (progress != 0) {
-            progress = 0;
-            emit q->progressChanged(0);
-        }
-    };
     auto emitComplete = [&]() {
-        progress = 1;
-        emit q->progressChanged(1);
+        setProgress(1);
         emit q->statusChanged(q->status());
     };
-    emitProgressReset();
-    if (moduleStatus == LoadHelper::ResolveTypeResult::NoSuchModule) {
+
+    setProgress(0);
+
+    const QQmlType type = m_loadHelper->type();
+
+    if (m_loadHelper->resolveTypeResult() == LoadHelper::ResolveTypeResult::NoSuchModule)  {
         reportError(QLatin1String(R"(No module named "%1" found)").arg(uri.toString()));
     } else if (!type.isValid()) {
         reportError(QLatin1String(R"(Module "%1" contains no type named "%2")")
                     .arg(uri.toString(), typeName.toString()));
     } else if (type.isCreatable()) {
-        clear();
-        loadedType = type;
         emitComplete();
     } else if (type.isComposite()) {
+        QQmlComponent::CompilationMode mode = QQmlComponent::PreferSynchronous;
+        switch (m_loadHelper->mode()) {
+        case QQmlTypeLoader::Asynchronous:
+            mode = QQmlComponent::Asynchronous;
+            break;
+        case QQmlTypeLoader::PreferSynchronous:
+        case QQmlTypeLoader::Synchronous:
+            mode = QQmlComponent::PreferSynchronous;
+            break;
+        }
+
         // loadUrl takes care of signal emission
         loadUrl(type.sourceUrl(), mode);
     } else if (type.isInlineComponentType()) {
         auto baseUrl = type.sourceUrl();
         baseUrl.setFragment(QString());
+
+        Q_ASSERT(m_progress == 0.0);
         {
             // we don't want to emit status changes from the "helper" loadUrl below
             // because it would signal success to early
@@ -1440,12 +1521,16 @@ void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyString
             // we really need to continue in a synchronous way, otherwise we can't check the CU
             loadUrl(baseUrl, QQmlComponent::PreferSynchronous);
         }
+        // We do want to emit any progress change that happened in the "helper" loadUrl.
+        if (m_progress != 0.0)
+            emit q->progressChanged(m_progress);
+
         if (q->isError()) {
             emitComplete();
             return;
         }
         QString elementName = type.elementName();
-        if (compilationUnit->inlineComponentId(elementName) == -1) {
+        if (m_compilationUnit->inlineComponentId(elementName) == -1) {
             QString realTypeName = typeName.toString();
             realTypeName.truncate(realTypeName.indexOf(u'.'));
             QString errorMessage = R"(Type "%1" from module "%2" contains no inline component named "%3".)"_L1.arg(
@@ -1454,7 +1539,7 @@ void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyString
                 errorMessage += " To load the type \"%1\", drop the \".qml\" extension."_L1.arg(realTypeName);
             reportError(std::move(errorMessage));
         } else {
-            inlineComponentName = std::make_unique<QString>(std::move(elementName));
+            m_inlineComponentName = std::make_unique<QString>(std::move(elementName));
             emitComplete();
         }
     } else if (type.isSingleton() || type.isCompositeSingleton()) {
@@ -1469,8 +1554,8 @@ void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyString
     \a incubator. \a context specifies the context within which to create the object
     instance.
 
-    If \a context is \nullptr (by default), it will create the instance in the
-    engine's \l {QQmlEngine::rootContext()}{root context}.
+    If \a context is \nullptr (the default), it will create the instance in the
+    \l {QQmlEngine::rootContext()}{root context} of the engine.
 
     \a forContext specifies a context that this object creation depends upon.
     If the \a forContext is being created asynchronously, and the
@@ -1489,7 +1574,7 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context, QQmlC
     Q_D(QQmlComponent);
 
     if (!context)
-        context = d->engine->rootContext();
+        context = d->m_engine->rootContext();
 
     QQmlRefPointer<QQmlContextData> contextData = QQmlContextData::get(context);
     QQmlRefPointer<QQmlContextData> forContextData =
@@ -1500,7 +1585,7 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context, QQmlC
         return;
     }
 
-    if (contextData->engine() != d->engine) {
+    if (contextData->engine() != d->m_engine) {
         qWarning("QQmlComponent: Must create component in context from the same QQmlEngine");
         return;
     }
@@ -1513,7 +1598,7 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context, QQmlC
     incubator.clear();
     QExplicitlySharedDataPointer<QQmlIncubatorPrivate> p(incubator.d);
 
-    if (d->loadedType.isValid()) {
+    if (d->loadedType().isValid()) {
         // there isn't really an incubation process for C++ backed types
         // so just create the object and signal that we are ready
 
@@ -1521,14 +1606,14 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context, QQmlC
         return;
     }
 
-    QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(d->engine);
+    QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(d->m_engine);
 
-    p->compilationUnit = d->compilationUnit;
+    p->compilationUnit = d->m_compilationUnit;
     p->enginePriv = enginePriv;
-    p->creator.reset(new QQmlObjectCreator(contextData, d->compilationUnit, d->creationContext,
-                                           d->inlineComponentName ? *d->inlineComponentName : QString(),
-                                           p.data()));
-    p->subComponentToCreate = d->start;
+    p->creator.reset(new QQmlObjectCreator(
+            contextData, d->m_compilationUnit, d->m_creationContext,
+            d->m_inlineComponentName ? *d->m_inlineComponentName : QString(), p.data()));
+    p->subComponentToCreate = d->m_start;
 
     enginePriv->incubate(incubator, forContextData);
 }
@@ -1559,6 +1644,12 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context, QQmlC
 void QQmlComponent::setInitialProperties(QObject *object, const QVariantMap &properties)
 {
     Q_D(QQmlComponent);
+    d->setInitialProperties(object, properties);
+}
+
+bool QQmlComponentPrivate::setInitialProperties(QObject *object, const QVariantMap &properties)
+{
+    bool result = true;
     for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
         if (it.key().contains(u'.')) {
             auto segments = it.key().split(u'.');
@@ -1570,13 +1661,16 @@ void QQmlComponent::setInitialProperties(QObject *object, const QVariantMap &pro
                 description += s.arg(segments[0], segments[1]);
             }
             QQmlError error{};
-            error.setUrl(url());
+            error.setUrl(m_url);
             error.setDescription(description);
             qmlWarning(object, error);
-            return;
+            return false;
         }
-        d->setInitialProperty(object, it.key(), it.value());
+
+        // Still try to set them, even if a previous one has failed.
+        result = setInitialProperty(object, it.key(), it.value()) && result;
     }
+    return result;
 }
 
 /*
@@ -1597,17 +1691,19 @@ void QQmlComponentPrivate::incubateObject(
     QQmlEnginePrivate *enginePriv = QQmlEnginePrivate::get(engine);
     QQmlComponentPrivate *componentPriv = QQmlComponentPrivate::get(component);
 
-    incubatorPriv->compilationUnit = componentPriv->compilationUnit;
+    incubatorPriv->compilationUnit = componentPriv->m_compilationUnit;
     incubatorPriv->enginePriv = enginePriv;
-    incubatorPriv->creator.reset(new QQmlObjectCreator(context, componentPriv->compilationUnit, componentPriv->creationContext, inlineComponentName ? *inlineComponentName : QString()));
+    incubatorPriv->creator.reset(new QQmlObjectCreator(
+            context, componentPriv->m_compilationUnit, componentPriv->m_creationContext,
+            m_inlineComponentName ? *m_inlineComponentName : QString()));
 
-    if (start == -1) {
-        if (const QString *icName = componentPriv->inlineComponentName.get()) {
-            start = compilationUnit->inlineComponentId(*icName);
-            Q_ASSERT(start > 0);
+    if (m_start == -1) {
+        if (const QString *icName = componentPriv->m_inlineComponentName.get()) {
+            m_start = m_compilationUnit->inlineComponentId(*icName);
+            Q_ASSERT(m_start > 0);
         }
     }
-    incubatorPriv->subComponentToCreate = componentPriv->start;
+    incubatorPriv->subComponentToCreate = componentPriv->m_start;
 
     enginePriv->incubate(*incubationTask, forContext);
 }
@@ -1704,7 +1800,7 @@ static void QQmlComponent_setQmlParent(QObject *me, QObject *parent)
 }
 
 /*!
-    \qmlmethod QtObject Component::createObject(QtObject parent, object properties)
+    \qmlmethod QtObject Component::createObject(QtObject parent, var properties)
 
     Creates and returns an object instance of this component that will have
     the given \a parent and \a properties. The \a properties argument is optional.
@@ -1723,7 +1819,7 @@ static void QQmlComponent_setQmlParent(QObject *me, QObject *parent)
     it is not destroyed by the garbage collector. This is true regardless of whether \l{Item::parent} is set afterwards,
     because setting the Item parent does not change object ownership. Only the graphical parent is changed.
 
-    As of \c {QtQuick 1.1}, this method accepts an optional \a properties argument that specifies a
+    This method accepts an optional \a properties argument that specifies a
     map of initial property values for the created object. These values are applied before the object
     creation is finalized. This is more efficient than setting property values after object creation,
     particularly where large sets of property values are defined, and also allows property bindings
@@ -1749,7 +1845,7 @@ static void QQmlComponent_setQmlParent(QObject *me, QObject *parent)
 void QQmlComponentPrivate::setInitialProperties(
     QV4::ExecutionEngine *engine, QV4::QmlContext *qmlContext, const QV4::Value &o,
     const QV4::Value &v, RequiredProperties *requiredProperties, QObject *createdComponent,
-    QQmlObjectCreator *creator)
+    const QQmlObjectCreator *creator)
 {
     QV4::Scope scope(engine);
     QV4::ScopedObject object(scope);
@@ -1820,7 +1916,7 @@ QQmlError QQmlComponentPrivate::unsetRequiredPropertyToQQmlError(const RequiredP
     }
     default:
         description += QLatin1String("\nIt can be set via one of the following alias properties:");
-        for (auto aliasInfo: unsetRequiredProperty.aliasesToRequired) {
+        for (const auto &aliasInfo: unsetRequiredProperty.aliasesToRequired) {
             description += QLatin1String("\n- %1 (%2)").arg(aliasInfo.propertyName, aliasInfo.fileUrl.toString());
         }
         description += QLatin1Char('\n');
@@ -1841,7 +1937,7 @@ QQmlError QQmlComponentPrivate::unsetRequiredPropertyToQQmlError(const RequiredP
 void QQmlComponent::createObject(QQmlV4FunctionPtr args)
 {
     Q_D(QQmlComponent);
-    Q_ASSERT(d->engine);
+    Q_ASSERT(d->m_engine);
     Q_ASSERT(args);
 
     qmlWarning(this) << "Unsuitable arguments passed to createObject(). The first argument should "
@@ -1870,7 +1966,7 @@ void QQmlComponent::createObject(QQmlV4FunctionPtr args)
     }
 
     QQmlContext *ctxt = creationContext();
-    if (!ctxt) ctxt = d->engine->rootContext();
+    if (!ctxt) ctxt = d->m_engine->rootContext();
 
     QObject *rv = beginCreate(ctxt);
 
@@ -1887,12 +1983,12 @@ void QQmlComponent::createObject(QQmlV4FunctionPtr args)
     if (!valuemap->isUndefined()) {
         QV4::Scoped<QV4::QmlContext> qmlContext(scope, v4->qmlContext());
         QQmlComponentPrivate::setInitialProperties(
-            v4, qmlContext, object, valuemap, d->state.requiredProperties(), rv,
-            d->state.creator());
+            v4, qmlContext, object, valuemap, d->m_state.requiredProperties(), rv,
+            d->m_state.creator());
     }
-    if (d->state.hasUnsetRequiredProperties()) {
+    if (d->m_state.hasUnsetRequiredProperties()) {
         QList<QQmlError> errors;
-        for (const auto &requiredProperty: std::as_const(*d->state.requiredProperties())) {
+        for (const auto &requiredProperty: std::as_const(*d->m_state.requiredProperties())) {
             errors.push_back(QQmlComponentPrivate::unsetRequiredPropertyToQQmlError(requiredProperty));
         }
         qmlWarning(rv, errors);
@@ -1917,10 +2013,9 @@ void QQmlComponent::createObject(QQmlV4FunctionPtr args)
 QObject *QQmlComponent::createObject(QObject *parent, const QVariantMap &properties)
 {
     Q_D(QQmlComponent);
-    Q_ASSERT(d->engine);
-    QObject *rv = d->createWithProperties(parent, properties, creationContext(),
-                                          QQmlComponentPrivate::CreateWarnAboutRequiredProperties,
-                                          true);
+    Q_ASSERT(d->m_engine);
+    QObject *rv = d->createWithProperties(
+            parent, properties, creationContext(), QQmlComponentPrivate::CreateBehavior::Qml);
     if (rv) {
         QQmlData *qmlData = QQmlData::get(rv);
         Q_ASSERT(qmlData);
@@ -1931,7 +2026,7 @@ QObject *QQmlComponent::createObject(QObject *parent, const QVariantMap &propert
 }
 
 /*!
-    \qmlmethod object Component::incubateObject(QtObject parent, object properties, enumeration mode)
+    \qmlmethod var Component::incubateObject(QtObject parent, var properties, enumeration mode)
 
     Creates an incubator for an instance of this component. Incubators allow new component
     instances to be instantiated asynchronously and do not cause freezes in the UI.
@@ -1991,7 +2086,7 @@ QObject *QQmlComponent::createObject(QObject *parent, const QVariantMap &propert
 void QQmlComponent::incubateObject(QQmlV4FunctionPtr args)
 {
     Q_D(QQmlComponent);
-    Q_ASSERT(d->engine);
+    Q_ASSERT(d->m_engine);
     Q_UNUSED(d);
     Q_ASSERT(args);
     QV4::ExecutionEngine *v4 = args->v4engine();
@@ -2052,7 +2147,7 @@ void QQmlComponent::incubateObject(QQmlV4FunctionPtr args)
 // XXX used by QSGLoader
 void QQmlComponentPrivate::initializeObjectWithInitialProperties(QV4::QmlContext *qmlContext, const QV4::Value &valuemap, QObject *toCreate, RequiredProperties *requiredProperties)
 {
-    QV4::ExecutionEngine *v4engine = engine->handle();
+    QV4::ExecutionEngine *v4engine = m_engine->handle();
     QV4::Scope scope(v4engine);
 
     QV4::ScopedValue object(scope, QV4::QObjectWrapper::wrap(v4engine, toCreate));
@@ -2060,7 +2155,7 @@ void QQmlComponentPrivate::initializeObjectWithInitialProperties(QV4::QmlContext
 
     if (!valuemap.isUndefined()) {
         setInitialProperties(
-            v4engine, qmlContext, object, valuemap, requiredProperties, toCreate, state.creator());
+            v4engine, qmlContext, object, valuemap, requiredProperties, toCreate, m_state.creator());
     }
 }
 

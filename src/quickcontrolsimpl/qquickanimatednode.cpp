@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickanimatednode_p.h"
 
@@ -31,7 +32,7 @@ int QQuickAnimatedNode::currentTime() const
 void QQuickAnimatedNode::setCurrentTime(int time)
 {
     m_currentTime = time;
-    m_timer.restart();
+    m_timer.start();
 }
 
 int QQuickAnimatedNode::duration() const
@@ -71,7 +72,7 @@ void QQuickAnimatedNode::start(int duration)
 
     m_running = true;
     m_currentLoop = 0;
-    m_timer.restart();
+    m_timer.start();
     if (duration > 0)
         m_duration = duration;
 

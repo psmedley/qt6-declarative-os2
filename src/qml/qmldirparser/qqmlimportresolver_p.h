@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLIMPORTRESOLVER_P_H
 #define QQMLIMPORTRESOLVER_P_H
@@ -17,9 +18,8 @@
 
 #include <private/qtqmlcompilerglobal_p.h>
 
-#include <QtCore/qglobal.h>
-#include <QtCore/qstring.h>
-#include <QtCore/qversionnumber.h>
+#include <QtCore/qstringfwd.h>
+#include <QtCore/qtyperevision.h>
 
 QT_BEGIN_NAMESPACE
 

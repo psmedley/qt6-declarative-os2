@@ -4,7 +4,8 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QString>
-#include <QtTest>
+#include <QTest>
+#include <QSignalSpy>
 #include <QCoreApplication>
 
 #include <QtQuick/private/qquickfontmetrics_p.h>
@@ -55,6 +56,7 @@ void tst_QuickFontMetrics::properties()
         QCOMPARE(metrics.overlinePosition(), expected.overlinePos());
         QCOMPARE(metrics.strikeOutPosition(), expected.strikeOutPos());
         QCOMPARE(metrics.lineWidth(), expected.lineWidth());
+        QCOMPARE(metrics.capitalHeight(), expected.capHeight());
     }
 }
 
@@ -74,7 +76,7 @@ void tst_QuickFontMetrics::functions_data()
             << QString::fromLatin1("@@@@@@@")
             << QString::fromLatin1("Hello");
 
-    QVector<Qt::TextElideMode> elideModes;
+    QList<Qt::TextElideMode> elideModes;
     elideModes << Qt::ElideLeft << Qt::ElideMiddle << Qt::ElideRight << Qt::ElideNone;
 
     for (int stringIndex = 0; stringIndex < strings.size(); ++stringIndex) {

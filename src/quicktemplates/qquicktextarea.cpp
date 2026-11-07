@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicktextarea_p.h"
 #include "qquicktextarea_p_p.h"
@@ -7,6 +8,7 @@
 #include "qquickcontrol_p_p.h"
 #include "qquickscrollview_p.h"
 #include "qquickdeferredexecute_p_p.h"
+#include "qquicktooltip_p_p.h"
 
 #include <QtQml/qqmlinfo.h>
 #include <QtQuick/private/qquickitem_p.h>
@@ -34,6 +36,7 @@ using namespace Qt::StringLiterals;
     a \l {placeholderText}{placeholder text} functionality, and adds decoration.
 
     \image qtquickcontrols-textarea.png
+           {Text area for multiline text input}
 
     \code
     TextArea {
@@ -54,6 +57,7 @@ using namespace Qt::StringLiterals;
     an entire application page, it can be placed inside a \l ScrollView.
 
     \image qtquickcontrols-textarea-scrollable.png
+           {Scrollable text area with scroll bars}
 
     \snippet qtquickcontrols-textarea-scrollable.qml 1
 
@@ -121,6 +125,9 @@ using namespace Qt::StringLiterals;
 
 QQuickTextAreaPrivate::QQuickTextAreaPrivate()
 {
+#if QT_CONFIG(accessibility)
+    setAccessible();
+#endif
 }
 
 QQuickTextAreaPrivate::~QQuickTextAreaPrivate()
@@ -402,6 +409,10 @@ qreal QQuickTextAreaPrivate::getImplicitHeight() const
 
 void QQuickTextAreaPrivate::implicitWidthChanged()
 {
+    if (!initialized) {
+        QQuickTextEditPrivate::implicitWidthChanged();
+        return;
+    }
     Q_Q(QQuickTextArea);
     QQuickItemPrivate::implicitWidthChanged();
     emit q->implicitWidthChanged3();
@@ -409,6 +420,10 @@ void QQuickTextAreaPrivate::implicitWidthChanged()
 
 void QQuickTextAreaPrivate::implicitHeightChanged()
 {
+    if (!initialized) {
+        QQuickTextEditPrivate::implicitHeightChanged();
+        return;
+    }
     Q_Q(QQuickTextArea);
     QQuickItemPrivate::implicitHeightChanged();
     emit q->implicitHeightChanged3();
@@ -419,7 +434,7 @@ void QQuickTextAreaPrivate::accessibilityActiveChanged(bool active)
 {
     QQuickTextEditPrivate::accessibilityActiveChanged(active);
     if (QQuickAccessibleAttached *accessibleAttached = QQuickControlPrivate::accessibleAttached(q_func()))
-        accessibleAttached->setDescription(placeholder);
+        accessibleAttached->setDescriptionImplicitly(placeholder);
 }
 #endif
 
@@ -486,6 +501,7 @@ QQuickTextArea::QQuickTextArea(QQuickItem *parent)
     : QQuickTextEdit(*(new QQuickTextAreaPrivate), parent)
 {
     Q_D(QQuickTextArea);
+    d->initialized = true;
     setActiveFocusOnTab(true);
     setAcceptedMouseButtons(Qt::AllButtons);
     d->setImplicitResizeEnabled(false);
@@ -515,14 +531,16 @@ QFont QQuickTextArea::font() const
     Q_D(const QQuickTextArea);
     QFont font = QQuickTextEdit::font();
     // The resolve mask should inherit from the requestedFont
-    font.setResolveMask(d->extra.value().requestedFont.resolveMask());
+    font.setResolveMask(d->extra.isAllocated() ? d->extra->requestedFont.resolveMask() : 0);
     return font;
 }
 
 void QQuickTextArea::setFont(const QFont &font)
 {
     Q_D(QQuickTextArea);
-    if (d->extra.value().requestedFont.resolveMask() == font.resolveMask() && d->extra.value().requestedFont == font)
+    if (d->extra.isAllocated()
+            && d->extra.value().requestedFont.resolveMask() == font.resolveMask()
+            && d->extra.value().requestedFont == font)
         return;
 
     d->extra.value().requestedFont = font;
@@ -615,7 +633,7 @@ void QQuickTextArea::setPlaceholderText(const QString &text)
     d->placeholder = text;
 #if QT_CONFIG(accessibility)
     if (QQuickAccessibleAttached *accessibleAttached = QQuickControlPrivate::accessibleAttached(this))
-        accessibleAttached->setDescription(text);
+        accessibleAttached->setDescriptionImplicitly(text);
 #endif
     emit placeholderTextChanged();
 }
@@ -712,6 +730,7 @@ void QQuickTextArea::setHovered(bool hovered)
 
     d->hovered = hovered;
     emit hoveredChanged();
+    QQuickToolTipAttachedPrivate::maybeSetVisibleImplicitly(this, hovered);
 #else
     Q_UNUSED(hovered);
 #endif
@@ -1117,7 +1136,7 @@ void QQuickTextAreaAttached::setFlickable(QQuickTextArea *control)
     Q_D(QQuickTextAreaAttached);
     QQuickFlickable *flickable = qobject_cast<QQuickFlickable *>(parent());
     if (!flickable) {
-        qmlWarning(parent()) << "TextArea must be attached to a Flickable";
+        qmlWarning(parent()) << "TextArea attached property must be attached to an object deriving from Flickable";
         return;
     }
 

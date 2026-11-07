@@ -1,11 +1,14 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickslider_p.h"
 #include "qquickcontrol_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
 
 #include <QtQuick/private/qquickwindow_p.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -19,6 +22,7 @@ QT_BEGIN_NAMESPACE
     \brief Used to select a value by sliding a handle along a track.
 
     \image qtquickcontrols-slider.gif
+           {Slider handle moving along track}
 
     Slider is used to select a value by sliding a handle along a track.
 
@@ -124,13 +128,13 @@ qreal QQuickSliderPrivate::positionAt(const QPointF &point) const
         if (!qFuzzyIsNull(extent))
             pos = (q->height() - point.y() - q->bottomPadding() - offset) / extent;
     }
-    return qBound<qreal>(0.0, pos, 1.0);
+    return std::clamp(pos, qreal(0.0), qreal(1.0));
 }
 
 void QQuickSliderPrivate::setPosition(qreal pos)
 {
     Q_Q(QQuickSlider);
-    pos = qBound<qreal>(0.0, pos, 1.0);
+    pos = std::clamp(pos, qreal(0.0), qreal(1.0));
     if (qFuzzyCompare(position, pos))
         return;
 
@@ -346,6 +350,9 @@ void QQuickSlider::setValue(qreal value)
     if (isComponentComplete())
         value = d->from > d->to ? qBound(d->to, value, d->from) : qBound(d->from, value, d->to);
 
+    if (qFuzzyIsNull(value))
+        value = 0.0;
+
     if (qFuzzyCompare(d->value, value))
         return;
 
@@ -436,9 +443,15 @@ void QQuickSlider::setStepSize(qreal step)
     \table
     \header
         \row \li \b Value \li \b Example
-        \row \li \c Slider.NoSnap \li \image qtquickcontrols-slider-nosnap.gif
-        \row \li \c Slider.SnapAlways \li \image qtquickcontrols-slider-snapalways.gif
-        \row \li \c Slider.SnapOnRelease \li \image qtquickcontrols-slider-snaponrelease.gif
+        \row \li \c Slider.NoSnap
+             \li \image qtquickcontrols-slider-nosnap.gif
+                        {Slider without snap mode, sliding freely}
+        \row \li \c Slider.SnapAlways
+             \li \image qtquickcontrols-slider-snapalways.gif
+                        {Slider snapping to values while dragging}
+        \row \li \c Slider.SnapOnRelease
+             \li \image qtquickcontrols-slider-snaponrelease.gif
+                        {Slider snapping to values on release}
     \endtable
 
     \sa stepSize
@@ -805,10 +818,13 @@ void QQuickSlider::touchEvent(QTouchEvent *event)
                 break;
             case QEventPoint::Updated:
                 if (!keepTouchGrab()) {
-                    if (d->orientation == Qt::Horizontal)
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.position().x() - d->pressPoint.x(), Qt::XAxis, &point, qRound(d->touchDragThreshold)));
-                    else
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.position().y() - d->pressPoint.y(), Qt::YAxis, &point, qRound(d->touchDragThreshold)));
+                    if (d->orientation == Qt::Horizontal) {
+                        setKeepTouchGrab(QQuickDeliveryAgentPrivate::dragOverThreshold(point.position().x() - d->pressPoint.x(),
+                                            Qt::XAxis, point, qRound(d->touchDragThreshold)));
+                    } else {
+                        setKeepTouchGrab(QQuickDeliveryAgentPrivate::dragOverThreshold(point.position().y() - d->pressPoint.y(),
+                                            Qt::YAxis, point, qRound(d->touchDragThreshold)));
+                    }
                 }
                 if (keepTouchGrab())
                     d->handleMove(point.position(), event->timestamp());

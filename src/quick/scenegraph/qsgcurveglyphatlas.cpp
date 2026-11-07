@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgcurveglyphatlas_p.h"
 #include "qsgcurvefillnode_p.h"
@@ -38,11 +39,12 @@ void QSGCurveGlyphAtlas::populate(const QList<glyph_t> &glyphs)
 
             Glyph glyph;
 
-            QSGCurveProcessor::processStroke(quadPath, 2, 2, Qt::MiterJoin, Qt::FlatCap,
+            QSGCurveProcessor::processStroke(quadPath, 2, 2, false, Qt::MiterJoin, Qt::FlatCap,
                                              [&glyph](const std::array<QVector2D, 3> &s,
                                                       const std::array<QVector2D, 3> &p,
                                                       const std::array<QVector2D, 3> &n,
-                                                      bool isLine) {
+                                                      const std::array<float, 3> & /* extrusions */,
+                                                      QSGCurveStrokeNode::TriangleFlags f) {
                 glyph.strokeVertices.append(s.at(0));
                 glyph.strokeVertices.append(s.at(1));
                 glyph.strokeVertices.append(s.at(2));
@@ -55,7 +57,7 @@ void QSGCurveGlyphAtlas::populate(const QList<glyph_t> &glyphs)
                 glyph.strokeNormals.append(n.at(1));
                 glyph.strokeNormals.append(n.at(2));
 
-                glyph.strokeElementIsLine.append(isLine);
+                glyph.strokeElementIsLine.append(f.testFlag(QSGCurveStrokeNode::TriangleFlag::Line));
             });
 
             quadPath = quadPath.subPathsClosed();

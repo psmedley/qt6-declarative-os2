@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickscrollview_p.h"
 #include "qquickpane_p_p.h"
@@ -23,6 +24,7 @@ QT_BEGIN_NAMESPACE
     either replace a \l Flickable, or to decorate an existing one.
 
     \image qtquickcontrols-scrollview.png
+           {Scroll view containing scrollable content}
 
     The first example demonstrates the simplest usage of ScrollView.
 
@@ -74,17 +76,21 @@ QT_BEGIN_NAMESPACE
     On touch, ScrollView enables flicking and makes the scroll bars non-interactive.
 
     \image qtquickcontrols-scrollindicator.gif
+           {Scroll indicator showing scroll position}
 
     When interacted with a mouse device, flicking is disabled and the scroll bars
     are interactive.
 
     \image qtquickcontrols-scrollbar.gif
+           {Scroll bar handle moving along track}
 
     Scroll bars can be made interactive on touch, or non-interactive when interacted
     with a mouse device, by setting the \l {ScrollBar::}{interactive} property explicitly
     to \c true or \c false, respectively.
 
     \snippet qtquickcontrols-scrollview-interactive.qml file
+
+    \include varying-delegate-heights-section.qdocinc {file} {2} {ScrollBar}
 
     \sa ScrollBar, ScrollIndicator, {Customizing ScrollView}, {Container Controls},
         {Focus Management in Qt Quick Controls}
@@ -132,6 +138,7 @@ public:
     static void contentChildren_clear(QQmlListProperty<QQuickItem> *prop);
 
     void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff) override;
 
     void updateScrollBarWidth();
     void updateScrollBarHeight();
@@ -234,10 +241,12 @@ void QQuickScrollViewPrivate::disconnectScrollBarSignals(QQuickScrollBarAttached
     if (scrollBar->vertical) {
         QObjectPrivate::disconnect(scrollBar->vertical, &QQuickScrollBar::policyChanged, this, &QQuickScrollViewPrivate::updateScrollBarWidth);
         QObjectPrivate::disconnect(scrollBar->vertical, &QQuickScrollBar::visibleChanged, this, &QQuickScrollViewPrivate::updateScrollBarWidth);
+        QQuickItemPrivate::get(scrollBar->vertical)->removeItemChangeListener(this, QQuickItemPrivate::Geometry);
     }
     if (scrollBar->horizontal) {
         QObjectPrivate::disconnect(scrollBar->horizontal, &QQuickScrollBar::policyChanged, this, &QQuickScrollViewPrivate::updateScrollBarHeight);
         QObjectPrivate::disconnect(scrollBar->horizontal, &QQuickScrollBar::visibleChanged, this, &QQuickScrollViewPrivate::updateScrollBarHeight);
+        QQuickItemPrivate::get(scrollBar->horizontal)->removeItemChangeListener(this, QQuickItemPrivate::Geometry);
     }
 }
 
@@ -284,10 +293,12 @@ bool QQuickScrollViewPrivate::setFlickable(QQuickFlickable *item, ContentItemFla
             if (scrollBar->vertical) {
                 QObjectPrivate::connect(scrollBar->vertical, &QQuickScrollBar::policyChanged, this, &QQuickScrollViewPrivate::updateScrollBarWidth);
                 QObjectPrivate::connect(scrollBar->vertical, &QQuickScrollBar::visibleChanged, this, &QQuickScrollViewPrivate::updateScrollBarWidth);
+                QQuickItemPrivate::get(scrollBar->vertical)->addItemChangeListener(this, QQuickItemPrivate::Geometry);
             }
             if (scrollBar->horizontal) {
                 QObjectPrivate::connect(scrollBar->horizontal, &QQuickScrollBar::policyChanged, this, &QQuickScrollViewPrivate::updateScrollBarHeight);
                 QObjectPrivate::connect(scrollBar->horizontal, &QQuickScrollBar::visibleChanged, this, &QQuickScrollViewPrivate::updateScrollBarHeight);
+                QQuickItemPrivate::get(scrollBar->horizontal)->addItemChangeListener(this, QQuickItemPrivate::Geometry);
             }
         }
 
@@ -485,6 +496,15 @@ void QQuickScrollViewPrivate::itemImplicitWidthChanged(QQuickItem *item)
     QQuickPanePrivate::itemImplicitWidthChanged(item);
 }
 
+void QQuickScrollViewPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
+{
+    QQuickPanePrivate::itemGeometryChanged(item, change, diff);
+    if (change.widthChange() && item == verticalScrollBar())
+        updateScrollBarWidth();
+    else if (change.heightChange() && item == horizontalScrollBar())
+        updateScrollBarHeight();
+}
+
 QQuickScrollView::QQuickScrollView(QQuickItem *parent)
     : QQuickPane(*(new QQuickScrollViewPrivate), parent)
 {
@@ -511,8 +531,9 @@ QQuickScrollView::~QQuickScrollView()
     \since 6.6
 
     This property holds the effective width of the vertical scrollbar.
-    When the scrollbar policy is \c QQuickScrollBar::AlwaysOff or the scrollbar
-    is not visible, this property is \c 0.
+    When the scrollbar is visible, this property is the current width of the
+    scrollbar. When the scroll bar is not visible or its policy is set to
+    \c QQuickScrollBar::AlwaysOff, this property is \c 0.
 
     \sa {ScrollBar::policy}
 */
@@ -527,8 +548,9 @@ qreal QQuickScrollView::effectiveScrollBarWidth()
     \since 6.6
 
     This property holds the effective height of the horizontal scrollbar.
-    When the scrollbar policy is \c QQuickScrollBar::AlwaysOff or the scrollbar
-    is not visible, this property is \c 0.
+    When the scrollbar is visible, this property is the current height of
+    the scrollbar. When the scroll bar is not visible or its policy is set
+    to \c QQuickScrollBar::AlwaysOff, this property is \c 0.
 
     \sa {ScrollBar::policy}
 */

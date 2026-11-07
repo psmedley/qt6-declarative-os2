@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qqmljsutils_p.h"
 #include "qqmljstyperesolver_p.h"
@@ -83,10 +84,7 @@ QQmlJSUtils::ResolvedAlias QQmlJSUtils::resolveAlias(const QQmlJSTypeResolver *t
 {
     return ::resolveAlias(
             [&](const QString &id, const QQmlJSScope::ConstPtr &referrer) {
-                const QQmlJSRegisterContent content = typeResolver->scopedType(referrer, id);
-                if (content.variant() == QQmlJSRegisterContent::ObjectById)
-                    return content.type();
-                return QQmlJSScope::ConstPtr();
+                return typeResolver->typeForId(referrer, id);
             },
             property, owner, visitor);
 }
@@ -103,9 +101,9 @@ QQmlJSUtils::ResolvedAlias QQmlJSUtils::resolveAlias(const QQmlJSScopesById &idS
             property, owner, visitor);
 }
 
-std::optional<QQmlJSFixSuggestion> QQmlJSUtils::didYouMean(const QString &userInput,
-                                                     QStringList candidates,
-                                                     QQmlJS::SourceLocation location)
+std::optional<QQmlJSFixSuggestion> QQmlJSUtils::didYouMean(
+        const QString &userInput, QStringList candidates, const QString &filename,
+        const QQmlJS::SourceLocation &location)
 {
     QString shortestDistanceWord;
     int shortestDistance = userInput.size();
@@ -126,8 +124,8 @@ std::optional<QQmlJSFixSuggestion> QQmlJSUtils::didYouMean(const QString &userIn
          * Roughly based on
          * https://en.wikipedia.org/wiki/Levenshtein_distance#Iterative_with_two_matrix_rows.
          */
-        QList<int> v0(candidate.size() + 1);
-        QList<int> v1(candidate.size() + 1);
+        QVarLengthArray<int> v0(candidate.size() + 1);
+        QVarLengthArray<int> v1(candidate.size() + 1);
 
         std::iota(v0.begin(), v0.end(), 0);
 
@@ -154,7 +152,7 @@ std::optional<QQmlJSFixSuggestion> QQmlJSUtils::didYouMean(const QString &userIn
         return QQmlJSFixSuggestion {
             u"Did you mean \"%1\"?"_s.arg(shortestDistanceWord),
             location,
-            shortestDistanceWord
+            { QQmlJSDocumentEdit{ filename, location, shortestDistanceWord } }
         };
     } else {
         return {};
@@ -217,8 +215,8 @@ bool canStrictlyCompareWithVar(
     Q_ASSERT(typeResolver);
 
     const QQmlJSScope::ConstPtr varType = typeResolver->varType();
-    const bool leftIsVar = typeResolver->equals(lhsType, varType);
-    const bool righttIsVar = typeResolver->equals(rhsType, varType);
+    const bool leftIsVar = (lhsType == varType);
+    const bool righttIsVar = (rhsType == varType);
     return leftIsVar != righttIsVar;
 }
 
@@ -233,11 +231,9 @@ bool canCompareWithQObject(
 {
     Q_ASSERT(typeResolver);
     return (lhsType->isReferenceType()
-            && (rhsType->isReferenceType()
-                || typeResolver->equals(rhsType, typeResolver->nullType())))
+            && (rhsType->isReferenceType() || rhsType == typeResolver->nullType()))
             || (rhsType->isReferenceType()
-                && (lhsType->isReferenceType()
-                    || typeResolver->equals(lhsType, typeResolver->nullType())));
+                && (lhsType->isReferenceType() || lhsType == typeResolver->nullType()));
 }
 
 /*! \internal
@@ -250,18 +246,24 @@ bool canCompareWithQUrl(
         const QQmlJSScope::ConstPtr &rhsType)
 {
     Q_ASSERT(typeResolver);
-    return typeResolver->equals(lhsType, typeResolver->urlType())
-            && typeResolver->equals(rhsType, typeResolver->urlType());
+    return lhsType == typeResolver->urlType() && rhsType == typeResolver->urlType();
 }
 
+/*!
+   \internal
+
+    Utility method that searches qrc files in given folders. Do not use this when the order or
+   selection of the returned qrc files matters.
+*/
 QStringList QQmlJSUtils::resourceFilesFromBuildFolders(const QStringList &buildFolders)
 {
     QStringList result;
     for (const QString &path : buildFolders) {
-        QDirIterator it(path, QStringList{ u"*.qrc"_s }, QDir::Files | QDir::Hidden,
-                        QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            result.append(it.next());
+        for (auto it : QDirListing{ path, QStringList{ u"*.qrc"_s },
+                                    QDirListing::IteratorFlag::Recursive
+                                            | QDirListing::IteratorFlag::FilesOnly
+                                            | QDirListing::IteratorFlag::IncludeHidden }) {
+            result.append(it.filePath());
         }
     }
     return result;
@@ -342,23 +344,64 @@ QString QQmlJSUtils::qmlBuildPathFromSourcePath(const QQmlJSResourceFileMapper *
     if (!mapper)
         return pathInSourceFolder;
 
-    const QString qrcPath =
-            mapper->entry(QQmlJSResourceFileMapper::localFileFilter(pathInSourceFolder))
-                    .resourcePath;
+    // A source file may appear under multiple resource paths across different qrc files.
+    // Iterate all entries to find the one that resolves to a module build path.
+    const auto allEntries =
+            mapper->filter(QQmlJSResourceFileMapper::localFileFilter(pathInSourceFolder));
 
-    if (qrcPath.isEmpty())
-        return pathInSourceFolder;
+    for (const auto &mapEntry : allEntries) {
+        const QString qrcPath = mapEntry.resourcePath;
+        if (qrcPath.isEmpty())
+            continue;
 
-    const auto moduleBuildEntry =
-            qmlModuleEntryFromBuildPath(mapper, qrcPath, ResourceFileFilter);
+        const auto moduleBuildEntry =
+                qmlModuleEntryFromBuildPath(mapper, qrcPath, ResourceFileFilter);
+        if (!moduleBuildEntry.isValid())
+            continue;
 
-    if (!moduleBuildEntry.isValid())
-        return pathInSourceFolder;
+        const auto qrcFolderPath = qrcPath.first(qrcPath.lastIndexOf(u'/'));
+        return moduleBuildEntry.filePath + qrcFolderPath.sliced(moduleBuildEntry.resourcePath.size())
+                + pathInSourceFolder.sliced(pathInSourceFolder.lastIndexOf(u'/'));
+    }
 
-    const auto qrcFolderPath = qrcPath.first(qrcPath.lastIndexOf(u'/')); // drop the filename
+    return pathInSourceFolder;
+}
 
-    return moduleBuildEntry.filePath + qrcFolderPath.sliced(moduleBuildEntry.resourcePath.size())
-            + pathInSourceFolder.sliced(pathInSourceFolder.lastIndexOf(u'/'));
+/*!
+  \internal
+  Returns the name of \a scope based on \a type.
+*/
+QString QQmlJSUtils::getScopeName(const QQmlJSScope::ConstPtr &scope, QQmlJSScope::ScopeType type)
+{
+    Q_ASSERT(scope);
+    if (type == QQmlSA::ScopeType::GroupedPropertyScope
+        || type == QQmlSA::ScopeType::AttachedPropertyScope)
+        return scope->internalName();
+
+    if (!scope->isComposite())
+        return scope->internalName();
+
+    if (scope->isInlineComponent() && scope->inlineComponentName().has_value())
+        return scope->inlineComponentName().value();
+
+    if (scope->isFileRootComponent())
+        return QFileInfo(scope->filePath()).baseName();
+
+    return scope->baseTypeName();
+}
+
+QString QQmlJSUtils::fileSelectorFor(const QQmlJSScope::ConstPtr &scope)
+{
+    if (!scope)
+        return { };
+    const auto factory = scope.factory();
+    const QString filePath = factory ? factory->filePath() : scope->filePath();
+    QString dir = QFileInfo(filePath).dir().dirName();
+    if (dir.startsWith("+"_L1)) {
+        dir.slice(1);
+        return dir;
+    }
+    return { };
 }
 
 QT_END_NAMESPACE

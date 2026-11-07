@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGDEFAULTRENDERCONTEXT_H
 #define QSGDEFAULTRENDERCONTEXT_H
@@ -25,12 +26,24 @@ class QRhiCommandBuffer;
 class QRhiRenderPassDescriptor;
 class QRhiResourceUpdateBatch;
 class QRhiTexture;
+class QRhiRenderBuffer;
 class QSGMaterialShader;
 class QSurface;
+class QSGDefaultRenderContext;
 
 namespace QSGRhiAtlasTexture {
     class Manager;
 }
+
+class QSGDepthStencilBuffer
+{
+public:
+    QSGDepthStencilBuffer() { }
+    QSGDepthStencilBuffer(QRhiRenderBuffer *ds) : ds(ds) { }
+    ~QSGDepthStencilBuffer();
+    QRhiRenderBuffer *ds = nullptr;
+    QSGDefaultRenderContext *rc = nullptr;
+};
 
 class Q_QUICK_EXPORT QSGDefaultRenderContext : public QSGRenderContext
 {
@@ -69,6 +82,7 @@ public:
 
     void preprocess() override;
     void invalidateGlyphCaches() override;
+    void flushGlyphCaches() override;
     QSGDistanceFieldGlyphCache *distanceFieldGlyphCache(const QRawFont &font, int renderTypeQuality) override;
     QSGCurveGlyphAtlas *curveGlyphAtlas(const QRawFont &font) override;
 
@@ -107,6 +121,9 @@ public:
     void deferredReleaseGlyphCacheTexture(QRhiTexture *texture);
     void resetGlyphCacheResources();
 
+    QSharedPointer<QSGDepthStencilBuffer> getDepthStencilBuffer(const QSize &size, int sampleCount);
+    void addDepthStencilBuffer(const QSharedPointer<QSGDepthStencilBuffer> &ds);
+
 protected:
     InitParams m_initParams;
     QRhi *m_rhi;
@@ -119,6 +136,9 @@ protected:
     QRhiResourceUpdateBatch *m_glyphCacheResourceUpdates;
     QSet<QRhiTexture *> m_pendingGlyphCacheTextures;
     QHash<FontKey, QSGCurveGlyphAtlas *> m_curveGlyphAtlases;
+    QHash<std::pair<QSize, int>, QWeakPointer<QSGDepthStencilBuffer>> m_depthStencilBuffers;
+
+    friend class QSGDepthStencilBuffer;
 };
 
 QT_END_NAMESPACE

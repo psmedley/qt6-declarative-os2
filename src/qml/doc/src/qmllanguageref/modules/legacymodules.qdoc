@@ -3,8 +3,9 @@
 
 /*!
 \page qtqml-modules-legacymodules.html
+\meta {keywords} {qmltopic}
 \title Legacy Modules
-\brief Description of legacy QML modules
+\brief Description of legacy QML modules.
 
 Legacy modules are modules whose specification \c qmldir file does not contain
 a module identifier directive.  A legacy module may be either installed into
@@ -55,6 +56,6 @@ A located legacy module may reside on the local file system or on the
 network and can be referred to by a URL that specifies the file system path or
 network URL.
 
-\sa {Modern QML modules}, {Port QML modules to CMake}
+\sa {Modernizing QML Modules}, {Port QML modules to CMake}
 
 */

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMENUSEPARATOR_P_H
 #define QQUICKLABSPLATFORMMENUSEPARATOR_P_H
@@ -23,6 +24,7 @@ class QQuickLabsPlatformMenuSeparator : public QQuickLabsPlatformMenuItem
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(MenuSeparator)
+    QML_ADDED_IN_VERSION(1, 0)
 public:
     explicit QQuickLabsPlatformMenuSeparator(QObject *parent = nullptr);
 };

@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <QtQuickTemplates2/private/qquickheaderview_p_p.h>
 #include <algorithm>
@@ -80,6 +81,9 @@
 
 QT_BEGIN_NAMESPACE
 
+static const char *kRequiredProperty_headerView = "headerView";
+static const char *kRequiredProperty_model = "model";
+
 QQuickHeaderViewBasePrivate::QQuickHeaderViewBasePrivate()
     : QQuickTableViewPrivate()
 {
@@ -105,72 +109,75 @@ const QPointer<QQuickItem> QQuickHeaderViewBasePrivate::delegateItemAt(int row, 
 
 QVariant QQuickHeaderViewBasePrivate::modelImpl() const
 {
-    if (auto model = m_headerDataProxyModel.sourceModel())
-        return QVariant::fromValue(model.data());
-#if QT_CONFIG(transposeproxymodel)
-    if (auto model = m_transposeProxyModel.sourceModel())
-        return QVariant::fromValue(model);
-#endif
-    return QQuickTableViewPrivate::modelImpl();
-}
+    // modelImpl is supposed to return the actual model that is
+    // is used (that is, the proxy model), and not the source model.
+    if (m_headerDataProxyModel.sourceModel())
+        return QVariant::fromValue(&m_headerDataProxyModel);
 
-template <typename P, typename M>
-inline bool proxyModelSetter(QQuickHeaderViewBase *const q, P &proxyModel, M *model)
-{
-    if (model) {
-        if (model == proxyModel.sourceModel())
-            return true;
-        proxyModel.setSourceModel(model);
-        const auto &modelVariant = QVariant::fromValue(std::addressof(proxyModel));
-        bool isProxyModelChanged = (modelVariant != QQuickTableViewPrivate::get(q)->QQuickTableViewPrivate::modelImpl());
-        QQuickTableViewPrivate::get(q)->QQuickTableViewPrivate::setModelImpl(modelVariant);
-        //Necessary, since TableView's assigned model not changed, but proxy's source changed
-        if (!isProxyModelChanged)
-            emit q->modelChanged();
-        return true;
-    }
-    proxyModel.setSourceModel(nullptr);
-    return false;
+    // If we're not using the proxy model, use the assigned model
+    return QQuickTableViewPrivate::modelImpl();
 }
 
 void QQuickHeaderViewBasePrivate::setModelImpl(const QVariant &newModel)
 {
-    Q_Q(QQuickHeaderViewBase);
-    m_modelExplicitlySetByUser = true;
-    // Case 1: newModel is QAbstractTableModel
-    if (proxyModelSetter(q, m_headerDataProxyModel, newModel.value<QAbstractTableModel *>()))
-        return;
-#if QT_CONFIG(transposeproxymodel)
-    // Case 2: newModel is QAbstractItemModel but not QAbstractTableModel
-    if (orientation() == Qt::Horizontal
-        && proxyModelSetter(q, m_transposeProxyModel, newModel.value<QAbstractItemModel *>()))
-        return;
-#endif
+    m_modelExplicitlySet = newModel.isValid();
 
+    auto asTableModel = [](QAbstractItemModel *model) -> QAbstractItemModel* {
+        if (qobject_cast<QAbstractTableModel *>(model))
+            return model;
+
+        // Since QQmlTableModel is not derived from QAbstractTableModel (QATM),
+        // we have to check for this model separately. We want it to behave like
+        // QATM to keep existing code working. This model is in the Labs module,
+        // and we cannot link to it to make a qobject_cast. Therefore, we are checking
+        // the class name.
+        // TODO: When QQmlTableModel leaves Labs, change to qobject_cast?
+        if (model && QByteArrayView(model->metaObject()->className()) == "QQmlTableModel")
+            return model;
+        return nullptr;
+    };
+
+    if (auto qabstracttablemodel = asTableModel(qaim(newModel))) {
+        if (qabstracttablemodel != m_headerDataProxyModel.sourceModel()) {
+            m_headerDataProxyModel.setSourceModel(qabstracttablemodel);
+            assignedModel = QVariant::fromValue(std::addressof(m_headerDataProxyModel));
+            scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::All);
+            emit q_func()->modelChanged();
+        }
+        return;
+    }
+
+    m_headerDataProxyModel.setSourceModel(nullptr);
     QQuickTableViewPrivate::setModelImpl(newModel);
 }
 
 void QQuickHeaderViewBasePrivate::syncModel()
 {
-    Q_Q(QQuickHeaderViewBase);
-
-    if (assignedSyncView && !m_modelExplicitlySetByUser) {
-        auto newModel = assignedSyncView->model();
-        if (auto m = newModel.value<QAbstractItemModel *>())
-            proxyModelSetter(q, m_headerDataProxyModel, m);
+    if (!m_modelExplicitlySet && assignedSyncView) {
+        // When no model has been explicitly set, but we have a syncView, we
+        // should use the headerData() from the syncView's model as model.
+        // If the model is not a QAbstractItemModel, or if it doesn't contain
+        // any header data, header view will be empty.
+        auto syncView_d = QQuickTableViewPrivate::get(assignedSyncView);
+        auto syncViewModelAsQaim = qaim(syncView_d->assignedModel);
+        if (syncViewModelAsQaim != m_headerDataProxyModel.sourceModel()) {
+            m_headerDataProxyModel.setSourceModel(syncViewModelAsQaim); // can be nullptr
+            assignedModel = QVariant::fromValue(std::addressof(m_headerDataProxyModel));
+            emit q_func()->modelChanged();
+        }
     }
 
     QQuickTableViewPrivate::syncModel();
 
+    // For models that are just a list or a number, and especially not a
+    // table, we transpose the view when the orientation is horizontal.
+    // The model (list) will then be laid out horizontally rather than
+    // vertically, which is otherwise the default.
     isTransposed = false;
     const auto aim = model->abstractItemModel();
-    if (orientation() == Qt::Horizontal) {
-        // For models that are just a list or a number, and especially not a
-        // table, we transpose the view when the orientation is horizontal.
-        // The model (list) will then be laid out horizontally rather than
-        // vertically, which is the otherwise the default.
+    if (orientation() == Qt::Horizontal)
         isTransposed = !aim || aim->columnCount() == 1;
-    }
+
     if (m_textRole.isEmpty() && aim)
         m_textRole = QLatin1String("display");
 }
@@ -194,6 +201,24 @@ QAbstractItemModel *QQuickHeaderViewBasePrivate::selectionSourceModel()
     // modelIndex(cell) and cellAtIndex(index) have not been overridden either).
     // Instead, we set the internal proxy model as selection source model.
     return &m_headerDataProxyModel;
+}
+
+void QQuickHeaderViewBasePrivate::initItemCallback(int modelIndex, QObject *object)
+{
+    Q_Q(QQuickHeaderViewBase);
+
+    QQuickTableViewPrivate::initItemCallback(modelIndex, object);
+
+    auto item = qobject_cast<QQuickItem *>(object);
+    if (!item)
+        return;
+
+    QQmlDelegateModelItem *modelItem = tableModel->getModelItem(modelIndex);
+
+    setRequiredProperty(kRequiredProperty_headerView, QVariant::fromValue(q),
+                        modelIndex, item, true);
+    setRequiredProperty(kRequiredProperty_model, QVariant::fromValue(modelItem->modelObject()),
+                        modelIndex, item, true);
 }
 
 int QQuickHeaderViewBasePrivate::logicalRowIndex(const int visualIndex) const
@@ -324,10 +349,8 @@ int QHeaderDataProxyModel::columnCount(const QModelIndex &parent) const
 
 QVariant QHeaderDataProxyModel::data(const QModelIndex &index, int role) const
 {
-    if (m_model.isNull())
+    if (m_model.isNull() || !hasIndex(index.row(), index.column()))
         return QVariant();
-    if (!hasIndex(index.row(), index.column()))
-        return QModelIndex();
     auto section = m_orientation == Qt::Vertical ? index.row() : index.column();
     return m_model->headerData(section, m_orientation, role);
 }
@@ -338,7 +361,6 @@ bool QHeaderDataProxyModel::setData(const QModelIndex &index, const QVariant &va
         return false;
     auto section = m_orientation == Qt::Vertical ? index.row() : index.column();
     auto ret = m_model->setHeaderData(section, m_orientation, value, role);
-    emit dataChanged(index, index, { role });
     return ret;
 }
 
@@ -455,8 +477,10 @@ QQuickHorizontalHeaderView::QQuickHorizontalHeaderView(QQuickItem *parent)
 
 QQuickHorizontalHeaderView::~QQuickHorizontalHeaderView()
 {
+#if QT_CONFIG(quick_draganddrop)
     Q_D(QQuickHorizontalHeaderView);
     d->destroySectionDragHandler();
+#endif
 }
 
 bool QQuickHorizontalHeaderView::movableColumns() const
@@ -492,8 +516,10 @@ QQuickVerticalHeaderView::QQuickVerticalHeaderView(QQuickItem *parent)
 
 QQuickVerticalHeaderView::~QQuickVerticalHeaderView()
 {
+#if QT_CONFIG(quick_draganddrop)
     Q_D(QQuickVerticalHeaderView);
     d->destroySectionDragHandler();
+#endif
 }
 
 bool QQuickVerticalHeaderView::movableRows() const

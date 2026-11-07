@@ -1,10 +1,12 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickselectionrectangle_p.h"
 #include "qquickselectionrectangle_p_p.h"
 
 #include <QtQml/qqmlinfo.h>
+#include <QtQml/qqmlcomponent.h>
 #include <QtQuick/private/qquickdraghandler_p.h>
 #include <QtQuick/private/qquickhoverhandler_p.h>
 
@@ -24,6 +26,7 @@ QT_BEGIN_NAMESPACE
     \brief Used to select table cells inside a TableView.
 
     \image qtquickcontrols-selectionrectangle.png
+           {Selection rectangle for selecting table items}
 
     SelectionRectangle is used for selecting table cells in a TableView. It lets
     the user start a selection by doing a pointer drag inside the viewport, or by
@@ -133,12 +136,20 @@ QT_BEGIN_NAMESPACE
     This property holds when a selection should start.
 
     \value SelectionRectangle.Drag A selection will start by doing a pointer drag inside the viewport
-    \value SelectionRectangle.PressAndHold A selection will start by doing a press and hold on top a cell
-    \value SelectionRectangle.Auto SelectionRectangle will choose which mode to use based on the target
-        and the platform. This normally means \c PressAndHold on touch based platforms, and \c Drag on desktop.
-        However, \c Drag will only be used if it doesn't conflict with flicking. This means that
-        TableView will need to be configured with \c interactive set to \c false, or placed
-        inside a ScrollView (where flicking, by default, is off for mouse events), for \c Drag to be chosen.
+    \value SelectionRectangle.PressAndHold A selection will start by doing a press and hold on top of a cell
+    \value SelectionRectangle.Auto SelectionRectangle will choose which mode to
+        use based on the \l target and the input device in use. This normally
+        means \c Drag when using a mouse, and \c PressAndHold on a touchscreen.
+        However, \c Drag will only be used if it doesn't conflict with flicking.
+        One way to avoid conflict is to disable mouse-drag flicking by setting
+        \l {Flickable::}{acceptedButtons} to \c Qt.NoButton. In that case, the
+        mouse wheel or touchpad scrolling gesture continues to work, touchscreen
+        flicking continues to work, and touchscreen selection can be started by
+        press-and-hold. Another way is to set \l {Flickable::}{interactive} to
+        \c false, which disables flicking and scrolling altogether (perhaps
+        this should be done only temporarily, in some mode in your UI).
+        Yet another way is to place the TableView inside a ScrollView (where
+        flicking, by default, is off for mouse events).
 
     The default value is \c Auto.
 */
@@ -164,7 +175,10 @@ QQuickSelectionRectanglePrivate::QQuickSelectionRectanglePrivate()
     m_dragHandler = new QQuickDragHandler();
     m_dragHandler->setTarget(nullptr);
 
-    QObject::connect(&m_scrollTimer, &QTimer::timeout, [&]{
+    // QObject::connect() calls in this constructor cannot use `q` as context,
+    // because at this point the public class constructor hasn't finished yet
+
+    QObject::connect(&m_scrollTimer, &QTimer::timeout, &m_scrollTimer, [&]{
         if (m_topLeftHandle && m_draggedHandle == m_topLeftHandle.data())
             m_selectable->setSelectionStartPos(m_scrollToPoint);
         else
@@ -176,7 +190,7 @@ QQuickSelectionRectanglePrivate::QQuickSelectionRectanglePrivate()
         m_scrollSpeed = QSizeF(qAbs(dist.width() * 0.007), qAbs(dist.height() * 0.007));
     });
 
-    QObject::connect(m_tapHandler, &QQuickTapHandler::pressedChanged, [this]() {
+    QObject::connect(m_tapHandler, &QQuickTapHandler::pressedChanged, m_tapHandler, [this]() {
         Q_Q(QQuickSelectionRectangle);
 
         if (!m_tapHandler->isPressed()) {
@@ -238,9 +252,16 @@ QQuickSelectionRectanglePrivate::QQuickSelectionRectanglePrivate()
         }
     });
 
-    QObject::connect(m_tapHandler, &QQuickTapHandler::longPressed, [this]() {
-        if (m_effectiveSelectionMode != QQuickSelectionRectangle::PressAndHold)
+    QObject::connect(m_tapHandler, &QQuickTapHandler::longPressed, m_tapHandler, [this]() {
+        if (m_tapHandler->point().device()->type() == QInputDevice::DeviceType::TouchScreen &&
+            m_selectionMode == QQuickSelectionRectangle::Auto) {
+            const QQuickTableView *tableview = qobject_cast<QQuickTableView *>(m_target);
+            if (tableview && !tableview->isInteractive())
+                return; // you can select by touch drag, so don't allow touch long-press
+            // otherwise, touch long-press is allowed
+        } else if (m_effectiveSelectionMode != QQuickSelectionRectangle::PressAndHold) {
             return;
+        }
 
         const QPointF pos = m_tapHandler->point().pressPosition();
         const auto modifiers = m_tapHandler->point().modifiers();
@@ -283,7 +304,7 @@ QQuickSelectionRectanglePrivate::QQuickSelectionRectanglePrivate()
         }
     });
 
-    QObject::connect(m_dragHandler, &QQuickDragHandler::activeChanged, [this]() {
+    QObject::connect(m_dragHandler, &QQuickDragHandler::activeChanged, m_dragHandler, [this]() {
         Q_ASSERT(m_effectiveSelectionMode == QQuickSelectionRectangle::Drag);
         const QPointF startPos = m_dragHandler->centroid().pressPosition();
         const QPointF dragPos = m_dragHandler->centroid().position();
@@ -320,7 +341,7 @@ QQuickSelectionRectanglePrivate::QQuickSelectionRectanglePrivate()
         }
     });
 
-    QObject::connect(m_dragHandler, &QQuickDragHandler::centroidChanged, [this]() {
+    QObject::connect(m_dragHandler, &QQuickDragHandler::centroidChanged, m_dragHandler, [this]() {
         if (!m_dragging)
             return;
         const QPointF pos = m_dragHandler->centroid().position();
@@ -427,7 +448,8 @@ QQuickItem *QQuickSelectionRectanglePrivate::createHandle(QQmlComponent *delegat
     // will get an exclusive grab already on press
     tapHandler->setGesturePolicy(QQuickTapHandler::DragWithinBounds);
 
-    QObject::connect(dragHandler, &QQuickDragHandler::activeChanged, [this, corner, handleItem, dragHandler]() {
+    QObject::connect(dragHandler, &QQuickDragHandler::activeChanged, q,
+                     [this, corner, handleItem, dragHandler]() {
         if (dragHandler->active()) {
             const QPointF localPos = dragHandler->centroid().position();
             const QPointF pos = handleItem->mapToItem(handleItem->parentItem(), localPos);
@@ -452,7 +474,8 @@ QQuickItem *QQuickSelectionRectanglePrivate::createHandle(QQmlComponent *delegat
         }
     });
 
-    QObject::connect(dragHandler, &QQuickDragHandler::centroidChanged, [this, corner, handleItem, dragHandler]() {
+    QObject::connect(dragHandler, &QQuickDragHandler::centroidChanged, q,
+                     [this, corner, handleItem, dragHandler]() {
         if (!m_dragging)
             return;
 
@@ -496,6 +519,7 @@ void QQuickSelectionRectanglePrivate::connectToTarget()
     // To support QuickSelectionRectangle::Auto, we need to listen for changes to the target
     if (const auto flickable = qobject_cast<QQuickFlickable *>(m_target)) {
         connect(flickable, &QQuickFlickable::interactiveChanged, this, &QQuickSelectionRectanglePrivate::updateSelectionMode);
+        connect(flickable, &QQuickFlickable::acceptedButtonsChanged, this, &QQuickSelectionRectanglePrivate::updateSelectionMode);
     }
 
     // Add a callback function that tells if the selection was
@@ -528,13 +552,20 @@ void QQuickSelectionRectanglePrivate::updateSelectionMode()
     if (m_selectionMode == QQuickSelectionRectangle::Auto) {
         if (m_target && qobject_cast<QQuickScrollView *>(m_target->parentItem())) {
             // ScrollView allows flicking with touch, but not with mouse. So we do
-            // the same here: you can drag to select with a mouse, but not with touch.
+            // the opposite here: you can drag to select with a mouse, but not with touch.
             m_effectiveSelectionMode = QQuickSelectionRectangle::Drag;
             m_dragHandler->setAcceptedDevices(QInputDevice::DeviceType::Mouse);
             m_dragHandler->setEnabled(enabled);
         } else if (const auto flickable = qobject_cast<QQuickFlickable *>(m_target)) {
-            if (enabled && !flickable->isInteractive()) {
+            // Flickable allows flicking with mouse by default, but it can be disabled by
+            // changing acceptedMouseButtons(). Setting interactive to false disables flicking
+            // altogether. So we allow Drag with devices that don't conflict with flicking.
+            if (enabled && (!flickable->isInteractive() ||
+                            !flickable->acceptedMouseButtons().testFlag(Qt::LeftButton))) {
                 m_effectiveSelectionMode = QQuickSelectionRectangle::Drag;
+                m_dragHandler->setAcceptedDevices(flickable->isInteractive()
+                                                          ? QInputDevice::DeviceType::Mouse
+                                                          : QInputDevice::DeviceType::AllDevices);
                 m_dragHandler->setEnabled(true);
             } else {
                 m_effectiveSelectionMode = QQuickSelectionRectangle::PressAndHold;
@@ -570,7 +601,7 @@ QQuickSelectionRectangle::QQuickSelectionRectangle(QQuickItem *parent)
     d->m_tapHandler->setParent(this);
     d->m_dragHandler->setParent(this);
 
-    QObject::connect(this, &QQuickItem::enabledChanged, [=]() {
+    QObject::connect(this, &QQuickItem::enabledChanged, this, [d] {
         d->m_scrollTimer.stop();
         d->updateSelectionMode();
         d->updateDraggingState(false);

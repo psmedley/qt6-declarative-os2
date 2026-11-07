@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <qtest.h>
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QtQml/qqmlengine.h>
 #include <QtQuick/qquickimageprovider.h>
 #include <private/qquickimage_p.h>
@@ -385,7 +385,7 @@ class TestThreadProvider : public QQuickImageProvider
             if (!ok)
                 cond.wait(&mutex);
             mutex.unlock();
-            QVector<int> v;
+            QList<int> v;
             for (int i = 0; i < 10000; i++)
                 v.prepend(i); //do some computation
             QImage image(50,50, QImage::Format_RGB32);

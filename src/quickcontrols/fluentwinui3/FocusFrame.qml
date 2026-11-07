@@ -1,12 +1,20 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
+@Deprecated {
+    reason: "FocusFrame component has been moved to private FluentWinUI3.impl module \
+    and is no longer part of the public QML API."
+}
 Rectangle {
-
+    Component.onCompleted: {
+        print("FocusFrame has been moved to private FluentWinUI3.impl module "
+             + "and is no longer part of the public QML API.")
+    }
     function moveToItem(item) {
         if (!item) {
             targetItem = null;

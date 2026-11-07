@@ -4,20 +4,23 @@
 cmake_minimum_required(VERSION 3.19)
 project(tst_generate_qmlls_ini)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Qml Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Qml Test QmlLSPrivate)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(tst_generate_qmlls_ini main.cpp)
-target_link_libraries(tst_generate_qmlls_ini PRIVATE Qt6::Test)
+target_link_libraries(tst_generate_qmlls_ini PRIVATE Qt6::Test Qt6::QmlLSPrivate)
 
-set(QT_QML_GENERATE_QMLLS_INI ON CACHE BOOL "" FORCE)
-
+set(QT_QML_GENERATE_QMLLS_INI ON)
 add_subdirectory(SomeSubfolder)
 add_subdirectory(Dotted)
 add_subdirectory(Dependency)
 add_subdirectory(ModuleWithDependency)
 add_subdirectory(quotesInPath)
+add_subdirectory(QmllsBuildIni)
+add_subdirectory(WrongOutput)
+add_subdirectory(WithoutCMakeBuilds)
+add_subdirectory(ImportPathOrderStudy)
 
 qt_add_qml_module(tst_generate_qmlls_ini
     URI MainModule
@@ -30,6 +33,7 @@ qt_add_qml_module(tst_generate_qmlls_ini
 )
 target_compile_definitions(tst_generate_qmlls_ini
     PRIVATE
+        QTEST_THROW_ON_FAIL=1
         "SOURCE_DIRECTORY=u\"${CMAKE_CURRENT_SOURCE_DIR}\"_s"
         "BUILD_DIRECTORY=u\"${CMAKE_CURRENT_BINARY_DIR}\"_s"
 )

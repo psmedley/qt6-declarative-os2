@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDRAG_P_H
 #define QQUICKDRAG_P_H
@@ -24,6 +25,7 @@
 #include <QtCore/qmimedata.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qurl.h>
+#include <QtGui/qevent.h>
 
 QT_REQUIRE_CONFIG(quick_draganddrop);
 

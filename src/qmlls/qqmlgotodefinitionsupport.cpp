@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmlgotodefinitionsupport_p.h"
 #include "qqmllsutils_p.h"
@@ -11,24 +12,17 @@ QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
 
-QmlGoToDefinitionSupport::QmlGoToDefinitionSupport(QmlLsp::QQmlCodeModel *codeModel)
+QmlGoToDefinitionSupport::QmlGoToDefinitionSupport(QmlLsp::QQmlCodeModelManager *codeModel)
     : BaseT(codeModel)
 {
 }
 
-QString QmlGoToDefinitionSupport::name() const
+void QmlGoToDefinitionSupport::setupCapabilities(QLspSpecification::ServerCapabilities &caps)
 {
-    return u"QmlDefinitionSupport"_s;
-}
-
-void QmlGoToDefinitionSupport::setupCapabilities(
-        const QLspSpecification::InitializeParams &,
-        QLspSpecification::InitializeResult &serverCapabilities)
-{
-    // just assume serverCapabilities.capabilities.typeDefinitionProvider is a bool for now
+    // just assume caps.typeDefinitionProvider is a bool for now
     // handle the TypeDefinitionOptions and TypeDefinitionRegistrationOptions cases later on, if
     // needed (as they just allow more fancy go-to-type-definition action).
-    serverCapabilities.capabilities.definitionProvider = true;
+    caps.definitionProvider = true;
 }
 
 void QmlGoToDefinitionSupport::registerHandlers(QLanguageServer *,
@@ -43,20 +37,25 @@ void QmlGoToDefinitionSupport::process(RequestPointerArgument request)
     ResponseScopeGuard guard(results, request->m_response);
 
     auto itemsFound = itemsForRequest(request);
-
-    if (guard.setErrorFrom(itemsFound))
+    if (!itemsFound.has_value()) {
+        guard.setError(itemsFound.error());
         return;
+    }
 
-    auto &front = std::get<QList<QQmlLSUtils::ItemLocation>>(itemsFound).front();
+    auto &front = itemsFound.value().front();
 
-    auto location = QQmlLSUtils::findDefinitionOf(front.domItem);
-    if (!location)
-        return;
+    const QByteArray shortestRootUrl =
+            m_codeModelManager->shortestRootUrlForFile(request->m_parameters.textDocument.uri);
 
-    QLspSpecification::Location l;
-    l.uri = QUrl::fromLocalFile(location->filename()).toEncoded();
-    l.range = QQmlLSUtils::qmlLocationToLspLocation(*location);
+    const QStringList headerDirectories = shortestRootUrl.isEmpty()
+            ? QStringList{}
+            : QStringList{ QUrl::fromEncoded(shortestRootUrl).toLocalFile() };
 
-    results.append(l);
+    const auto locations = QQmlLSUtils::findDefinitionOf(front.domItem, headerDirectories);
+
+    for (const QQmlLSUtils::Location &location : locations) {
+        results.append({ QUrl::fromLocalFile(location.filename()).toEncoded(),
+                         QQmlLSUtils::qmlLocationToLspLocation(location) });
+    }
 }
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshadereffectmesh_p.h"
 #include <QtQuick/qsggeometry.h>
@@ -164,7 +165,8 @@ QSGGeometry *QQuickGridMesh::updateGeometry(QSGGeometry *geometry, int attrCount
     \li QML code
     \li gridmesh.vert
     \row
-    \li \image declarative-gridmesh.png
+    \li \image declarative-gridmesh.png {Qt logo distorted by GridMesh
+               transformation}
     \li \qml
         import QtQuick 2.0
 
@@ -327,7 +329,8 @@ QSGGeometry *QQuickBorderImageMesh::updateGeometry(QSGGeometry *geometry, int at
     The 4 border lines (2 horizontal and 2 vertical) break the image into 9 sections,
     as shown below:
 
-    \image declarative-scalegrid.png
+    \image declarative-scalegrid.png {Red rounded rectangle divided into
+           9 numbered regions by dashed border lines}
 
     Each border line (left, right, top, and bottom) specifies an offset in pixels
     from the respective edge of the mesh. By default, each border line has

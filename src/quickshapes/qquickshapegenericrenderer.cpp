@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshapegenericrenderer_p.h"
 #include <QtGui/private/qtriangulator_p.h>
@@ -129,11 +130,6 @@ void QQuickShapeGenericRenderer::beginSync(int totalCount, bool *countChanged)
         d.syncDirty = 0;
 }
 
-void QQuickShapeGenericRenderer::setPath(int index, const QQuickPath *path)
-{
-    setPath(index, path ? path->path() : QPainterPath());
-}
-
 void QQuickShapeGenericRenderer::setPath(int index, const QPainterPath &path, QQuickShapePath::PathHints)
 {
     ShapePathData &d(m_sp[index]);
@@ -159,6 +155,15 @@ void QQuickShapeGenericRenderer::setStrokeWidth(int index, qreal w)
     if (w > 0.0f)
         d.pen.setWidthF(w);
     d.syncDirty |= DirtyStrokeGeom;
+}
+
+void QQuickShapeGenericRenderer::setCosmeticStroke(int index, bool c)
+{
+    ShapePathData &d(m_sp[index]);
+    d.pen.setCosmetic(c);
+    d.syncDirty |= DirtyStrokeGeom;
+    // as long as the stroke is cosmetic,
+    // QQuickShape::itemChange triggers re-triangulation whenever scale changes
 }
 
 void QQuickShapeGenericRenderer::setFillColor(int index, const QColor &color)
@@ -195,7 +200,7 @@ void QQuickShapeGenericRenderer::setCapStyle(int index, QQuickShapePath::CapStyl
 }
 
 void QQuickShapeGenericRenderer::setStrokeStyle(int index, QQuickShapePath::StrokeStyle strokeStyle,
-                                                   qreal dashOffset, const QVector<qreal> &dashPattern)
+                                                   qreal dashOffset, const QList<qreal> &dashPattern)
 {
     ShapePathData &d(m_sp[index]);
     d.pen.setStyle(Qt::PenStyle(strokeStyle));
@@ -206,33 +211,49 @@ void QQuickShapeGenericRenderer::setStrokeStyle(int index, QQuickShapePath::Stro
     d.syncDirty |= DirtyStrokeGeom;
 }
 
+static QQuickAbstractPathRenderer::FillGradientType
+    copyGenericGradient(const QQuickShapeGradient *gradient, QSGGradientCache::GradientDesc *dst)
+{
+    Q_ASSERT(dst != nullptr);
+    if (gradient == nullptr)
+        return QQuickAbstractPathRenderer::NoGradient;
+
+    dst->stops = gradient->gradientStops(); // sorted
+    dst->spread = QGradient::Spread(gradient->spread());
+    if (const QQuickShapeLinearGradient *g  = qobject_cast<const QQuickShapeLinearGradient *>(gradient)) {
+        dst->a = QPointF(g->x1(), g->y1());
+        dst->b = QPointF(g->x2(), g->y2());
+
+        return QQuickAbstractPathRenderer::LinearGradient;
+    } else if (const QQuickShapeRadialGradient *g = qobject_cast<const QQuickShapeRadialGradient *>(gradient)) {
+        dst->a = QPointF(g->centerX(), g->centerY());
+        dst->b = QPointF(g->focalX(), g->focalY());
+        dst->v0 = g->centerRadius();
+        dst->v1 = g->focalRadius();
+
+        return QQuickAbstractPathRenderer::RadialGradient;
+    } else if (const QQuickShapeConicalGradient *g = qobject_cast<const QQuickShapeConicalGradient *>(gradient)) {
+        dst->a = QPointF(g->centerX(), g->centerY());
+        dst->v0 = g->angle();
+
+        return QQuickAbstractPathRenderer::ConicalGradient;
+    }
+
+    Q_UNREACHABLE_RETURN(QQuickAbstractPathRenderer::NoGradient);
+}
+
 void QQuickShapeGenericRenderer::setFillGradient(int index, QQuickShapeGradient *gradient)
 {
     ShapePathData &d(m_sp[index]);
-    if (gradient) {
-        d.fillGradient.stops = gradient->gradientStops(); // sorted
-        d.fillGradient.spread = QGradient::Spread(gradient->spread());
-        if (QQuickShapeLinearGradient *g  = qobject_cast<QQuickShapeLinearGradient *>(gradient)) {
-            d.fillGradientActive = LinearGradient;
-            d.fillGradient.a = QPointF(g->x1(), g->y1());
-            d.fillGradient.b = QPointF(g->x2(), g->y2());
-        } else if (QQuickShapeRadialGradient *g = qobject_cast<QQuickShapeRadialGradient *>(gradient)) {
-            d.fillGradientActive = RadialGradient;
-            d.fillGradient.a = QPointF(g->centerX(), g->centerY());
-            d.fillGradient.b = QPointF(g->focalX(), g->focalY());
-            d.fillGradient.v0 = g->centerRadius();
-            d.fillGradient.v1 = g->focalRadius();
-        } else if (QQuickShapeConicalGradient *g = qobject_cast<QQuickShapeConicalGradient *>(gradient)) {
-            d.fillGradientActive = ConicalGradient;
-            d.fillGradient.a = QPointF(g->centerX(), g->centerY());
-            d.fillGradient.v0 = g->angle();
-        } else {
-            Q_UNREACHABLE();
-        }
-    } else {
-        d.fillGradientActive = NoGradient;
-    }
+    d.fillGradientActive = copyGenericGradient(gradient, &d.fillGradient);
     d.syncDirty |= DirtyFillGradient;
+}
+
+void QQuickShapeGenericRenderer::setStrokeGradient(int index, QQuickShapeGradient *gradient)
+{
+    ShapePathData &d(m_sp[index]);
+    d.strokeGradientActive = copyGenericGradient(gradient, &d.strokeGradient);
+    d.syncDirty |= DirtyStrokeGradient;
 }
 
 void QQuickShapeGenericRenderer::setFillTextureProvider(int index, QQuickItem *textureProviderItem)
@@ -268,23 +289,26 @@ void QQuickShapeGenericRenderer::setFillTransform(int index, const QSGTransform 
     d.syncDirty |= DirtyFillTransform;
 }
 
-void QQuickShapeGenericRenderer::setTriangulationScale(qreal scale)
+void QQuickShapeGenericRenderer::setTriangulationScale(int index, qreal scale)
 {
-    // No dirty, this is called at the start of every sync. Just store the value.
-    m_triangulationScale = scale;
+    ShapePathData &d(m_sp[index]);
+    d.triangulationScale = scale;
+    d.syncDirty |= DirtyStrokeGeom;
 }
 
 void QQuickShapeFillRunnable::run()
 {
     QQuickShapeGenericRenderer::triangulateFill(path, fillColor, &fillVertices, &fillIndices, &indexType,
                                                 supportsElementIndexUint, triangulationScale);
-    emit done(this);
+    // Emit done signal on main thread, since connected to lambda there
+    QMetaObject::invokeMethod(qApp, [this]() { emit done(this); }, Qt::QueuedConnection);
 }
 
 void QQuickShapeStrokeRunnable::run()
 {
     QQuickShapeGenericRenderer::triangulateStroke(path, pen, strokeColor, &strokeVertices, clipSize, triangulationScale);
-    emit done(this);
+    // Emit done signal on main thread, since connected to lambda there
+    QMetaObject::invokeMethod(qApp, [this]() { emit done(this); }, Qt::QueuedConnection);
 }
 
 void QQuickShapeGenericRenderer::setAsyncCallback(void (*callback)(void *), void *data)
@@ -342,14 +366,15 @@ void QQuickShapeGenericRenderer::endSync(bool async)
             pathWorkThreadPool->setMaxThreadCount(idealCount > 0 ? idealCount * 2 : 4);
         }
 #endif
-        auto testFeatureIndexUint = [](QQuickItem *item) -> bool {
-            if (auto *w = item->window()) {
-                if (auto *rhi = QQuickWindowPrivate::get(w)->rhi)
-                    return rhi->isFeatureSupported(QRhi::ElementIndexUint);
-            }
-            return true;
-        };
-        static bool supportsElementIndexUint = testFeatureIndexUint(m_item);
+
+        // RHI backend might not have had a chance of being initialized yet
+        // (we are called in the mainthread while renderthread might be in the
+        // process of starting up and setting the RHI backend.
+        // m_rhiBackendInitialized is set in updateNode() on the render thread
+        // when both threads are locked.
+        // Until then, we cannot assume we have support for uint32_t indices
+        // but only uint16_t ones.
+        const bool supportsElementIndexUint = m_rhiBackendInitialized ? m_supportsElementIndexUint : true;
         if ((d.syncDirty & DirtyFillGeom) && d.fillColor.a) {
             d.path.setFillRule(d.fillRule);
             if (m_api == QSGRendererInterface::Unknown)
@@ -363,7 +388,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
                 r->path = d.path;
                 r->fillColor = d.fillColor;
                 r->supportsElementIndexUint = supportsElementIndexUint;
-                r->triangulationScale = m_triangulationScale;
+                r->triangulationScale = d.triangulationScale;
                 // Unlikely in practice but in theory m_sp could be
                 // resized. Therefore, capture 'i' instead of 'd'.
                 QObject::connect(r, &QQuickShapeFillRunnable::done, qApp, [this, i](QQuickShapeFillRunnable *r) {
@@ -390,11 +415,11 @@ void QQuickShapeGenericRenderer::endSync(bool async)
             } else {
                 triangulateFill(d.path, d.fillColor, &d.fillVertices, &d.fillIndices, &d.indexType,
                                 supportsElementIndexUint,
-                                m_triangulationScale);
+                                d.triangulationScale);
             }
         }
 
-        if ((d.syncDirty & DirtyStrokeGeom) && d.strokeWidth > 0.0f && d.strokeColor.a) {
+        if ((d.syncDirty & DirtyStrokeGeom) && d.strokeWidth > 0.0f && (d.strokeColor.a || d.strokeGradientActive)) {
             if (async) {
                 QQuickShapeStrokeRunnable *r = new QQuickShapeStrokeRunnable;
                 r->setAutoDelete(false);
@@ -405,7 +430,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
                 r->pen = d.pen;
                 r->strokeColor = d.strokeColor;
                 r->clipSize = QSize(m_item->width(), m_item->height());
-                r->triangulationScale = m_triangulationScale;
+                r->triangulationScale = d.triangulationScale;
                 QObject::connect(r, &QQuickShapeStrokeRunnable::done, qApp, [this, i](QQuickShapeStrokeRunnable *r) {
                     if (!r->orphaned && i < m_sp.size()) {
                         ShapePathData &d(m_sp[i]);
@@ -425,7 +450,7 @@ void QQuickShapeGenericRenderer::endSync(bool async)
 #endif
             } else {
                 triangulateStroke(d.path, d.pen, d.strokeColor, &d.strokeVertices,
-                                  QSize(m_item->width(), m_item->height()), m_triangulationScale);
+                                  QSize(m_item->width(), m_item->height()), d.triangulationScale);
             }
         }
     }
@@ -469,7 +494,7 @@ void QQuickShapeGenericRenderer::triangulateFill(const QPainterPath &path,
     size_t indexByteSize;
     if (ts.indices.type() == QVertexIndexVector::UnsignedShort) {
         *indexType = QSGGeometry::UnsignedShortType;
-        // fillIndices is still QVector<quint32>. Just resize to N/2 and pack
+        // fillIndices is still QList<quint32>. Just resize to N/2 and pack
         // the N quint16s into it.
         fillIndices->resize(ts.indices.size() / 2);
         indexByteSize = ts.indices.size() * sizeof(quint16);
@@ -533,6 +558,22 @@ void QQuickShapeGenericRenderer::updateNode()
     if (!m_rootNode || !m_accDirty)
         return;
 
+    // Is it now safe to query the rhi backend
+    if (!m_rhiBackendInitialized) {
+        auto findRHIBackend = [](QQuickItem *item) -> QRhi * {
+            if (auto *w = item->window()) {
+                if (auto *rhi = QQuickWindowPrivate::get(w)->rhi)
+                    return rhi;
+            }
+            return nullptr;
+        };
+        auto *rhi = findRHIBackend(m_item);
+        if (rhi != nullptr) {
+            m_rhiBackendInitialized = true;
+            m_supportsElementIndexUint = rhi->isFeatureSupported(QRhi::ElementIndexUint);
+        }
+    }
+
 //                     [   m_rootNode   ]
 //                     /       /        /
 // #0          [  fill  ] [  stroke  ] [   next   ]
@@ -556,8 +597,10 @@ void QQuickShapeGenericRenderer::updateNode()
 
         QQuickShapeGenericNode *node = *nodePtr;
 
-        if (m_accDirty & DirtyList)
-            d.effectiveDirty |= DirtyFillGeom | DirtyStrokeGeom | DirtyColor | DirtyFillGradient | DirtyFillTransform | DirtyFillTexture;
+        if (m_accDirty & DirtyList) {
+            d.effectiveDirty |= DirtyFillGeom | DirtyStrokeGeom | DirtyColor | DirtyFillGradient
+                              | DirtyFillTransform | DirtyFillTexture | DirtyStrokeGradient;
+        }
 
         if (!d.effectiveDirty) {
             prevNode = node;
@@ -618,8 +661,9 @@ void QQuickShapeGenericRenderer::updateShadowDataInNode(ShapePathData *d, QQuick
 {
     if (d->fillGradientActive) {
         if (d->effectiveDirty & DirtyFillGradient)
-            n->m_fillGradient = d->fillGradient;
+            n->m_gradient = d->fillGradient;
     }
+
     if (d->effectiveDirty & DirtyFillTexture) {
         bool needsUpdate = d->fillTextureProviderItem == nullptr && n->m_fillTextureProvider != nullptr;
         if (!needsUpdate
@@ -733,10 +777,15 @@ void QQuickShapeGenericRenderer::updateStrokeNode(ShapePathData *d, QQuickShapeG
 {
     if (!node->m_strokeNode)
         return;
-    if (!(d->effectiveDirty & (DirtyStrokeGeom | DirtyColor)))
+    if (!(d->effectiveDirty & (DirtyStrokeGeom | DirtyColor | DirtyStrokeGradient)))
         return;
 
     QQuickShapeGenericStrokeFillNode *n = node->m_strokeNode;
+    if (d->strokeGradientActive) {
+        if (d->effectiveDirty & DirtyStrokeGradient)
+            n->m_gradient = d->strokeGradient;
+    }
+
     QSGGeometry *g = n->geometry();
     if (d->strokeVertices.isEmpty()) {
         if (g->vertexCount() || g->indexCount()) {
@@ -754,11 +803,37 @@ void QQuickShapeGenericRenderer::updateStrokeNode(ShapePathData *d, QQuickShapeG
     if (!g->vertexCount())
         n->markDirty(QSGNode::DirtyMaterial);
 
-    if ((d->effectiveDirty & DirtyColor) && !(d->effectiveDirty & DirtyStrokeGeom)) {
-        ColoredVertex *vdst = reinterpret_cast<ColoredVertex *>(g->vertexData());
-        for (int i = 0; i < g->vertexCount(); ++i)
-            vdst[i].set(vdst[i].x, vdst[i].y, d->strokeColor);
-        return;
+    if (d->strokeGradientActive) {
+        QQuickShapeGenericStrokeFillNode::Material gradMat;
+        switch (d->strokeGradientActive) {
+        case LinearGradient:
+            gradMat = QQuickShapeGenericStrokeFillNode::MatLinearGradient;
+            break;
+        case RadialGradient:
+            gradMat = QQuickShapeGenericStrokeFillNode::MatRadialGradient;
+            break;
+        case ConicalGradient:
+            gradMat = QQuickShapeGenericStrokeFillNode::MatConicalGradient;
+            break;
+        default:
+            Q_UNREACHABLE_RETURN();
+        }
+        n->activateMaterial(m_item->window(), gradMat);
+        if (d->effectiveDirty & DirtyStrokeGradient) {
+            // Gradients are implemented via a texture-based material.
+            n->markDirty(QSGNode::DirtyMaterial);
+            // stop here if only the gradient changed; no need to touch the geometry
+            if (!(d->effectiveDirty & DirtyStrokeGeom))
+                return;
+        }
+    } else {
+        n->activateMaterial(m_item->window(), QQuickShapeGenericStrokeFillNode::MatSolidColor);
+        if ((d->effectiveDirty & DirtyColor) && !(d->effectiveDirty & DirtyStrokeGeom)) {
+            ColoredVertex *vdst = reinterpret_cast<ColoredVertex *>(g->vertexData());
+            for (int i = 0; i < g->vertexCount(); ++i)
+                vdst[i].set(vdst[i].x, vdst[i].y, d->strokeColor);
+            return;
+        }
     }
 
     g->allocate(d->strokeVertices.size(), 0);
@@ -858,15 +933,15 @@ bool QQuickShapeLinearGradientRhiShader::updateUniformData(RenderState &state,
         changed = true;
     }
 
-    if (!oldMaterial || m_gradA.x() != node->m_fillGradient.a.x() || m_gradA.y() != node->m_fillGradient.a.y()) {
-        m_gradA = QVector2D(node->m_fillGradient.a.x(), node->m_fillGradient.a.y());
+    if (!oldMaterial || m_gradA.x() != node->m_gradient.a.x() || m_gradA.y() != node->m_gradient.a.y()) {
+        m_gradA = QVector2D(node->m_gradient.a.x(), node->m_gradient.a.y());
         Q_ASSERT(sizeof(m_gradA) == 8);
         memcpy(buf->data() + 64 * shaderMatrixCount + 64, &m_gradA, 8);
         changed = true;
     }
 
-    if (!oldMaterial || m_gradB.x() != node->m_fillGradient.b.x() || m_gradB.y() != node->m_fillGradient.b.y()) {
-        m_gradB = QVector2D(node->m_fillGradient.b.x(), node->m_fillGradient.b.y());
+    if (!oldMaterial || m_gradB.x() != node->m_gradient.b.x() || m_gradB.y() != node->m_gradient.b.y()) {
+        m_gradB = QVector2D(node->m_gradient.b.x(), node->m_gradient.b.y());
         memcpy(buf->data() + 64 * shaderMatrixCount + 64 + 8, &m_gradB, 8);
         changed = true;
     }
@@ -888,7 +963,7 @@ void QQuickShapeLinearGradientRhiShader::updateSampledImage(RenderState &state, 
 
     QQuickShapeLinearGradientMaterial *m = static_cast<QQuickShapeLinearGradientMaterial *>(newMaterial);
     QQuickShapeGenericStrokeFillNode *node = m->node();
-    const QSGGradientCacheKey cacheKey(node->m_fillGradient.stops, QGradient::Spread(node->m_fillGradient.spread));
+    const QSGGradientCacheKey cacheKey(node->m_gradient.stops, QGradient::Spread(node->m_gradient.spread));
     QSGTexture *t = QSGGradientCache::cacheForRhi(state.rhi())->get(cacheKey);
     t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
     *texture = t;
@@ -911,8 +986,8 @@ int QQuickShapeLinearGradientMaterial::compare(const QSGMaterial *other) const
     if (a == b)
         return 0;
 
-    const QSGGradientCache::GradientDesc *ga = &a->m_fillGradient;
-    const QSGGradientCache::GradientDesc *gb = &b->m_fillGradient;
+    const QSGGradientCache::GradientDesc *ga = &a->m_gradient;
+    const QSGGradientCache::GradientDesc *gb = &b->m_gradient;
 
     if (int d = ga->spread - gb->spread)
         return d;
@@ -981,11 +1056,11 @@ bool QQuickShapeRadialGradientRhiShader::updateUniformData(RenderState &state,
         changed = true;
     }
 
-    const QPointF centerPoint = node->m_fillGradient.a;
-    const QPointF focalPoint = node->m_fillGradient.b;
+    const QPointF centerPoint = node->m_gradient.a;
+    const QPointF focalPoint = node->m_gradient.b;
     const QPointF focalToCenter = centerPoint - focalPoint;
-    const float centerRadius = node->m_fillGradient.v0;
-    const float focalRadius = node->m_fillGradient.v1;
+    const float centerRadius = node->m_gradient.v0;
+    const float focalRadius = node->m_gradient.v1;
 
     if (!oldMaterial || m_focalPoint.x() != focalPoint.x() || m_focalPoint.y() != focalPoint.y()) {
         m_focalPoint = QVector2D(focalPoint.x(), focalPoint.y());
@@ -1030,7 +1105,7 @@ void QQuickShapeRadialGradientRhiShader::updateSampledImage(RenderState &state, 
 
     QQuickShapeRadialGradientMaterial *m = static_cast<QQuickShapeRadialGradientMaterial *>(newMaterial);
     QQuickShapeGenericStrokeFillNode *node = m->node();
-    const QSGGradientCacheKey cacheKey(node->m_fillGradient.stops, QGradient::Spread(node->m_fillGradient.spread));
+    const QSGGradientCacheKey cacheKey(node->m_gradient.stops, QGradient::Spread(node->m_gradient.spread));
     QSGTexture *t = QSGGradientCache::cacheForRhi(state.rhi())->get(cacheKey);
     t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
     *texture = t;
@@ -1053,8 +1128,8 @@ int QQuickShapeRadialGradientMaterial::compare(const QSGMaterial *other) const
     if (a == b)
         return 0;
 
-    const QSGGradientCache::GradientDesc *ga = &a->m_fillGradient;
-    const QSGGradientCache::GradientDesc *gb = &b->m_fillGradient;
+    const QSGGradientCache::GradientDesc *ga = &a->m_gradient;
+    const QSGGradientCache::GradientDesc *gb = &b->m_gradient;
 
     if (int d = ga->spread - gb->spread)
         return d;
@@ -1128,8 +1203,8 @@ bool QQuickShapeConicalGradientRhiShader::updateUniformData(RenderState &state,
         changed = true;
     }
 
-    const QPointF centerPoint = node->m_fillGradient.a;
-    const float angle = -qDegreesToRadians(node->m_fillGradient.v0);
+    const QPointF centerPoint = node->m_gradient.a;
+    const float angle = -qDegreesToRadians(node->m_gradient.v0);
 
     if (!oldMaterial || m_centerPoint.x() != centerPoint.x() || m_centerPoint.y() != centerPoint.y()) {
         m_centerPoint = QVector2D(centerPoint.x(), centerPoint.y());
@@ -1161,7 +1236,7 @@ void QQuickShapeConicalGradientRhiShader::updateSampledImage(RenderState &state,
 
     QQuickShapeConicalGradientMaterial *m = static_cast<QQuickShapeConicalGradientMaterial *>(newMaterial);
     QQuickShapeGenericStrokeFillNode *node = m->node();
-    const QSGGradientCacheKey cacheKey(node->m_fillGradient.stops, QGradient::Spread(node->m_fillGradient.spread));
+    const QSGGradientCacheKey cacheKey(node->m_gradient.stops, QGradient::Spread(node->m_gradient.spread));
     QSGTexture *t = QSGGradientCache::cacheForRhi(state.rhi())->get(cacheKey);
     t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
     *texture = t;
@@ -1184,8 +1259,8 @@ int QQuickShapeConicalGradientMaterial::compare(const QSGMaterial *other) const
     if (a == b)
         return 0;
 
-    const QSGGradientCache::GradientDesc *ga = &a->m_fillGradient;
-    const QSGGradientCache::GradientDesc *gb = &b->m_fillGradient;
+    const QSGGradientCache::GradientDesc *ga = &a->m_gradient;
+    const QSGGradientCache::GradientDesc *gb = &b->m_gradient;
 
     if (int d = ga->a.x() - gb->a.x())
         return d;

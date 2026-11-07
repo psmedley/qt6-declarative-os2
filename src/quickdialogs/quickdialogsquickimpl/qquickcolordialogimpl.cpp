@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickcolordialogimpl_p.h"
 #include "qquickcolordialogimpl_p_p.h"
@@ -180,7 +181,6 @@ void QQuickColorDialogImplPrivate::alphaSliderMoved()
 QQuickColorDialogImpl::QQuickColorDialogImpl(QObject *parent)
     : QQuickDialog(*(new QQuickColorDialogImplPrivate), parent)
 {
-    setPopupType(QQuickPopup::Window);
 }
 
 QQuickColorDialogImplAttached *QQuickColorDialogImpl::qmlAttachedProperties(QObject *object)
@@ -198,7 +198,7 @@ QColor QQuickColorDialogImpl::color() const
 void QQuickColorDialogImpl::setColor(const QColor &c)
 {
     Q_D(QQuickColorDialogImpl);
-    if (color().rgba() == c.rgba())
+    if (const QColor old = color(); old.spec() == c.spec() && old == c)
         return;
 
     // If we get a QColor from an Hsv or Hsl color system,
@@ -461,6 +461,18 @@ void QQuickColorDialogImpl::invokeEyeDropper()
 {
     Q_D(QQuickColorDialogImpl);
     d->eyeDropperEnter();
+}
+
+void QQuickColorDialogImpl::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &data)
+{
+    Q_D(QQuickColorDialogImpl);
+    QQuickDialog::itemChange(change, data);
+
+    if (change != QQuickItem::ItemVisibleHasChanged || !isComponentComplete() || !data.boolValue)
+        return;
+
+    if (QQuickColorDialogImplAttached *attached = d->attachedOrWarn(); attached && attached->buttonBox())
+        attached->buttonBox()->forceActiveFocus(Qt::OtherFocusReason);
 }
 
 QQuickColorDialogImplAttached::QQuickColorDialogImplAttached(QObject *parent)

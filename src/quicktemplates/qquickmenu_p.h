@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKMENU_P_H
 #define QQUICKMENU_P_H
@@ -43,8 +44,11 @@ class Q_QUICKTEMPLATES2_EXPORT QQuickMenu : public QQuickPopup
     Q_PROPERTY(qreal overlap READ overlap WRITE setOverlap NOTIFY overlapChanged FINAL REVISION(2, 3))
     Q_PROPERTY(QQmlComponent *delegate READ delegate WRITE setDelegate NOTIFY delegateChanged FINAL REVISION(2, 3))
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged FINAL REVISION(2, 3))
-    // 6.5 (Qt 6.5)
+
     Q_PROPERTY(QQuickIcon icon READ icon WRITE setIcon NOTIFY iconChanged FINAL REVISION(6, 5))
+    Q_PROPERTY(bool separatorsCollapsible READ separatorsCollapsible WRITE setSeparatorsCollapsible
+                       NOTIFY separatorsCollapsibleChanged REVISION(6, 12))
+
     Q_CLASSINFO("DefaultProperty", "contentData")
     QML_NAMED_ELEMENT(Menu)
     QML_ADDED_IN_VERSION(2, 0)
@@ -67,6 +71,9 @@ public:
 
     QQuickIcon icon() const;
     void setIcon(const QQuickIcon &icon);
+
+    bool separatorsCollapsible() const;
+    void setSeparatorsCollapsible(bool collapsible);
 
     bool cascade() const;
     void setCascade(bool cascade);
@@ -100,10 +107,14 @@ public:
     bool isVisible() const override;
     void setVisible(bool visible) override;
 
-    void popup(QQuickItem *menuItem = nullptr);
-    void popup(const QPointF &pos, QQuickItem *menuItem = nullptr);
-
-    Q_REVISION(2, 3) Q_INVOKABLE void popup(QQmlV4FunctionPtr args);
+    // overload set with parent item
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(QQuickItem *parent, qreal x, qreal y, QQuickItem *menuItem = nullptr);
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(QQuickItem *parent, const QPointF &position, QQuickItem *menuItem = nullptr);
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(QQuickItem *parent, QQuickItem *menuItem);
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(QQuickItem *parent = nullptr);
+    // overload set without parent item
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(qreal x, qreal y, QQuickItem *menuItem = nullptr);
+    Q_REVISION(2, 3) Q_INVOKABLE void popup(const QPointF &position, QQuickItem *menuItem = nullptr);
     Q_REVISION(2, 3) Q_INVOKABLE void dismiss();
 
 protected:
@@ -120,8 +131,9 @@ Q_SIGNALS:
     Q_REVISION(2, 3) void overlapChanged();
     Q_REVISION(2, 3) void delegateChanged();
     Q_REVISION(2, 3) void currentIndexChanged();
-    // 6.5 (Qt 6.5)
+
     Q_REVISION(6, 5) void iconChanged(const QQuickIcon &icon);
+    Q_REVISION(6, 12) void separatorsCollapsibleChanged();
 
 protected:
     void timerEvent(QTimerEvent *event) override;

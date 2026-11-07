@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMENUBAR_P_H
 #define QQUICKLABSPLATFORMMENUBAR_P_H
@@ -31,6 +32,7 @@ class QQuickLabsPlatformMenuBar : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(MenuBar)
+    QML_ADDED_IN_VERSION(1, 0)
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QQmlListProperty<QObject> data READ data FINAL)
     Q_PROPERTY(QQmlListProperty<QQuickLabsPlatformMenu> menus READ menus NOTIFY menusChanged FINAL)

@@ -1,6 +1,8 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
+#include "qlspcustomtypes_p.h"
 #include "qworkspace_p.h"
 #include "qqmllanguageserver_p.h"
 #include "qqmllsutils_p.h"
@@ -15,158 +17,115 @@ QT_BEGIN_NAMESPACE
 using namespace Qt::StringLiterals;
 using namespace QLspSpecification;
 
-void WorkspaceHandlers::registerHandlers(QLanguageServer *server, QLanguageServerProtocol *)
+void WorkspaceHandlers::registerHandlers(QLanguageServer *server, QLanguageServerProtocol *protocol)
 {
     QObject::connect(server->notifySignals(),
                      &QLspNotifySignals::receivedDidChangeWorkspaceFoldersNotification, this,
-                     [server, this](const DidChangeWorkspaceFoldersParams &params) {
+                     [this](const DidChangeWorkspaceFoldersParams &params) {
                          const WorkspaceFoldersChangeEvent &event = params.event;
 
                          const QList<WorkspaceFolder> &removed = event.removed;
                          QList<QByteArray> toRemove;
                          for (const WorkspaceFolder &folder : removed) {
                              toRemove.append(QQmlLSUtils::lspUriToQmlUrl(folder.uri));
-                             m_codeModel->removeDirectory(m_codeModel->url2Path(
-                                     QQmlLSUtils::lspUriToQmlUrl(folder.uri)));
+                             m_codeModelManager->removeDirectory(
+                                     QQmlLSUtils::lspUriToQmlUrl(folder.uri));
                          }
-                         m_codeModel->removeRootUrls(toRemove);
+                         m_codeModelManager->removeRootUrls(toRemove);
                          const QList<WorkspaceFolder> &added = event.added;
                          QList<QByteArray> toAdd;
-                         QStringList pathsToAdd;
                          for (const WorkspaceFolder &folder : added) {
                              toAdd.append(QQmlLSUtils::lspUriToQmlUrl(folder.uri));
-                             pathsToAdd.append(m_codeModel->url2Path(
-                                     QQmlLSUtils::lspUriToQmlUrl(folder.uri)));
                          }
-                         m_codeModel->addRootUrls(toAdd);
-                         m_codeModel->addDirectoriesToIndex(pathsToAdd, server);
-                     });
-
-    QObject::connect(server->notifySignals(),
-                     &QLspNotifySignals::receivedDidChangeWatchedFilesNotification, this,
-                     [this](const DidChangeWatchedFilesParams &params) {
-                         const QList<FileEvent> &changes = params.changes;
-                         for (const FileEvent &change : changes) {
-                             const QString filename =
-                                     m_codeModel->url2Path(QQmlLSUtils::lspUriToQmlUrl(change.uri));
-                             switch (FileChangeType(change.type)) {
-                             case FileChangeType::Created:
-                                 // m_codeModel->addFile(filename);
-                                 break;
-                             case FileChangeType::Changed: {
-                                 QFile file(filename);
-                                 if (file.open(QIODevice::ReadOnly))
-                                     // m_modelManager->setFileContents(filename, file.readAll());
-                                     break;
-                                 break;
-                             }
-                             case FileChangeType::Deleted:
-                                 // m_modelManager->removeFile(filename);
-                                 break;
-                             }
-                         }
-                         // update due to dep changes...
+                         m_codeModelManager->addRootUrls(toAdd);
                      });
 
     QObject::connect(server, &QLanguageServer::clientInitialized, this,
-                     &WorkspaceHandlers::clientInitialized);
+                     &WorkspaceHandlers::clientInitialized, Qt::SingleShotConnection);
+
+    protocol->typedRpc()->registerNotificationHandler<Notifications::AddBuildDirsParams>(
+            QByteArray(Notifications::AddBuildDirsMethod),
+            [this](const QByteArray &, const Notifications::AddBuildDirsParams &params) {
+                for (const auto &buildDirs : params.buildDirsToSet) {
+                    QStringList dirPaths;
+                    dirPaths.resize(buildDirs.buildDirs.size());
+                    std::transform(buildDirs.buildDirs.begin(), buildDirs.buildDirs.end(),
+                                   dirPaths.begin(), [](const QByteArray &utf8Str) {
+                                       return QString::fromUtf8(utf8Str);
+                                   });
+                    m_codeModelManager->setBuildPathsForRootUrl(buildDirs.baseUri, dirPaths);
+                }
+            });
 }
 
-QString WorkspaceHandlers::name() const
+void WorkspaceHandlers::setupCapabilities(QLspSpecification::ServerCapabilities &caps)
 {
-    return u"Workspace"_s;
-}
-
-void WorkspaceHandlers::setupCapabilities(const QLspSpecification::InitializeParams &clientInfo,
-                                          QLspSpecification::InitializeResult &serverInfo)
-{
-    if (!clientInfo.capabilities.workspace
-        || !clientInfo.capabilities.workspace->value(u"workspaceFolders"_s).toBool(false))
-        return;
     WorkspaceFoldersServerCapabilities folders;
     folders.supported = true;
     folders.changeNotifications = true;
-    if (!serverInfo.capabilities.workspace)
-        serverInfo.capabilities.workspace = QJsonObject();
-    serverInfo.capabilities.workspace->insert(u"workspaceFolders"_s,
-                                              QTypedJson::toJsonValue(folders));
+    if (!caps.workspace)
+        caps.workspace = QJsonObject();
+    caps.workspace->insert(u"workspaceFolders"_s, QTypedJson::toJsonValue(folders));
+
+    QJsonObject expCap;
+    if (caps.experimental.has_value() && caps.experimental->isObject())
+        expCap = caps.experimental->toObject();
+    expCap.insert(u"addBuildDirs"_s, QJsonObject({ { u"supported"_s, true } }));
+    caps.experimental = expCap;
+}
+
+void WorkspaceHandlers::openInitialWorkspace(const InitializeParams &clientInfo)
+{
+    if (clientInfo.workspaceFolders) {
+        std::visit(qOverloadedVisitor{
+                           [](std::nullptr_t) {},
+                           [this](const QList<WorkspaceFolder> &folders) {
+                               QList<QByteArray> rootPaths;
+                               for (const auto &folder : folders) {
+                                   rootPaths.append(QQmlLSUtils::lspUriToQmlUrl(folder.uri));
+                               }
+                               m_codeModelManager->addRootUrls(rootPaths);
+                           },
+                   },
+                   *clientInfo.workspaceFolders);
+        return;
+    }
+
+    // note: rootUri is deprecated in the LSP protocol
+    std::visit(qOverloadedVisitor{
+                       [](std::nullptr_t) {},
+                       [this](const QByteArray &rootUri) {
+                           m_codeModelManager->addRootUrls(
+                                   { QQmlLSUtils::lspUriToQmlUrl(rootUri) });
+                       },
+
+               },
+               clientInfo.rootUri);
+
+    // note: rootPath is also deprecated in the LSP protocol. It was deprecated even before rootUri
+    // was deprecated.
+    if (clientInfo.rootPath) {
+        std::visit(qOverloadedVisitor{
+                           [](std::nullptr_t) {},
+                           [this](const QByteArray &rootPath) {
+                               m_codeModelManager->addRootUrls({
+                                       QUrl::fromLocalFile(QString::fromUtf8(rootPath)).toEncoded(),
+                               });
+                           },
+
+                   },
+                   *clientInfo.rootPath);
+    }
 }
 
 void WorkspaceHandlers::clientInitialized(QLanguageServer *server)
 {
-    QLanguageServerProtocol *protocol = server->protocol();
-    const auto clientInfo = server->clientInfo();
-    QList<Registration> registrations;
+    const auto &clientInfo = server->clientInfo();
+
     if (clientInfo.capabilities.workspace
-        && clientInfo.capabilities.workspace
-                   ->value(u"didChangeWatchedFiles"_s)[u"dynamicRegistration"_s]
-                   .toBool(false)) {
-        const int watchAll =
-                int(WatchKind::Create) | int(WatchKind::Change) | int(WatchKind::Delete);
-        DidChangeWatchedFilesRegistrationOptions watchedFilesParams;
-        FileSystemWatcher qmlWatcher;
-        qmlWatcher.globPattern = QByteArray("*.{qml,js,mjs}");
-        qmlWatcher.kind = watchAll;
-        FileSystemWatcher qmldirWatcher;
-        qmldirWatcher.globPattern = "qmldir";
-        qmldirWatcher.kind = watchAll;
-        FileSystemWatcher qmltypesWatcher;
-        qmltypesWatcher.globPattern = QByteArray("*.qmltypes");
-        qmltypesWatcher.kind = watchAll;
-        watchedFilesParams.watchers = QList<FileSystemWatcher>({
-            std::move(qmlWatcher),
-            std::move(qmldirWatcher),
-            std::move(qmltypesWatcher)
-        });
-        registrations.append(Registration {
-                // use ClientCapabilitiesInfo::WorkspaceDidChangeWatchedFiles as id too
-                ClientCapabilitiesInfo::WorkspaceDidChangeWatchedFiles,
-                ClientCapabilitiesInfo::WorkspaceDidChangeWatchedFiles,
-                QTypedJson::toJsonValue(watchedFilesParams) });
+        && clientInfo.capabilities.workspace->workspaceFolders.value_or(false)) {
+        openInitialWorkspace(clientInfo);
     }
-
-    if (!registrations.isEmpty()) {
-        RegistrationParams params;
-        params.registrations = registrations;
-        protocol->requestRegistration(
-                params,
-                []() {
-                    // successful registration
-                },
-                [protocol](const ResponseError &err) {
-                    LogMessageParams msg;
-                    msg.message = QByteArray("registration of file udates failed, will miss file "
-                                             "changes done outside the editor due to error ");
-                    msg.message.append(QString::number(err.code).toUtf8());
-                    if (!err.message.isEmpty())
-                        msg.message.append(" ");
-                    msg.message.append(err.message);
-                    msg.type = MessageType::Warning;
-                    qCWarning(lspServerLog) << QString::fromUtf8(msg.message);
-                    protocol->notifyLogMessage(msg);
-                });
-    }
-
-    QSet<QString> rootPaths;
-    if (std::holds_alternative<QByteArray>(clientInfo.rootUri)) {
-        QString path = m_codeModel->url2Path(
-                QQmlLSUtils::lspUriToQmlUrl(std::get<QByteArray>(clientInfo.rootUri)));
-        rootPaths.insert(path);
-    } else if (clientInfo.rootPath && std::holds_alternative<QByteArray>(*clientInfo.rootPath)) {
-        QString path = QString::fromUtf8(std::get<QByteArray>(*clientInfo.rootPath));
-        rootPaths.insert(path);
-    }
-
-    if (clientInfo.workspaceFolders
-        && std::holds_alternative<QList<WorkspaceFolder>>(*clientInfo.workspaceFolders)) {
-        for (const WorkspaceFolder &workspace :
-             std::as_const(std::get<QList<WorkspaceFolder>>(*clientInfo.workspaceFolders))) {
-            const QUrl workspaceUrl(QString::fromUtf8(QQmlLSUtils::lspUriToQmlUrl(workspace.uri)));
-            rootPaths.insert(workspaceUrl.toLocalFile());
-        }
-    }
-    if (m_status == Status::Indexing)
-        m_codeModel->addDirectoriesToIndex(QStringList(rootPaths.begin(), rootPaths.end()), server);
 }
 
 QT_END_NAMESPACE

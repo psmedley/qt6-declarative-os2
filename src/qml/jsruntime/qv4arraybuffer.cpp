@@ -1,5 +1,10 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
+
+// Security note: ArrayBuffer can be used with arbitrary binary data stored in QBA
+// and requires some care (we e.g. don't want to create a corrupted QBA in asByteArray)
+
 #include "qv4arraybuffer_p.h"
 #include "qv4typedarray_p.h"
 #include "qv4dataview_p.h"
@@ -86,13 +91,16 @@ ReturnedValue ArrayBufferCtor::method_isView(const FunctionObject *, const Value
     return Encode(false);
 }
 
-
 void Heap::SharedArrayBuffer::init(size_t length)
 {
+    auto adapt = [](auto maybePair) {
+        auto [header, ptr] = maybePair;
+        return std::pair(header, ptr);
+    };
     Object::init();
-    QPair<QTypedArrayData<char> *, char *> pair;
+    std::pair<QTypedArrayData<char> *, char *> pair;
     if (length < UINT_MAX)
-        pair =  QTypedArrayData<char>::allocate(length + 1);
+        pair =  adapt(QTypedArrayData<char>::allocate(length + 1));
     if (!pair.first) {
         new (&arrayDataPointerStorage) QArrayDataPointer<char>();
         internalClass->engine->throwRangeError(QStringLiteral("ArrayBuffer: out of memory"));
@@ -109,7 +117,7 @@ void Heap::SharedArrayBuffer::init(size_t length)
 void Heap::SharedArrayBuffer::init(const QByteArray& array)
 {
     Object::init();
-    new (&arrayDataPointerStorage) QArrayDataPointer<char>(*const_cast<QByteArray &>(array).data_ptr());
+    new (&arrayDataPointerStorage) QArrayDataPointer<char>(array.data_ptr());
     isShared = true;
 }
 

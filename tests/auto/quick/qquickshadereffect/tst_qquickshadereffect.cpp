@@ -3,6 +3,7 @@
 
 #include <qtest.h>
 
+#include <QSignalSpy>
 #include <QList>
 #include <QByteArray>
 #include <private/qquickshadereffect_p.h>
@@ -12,6 +13,8 @@
 #include <QtQuick/private/qquickshadereffectsource_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
+
+using namespace Qt::StringLiterals;
 
 class TestShaderEffect : public QQuickShaderEffect
 {
@@ -68,6 +71,7 @@ private slots:
 
     void hideParent();
     void testPropertyMappings();
+    void testUpdateOfInvisibleItem();
 
 private:
     enum PresenceFlags {
@@ -98,7 +102,7 @@ void tst_qquickshadereffect::testConnection()
 {
     // verify that the property notify signal is connected
     QQuickView view;
-    QVERIFY(QQuickTest::initView(view, QStringLiteral("qrc:/data/connections.qml")));
+    QVERIFY(QQuickTest::initView(view, QUrl{u"qrc:/data/connections.qml"_s}));
 
     auto *shaderEffectItem = qobject_cast<TestShaderEffect*>(view.rootObject());
     QVERIFY(shaderEffectItem);
@@ -116,7 +120,7 @@ void tst_qquickshadereffect::deleteSourceItem()
 {
     // purely to ensure that deleting the sourceItem of a shader doesn't cause a crash
     QQuickView view;
-    QVERIFY(QQuickTest::showView(view, QStringLiteral("qrc:/data/deleteSourceItem.qml")));
+    QVERIFY(QQuickTest::showView(view, QUrl{u"qrc:/data/deleteSourceItem.qml"_s}));
     QObject *obj = view.rootObject();
     QVERIFY(obj);
     QMetaObject::invokeMethod(obj, "setDeletedSourceItem");
@@ -129,7 +133,7 @@ void tst_qquickshadereffect::deleteShaderEffectSource()
 {
     // purely to ensure that deleting the ShaderEffectSource doesn't cause a crash
     QQuickView view;
-    QVERIFY(QQuickTest::showView(view, QStringLiteral("qrc:/data/deleteShaderEffectSource.qml")));
+    QVERIFY(QQuickTest::showView(view, QUrl{u"qrc:/data/deleteShaderEffectSource.qml"_s}));
     QObject *obj = view.rootObject();
     QVERIFY(obj);
     const QPointer<QQuickShaderEffectSource> shaderEffectSource = obj->findChild<QQuickShaderEffectSource*>();
@@ -142,7 +146,7 @@ void tst_qquickshadereffect::twoImagesOneShaderEffect()
 {
     // Don't crash when having a ShaderEffect and an Image sharing the texture via supportsAtlasTextures
     QQuickView view;
-    QVERIFY(QQuickTest::showView(view, QStringLiteral("qrc:/data/twoImagesOneShaderEffect.qml")));
+    QVERIFY(QQuickTest::showView(view, QUrl{u"qrc:/data/twoImagesOneShaderEffect.qml"_s}));
     QObject *obj = view.rootObject();
     QVERIFY(obj);
 }
@@ -161,7 +165,7 @@ void tst_qquickshadereffect::hideParent()
 {
     QQuickView view;
     view.setSource(QUrl(QStringLiteral("qrc:/data/hideParent.qml")));
-    QVERIFY(QQuickTest::showView(view, QStringLiteral("qrc:/data/hideParent.qml")));
+    QVERIFY(QQuickTest::showView(view, QUrl{u"qrc:/data/hideParent.qml"_s}));
     // Should finish without crashing.
     QTRY_VERIFY(view.rootObject()->property("finished").toBool());
 }
@@ -170,9 +174,24 @@ void tst_qquickshadereffect::testPropertyMappings()
 {
     QQuickView view;
     view.setSource(QUrl(QStringLiteral("qrc:/data/testProperties.qml")));
-    QTRY_VERIFY(view.rootObject()->property("finished").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(view.rootObject()->property("finished").toBool(), 2s);
 }
 
+void tst_qquickshadereffect::testUpdateOfInvisibleItem()
+{
+    QQuickView view;
+    view.setSource(QUrl(QStringLiteral("qrc:/data/invisibleUpdate.qml")));
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QSignalSpy spy(&view, &QQuickWindow::afterRendering);
+    spy.wait(1000);
+    spy.clear();
+
+    view.rootObject()->setProperty("mirrorImage", true);
+    spy.wait(1000);
+    QCOMPARE(spy.count(), 1);
+}
 QTEST_MAIN(tst_qquickshadereffect)
 
 #include "tst_qquickshadereffect.moc"

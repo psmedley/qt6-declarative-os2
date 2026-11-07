@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4function_p.h"
 
@@ -57,13 +58,14 @@ static ReturnedValue doCall(
 ReturnedValue Function::call(
         const Value *thisObject, const Value *argv, int argc, ExecutionContext *context) {
     switch (kind) {
-    case AotCompiled:
+    case AotCompiled: {
+        const auto &types = aotCompiledFunction.types;
         return QV4::convertAndCall(
-                    context->engine(), &aotCompiledFunction, thisObject, argv, argc,
-                    [this, context](
-                        QObject *thisObject, void **a, const QMetaType *types, int argc) {
-            call(thisObject, a, types, argc, context);
+                    context->engine(), types.data(), types.length(), argv, argc,
+                    [this, context, thisObject](void **a, const QMetaType *types, int argc) {
+            call(QV4::cppThisObject(thisObject), a, types, argc, context);
         });
+    }
     case JsTyped:
         return QV4::coerceAndCall(
                     context->engine(), &jsTypedFunction, compiledFunction, argv, argc,
@@ -148,14 +150,79 @@ Function::Function(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
 
     QQmlTypeLoader *typeLoader = engine->typeLoader();
 
-    auto findQmlType = [&](const CompiledData::ParameterType &param) {
+    const auto isEnumUsedAsType = [&](const QV4::ExecutableCompilationUnit *unit,
+                                      int elementNameId, QQmlTypeLoader *typeLoader,
+                                      const quint16 *parameter = nullptr) {
+        const QString name = unit->baseCompilationUnit()->stringAt(elementNameId);
+        const auto split = name.tokenize(u'.').toContainer<QVarLengthArray<QStringView, 4>>();
+        if (split.size() != 2)
+            return false;
+
+        const QStringView scopeName = split[0];
+        const QStringView enumName = split[1];
+
+        auto *pengine = QQmlEnginePrivate::get(engine);
+        const auto warn = [&] {
+            QQmlError error;
+            auto where = parameter ? QStringLiteral("parameter ") + QString::number(*parameter)
+                                   : QStringLiteral("return type");
+            auto msg = QStringLiteral("Type annotation for %1 of function %2: Enumerations are "
+                                      "not types. Use underlying type (int or double) instead.")
+                               .arg(where, this->name()->toQString());
+            error.setDescription(msg);
+            error.setUrl(QUrl(sourceFile()));
+            error.setLine(this->sourceLocation().line);
+            error.setColumn(this->sourceLocation().column);
+            error.setMessageType(QtWarningMsg);
+            pengine->warning(error);
+        };
+
+        bool ok;
+        if (scopeName == QStringLiteral("Qt")) {
+            const QMetaObject *mo = &Qt::staticMetaObject;
+            for (int i = 0; i < mo->enumeratorCount(); ++i) {
+                if (mo->enumerator(i).name() == enumName.toLatin1()) {
+                    warn();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        const QQmlType scope = unit->typeNameCache()->query<QQmlImport::AllowRecursion>(
+                                                            scopeName, typeLoader).type;
+        if (!scope.isValid())
+            return false;
+
+        scope.scopedEnumIndex(typeLoader, enumName.toString(), &ok);
+        if (ok) {
+            warn();
+            return true;
+        }
+        scope.unscopedEnumIndex(typeLoader, enumName.toString(), &ok);
+        if (ok) {
+            warn();
+            return true;
+        }
+
+        return false;
+    };
+
+    auto findQmlType = [&](const CompiledData::ParameterType &param,
+                           const quint16 *parameter = nullptr) {
         const quint32 type = param.typeNameIndexOrCommonType();
         if (param.indexIsCommonType()) {
-            return QQmlMetaType::qmlType(QQmlPropertyCacheCreatorBase::metaTypeForPropertyType(
-                QV4::CompiledData::CommonType(type)));
+            std::optional<QMetaType>  metaType =
+                    QQmlPropertyCacheCreatorBase::metaTypeForPropertyType(QV4::CompiledData::CommonType(type));
+            if (!metaType.has_value())
+                metaType = QMetaType::fromType<QVariant>();
+            return QQmlMetaType::qmlType(*metaType);
         }
 
         if (type == 0 || !typeLoader)
+            return QQmlType();
+
+        if (isEnumUsedAsType(unit, type, typeLoader, parameter))
             return QQmlType();
 
         const QQmlType qmltype = QQmlTypePrivate::visibleQmlTypeByName(unit, type, typeLoader);
@@ -167,7 +234,7 @@ Function::Function(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
     jsTypedFunction.types.reserve(nFormals + 1);
     jsTypedFunction.types.append(findQmlType(compiledFunction->returnType));
     for (quint16 i = 0; i < nFormals; ++i)
-        jsTypedFunction.types.append(findQmlType(formalsIndices[i].type));
+        jsTypedFunction.types.append(findQmlType(formalsIndices[i].type, &i));
 }
 
 Function::~Function()

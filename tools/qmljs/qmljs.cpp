@@ -1,31 +1,45 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "private/qv4object_p.h"
-#include "private/qv4runtime_p.h"
-#include "private/qv4functionobject_p.h"
-#include "private/qv4errorobject_p.h"
-#include "private/qv4globalobject_p.h"
-#include "private/qv4codegen_p.h"
-#include "private/qv4objectproto_p.h"
-#include "private/qv4mm_p.h"
-#include "private/qv4context_p.h"
-#include "private/qv4script_p.h"
-#include "private/qv4string_p.h"
-#include "private/qv4module_p.h"
-#include "private/qqmlbuiltinfunctions_p.h"
-
-#include <QtCore/QCoreApplication>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDateTime>
-#include <QtCore/qcommandlineparser.h>
+#include <private/qqmlbuiltinfunctions_p.h>
+#include <private/qqmljsast_p.h>
 #include <private/qqmljsengine_p.h>
 #include <private/qqmljslexer_p.h>
 #include <private/qqmljsparser_p.h>
-#include <private/qqmljsast_p.h>
+#include <private/qqmlscriptblob_p.h>
+#include <private/qqmltypeloader_p.h>
+#include <private/qv4codegen_p.h>
+#include <private/qv4context_p.h>
+#include <private/qv4errorobject_p.h>
+#include <private/qv4functionobject_p.h>
+#include <private/qv4globalobject_p.h>
+#include <private/qv4mm_p.h>
+#include <private/qv4module_p.h>
+#include <private/qv4object_p.h>
+#include <private/qv4objectproto_p.h>
+#include <private/qv4runtime_p.h>
+#include <private/qv4script_p.h>
+#include <private/qv4string_p.h>
+
+#include <QtCore/qcommandlineparser.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qcryptographichash.h>
+#include <QtCore/qdatetime.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
 
 #include <iostream>
+
+static QByteArray fileChecksum(const QString &fileName)
+{
+    QFile f(fileName);
+    if (!f.open(QIODevice::ReadOnly))
+        return QByteArray();
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    if (!hash.addData(&f))
+        return QByteArray();
+    return hash.result();
+}
 
 static void showException(QV4::ExecutionContext *ctx, const QV4::Value &exception, const QV4::StackTrace &trace)
 {
@@ -103,11 +117,20 @@ int main(int argc, char *argv[])
     for (const QString &fn : args) {
         QV4::ScopedValue result(scope);
         if (runAsModule) {
-            if (auto module
-                    = vm.loadModule(QUrl::fromLocalFile(QFileInfo(fn).absoluteFilePath()))) {
+            QV4::ScopedValue result(scope);
+            QUrl url = QUrl::fromLocalFile(QFileInfo(fn).absoluteFilePath());
+            if (!fn.endsWith(QLatin1String(".mjs")))
+                url.setFragment(QLatin1String("module"));
+
+            QQmlRefPointer<QQmlScriptBlob> blob = vm.typeLoader()->getScript(url);
+            if (blob->isComplete()) {
+                const auto module
+                        = vm.executableCompilationUnit(blob->scriptData()->compilationUnit());
                 if (module->instantiate())
                     module->evaluate();
             } else {
+                // Local URL is loaded synchronously.
+                Q_ASSERT(blob->isError());
                 vm.throwError(QStringLiteral("Could not load module file"));
             }
         } else {
@@ -120,7 +143,9 @@ int main(int argc, char *argv[])
             if (useCache && QFile::exists(fn + QLatin1Char('c'))) {
                 auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
                 QString error;
-                if (unit->loadFromDisk(QUrl::fromLocalFile(fn), QFileInfo(fn).lastModified(), &error)) {
+                const auto sourceChecksum = [&fn]() { return fileChecksum(fn); };
+                if (unit->loadFromDisk(QUrl::fromLocalFile(fn), QFileInfo(fn).lastModified(),
+                                       sourceChecksum, &error)) {
                     script.reset(new QV4::Script(
                             &vm, nullptr, vm.insertCompilationUnit(std::move(unit))));
                 } else {
@@ -133,18 +158,16 @@ int main(int argc, char *argv[])
                 file.close();
 
                 script.reset(new QV4::Script(ctx, QV4::Compiler::ContextType::Global, code, fn));
-                script->parseAsBinding = runAsQml;
+                script->setParseAsBinding(runAsQml);
                 script->parse();
             }
             if (!scope.hasException()) {
-                const auto unit = script->compilationUnit;
+                const auto unit = script->compilationUnit();
                 if (useCache && unit && !(unit->unitData()->flags & QV4::CompiledData::Unit::StaticData)) {
-                    if (unit->unitData()->sourceTimeStamp == 0) {
-                        const_cast<QV4::CompiledData::Unit*>(unit->unitData())->sourceTimeStamp = QFileInfo(fn).lastModified().toMSecsSinceEpoch();
-                    }
                     QString saveError;
+                    const auto sourceChecksum = [&fn]() { return fileChecksum(fn); };
                     if (!unit->baseCompilationUnit()->saveToDisk(
-                                QUrl::fromLocalFile(fn), &saveError)) {
+                                QUrl::fromLocalFile(fn), sourceChecksum, &saveError)) {
                         std::cout << "Error saving JS cache file: " << qPrintable(saveError) << std::endl;
                     }
                 }

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickstateoperations_p.h"
 #include "qquickitem_p.h"
@@ -132,7 +133,8 @@ void QQuickParentChangePrivate::doChange(QQuickItem *targetParent)
 
     \snippet qml/parentchange.qml 0
 
-    \image parentchange.png
+    \image parentchange.png {Blue square state change affecting parent
+           reassignment}
 
     You can specify at which point in a transition you want a ParentChange to occur by
     using a ParentAnimation.
@@ -544,7 +546,8 @@ void QQuickParentChange::rewind()
 
     \snippet qml/anchorchanges.qml 0
 
-    \image anchorchanges.png
+    \image anchorchanges.png {Red square changing anchor position
+           between two states}
 
     AnchorChanges can be animated using AnchorAnimation.
     \qml

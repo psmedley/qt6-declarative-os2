@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 3.16)
 project(qtdeclarative_cmake_tests)
 enable_testing()
 
-set(required_packages Core)
+set(required_packages Core TestInternalsPrivate)
 set(optional_packages Qml Quick)
 
 # Setup the test when called as a completely standalone project.
@@ -109,7 +109,7 @@ if(TARGET Qt::Qml)
         )
     endif()
     # TODO: Plugin targets are not available in shared builds at the moment QTBUG-94066
-    if(NOT QT6_IS_SHARED_LIBS_BUILD)
+    if(NOT QT6_IS_SHARED_LIBS_BUILD AND QT_FEATURE_qml_network AND QT_FEATURE_localserver)
         _qt_internal_test_expect_pass(test_plugins)
     endif()
     _qt_internal_test_expect_pass(empty_qmldir)
@@ -132,6 +132,32 @@ if(TARGET Qt::Qml)
     )
 
     _qt_internal_test_expect_fail(test_invalid_qml_uri)
+
+    set(test_duplicate_files_extra_args "")
+    if(NOT CMAKE_CROSSCOMPILING)
+        list(APPEND test_duplicate_files_extra_args BINARY main)
+    endif()
+    _qt_internal_test_expect_pass(test_duplicate_files
+        TESTNAME test_duplicate_files_qml_files
+        BUILD_OPTIONS -Drun=case_qml_files
+        ${test_duplicate_files_extra_args}
+    )
+    _qt_internal_test_expect_pass(test_duplicate_files
+        TESTNAME test_duplicate_files_resources
+        BUILD_OPTIONS -Drun=case_resources
+        ${test_duplicate_files_extra_args}
+    )
+
+    _qt_internal_test_expect_pass(test_separate_qml_and_resources)
+
+    # An executable that is never finalized, and so never has its QML imports
+    # scanned, must still build (QTBUG-148683).
+    _qt_internal_test_expect_pass(test_unfinalized_executable)
+
+    _qt_internal_test_expect_pass(test_deduplicate_metatypes TESTNAME cmake_test_duplicate_metatypes)
+    set_tests_properties(cmake_test_duplicate_metatypes PROPERTIES
+        FAIL_REGULAR_EXPRESSION "MyItem\\.h:10: Multiple C\\+\\+ types called MyItem found\\!"
+    )
 endif()
 
 if(TARGET Qt::Quick)
@@ -140,6 +166,9 @@ if(TARGET Qt::Quick)
             BINARY "${CMAKE_CTEST_COMMAND}"
             BINARY_ARGS "-V"
         )
+         if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
+            _qt_internal_test_expect_pass(quick_dependency_automatically_added)
+        endif()
         _qt_internal_test_expect_pass(qtquickcompiler BINARY qqc_test)
         if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21")
             _qt_internal_test_expect_pass(test_common_import_path
@@ -148,7 +177,10 @@ if(TARGET Qt::Quick)
             )
         endif()
         if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
-            _qt_internal_test_expect_pass(test_generate_qmlls_ini BINARY tst_generate_qmlls_ini)
+            # we can't use qtpaths with --query without the settings feature flag
+            if(QT_FEATURE_settings)
+                _qt_internal_test_expect_pass(test_generate_qmlls_ini BINARY tst_generate_qmlls_ini)
+            endif()
             _qt_internal_test_expect_pass(test_aotstats_integration BINARY tst_aotstats_integration)
         endif()
         _qt_internal_test_expect_pass(
@@ -168,3 +200,5 @@ if(TARGET Qt::Quick)
         endif()
     endif()
 endif()
+
+add_subdirectory(RunCMake)

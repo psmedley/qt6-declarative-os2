@@ -1,27 +1,11 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgmaterial.h"
 #include "qsgrenderer_p.h"
 
 QT_BEGIN_NAMESPACE
-
-Q_DECLARE_LOGGING_CATEGORY(lcQsgLeak)
-
-#ifndef QT_NO_DEBUG
-bool qsg_material_failure = false;
-bool qsg_test_and_clear_material_failure()
-{
-    bool fail = qsg_material_failure;
-    qsg_material_failure = false;
-    return fail;
-}
-
-void qsg_set_material_failure()
-{
-    qsg_material_failure = true;
-}
-#endif
 
 /*!
     \group qtquick-scenegraph-materials
@@ -29,7 +13,7 @@ void qsg_set_material_failure()
     \brief classes used to define materials in the Qt Quick Scene Graph.
 
     This page lists the material classes in \l {Qt Quick}'s
-    \l {scene graph}{Qt Quick Scene Graph}.
+    \l{Qt Quick Scene Graph}{scene graph}.
  */
 
 #ifndef QT_NO_DEBUG

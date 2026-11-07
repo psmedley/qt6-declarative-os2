@@ -1926,17 +1926,13 @@ void tst_qmlls_utils::findDefinitionFromLocation_data()
         const QString qualifiedQmlComponents = testFile(u"findDefinition/QualifiedQmlComponents.qml"_s);
         QTest::addRow("component") << qmlComponents << 7 << 11 << definitionFile << 7 << 1
                                    << strlen("ApplicationWindow") << noExtraBuildDir;
-        QTest::addRow("attachedType") << qmlComponents << 9 << 42 << definitionFile << 7 << 1
-                                      << strlen("ApplicationWindow") << noExtraBuildDir;
         QTest::addRow("enumValue") << qmlComponents << 10 << 42 << definitionFile << 7 << 1
                                    << strlen("ApplicationWindow") << noExtraBuildDir;
         QTest::addRow("enumName") << qmlComponents << 11 << 42 << definitionFile << 7 << 1
                                   << strlen("ApplicationWindow") << noExtraBuildDir;
 
-        QTest::addRow("qualifiedComponent") << qualifiedQmlComponents << 7 << 11 << definitionFile
-                                            << 7 << 1 << strlen("ApplicationWindow") << noExtraBuildDir;
-        QTest::addRow("qualifiedAttachedType")
-                << qualifiedQmlComponents << 9 << 47 << definitionFile << 7 << 1
+        QTest::addRow("qualifiedComponent")
+                << qualifiedQmlComponents << 7 << 11 << definitionFile << 7 << 1
                 << strlen("ApplicationWindow") << noExtraBuildDir;
         QTest::addRow("qualifiedEnumValue") << qualifiedQmlComponents << 10 << 42 << definitionFile
                                             << 7 << 1 << strlen("ApplicationWindow") << noExtraBuildDir;
@@ -1951,12 +1947,16 @@ void tst_qmlls_utils::findDefinitionFromLocation_data()
     {
         const QString mainQml = testFile(u"findDefinition/mymodule-source/MyModule/Main.qml"_s);
         const QString myComponentQml = testFile(u"findDefinition/mymodule-source/MyModule/X/Y/Z/MyComponent.qml"_s);
-
-        QTest::addRow("nestedFromOwnModule") << mainQml << 4 << 5 << myComponentQml << 3 << 1
-                                             << strlen("Item") << QStringList { testFile(u"findDefinition/mymodule-build"_s) };
-        QTest::addRow("nestedFromOwnModuleWithoutQmldirPrefer") << mainQml << 4 << 5 << myComponentQml << 3 << 1
-                                                                << strlen("Item")
-                                                                << QStringList { testFile(u"findDefinition/mymodule-build-without-qmldir-prefer"_s) };
+        QTest::addRow("nestedFromOwnModule")
+                << mainQml << 4 << 5 << myComponentQml << 3 << 1 << strlen("Item")
+                << QStringList { testFile(u"findDefinition/mymodule-build"_s) };
+    }
+    {
+        const QString mainQml = testFile(u"findDefinition/mymodule-without-qmldir-prefer-source/MyModuleWithoutQmldirPrefer/Main.qml"_s);
+        const QString myComponentQml = testFile(u"findDefinition/mymodule-without-qmldir-prefer-source/MyModuleWithoutQmldirPrefer/X/Y/Z/MyComponent.qml"_s);
+        QTest::addRow("nestedFromOwnModuleWithoutQmldirPrefer")
+                << mainQml << 4 << 5 << myComponentQml << 3 << 1 << strlen("Item")
+                << QStringList { testFile(u"findDefinition/mymodule-without-qmldir-prefer-build"_s) };
     }
 
     {
@@ -1970,6 +1970,95 @@ void tst_qmlls_utils::findDefinitionFromLocation_data()
                            u"findDefinition/TestAppWithBuildFolder/build/somesubfolder/anothersubfolder"_s)
                    };
     }
+
+    QTest::addRow("singletonFromQml") << testFile("findDefinition/UseMySingletons.qml"_L1) << 5
+                                      << 31 << testFile("ModuleWithSingleton/MySingleton.qml"_L1)
+                                      << 4 << 1 << strlen("Item") << noExtraBuildDir;
+    QTest::addRow("singletonFromCpp")
+            << testFile("findDefinition/UseMySingletons.qml"_L1) << 6 << 31
+            << testFile("findDefinition/SomeIncludeFolder/mysingletonfromcppheader.h") << 42 << 1
+            << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    const QString componentFromCppHeaderPath =
+            testFile("findDefinition/SomeIncludeFolder/mycomponentfromcppheader.h"_L1);
+    QTest::addRow("componentFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 3
+                                      << 1 << componentFromCppHeaderPath << 42 << 1 << strlen("")
+                                      << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("componentFromJava")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 16 << 44
+            << testFile("findDefinition/SomeIncludeFolder/mycomponentfromnoncppheader.java"_L1)
+            << 42 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("propertyFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 4
+                                     << 6 << componentFromCppHeaderPath << 12 << 1 << strlen("")
+                                     << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("propertyFromCpp2") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 5
+                                      << 47 << componentFromCppHeaderPath << 12 << 1 << strlen("")
+                                      << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("propertyFromCppInNonUserFolder")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 6 << 12 << noResultExpected
+            << 1 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("signalFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 7 << 34
+                                   << componentFromCppHeaderPath << 654321 << 1 << strlen("")
+                                   << QStringList{ testFile("findDefinition"_L1) };
+
+    QTest::addRow("slotFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 7 << 46
+                                 << componentFromCppHeaderPath << 29 << 1 << strlen("")
+                                 << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("invokableFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 7
+                                      << 60 << componentFromCppHeaderPath << 23 << 1 << strlen("")
+                                      << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("groupedFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 8 << 8
+                                    << componentFromCppHeaderPath << 13 << 1 << strlen("")
+                                    << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("groupedFromCpp2") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 9
+                                     << 8 << componentFromCppHeaderPath << 13 << 1 << strlen("")
+                                     << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("groupedPropertyFromCpp")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 8 << 18
+            << componentFromCppHeaderPath << 37 << 1 << strlen("")
+            << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("groupedPropertyFromCpp2")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 9 << 18
+            << componentFromCppHeaderPath << 38 << 1 << strlen("")
+            << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("enumFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 10 << 52
+                                 << componentFromCppHeaderPath << 150 << 1 << strlen("")
+                                 << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("enumFromCpp2") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 11 << 60
+                                  << componentFromCppHeaderPath << 150 << 1 << strlen("")
+                                  << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("scopedEnumFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 11
+                                       << 56 << componentFromCppHeaderPath << 150 << 1 << strlen("")
+                                       << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("enumFromQml") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 14 << 51
+                                 << "UseMyCppComponent.qml" << 13 << 42 << strlen("ByeEnumFromQml")
+                                 << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("enumFromQml2") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 15 << 68
+                                  << "UseMyCppComponent.qml" << 13 << 42 << strlen("ByeEnumFromQml")
+                                  << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("scopedEnumFromQml")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 15 << 59
+            << "UseMyCppComponent.qml" << 13 << 10 << strlen("EnumFromQml")
+            << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("flagFromCpp") << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 12 << 53
+                                 << componentFromCppHeaderPath << 555 << 1 << strlen("")
+                                 << QStringList{ testFile("findDefinition"_L1) };
+
+    const QString attachedHeaderPath = testFile("findDefinition/SomeIncludeFolder/attached.h"_L1);
+    QTest::addRow("attachedTypeFromCpp")
+            << testFile("findDefinition/UseMyAttachedType.qml"_L1) << 5 << 11 << attachedHeaderPath
+            << 42 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("attachedPropertyFromCpp")
+            << testFile("findDefinition/UseMyAttachedType.qml"_L1) << 5 << 21 << attachedHeaderPath
+            << 88 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("attachedSignalFromCpp")
+            << testFile("findDefinition/UseMyAttachedType.qml"_L1) << 7 << 25 << attachedHeaderPath
+            << 12345 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("attachedTypeFromCpp2")
+            << testFile("findDefinition/UseMyAttachedType.qml"_L1) << 8 << 23 << attachedHeaderPath
+            << 42 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
+    QTest::addRow("attachedPropertyFromCpp2")
+            << testFile("findDefinition/UseMyAttachedType.qml"_L1) << 8 << 30 << attachedHeaderPath
+            << 88 << 1 << strlen("") << QStringList{ testFile("findDefinition"_L1) };
 }
 
 void tst_qmlls_utils::findDefinitionFromLocation()
@@ -2001,23 +2090,127 @@ void tst_qmlls_utils::findDefinitionFromLocation()
 
     QCOMPARE(locations.size(), 1);
 
-    auto definition = QQmlLSUtils::findDefinitionOf(locations.front().domItem);
+    auto definition = QQmlLSUtils::findDefinitionOf(locations.front().domItem, extraBuildDirs);
 
     // if expectedFilePath is empty, we probably just want to make sure that it does
     // not crash
     if (expectedFilePath == noResultExpected) {
-        QVERIFY(!definition);
+        QCOMPARE(definition.size(), 0);
         return;
     }
 
-    QVERIFY(definition);
+    QCOMPARE(definition.size(), 1);
 
     // don't work with absolute paths, and only compare the end of the file path
-    QCOMPARE(QStringView(definition->filename()).last(expectedFilePath.size()), expectedFilePath);
+    QCOMPARE(QStringView(definition.front().filename()).last(expectedFilePath.size()),
+             expectedFilePath);
 
-    QCOMPARE(definition->sourceLocation().startLine, quint32(expectedLine));
-    QCOMPARE(definition->sourceLocation().startColumn, quint32(expectedCharacter));
-    QCOMPARE(definition->sourceLocation().length, quint32(expectedLength));
+    QCOMPARE(definition.front().sourceLocation().startLine, quint32(expectedLine));
+    QCOMPARE(definition.front().sourceLocation().startColumn, quint32(expectedCharacter));
+    QCOMPARE(definition.front().sourceLocation().length, quint32(expectedLength));
+}
+
+struct ExpectedDefinition
+{
+    QString filePath;
+    int line;
+    int character;
+    size_t length;
+};
+
+void tst_qmlls_utils::findMultipleDefinitionsFromLocation_data()
+{
+    QTest::addColumn<QString>("filePath");
+    // keep in mind that line and character are starting at 1!
+    QTest::addColumn<int>("line");
+    QTest::addColumn<int>("character");
+
+    QTest::addColumn<QList<ExpectedDefinition>>("expected");
+    QTest::addColumn<QStringList>("extraBuildDirs");
+
+    QTest::addRow("componentFromCpp")
+            << testFile("findDefinition/UseMyCppComponent.qml"_L1) << 17 << 29
+            << QList<ExpectedDefinition>{
+                { testFile("findDefinition/SomeIncludeFolder/mytype.h"), 222, 1, strlen(""), },
+                { testFile("findDefinition/SomeIncludeFolder/mytypeforeign.h"), 111, 1, strlen(""), },
+           } << QStringList{ testFile("findDefinition"_L1) };
+}
+
+void tst_qmlls_utils::findMultipleDefinitionsFromLocation()
+{
+    QFETCH(QString, filePath);
+    QFETCH(int, line);
+    QFETCH(int, character);
+    QFETCH(QList<ExpectedDefinition>, expected);
+    QFETCH(QStringList, extraBuildDirs);
+
+    // they all start at 1.
+    Q_ASSERT(line > 0);
+    Q_ASSERT(character > 0);
+
+    auto [env, file] = createEnvironmentAndLoadFile(filePath, extraBuildDirs);
+
+    auto locations = QQmlLSUtils::itemsFromTextLocation(
+            file.field(QQmlJS::Dom::Fields::currentItem), line - 1, character - 1);
+
+    QCOMPARE(locations.size(), 1);
+
+    auto definitions = QQmlLSUtils::findDefinitionOf(locations.front().domItem, extraBuildDirs);
+
+    QCOMPARE(definitions.size(), expected.size());
+
+    for (int i = 0; i < definitions.size(); ++i) {
+        Q_ASSERT(expected[i].line > 0);
+        Q_ASSERT(expected[i].character > 0);
+        // don't work with absolute paths, and only compare the end of the file path
+        QCOMPARE(QStringView(definitions[i].filename()).last(expected[i].filePath.size()),
+                 expected[i].filePath);
+
+        QCOMPARE(definitions[i].sourceLocation().startLine, quint32(expected[i].line));
+        QCOMPARE(definitions[i].sourceLocation().startColumn, quint32(expected[i].character));
+        QCOMPARE(definitions[i].sourceLocation().length, quint32(expected[i].length));
+    }
+}
+
+void tst_qmlls_utils::findDefinitionFromAbsoluteLocation()
+{
+    QTemporaryDir build;
+    QVERIFY(build.isValid());
+
+    QDir(build.path()).mkdir("ModuleWithComponent");
+    QFile::copy(testFile("ModuleWithComponent/qmldir"),
+                build.filePath("ModuleWithComponent/qmldir"));
+
+    QFile headerFile(build.filePath("ModuleWithComponent/mycomponentfromnoncppheader.java"));
+    QVERIFY(headerFile.open(QFile::WriteOnly | QFile::Text));
+
+    QFile qmltypes(testFile("ModuleWithComponent/plugin.qmltypes"));
+    QVERIFY(qmltypes.open(QFile::ReadOnly | QFile::Text));
+    QByteArray qmltypesContent = qmltypes.readAll();
+
+    const QByteArray expectedFilePath = headerFile.fileName().toUtf8();
+    qmltypesContent.replace("mycomponentfromnoncppheader.java", expectedFilePath);
+
+    QFile newQmltypes(build.filePath("ModuleWithComponent/plugin.qmltypes"));
+    QVERIFY(newQmltypes.open(QFile::WriteOnly | QFile::Text));
+    newQmltypes.write(qmltypesContent);
+
+    auto [env, file] = createEnvironmentAndLoadFile(
+            testFile("findDefinition/UseMyCppComponent.qml"_L1), { build.path() });
+
+    auto locations = QQmlLSUtils::itemsFromTextLocation(
+            file.field(QQmlJS::Dom::Fields::currentItem), 15, 43);
+
+    QCOMPARE(locations.size(), 1);
+
+    auto definition = QQmlLSUtils::findDefinitionOf(locations.front().domItem, { build.path() });
+    QCOMPARE(definition.size(), 1);
+
+    QCOMPARE(definition.front().filename(), expectedFilePath);
+
+    QCOMPARE(definition.front().sourceLocation().startLine, quint32(42));
+    QCOMPARE(definition.front().sourceLocation().startColumn, quint32(1));
+    QCOMPARE(definition.front().sourceLocation().length, quint32(0));
 }
 
 void tst_qmlls_utils::resolveExpressionType_data()
@@ -2031,6 +2224,7 @@ void tst_qmlls_utils::resolveExpressionType_data()
     // startline of the owners definition
     QTest::addColumn<int>("expectedLine");
     QTest::addColumn<QQmlLSUtils::IdentifierType>("expectedType");
+    QTest::addColumn<QString>("expectedName");
 
     using namespace QQmlLSUtils;
 
@@ -2044,31 +2238,38 @@ void tst_qmlls_utils::resolveExpressionType_data()
         const int childLine = 31;
 
         QTest::addRow("id") << JSDefinitionsQml << 15 << 17 << ResolveOwnerType << JSDefinitionsQml
-                            << parentLine << QmlObjectIdIdentifier;
-        QTest::addRow("childIddInChild") << JSDefinitionsQml << 37 << 30 << ResolveOwnerType
-                                         << JSDefinitionsQml << childLine << QmlObjectIdIdentifier;
-        QTest::addRow("parentIdInChild") << JSDefinitionsQml << 37 << 43 << ResolveOwnerType
-                                         << JSDefinitionsQml << parentLine << QmlObjectIdIdentifier;
+                            << parentLine << QmlObjectIdIdentifier << u"rootId"_s;
+        QTest::addRow("childIddInChild")
+                << JSDefinitionsQml << 37 << 30 << ResolveOwnerType << JSDefinitionsQml << childLine
+                << QmlObjectIdIdentifier << u"nested"_s;
+        QTest::addRow("parentIdInChild")
+                << JSDefinitionsQml << 37 << 43 << ResolveOwnerType << JSDefinitionsQml
+                << parentLine << QmlObjectIdIdentifier << u"rootId"_s;
 
-        QTest::addRow("propertyI") << JSDefinitionsQml << 14 << 14 << ResolveOwnerType
-                                   << JSDefinitionsQml << parentLine << PropertyIdentifier;
-        QTest::addRow("qualifiedPropertyI") << JSDefinitionsQml << 15 << 21 << ResolveOwnerType
-                                            << JSDefinitionsQml << parentLine << PropertyIdentifier;
-        QTest::addRow("propertyIInChild") << JSDefinitionsQml << 37 << 21 << ResolveOwnerType
-                                          << JSDefinitionsQml << childLine << PropertyIdentifier;
+        QTest::addRow("propertyI")
+                << JSDefinitionsQml << 14 << 14 << ResolveOwnerType << JSDefinitionsQml
+                << parentLine << PropertyIdentifier << u"i"_s;
+        QTest::addRow("qualifiedPropertyI")
+                << JSDefinitionsQml << 15 << 21 << ResolveOwnerType << JSDefinitionsQml
+                << parentLine << PropertyIdentifier << u"i"_s;
+        QTest::addRow("propertyIInChild")
+                << JSDefinitionsQml << 37 << 21 << ResolveOwnerType << JSDefinitionsQml << childLine
+                << PropertyIdentifier << u"i"_s;
         QTest::addRow("qualifiedChildPropertyIInChild")
-                << JSDefinitionsQml << 37 << 35 << ResolveOwnerType << JSDefinitionsQml
-                << childLine << PropertyIdentifier;
+                << JSDefinitionsQml << 37 << 35 << ResolveOwnerType << JSDefinitionsQml << childLine
+                << PropertyIdentifier << u"i"_s;
         QTest::addRow("qualifiedParentPropertyIInChild")
                 << JSDefinitionsQml << 37 << 49 << ResolveOwnerType << JSDefinitionsQml
-                << parentLine << PropertyIdentifier;
+                << parentLine << PropertyIdentifier << u"i"_s;
 
         QTest::addRow("childMethod") << JSDefinitionsQml << 48 << 23 << ResolveOwnerType
-                                     << JSDefinitionsQml << childLine << MethodIdentifier;
-        QTest::addRow("childMethod2") << JSDefinitionsQml << 44 << 20 << ResolveOwnerType
-                                      << JSDefinitionsQml << childLine << MethodIdentifier;
-        QTest::addRow("parentMethod") << JSDefinitionsQml << 14 << 9 << ResolveOwnerType
-                                      << JSDefinitionsQml << parentLine << MethodIdentifier;
+                                     << JSDefinitionsQml << childLine << MethodIdentifier << u"f"_s;
+        QTest::addRow("childMethod2")
+                << JSDefinitionsQml << 44 << 20 << ResolveOwnerType << JSDefinitionsQml << childLine
+                << MethodIdentifier << u"f"_s;
+        QTest::addRow("parentMethod")
+                << JSDefinitionsQml << 14 << 9 << ResolveOwnerType << JSDefinitionsQml << parentLine
+                << MethodIdentifier << u"f"_s;
     }
 
     {
@@ -2076,17 +2277,18 @@ void tst_qmlls_utils::resolveExpressionType_data()
                 testFile(u"resolveExpressionType/BindingsOnDeferred.qml"_s);
         const QString qQuickControl = u"private/qquickcontrol_p.h"_s;
         const QString qQuickKeysAttachedType = u"private/qquickitem_p.h"_s;
-        QTest::addRow("bindingOnId") << bindingsOnDeferredQml << 12 << 14 << ResolveOwnerType
-                                     << bindingsOnDeferredQml << 8 << QmlObjectIdIdentifier;
+        QTest::addRow("bindingOnId")
+                << bindingsOnDeferredQml << 12 << 14 << ResolveOwnerType << bindingsOnDeferredQml
+                << 8 << QmlObjectIdIdentifier << u"inner"_s;
         QTest::addRow("bindingOnQualifiedDeferredProperty")
                 << bindingsOnDeferredQml << 12 << 24 << ResolveOwnerType << qQuickControl << noLine
-                << PropertyIdentifier;
+                << PropertyIdentifier << u"background"_s;
         QTest::addRow("groupedPropertyBindingOnId")
                 << bindingsOnDeferredQml << 14 << 14 << ResolveOwnerType << bindingsOnDeferredQml
-                << 8 << QmlObjectIdIdentifier;
+                << 8 << QmlObjectIdIdentifier << u"inner"_s;
         QTest::addRow("someDeferredProperty")
                 << bindingsOnDeferredQml << 15 << 22 << ResolveOwnerType << qQuickControl << noLine
-                << PropertyIdentifier;
+                << PropertyIdentifier << u"background"_s;
     }
 
     {
@@ -2095,22 +2297,25 @@ void tst_qmlls_utils::resolveExpressionType_data()
         const int nestedComponent2Line = 46;
         const int nestedComponent3Line = 51;
         const int nestedComponent4Line = 57;
-        QTest::addRow("propertyAccess:inner.inner") << JSUsagesQml << 68 << 34 << ResolveOwnerType
-                                                    << JSUsagesQml << nestedComponent2Line << PropertyIdentifier;
-        QTest::addRow("propertyAccess:inner.inner2") << JSUsagesQml << 69 << 34 << ResolveOwnerType
-                                                     << JSUsagesQml << nestedComponent2Line << PropertyIdentifier;
+        QTest::addRow("propertyAccess:inner.inner")
+                << JSUsagesQml << 68 << 34 << ResolveOwnerType << JSUsagesQml
+                << nestedComponent2Line << PropertyIdentifier << u"inner"_s;
+        QTest::addRow("propertyAccess:inner.inner2")
+                << JSUsagesQml << 69 << 34 << ResolveOwnerType << JSUsagesQml
+                << nestedComponent2Line << PropertyIdentifier << u"inner"_s;
         QTest::addRow("propertyAccess:inner.inner.inner")
                 << JSUsagesQml << 69 << 40 << ResolveOwnerType << JSUsagesQml
-                << nestedComponent3Line << PropertyIdentifier;
+                << nestedComponent3Line << PropertyIdentifier << u"inner"_s;
         QTest::addRow("propertyAccess:inner.inner.inner.p2")
                 << JSUsagesQml << 69 << 44 << ResolveOwnerType << JSUsagesQml
-                << nestedComponent4Line << PropertyIdentifier;
+                << nestedComponent4Line << PropertyIdentifier << u"p2"_s;
 
         QTest::addRow("propertyAccess:helloProperty")
-                << JSUsagesQml << 65 << 68 << ResolveOwnerType << JSUsagesQml << rootLine << PropertyIdentifier;
+                << JSUsagesQml << 65 << 68 << ResolveOwnerType << JSUsagesQml << rootLine
+                << PropertyIdentifier << u"helloProperty"_s;
         QTest::addRow("propertyAccess:nestedHelloProperty")
                 << JSUsagesQml << 65 << 46 << ResolveOwnerType << JSUsagesQml
-                << nestedComponent4Line << PropertyIdentifier;
+                << nestedComponent4Line << PropertyIdentifier << u"helloProperty"_s;
     }
 
     {
@@ -2124,158 +2329,183 @@ void tst_qmlls_utils::resolveExpressionType_data()
         const int derivedTypeLine = 6;
         const int keysLine = 29;
 
-        QTest::addRow("ownerOfMethod")
-                << derivedType << 9 << 13 << ResolveOwnerType << baseType << baseTypeLine << MethodIdentifier;
-        QTest::addRow("ownerOfMethod2")
-                << derivedType << 15 << 33 << ResolveOwnerType << baseType << baseTypeLine << MethodIdentifier;
+        QTest::addRow("ownerOfMethod") << derivedType << 9 << 13 << ResolveOwnerType << baseType
+                                       << baseTypeLine << MethodIdentifier << u"helloMethod"_s;
+        QTest::addRow("ownerOfMethod2") << derivedType << 15 << 33 << ResolveOwnerType << baseType
+                                        << baseTypeLine << MethodIdentifier << u"helloMethod"_s;
         QTest::addRow("ownerOfQualifiedMethod")
-                << derivedType << 22 << 46 << ResolveOwnerType << baseType << baseTypeLine << MethodIdentifier;
+                << derivedType << 22 << 46 << ResolveOwnerType << baseType << baseTypeLine
+                << MethodIdentifier << u"helloMethod"_s;
 
         QTest::addRow("ownerOfProperty")
-                << derivedType << 10 << 22 << ResolveOwnerType << baseType << baseTypeLine << PropertyIdentifier;
+                << derivedType << 10 << 22 << ResolveOwnerType << baseType << baseTypeLine
+                << PropertyIdentifier << u"helloProperty"_s;
         QTest::addRow("ownerOfProperty2")
-                << derivedType << 16 << 37 << ResolveOwnerType << baseType << baseTypeLine << PropertyIdentifier;
+                << derivedType << 16 << 37 << ResolveOwnerType << baseType << baseTypeLine
+                << PropertyIdentifier << u"helloProperty"_s;
         QTest::addRow("ownerOfQualifiedProperty")
-                << derivedType << 23 << 46 << ResolveOwnerType << baseType << baseTypeLine << PropertyIdentifier;
+                << derivedType << 23 << 46 << ResolveOwnerType << baseType << baseTypeLine
+                << PropertyIdentifier << u"helloProperty"_s;
 
         QTest::addRow("ownerOfOwnProperty")
-                << derivedType << 16 << 23 << ResolveOwnerType << derivedType << derivedTypeLine << PropertyIdentifier;
+                << derivedType << 16 << 23 << ResolveOwnerType << derivedType << derivedTypeLine
+                << PropertyIdentifier << u"someProperty"_s;
 
-        QTest::addRow("ownerOfSignal")
-                << derivedType << 11 << 13 << ResolveOwnerType << baseType << baseTypeLine << SignalIdentifier;
-        QTest::addRow("ownerOfSignal2")
-                << derivedType << 18 << 37 << ResolveOwnerType << baseType << baseTypeLine << SignalIdentifier;
+        QTest::addRow("ownerOfSignal") << derivedType << 11 << 13 << ResolveOwnerType << baseType
+                                       << baseTypeLine << SignalIdentifier << u"helloSignal"_s;
+        QTest::addRow("ownerOfSignal2") << derivedType << 18 << 37 << ResolveOwnerType << baseType
+                                        << baseTypeLine << SignalIdentifier << u"helloSignal"_s;
         QTest::addRow("ownerOfSignalHandler")
-                << derivedType << 19 << 10 << ResolveOwnerType << baseType << baseTypeLine << SignalHandlerIdentifier;
+                << derivedType << 19 << 10 << ResolveOwnerType << baseType << baseTypeLine
+                << SignalHandlerIdentifier << u"onHelloSignal"_s;
         QTest::addRow("ownerOfQualifiedSignal")
-                << derivedType << 25 << 22 << ResolveOwnerType << baseType << baseTypeLine << SignalIdentifier;
+                << derivedType << 25 << 22 << ResolveOwnerType << baseType << baseTypeLine
+                << SignalIdentifier << u"helloSignal"_s;
 
         QTest::addRow("ownerOfGroupedProperty")
-                << derivedType << 28 << 7 << ResolveOwnerType << baseType << baseTypeLine << GroupedPropertyIdentifier;
+                << derivedType << 28 << 7 << ResolveOwnerType << baseType << baseTypeLine
+                << GroupedPropertyIdentifier << u"helloFont"_s;
         QTest::addRow("ownerOfGroupedProperty2")
                 << derivedType << 28 << 17 << ResolveOwnerType << qQuickValueTypes << noLine
-                << PropertyIdentifier;
+                << PropertyIdentifier << u"family"_s;
 
         QTest::addRow("ownerOfAttachedProperty")
-                << derivedType << 29 << 6 << ResolveOwnerType << derivedType << keysLine << AttachedTypeIdentifier;
+                << derivedType << 29 << 6 << ResolveOwnerType << derivedType << keysLine
+                << AttachedTypeIdentifierInBindingTarget << u"Keys"_s;
         QTest::addRow("ownerOfAttachedProperty2")
                 << derivedType << 29 << 14 << ResolveOwnerType << qQuickKeysAttachedType << noLine
-                << SignalHandlerIdentifier;
+                << SignalHandlerIdentifier << u"onBackPressed"_s;
 
         QTest::addRow("actualTypeOfAttachedProperty")
                 << derivedType << 29 << 14 << ResolveActualTypeForFieldMemberExpression << noFile
-                << noLine << SignalHandlerIdentifier;
+                << noLine << SignalHandlerIdentifier << u"onBackPressed"_s;
 
-        QTest::addRow("id")
-                << derivedType << 7 << 10 << ResolveOwnerType << derivedType << 6 << QmlObjectIdIdentifier;
+        QTest::addRow("id2") << derivedType << 7 << 10 << ResolveOwnerType << derivedType << 6
+                            << QmlObjectIdIdentifier << u"self"_s;
         QTest::addRow("propertyBinding")
-                << derivedType << 31 << 13 << ResolveOwnerType << baseType << baseTypeLine << PropertyIdentifier;
+                << derivedType << 31 << 13 << ResolveOwnerType << baseType << baseTypeLine
+                << PropertyIdentifier << u"helloProperty"_s;
 
-        QTest::addRow("qmlObject")
-                << derivedType << 6 << 4 << ResolveOwnerType << derived2Type << 4 << QmlComponentIdentifier;
+        QTest::addRow("qmlObject") << derivedType << 6 << 4 << ResolveOwnerType << derived2Type << 4
+                                   << QmlComponentIdentifier << u"Derived2"_s;
+    }
+    {
+        const QString file = testFile(u"resolveExpressionType/JSObjects.qml"_s);
+        QTest::addRow("jsObject") << file << 11 << 17 << ResolveOwnerType << file << 4
+                                  << JavaScriptIdentifier << u"object"_s;
+
+        QTest::addRow("jsObjectMember") << file << 11 << 23 << ResolveOwnerType << noFile << noLine
+                                        << JavaScriptIdentifier << u"a"_s;
+
+        QTest::addRow("jsObjectForFieldMemberExpression")
+                << file << 11 << 17 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
+                << JavaScriptIdentifier << u"object"_s;
+
+        QTest::addRow("jsObjectMemberForFieldMemberExpression")
+                << file << 11 << 23 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
+                << JavaScriptIdentifier << u"a"_s;
+        QTest::addRow("jsNewMemberExpression")
+                << file << 15 << 26 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
+                << JavaScriptIdentifier << u"Date"_s;
+    }
+    {
+        const QString file = testFile(u"resolveExpressionType/lambdas.qml"_s);
+        QTest::addRow("lambda") << file << 6 << 24 << ResolveOwnerType << file << 6
+                                << LambdaMethodIdentifier << unnamed;
+        QTest::addRow("lambdaParameter") << file << 7 << 28 << ResolveOwnerType << file << 6
+                                         << JavaScriptIdentifier << u"b"_s;
+        QTest::addRow("arrow") << file << 8 << 36 << ResolveOwnerType << file << 8
+                               << LambdaMethodIdentifier << unnamed;
+        QTest::addRow("arrowParameter")
+                << file << 8 << 42 << ResolveOwnerType << file << 8 << JavaScriptIdentifier << u"y"_s;
+        QTest::addRow("letWithLambda")
+                << file << 9 << 13 << ResolveOwnerType << file << 6 << JavaScriptIdentifier << u"moreLambdas"_s;
     }
     {
         const QString myHeader = u"private/myfile_p.h"_s;
         const QString file = testFile(u"resolveExpressionType/AttachedComponentMixup.qml"_s);
         QTest::addRow("ComponentAsComponent")
                 << file << 6 << 9 << ResolveOwnerType << myHeader << noLine
-                << QmlComponentIdentifier;
+                << QmlComponentIdentifier << u"TypeWithAttachedAndEnum"_s;
         QTest::addRow("ComponentAsAttachedType")
                 << file << 8 << 56 << ResolveOwnerType << myHeader << noLine
-                << AttachedTypeIdentifier;
+                << AttachedTypeIdentifier << u"TypeWithAttachedAndEnum"_s;
         QTest::addRow("ComponentAsEnumName")
                 << file << 9 << 33 << ResolveOwnerType << myHeader << noLine
-                << QmlComponentIdentifier;
+                << QmlComponentIdentifier << u"TypeWithAttachedAndEnum"_s;
     }
     {
         const QString myHeader = u"private/myfile_p.h"_s;
         const QString file = testFile(u"resolveExpressionType/QualifiedAttachedComponentMixup.qml"_s);
         QTest::addRow("QualifiedComponentAsComponent")
                 << file << 6 << 9 << ResolveOwnerType << myHeader << noLine
-                << QmlComponentIdentifier;
+                << QmlComponentIdentifier << u"TypeWithAttachedAndEnum"_s;
         QTest::addRow("QualifiedComponentAsAttachedType")
                 << file << 8 << 56 << ResolveOwnerType << myHeader << noLine
-                << AttachedTypeIdentifier;
+                << AttachedTypeIdentifier << u"TypeWithAttachedAndEnum"_s;
         QTest::addRow("QualifiedComponentAsEnumName")
                 << file << 9 << 35 << ResolveOwnerType << myHeader << noLine
-                << QmlComponentIdentifier;
+                << QmlComponentIdentifier << u"TypeWithAttachedAndEnum"_s;
 
         QTest::addRow("qualifiedModule") << file << 6 << 1 << ResolveOwnerType << noFile << noLine
-                                         << QualifiedModuleIdentifier;
-        QTest::addRow("qualifiedModule2") << file << 8 << 41 << ResolveOwnerType << noFile << noLine
-                                          << QualifiedModuleIdentifier;
-        QTest::addRow("qualifiedModule3") << file << 9 << 30 << ResolveOwnerType << noFile << noLine
-                                          << QualifiedModuleIdentifier;
-        QTest::addRow("qualifiedModule4") << file << 4 << 42 << ResolveOwnerType << noFile << noLine
-                                          << QualifiedModuleIdentifier;
-    }
-    {
-        const QString file = testFile(u"resolveExpressionType/JSObjects.qml"_s);
-        QTest::addRow("jsObject") << file << 11 << 17 << ResolveOwnerType << file << 4
-                                  << JavaScriptIdentifier;
-
-        QTest::addRow("jsObjectMember") << file << 11 << 23 << ResolveOwnerType << noFile << noLine
-                                        << JavaScriptIdentifier;
-
-        QTest::addRow("jsObjectForFieldMemberExpression")
-                << file << 11 << 17 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
-
-        QTest::addRow("jsObjectMemberForFieldMemberExpression")
-                << file << 11 << 23 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
-
-        QTest::addRow("jsNewMemberExpression")
-                << file << 15 << 26 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
-    }
-    {
-        const QString file = testFile(u"resolveExpressionType/lambdas.qml"_s);
-        QTest::addRow("lambda") << file << 6 << 24 << ResolveOwnerType << file << 6
-                                << LambdaMethodIdentifier;
-        QTest::addRow("lambdaParameter")
-                << file << 7 << 28 << ResolveOwnerType << file << 6 << JavaScriptIdentifier;
-        QTest::addRow("arrow") << file << 8 << 36 << ResolveOwnerType << file << 8
-                               << LambdaMethodIdentifier;
-        QTest::addRow("arrowParameter")
-                << file << 8 << 42 << ResolveOwnerType << file << 8 << JavaScriptIdentifier;
-        QTest::addRow("letWithLambda")
-                << file << 9 << 13 << ResolveOwnerType << file << 6 << JavaScriptIdentifier;
+                                         << QualifiedModuleIdentifier << u"RETM"_s;
+        QTest::addRow("qualifiedModule2") << file << 8 << 41 << ResolveOwnerType << noFile
+                                          << noLine << QualifiedModuleIdentifier << u"RETM"_s;
+        QTest::addRow("qualifiedModule3") << file << 9 << 30 << ResolveOwnerType << noFile
+                                          << noLine << QualifiedModuleIdentifier << u"RETM"_s;
+        QTest::addRow("qualifiedModule4") << file << 4 << 42 << ResolveOwnerType << noFile
+                                          << noLine << QualifiedModuleIdentifier << u"RETM"_s;
     }
     {
         const QString myHeader = u"private/myfile_p.h"_s;
         const QString file = testFile(u"resolveExpressionType/parameterTypeFromBinding.qml"_s);
         QTest::addRow("invalidPropertyChangedHandlerParameter")
                 << file << 9 << 23 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
+                << JavaScriptIdentifier << u"invalid"_s;
         QTest::addRow("invalidPropertyChangedHandlerParameter2")
                 << file << 9 << 49 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
+                << JavaScriptIdentifier << u"invalid"_s;
         QTest::addRow("signalHandlerParameter")
                 << file << 12 << 30 << ResolveActualTypeForFieldMemberExpression << myHeader
-                << noLine << JavaScriptIdentifier;
+                << noLine << JavaScriptIdentifier << u"parameter"_s;
         QTest::addRow("signalHandlerParameter2")
                 << file << 12 << 63 << ResolveActualTypeForFieldMemberExpression << myHeader
-                << noLine << JavaScriptIdentifier;
+                << noLine << JavaScriptIdentifier << u"parameter"_s;
         QTest::addRow("invalidSignalParameter")
                 << file << 12 << 39 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
+                << JavaScriptIdentifier << u"invalid"_s;
         QTest::addRow("invalidSignalParameter2")
                 << file << 12 << 85 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
-                << JavaScriptIdentifier;
-        QTest::addRow("unrelatedToHandlerParameter")
-                << file << 16 << 17 << ResolveOwnerType << file << 15 << JavaScriptIdentifier;
+                << JavaScriptIdentifier << u"invalid"_s;
+        QTest::addRow("unrelatedToHandlerParameter") << file << 16 << 17 << ResolveOwnerType << file
+                                                     << 15 << JavaScriptIdentifier << u"xxx"_s;
         QTest::addRow("unrelatedToHandlerParameter2")
-                << file << 17 << 26 << ResolveOwnerType << file << 15 << JavaScriptIdentifier;
+                << file << 17 << 26 << ResolveOwnerType << file << 15 << JavaScriptIdentifier
+                << u"xxx"_s;
         QTest::addRow("signalHandlerParameterNonArrow")
                 << file << 21 << 37 << ResolveActualTypeForFieldMemberExpression << myHeader
-                << noLine << JavaScriptIdentifier;
+                << noLine << JavaScriptIdentifier << u"parameter"_s;
         QTest::addRow("onColorChangedHandlerParameter")
                 << file << 12 << 30 << ResolveActualTypeForFieldMemberExpression << myHeader
-                << noLine << JavaScriptIdentifier;
+                << noLine << JavaScriptIdentifier << u"parameter"_s;
         QTest::addRow("onFakePropertyChangedSignal")
                 << file << 26 << 18 << ResolveOwnerType << myHeader << noLine
-                << SignalHandlerIdentifier;
+                << SignalHandlerIdentifier << u"onMySomeTypeChanged"_s;
+    }
+    {
+        const QString file = testFile(u"resolveExpressionType/identifiers.qml"_s);
+        QTest::addRow("identifierJSVariableFirst")
+                << file << 12 << 26 << ResolveActualTypeForFieldMemberExpression << noFile << noLine
+                << JavaScriptIdentifier << u"colliding"_s;
+        QTest::addRow("identifierIdSecond")
+                << file << 15 << 22 << ResolveActualTypeForFieldMemberExpression << file << 5
+                << QmlObjectIdIdentifier << u"colliding"_s;
+        QTest::addRow("identifierPropertyThird") << file << 23 << 22 << ResolveOwnerType << file
+                                                 << 18 << PropertyIdentifier << u"colliding"_s;
+        QTest::addRow("identifierPropertyThird2") << file << 31 << 22 << ResolveOwnerType << file
+                                                  << 26 << PropertyIdentifier << u"colliding"_s;
+        QTest::addRow("identifierMethodFourth") << file << 38 << 22 << ResolveOwnerType << file
+                                                << 34 << MethodIdentifier << u"colliding"_s;
     }
 }
 
@@ -2288,6 +2518,7 @@ void tst_qmlls_utils::resolveExpressionType()
     QFETCH(QString, expectedFile);
     QFETCH(int, expectedLine);
     QFETCH(QQmlLSUtils::IdentifierType, expectedType);
+    QFETCH(QString, expectedName);
 
     // they all start at 1.
     Q_ASSERT(line > 0);
@@ -2302,15 +2533,25 @@ void tst_qmlls_utils::resolveExpressionType()
     QCOMPARE(locations.size(), 1);
 
     auto definition = QQmlLSUtils::resolveExpressionType(locations.front().domItem, resolveOption);
-
     QVERIFY(definition);
     QCOMPARE(definition->type, expectedType);
+    if (expectedName.isEmpty())
+        QVERIFY(!definition->name);
+    else
+        QCOMPARE(definition->name, expectedName);
+
+    if (expectedFile.isEmpty()) {
+        QVERIFY(!definition->semanticScope);
+        return;
+    }
+
+    QVERIFY(definition->semanticScope);
+    QCOMPARE(definition->semanticScope->filePath(), expectedFile);
 
     if (expectedLine != -1) {
         QQmlJS::SourceLocation location = definition->semanticScope->sourceLocation();
         QCOMPARE((int)location.startLine, expectedLine);
     }
-    QCOMPARE(definition->type, expectedType);
 }
 
 void tst_qmlls_utils::isValidEcmaScriptIdentifier_data()
@@ -2447,6 +2688,7 @@ void tst_qmlls_utils::completions_data()
     QTest::addColumn<int>("line");
     QTest::addColumn<int>("character");
     QTest::addColumn<ExpectedCompletions>("expected");
+    //TODO(QTBUG-142394)
     QTest::addColumn<QStringList>("notExpected");
 
     const QString file = testFile(u"Yyy.qml"_s);
@@ -2506,6 +2748,7 @@ void tst_qmlls_utils::completions_data()
     const ExpectedCompletions quickSnippetsWithQualifierInsideWithBindings =
             quickBindingSnippets(u"QQ.") += quickSnippetsWithQualifierInside;
 
+    // TODO(QTBUG-138020), TODO(QTBUG-142394)
     QTest::newRow("objEmptyLineSnippets")
             << file << 9 << 1
             << (ExpectedCompletions({
@@ -2515,14 +2758,6 @@ void tst_qmlls_utils::completions_data()
                           u"readonly property ${1:type} ${2:name}: ${0:value};"_s },
                         { u"default property type name: value;"_s, CompletionItemKind::Snippet,
                           u"default property ${1:type} ${2:name}: ${0:value};"_s },
-                        { u"default required property type name: value;"_s,
-                          CompletionItemKind::Snippet,
-                          u"default required property ${1:type} ${2:name}: ${0:value};"_s },
-                        { u"required default property type name: value;"_s,
-                          CompletionItemKind::Snippet,
-                          u"required default property ${1:type} ${2:name}: ${0:value};"_s },
-                        { u"required property type name: value;"_s, CompletionItemKind::Snippet,
-                          u"required property ${1:type} ${2:name}: ${0:value};"_s },
                         { u"property type name;"_s, CompletionItemKind::Snippet,
                           u"property ${1:type} ${0:name};"_s },
                         { u"required property type name;"_s, CompletionItemKind::Snippet,
@@ -2531,8 +2766,51 @@ void tst_qmlls_utils::completions_data()
                           u"default property ${1:type} ${0:name};"_s },
                         { u"default required property type name;"_s, CompletionItemKind::Snippet,
                           u"default required property ${1:type} ${0:name};"_s },
-                        { u"required default property type name;"_s, CompletionItemKind::Snippet,
-                          u"required default property ${1:type} ${0:name};"_s },
+                        { u"final property type name;"_s, CompletionItemKind::Snippet,
+                          u"final property ${1:type} ${0:name};"_s },
+                        { u"final property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"final property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"virtual property type name;"_s, CompletionItemKind::Snippet,
+                          u"virtual property ${1:type} ${0:name};"_s },
+                        { u"virtual property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"virtual property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"override property type name;"_s, CompletionItemKind::Snippet,
+                          u"override property ${1:type} ${0:name};"_s },
+                        { u"override property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"override property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"default final property type name;"_s, CompletionItemKind::Snippet,
+                          u"default final property ${1:type} ${0:name};"_s },
+                        { u"default final property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"default final property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"default virtual property type name;"_s, CompletionItemKind::Snippet,
+                          u"default virtual property ${1:type} ${0:name};"_s },
+                        { u"default virtual property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"default virtual property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"default override property type name;"_s, CompletionItemKind::Snippet,
+                          u"default override property ${1:type} ${0:name};"_s },
+                        { u"default override property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"default override property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"final required property type name;"_s, CompletionItemKind::Snippet,
+                          u"final required property ${1:type} ${0:name};"_s },
+                        { u"final readonly property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"final readonly property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"virtual required property type name;"_s, CompletionItemKind::Snippet,
+                          u"virtual required property ${1:type} ${0:name};"_s },
+                        { u"virtual readonly property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"virtual readonly property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"override required property type name;"_s, CompletionItemKind::Snippet,
+                          u"override required property ${1:type} ${0:name};"_s },
+                        { u"override readonly property type name: value;"_s, CompletionItemKind::Snippet,
+                          u"override readonly property ${1:type} ${2:name}: ${0:value};"_s },
+                        { u"default final required property type name;"_s,
+                          CompletionItemKind::Snippet,
+                          u"default final required property ${1:type} ${0:name};"_s },
+                        { u"default virtual required property type name;"_s,
+                          CompletionItemKind::Snippet,
+                          u"default virtual required property ${1:type} ${0:name};"_s },
+                        { u"default override required property type name;"_s,
+                          CompletionItemKind::Snippet,
+                          u"default override required property ${1:type} ${0:name};"_s },
                         { u"signal name(arg1:type1, ...)"_s, CompletionItemKind::Snippet,
                           u"signal ${1:name}($0)"_s },
                         { u"signal name;"_s, CompletionItemKind::Snippet, u"signal ${0:name};"_s },
@@ -3069,6 +3347,9 @@ void tst_qmlls_utils::completions_data()
             << ExpectedCompletions({
                        { u"property"_s, CompletionItemKind::Keyword },
                        { u"default"_s, CompletionItemKind::Keyword },
+                       { u"virtual"_s, CompletionItemKind::Keyword },
+                       { u"final"_s, CompletionItemKind::Keyword },
+                       { u"override"_s, CompletionItemKind::Keyword },
                })
             << QStringList{
                    u"readonly"_s, u"required"_s, u"int"_s,   u"Rectangle"_s, u"foo"_s,
@@ -3080,6 +3361,9 @@ void tst_qmlls_utils::completions_data()
             << ExpectedCompletions({
                        { u"property"_s, CompletionItemKind::Keyword },
                        { u"default"_s, CompletionItemKind::Keyword },
+                       { u"virtual"_s, CompletionItemKind::Keyword },
+                       { u"final"_s, CompletionItemKind::Keyword },
+                       { u"override"_s, CompletionItemKind::Keyword },
                })
             << QStringList{
                    u"required"_s, u"readonly"_s, u"int"_s,   u"Rectangle"_s, u"foo"_s,
@@ -3092,6 +3376,9 @@ void tst_qmlls_utils::completions_data()
                        { u"property"_s, CompletionItemKind::Keyword },
                        { u"readonly"_s, CompletionItemKind::Keyword },
                        { u"required"_s, CompletionItemKind::Keyword },
+                       { u"virtual"_s, CompletionItemKind::Keyword },
+                       { u"final"_s, CompletionItemKind::Keyword },
+                       { u"override"_s, CompletionItemKind::Keyword },
                })
             << QStringList{
                    u"default"_s,  u"int"_s,      u"Rectangle"_s, u"foo"_s,
@@ -3104,6 +3391,9 @@ void tst_qmlls_utils::completions_data()
                        { u"property"_s, CompletionItemKind::Keyword },
                        { u"readonly"_s, CompletionItemKind::Keyword },
                        { u"required"_s, CompletionItemKind::Keyword },
+                       { u"virtual"_s, CompletionItemKind::Keyword },
+                       { u"final"_s, CompletionItemKind::Keyword },
+                       { u"override"_s, CompletionItemKind::Keyword },
                })
             << QStringList{
                    u"default"_s,  u"int"_s,      u"Rectangle"_s, u"foo"_s,
@@ -3117,6 +3407,27 @@ void tst_qmlls_utils::completions_data()
                    u"readonly"_s,
                    u"required"_s,
                };
+
+
+    const auto virtSpecifiersTest = [&file](QString keyword, int lineNum){
+        const auto testName = keyword + "Property";
+        QTest::newRow(qPrintable(testName))
+                << file << lineNum << 17 /*after keyword before end of property token*/
+                << ExpectedCompletions({
+                           { u"property"_s, CompletionItemKind::Keyword },
+                           { u"readonly"_s, CompletionItemKind::Keyword },
+                           { u"required"_s, CompletionItemKind::Keyword },
+                           { u"default"_s, CompletionItemKind::Keyword },
+                   })
+                << QStringList{
+                       u"virtual"_s, u"final"_s, u"override"_s,  u"int"_s,      u"Rectangle"_s, u"foo"_s,
+                       u"ValueOne"_s, u"ValueTwo"_s, u"Hello"_s,     u"MyEnum"_s,
+                   };
+
+    };
+    virtSpecifiersTest("virtual", 143);
+    virtSpecifiersTest("override", 144);
+    virtSpecifiersTest("final", 145);
 
     const QString forStatementCompletion = u"for (initializer; condition; increment) { statements... }"_s;
     const QString ifStatementCompletion = u"if (condition) statement"_s;
@@ -4353,6 +4664,19 @@ void tst_qmlls_utils::completions_data()
     QTest::newRow("insideComment2")
             << testFile("completions/Comments.qml") << 6 << 9 << ExpectedCompletions{}
             << QStringList{ u"x"_s, u"Item"_s, forStatementCompletion };
+    QTest::newRow("attachedSignalHandler")
+            << testFile("completions/attachedSignalHandler.qml") << 5 << 9
+            << ExpectedCompletions{ { "event", CompletionItemKind::Variable } } << QStringList{};
+    QTest::newRow("idMethodMixup")
+            << testFile("completions/idMethodMixup.qml") << 10 << 15
+            << ExpectedCompletions{ { "myProperty"_L1, CompletionItemKind::Property } }
+            << QStringList{ };
+
+    QTest::newRow("opaqueType")
+            << testFile("completions/opaqueUsage.qml") << 6 << 56
+            << ExpectedCompletions { {"x"_L1, CompletionItemKind::Property },
+                                     {"y"_L1, CompletionItemKind::Property } }
+            << QStringList {};
 }
 
 void tst_qmlls_utils::completions()
@@ -4361,6 +4685,7 @@ void tst_qmlls_utils::completions()
     QFETCH(int, line);
     QFETCH(int, character);
     QFETCH(ExpectedCompletions, expected);
+    //TODO(QTBUG-142394)
     QFETCH(QStringList, notExpected);
 
     auto [env, file] = createEnvironmentAndLoadFile(filePath);
@@ -4421,20 +4746,20 @@ void tst_qmlls_utils::completions()
         QVERIFY(!c.label.contains("$module$."));
         QVERIFY(!c.label.contains("$anonymous$."));
 
-        if (c.kind->toInt() == int(CompletionItemKind::Module)) {
+        if (c.kind == CompletionItemKind::Module) {
             QVERIFY2(!modulesTracker.hasSeen(c.label), "Duplicate module: " + c.label);
-        } else if (c.kind->toInt() == int(CompletionItemKind::Keyword)) {
+        } else if (c.kind == CompletionItemKind::Keyword) {
             QVERIFY2(!keywordsTracker.hasSeen(c.label), "Duplicate keyword: " + c.label);
-        } else if (c.kind->toInt() == int(CompletionItemKind::Class)) {
+        } else if (c.kind == CompletionItemKind::Class) {
             QVERIFY2(!classesTracker.hasSeen(c.label), "Duplicate class: " + c.label);
-        } else if (c.kind->toInt() == int(CompletionItemKind::Field)) {
+        } else if (c.kind == CompletionItemKind::Field) {
             QVERIFY2(!fieldsTracker.hasSeen(c.label), "Duplicate field: " + c.label);
-        } else if (c.kind->toInt() == int(CompletionItemKind::Snippet)) {
+        } else if (c.kind == CompletionItemKind::Snippet) {
             QVERIFY2(!snippetTracker.hasSeen(c.label), "Duplicate field: " + c.label);
             if (c.insertText->contains('\n') || c.insertText->contains('\r')) {
                 QCOMPARE(c.insertTextMode, InsertTextMode::AdjustIndentation);
             }
-        } else if (c.kind->toInt() == int(CompletionItemKind::Property)) {
+        } else if (c.kind == CompletionItemKind::Property) {
             QVERIFY2(!propertiesTracker.hasSeen(c.label), "Duplicate property: " + c.label);
             QCOMPARE(c.insertText, std::nullopt);
         }
@@ -4455,7 +4780,7 @@ void tst_qmlls_utils::completions()
             CompletionItemKind foundKind;
             for (const CompletionItem &c : completions) {
                 if (c.label == exp.label) {
-                    foundKind = static_cast<CompletionItemKind>(c.kind->toInt());
+                    foundKind = *c.kind;
                     foundEntry = true;
                     if (foundKind == exp.kind) {
                         hasCorrectKind = true;
@@ -4491,10 +4816,83 @@ void tst_qmlls_utils::completions()
 void tst_qmlls_utils::cmakeBuildCommand()
 {
     const QString path = u"helloWorldPath"_s;
-    const QPair<QString, QStringList> expected{
+    const std::pair<QString, QStringList> expected{
         u"cmake"_s, { u"--build"_s, path, u"-t"_s, u"all_qmltyperegistrations"_s }
     };
     QCOMPARE(QQmlLSUtils::cmakeBuildCommand(path), expected);
+}
+
+void tst_qmlls_utils::maxFilesToSearch()
+{
+    qputenv("QMLLS_MAX_FILES_TO_SEARCH", "1111");
+    QTest::ignoreMessage(QtInfoMsg,
+                         "Aborting search for \"qt\", \"qwer\" inside "
+                         "\"" QT_QMLLS_BIG_FOLDER
+                         "\" after reaching QMLLS_MAX_FILES_TO_SEARCH (currently set to 1111). Set "
+                         "the environment variable \"QMLLS_MAX_FILES_TO_SEARCH\" to a higher value "
+                         "to spend more time on searching.");
+    QQmlLSUtils::findFilePathsFromFileNames(QT_QMLLS_BIG_FOLDER ""_L1, { "qt"_L1, "qwer"_L1 }, {});
+}
+
+void tst_qmlls_utils::findFilePathsFromFileNames_data()
+{
+    QTest::addColumn<QSet<QString>>("ignored");
+    QTest::addColumn<QStringList>("expected");
+
+    QTest::addRow("all") << QSet<QString>()
+                         << QStringList{
+                                testFile("findFilePathsFromFileNames/HelloWorld.txt"_L1),
+                                testFile("findFilePathsFromFileNames/a/HelloWorld.txt"_L1),
+                                testFile("findFilePathsFromFileNames/a/b/HelloWorld.txt"_L1),
+                                testFile("findFilePathsFromFileNames/a/b/c/HelloWorld.txt"_L1),
+                            };
+
+    QTest::addRow("ignore3")
+            << QSet<QString> {
+               testFile("findFilePathsFromFileNames/a/HelloWorld.txt"_L1),
+               testFile("findFilePathsFromFileNames/a/b/HelloWorld.txt"_L1),
+    }
+            << QStringList{
+               testFile("findFilePathsFromFileNames/HelloWorld.txt"_L1),
+               testFile("findFilePathsFromFileNames/a/b/c/HelloWorld.txt"_L1),
+    };
+}
+
+void tst_qmlls_utils::findFilePathsFromFileNames()
+{
+    QFETCH(QSet<QString>, ignored);
+    QFETCH(QStringList, expected);
+
+    QStringList filePaths = QQmlLSUtils::findFilePathsFromFileNames(
+            testFile("findFilePathsFromFileNames"_L1), { "HelloWorld.txt"_L1 }, ignored);
+    std::sort(filePaths.begin(), filePaths.end());
+    std::sort(expected.begin(), expected.end());
+    QCOMPARE(filePaths, expected);
+}
+
+void tst_qmlls_utils::findFilePathFromFileName_data()
+{
+    QTest::addColumn<QSet<QString>>("ignored");
+    QTest::addColumn<QString>("expected");
+
+    QTest::addRow("withoutIgnore")
+            << QSet<QString>() << testFile("findFilePathsFromFileNames/HelloWorld.txt"_L1);
+
+    QTest::addRow("withIgnore") << QSet<QString>{
+        testFile("findFilePathsFromFileNames/HelloWorld.txt"_L1),
+        testFile("findFilePathsFromFileNames/a/HelloWorld.txt"_L1),
+        testFile("findFilePathsFromFileNames/a/b/HelloWorld.txt"_L1),
+    } << testFile("findFilePathsFromFileNames/a/b/c/HelloWorld.txt"_L1);
+}
+
+void tst_qmlls_utils::findFilePathFromFileName()
+{
+    QFETCH(QSet<QString>, ignored);
+    QFETCH(QString, expected);
+
+    QString filePaths = QQmlLSUtils::findFilePathFromFileName(
+            { testFile("findFilePathsFromFileNames"_L1) }, { "HelloWorld.txt"_L1 }, ignored);
+    QCOMPARE(filePaths, expected);
 }
 
 QTEST_MAIN(tst_qmlls_utils)

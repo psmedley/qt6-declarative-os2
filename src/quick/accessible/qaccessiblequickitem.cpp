@@ -1,8 +1,10 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qaccessiblequickitem_p.h"
 
+#include <QtGui/private/qaccessiblehelper_p.h>
 #include <QtGui/qtextdocument.h>
 
 #include "QtQuick/private/qquickitem_p.h"
@@ -45,7 +47,7 @@ public:
     // QAccessibleHyperlinkInterface
     QString anchor() const override
     {
-        const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
+        const QList<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
         if (linkIndex < links.size())
             return links.at(linkIndex).m_anchor;
         return QString();
@@ -53,7 +55,7 @@ public:
 
     QString anchorTarget() const override
     {
-        const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
+        const QList<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
         if (linkIndex < links.size())
             return links.at(linkIndex).m_anchorTarget;
         return QString();
@@ -61,7 +63,7 @@ public:
 
     int startIndex() const override
     {
-        const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
+        const QList<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
         if (linkIndex < links.size())
             return links.at(linkIndex).m_startIndex;
         return -1;
@@ -69,7 +71,7 @@ public:
 
     int endIndex() const override
     {
-        const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
+        const QList<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
         if (linkIndex < links.size())
             return links.at(linkIndex).m_endIndex;
         return -1;
@@ -112,7 +114,7 @@ QWindow *QAccessibleHyperlink::window() const
 /* \reimp */
 QRect QAccessibleHyperlink::rect() const
 {
-    const QVector<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
+    const QList<QQuickTextPrivate::LinkDesc> links = QQuickTextPrivate::get(textItem())->getLinks();
     if (linkIndex < links.size()) {
         const QPoint tl = itemScreenRect(textItem()).topLeft();
         return links.at(linkIndex).rect.translated(tl);
@@ -210,6 +212,12 @@ QAccessibleQuickItem::QAccessibleQuickItem(QQuickItem *item)
 {
 }
 
+bool QAccessibleQuickItem::isValid() const
+{
+    return item() && !QQuickItemPrivate::get(item())->inDestructor;
+}
+
+
 QWindow *QAccessibleQuickItem::window() const
 {
     QQuickWindow *window = item()->window();
@@ -305,6 +313,8 @@ QAccessibleInterface *QAccessibleQuickItem::parent() const
 
     if (parent) {
         if (parent == ci) {
+            if (auto *iface = itemWindow->accessibleRoot())
+                return iface;
             // Jump out to the window if the parent is the root item
             return QAccessible::queryAccessibleInterface(window());
         } else {
@@ -419,11 +429,9 @@ static bool isTextRole(QAccessible::Role role)
 
 QAccessible::State QAccessibleQuickItem::state() const
 {
-    QQuickAccessibleAttached *attached = QQuickAccessibleAttached::attachedProperties(item());
-    if (!attached)
-        return QAccessible::State();
-
-    QAccessible::State state = attached->state();
+    QAccessible::State state;
+    if (QQuickAccessibleAttached *attached = QQuickAccessibleAttached::attachedProperties(item()))
+        state = attached->state();
 
     QRect viewRect_ = viewRect();
     QRect itemRect = rect();
@@ -432,8 +440,15 @@ QAccessible::State QAccessibleQuickItem::state() const
         state.invisible = true;
     if (!viewRect_.intersects(itemRect))
         state.offscreen = true;
-    if ((role() == QAccessible::CheckBox || role() == QAccessible::RadioButton) && object()->property("checked").toBool())
+    if ((role() == QAccessible::CheckBox
+         || role() == QAccessible::RadioButton
+         || role() == QAccessible::Switch)
+        && object()->property("checked").toBool())
         state.checked = true;
+    if (role() == QAccessible::Button && object()->property("expandable").toBool()) {
+        state.expandable = true;
+        state.expanded = object()->property("expanded").toBool();
+    }
     if (item()->activeFocusOnTab() || isTextRole(role()))
         state.focusable = true;
     if (item()->hasActiveFocus())
@@ -445,7 +460,32 @@ QAccessible::State QAccessibleQuickItem::state() const
         state.focusable = false;
         state.disabled = true;
     }
+    if (item()->property("readOnly").toBool() || role() == QAccessible::ProgressBar)
+        state.readOnly = true;
     return state;
+}
+
+QList<std::pair<QAccessibleInterface *, QAccessible::Relation>>
+QAccessibleQuickItem::relations(QAccessible::Relation match) const
+{
+    QList<std::pair<QAccessibleInterface *, QAccessible::Relation>> rels =
+            QAccessibleObject::relations(match);
+    if (QQuickAccessibleAttached *attached = QQuickAccessibleAttached::attachedProperties(item())) {
+        if (match & QAccessible::Labelled) {
+            if (auto *labelFor = attached->labelFor()) {
+                rels.append({QAccessible::queryAccessibleInterface(labelFor),
+                             QAccessible::Labelled});
+            }
+        }
+
+        if (match & QAccessible::Label) {
+            if (auto *labelledBy = attached->labelledBy()) {
+                rels.append({QAccessible::queryAccessibleInterface(labelledBy),
+                             QAccessible::Label});
+            }
+        }
+    }
+    return rels;
 }
 
 QAccessible::Role QAccessibleQuickItem::role() const
@@ -478,12 +518,17 @@ QStringList QAccessibleQuickItem::actionNames() const
 {
     QStringList actions;
     switch (role()) {
+    case QAccessible::Button:
+        if (state().expandable)
+            actions << QAccessibleActionInterface::toggleAction();
+        Q_FALLTHROUGH();
     case QAccessible::Link:
-    case QAccessible::PushButton:
+    case QAccessible::MenuItem:
         actions << QAccessibleActionInterface::pressAction();
         break;
     case QAccessible::RadioButton:
     case QAccessible::CheckBox:
+    case QAccessible::Switch:
         actions << QAccessibleActionInterface::toggleAction()
                 << QAccessibleActionInterface::pressAction();
         break;
@@ -532,12 +577,12 @@ void QAccessibleQuickItem::doAction(const QString &actionName)
     //   Value-based roles : (via the value interface: value, minimumValue, maximumValue), stepSize
     switch (role()) {
     case QAccessible::RadioButton:
-    case QAccessible::CheckBox: {
+    case QAccessible::CheckBox:
+    case QAccessible::Switch: {
         QVariant checked = object()->property("checked");
         if (checked.isValid()) {
-            if (actionName == QAccessibleActionInterface::toggleAction() ||
-                    actionName == QAccessibleActionInterface::pressAction()) {
-
+            if (actionName == QAccessibleActionInterface::toggleAction()
+                || actionName == QAccessibleActionInterface::pressAction()) {
                 object()->setProperty("checked",  QVariant(!checked.toBool()));
             }
         }
@@ -576,6 +621,16 @@ void QAccessibleQuickItem::doAction(const QString &actionName)
             }
 
             valueIface->setCurrentValue(QVariant(newValue));
+        }
+        break;
+    }
+    case QAccessible::Button: {
+        QVariant expanded = object()->property("expanded");
+        if (expanded.isValid()) {
+            if (actionName == QAccessibleActionInterface::toggleAction()
+                || actionName == QAccessibleActionInterface::pressAction()) {
+                object()->setProperty("expanded", QVariant(!expanded.toBool()));
+            }
         }
         break;
     }
@@ -667,20 +722,30 @@ void QAccessibleQuickItem::setText(QAccessible::Text textType, const QString &te
 
 void *QAccessibleQuickItem::interface_cast(QAccessible::InterfaceType t)
 {
-    QAccessible::Role r = role();
-    if (t == QAccessible::ActionInterface)
+    const QAccessible::Role r = role();
+    switch (t) {
+    case QAccessible::ActionInterface:
         return static_cast<QAccessibleActionInterface*>(this);
-    if (t == QAccessible::ValueInterface &&
-           (r == QAccessible::Slider ||
-            r == QAccessible::SpinBox ||
-            r == QAccessible::Dial ||
-            r == QAccessible::ScrollBar))
-       return static_cast<QAccessibleValueInterface*>(this);
-
-    if (t == QAccessible::TextInterface) {
-        if (r == QAccessible::EditableText ||
-            r == QAccessible::StaticText)
-        return static_cast<QAccessibleTextInterface*>(this);
+    case QAccessible::AttributesInterface:
+        return static_cast<QAccessibleAttributesInterface *>(this);
+    case QAccessible::ValueInterface:
+        if (r == QAccessible::Slider
+         || r == QAccessible::SpinBox
+         || r == QAccessible::Dial
+         || r == QAccessible::ScrollBar
+         || r == QAccessible::ProgressBar) {
+            return static_cast<QAccessibleValueInterface*>(this);
+        }
+        break;
+    case QAccessible::TextInterface:
+        if (r == QAccessible::EditableText
+         || r == QAccessible::StaticText
+         || r == QAccessible::Heading) {
+            return static_cast<QAccessibleTextInterface*>(this);
+        }
+        break;
+    default:
+        break;
     }
 
     return QAccessibleObject::interface_cast(t);
@@ -698,12 +763,34 @@ void QAccessibleQuickItem::setCurrentValue(const QVariant &value)
 
 QVariant QAccessibleQuickItem::maximumValue() const
 {
-    return item()->property("maximumValue");
+    const auto minimumValue = item()->property("minimumValue");
+    const auto maximumValue = item()->property("maximumValue");
+    const auto from = item()->property("from");
+    const auto to   = item()->property("to");
+
+    if (minimumValue.isValid() && maximumValue.isValid())
+        return maximumValue;
+
+    if (from.isValid() && to.isValid())
+        return to;
+
+    return QVariant();
 }
 
 QVariant QAccessibleQuickItem::minimumValue() const
 {
-    return item()->property("minimumValue");
+    const auto minimumValue = item()->property("minimumValue");
+    const auto maximumValue = item()->property("maximumValue");
+    const auto from = item()->property("from");
+    const auto to   = item()->property("to");
+
+    if (minimumValue.isValid() && maximumValue.isValid())
+        return minimumValue;
+
+    if (from.isValid() && to.isValid())
+        return from;
+
+    return QVariant();
 }
 
 QVariant QAccessibleQuickItem::minimumStepSize() const
@@ -723,19 +810,20 @@ QRect itemScreenRect(QQuickItem *item)
         return QRect();
     }
 
-    QSize itemSize((int)item->width(), (int)item->height());
+    QSizeF itemSize(item->width(), item->height());
     // ### If the bounding rect fails, we first try the implicit size, then we go for the
     // parent size. WE MIGHT HAVE TO REVISIT THESE FALLBACKS.
     if (itemSize.isEmpty()) {
-        itemSize = QSize((int)item->implicitWidth(), (int)item->implicitHeight());
+        itemSize = QSize(item->implicitWidth(), item->implicitHeight());
         if (itemSize.isEmpty() && item->parentItem())
             // ### Seems that the above fallback is not enough, fallback to use the parent size...
-            itemSize = QSize((int)item->parentItem()->width(), (int)item->parentItem()->height());
+            itemSize = QSize(item->parentItem()->width(), item->parentItem()->height());
     }
 
-    QPointF scenePoint = item->mapToScene(QPointF(0, 0));
-    QPoint screenPos = item->window()->mapToGlobal(scenePoint.toPoint());
-    return QRect(screenPos, itemSize);
+    QRectF sceneRect = item->mapRectToScene(QRectF(QPointF(0, 0), itemSize));
+    QPoint screenPos = item->window()->mapToGlobal(sceneRect.topLeft().toPoint());
+    QSize screenSize = sceneRect.size().toSize();
+    return QRect(screenPos, screenSize);
 }
 
 QTextDocument *QAccessibleQuickItem::textDocument() const
@@ -755,7 +843,11 @@ int QAccessibleQuickItem::characterCount() const
         cursor.movePosition(QTextCursor::End);
         return cursor.position();
     }
-    return text(QAccessible::Value).size();
+
+    if (role() == QAccessible::EditableText)
+        return text(QAccessible::Value).size();
+
+    return text(QAccessible::Name).size();
 }
 
 int QAccessibleQuickItem::cursorPosition() const
@@ -777,7 +869,11 @@ QString QAccessibleQuickItem::text(int startOffset, int endOffset) const
         cursor.setPosition(endOffset, QTextCursor::KeepAnchor);
         return cursor.selectedText();
     }
-    return text(QAccessible::Value).mid(startOffset, endOffset - startOffset);
+
+    if (role() == QAccessible::EditableText)
+        return text(QAccessible::Value).mid(startOffset, endOffset - startOffset);
+
+    return text(QAccessible::Name).mid(startOffset, endOffset - startOffset);
 }
 
 QString QAccessibleQuickItem::textBeforeOffset(int offset, QAccessible::TextBoundaryType boundaryType,
@@ -787,16 +883,7 @@ QString QAccessibleQuickItem::textBeforeOffset(int offset, QAccessible::TextBoun
     Q_ASSERT(endOffset);
 
     if (m_doc) {
-        QTextCursor cursor = QTextCursor(m_doc);
-        cursor.setPosition(offset);
-        QPair<int, int> boundaries = QAccessible::qAccessibleTextBoundaryHelper(cursor, boundaryType);
-        cursor.setPosition(boundaries.first - 1);
-        boundaries = QAccessible::qAccessibleTextBoundaryHelper(cursor, boundaryType);
-
-        *startOffset = boundaries.first;
-        *endOffset = boundaries.second;
-
-        return text(boundaries.first, boundaries.second);
+        return qt_accTextBeforeOffsetHelper(*this, QTextCursor(m_doc), offset, boundaryType, startOffset, endOffset);
     } else {
         return QAccessibleTextInterface::textBeforeOffset(offset, boundaryType, startOffset, endOffset);
     }
@@ -809,16 +896,7 @@ QString QAccessibleQuickItem::textAfterOffset(int offset, QAccessible::TextBound
     Q_ASSERT(endOffset);
 
     if (m_doc) {
-        QTextCursor cursor = QTextCursor(m_doc);
-        cursor.setPosition(offset);
-        QPair<int, int> boundaries = QAccessible::qAccessibleTextBoundaryHelper(cursor, boundaryType);
-        cursor.setPosition(boundaries.second);
-        boundaries = QAccessible::qAccessibleTextBoundaryHelper(cursor, boundaryType);
-
-        *startOffset = boundaries.first;
-        *endOffset = boundaries.second;
-
-        return text(boundaries.first, boundaries.second);
+        return qt_accTextAfterOffsetHelper(*this, QTextCursor(m_doc), offset, boundaryType, startOffset, endOffset);
     } else {
         return QAccessibleTextInterface::textAfterOffset(offset, boundaryType, startOffset, endOffset);
     }
@@ -831,13 +909,7 @@ QString QAccessibleQuickItem::textAtOffset(int offset, QAccessible::TextBoundary
     Q_ASSERT(endOffset);
 
     if (m_doc) {
-        QTextCursor cursor = QTextCursor(m_doc);
-        cursor.setPosition(offset);
-        QPair<int, int> boundaries = QAccessible::qAccessibleTextBoundaryHelper(cursor, boundaryType);
-
-        *startOffset = boundaries.first;
-        *endOffset = boundaries.second;
-        return text(boundaries.first, boundaries.second);
+        return qt_accTextAtOffsetHelper(*this, QTextCursor(m_doc), offset, boundaryType, startOffset, endOffset);
     } else {
         return QAccessibleTextInterface::textAtOffset(offset, boundaryType, startOffset, endOffset);
     }
@@ -861,9 +933,9 @@ int QAccessibleQuickItem::selectionCount() const
     return 0;
 }
 
-void QAccessibleQuickItem::addSelection(int /* startOffset */, int /* endOffset */)
+void QAccessibleQuickItem::addSelection(int startOffset, int endOffset)
 {
-
+    setSelection(0, startOffset, endOffset);
 }
 void QAccessibleQuickItem::removeSelection(int /* selectionIndex */)
 {
@@ -874,6 +946,26 @@ void QAccessibleQuickItem::setSelection(int /* selectionIndex */, int /* startOf
 
 }
 
+QList<QAccessible::Attribute> QAccessibleQuickItem::attributeKeys() const
+{
+    if (attributeValue(QAccessible::Attribute::Locale).isValid())
+        return { QAccessible::Attribute::Locale };
+
+    return {};
+}
+
+QVariant QAccessibleQuickItem::attributeValue(QAccessible::Attribute key) const
+{
+    if (key == QAccessible::Attribute::Locale) {
+        QAccessibleInterface *windowIface = QAccessible::queryAccessibleInterface(window());
+        if (!windowIface || !windowIface->attributesInterface())
+            return QVariant();
+
+        return windowIface->attributesInterface()->attributeValue(QAccessible::Attribute::Locale);
+    }
+
+    return QVariant();
+}
 
 #endif // accessibility
 

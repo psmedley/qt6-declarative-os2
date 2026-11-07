@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKFLUENTWINUI3THEME_P_H
 #define QQUICKFLUENTWINUI3THEME_P_H
@@ -16,16 +17,21 @@
 //
 
 #include <QtCore/qglobal.h>
+#include <QtQuickControls2FluentWinUI3/qtquickcontrols2fluentwinui3exports.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQuickTheme;
 class QPalette;
+class QtQuickControls2FluentWinUI3StylePlugin;
 class QQuickFluentWinUI3Theme
 {
 public:
-    static void initialize(QQuickTheme *theme);
-    static void updatePalette(QPalette &palette);
+    static Q_QUICKCONTROLS2FLUENTWINUI3_EXPORT void initialize(QQuickTheme *theme);
+private:
+    static Q_QUICKCONTROLS2FLUENTWINUI3_EXPORT QPalette initializeDefaultPalette();
+
+    friend class QtQuickControls2FluentWinUI3StylePlugin;
 };
 
 QT_END_NAMESPACE

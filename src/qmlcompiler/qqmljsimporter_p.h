@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSIMPORTER_P_H
 #define QQMLJSIMPORTER_P_H
@@ -22,7 +23,7 @@
 #include <QtQml/private/qqmldirparser_p.h>
 #include <QtQml/private/qqmljsast_p.h>
 
-#include <memory>
+#include <QtCore/qtyperevision.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,7 +65,8 @@ private:
 
 enum QQmlJSImporterFlag {
     UseOptionalImports = 0x1,
-    PreferQmlFilesFromSourceFolder = 0x2
+    PreferQmlFilesFromSourceFolder = 0x2,
+    TolerateFileSelectors = 0x4, // if we find a type "twice", check if one looks like it's from a file selector and use the other
 };
 Q_DECLARE_FLAGS(QQmlJSImporterFlags, QQmlJSImporterFlag)
 
@@ -72,7 +74,17 @@ class QQmlJSImportVisitor;
 class QQmlJSLogger;
 class Q_QMLCOMPILER_EXPORT QQmlJSImporter
 {
+    // In the list of QML types we prefix unresolvable QML names with $anonymous$, and C++
+    // names with $internal$. This is to avoid clashes between them.
+    // In the list of C++ types we insert types that don't have a C++ name as their
+    // QML name prefixed with $anonymous$.
+    static inline constexpr QLatin1String anonPrefix = QLatin1String("$anonymous$");
+    static inline constexpr QLatin1String internalPrefix = QLatin1String("$internal$");
+    static inline constexpr QLatin1String modulePrefix = QLatin1String("$module$");
+
 public:
+    static inline constexpr QLatin1String s_inProcessMarker = QLatin1String("$InProcess$");
+
     struct ImportedTypes {
         ImportedTypes(QQmlJS::ContextualTypes &&types, QList<QQmlJS::DiagnosticMessage> &&warnings)
             : m_types(std::move(types)), m_warnings(std::move(warnings))
@@ -93,6 +105,11 @@ public:
         const QQmlJS::ContextualTypes &contextualTypes() const { return m_types; }
         const QList<QQmlJS::DiagnosticMessage> &warnings() const { return m_warnings; };
 
+        void setCurrentFileSelector(const QString &selector)
+        {
+            m_types.setCurrentFileSelector(selector);
+        }
+
         bool isEmpty() const { return m_types.types().isEmpty(); }
 
         bool hasType(const QString &name) const { return m_types.hasType(name); }
@@ -101,15 +118,13 @@ public:
             return m_types.type(name);
         }
         QString name(const QQmlJSScope::ConstPtr &type) const { return m_types.name(type); }
-        void setType(const QString &name, const QQmlJS::ImportedScope<QQmlJSScope::ConstPtr> &type)
+        void setType(const QString &name, const QQmlJS::ContextualType &type)
         {
             m_types.setType(name, type);
         }
         bool isNullType(const QString &name) const { return m_types.isNullType(name); }
-        const QHash<QString, QQmlJS::ImportedScope<QQmlJSScope::ConstPtr>> &types() const
-        {
-            return m_types.types();
-        }
+        const QHash<QString, QQmlJS::ContextualType> &types() const { return m_types.types(); }
+        const auto &names() const { return m_types.names(); }
 
         void add(ImportedTypes &&other)
         {
@@ -130,8 +145,8 @@ public:
     QQmlJSImporter(const QStringList &importPaths, QQmlJSResourceFileMapper *mapper,
                    QQmlJSImporterFlags flags = QQmlJSImporterFlags{});
 
-    QQmlJSResourceFileMapper *resourceFileMapper() const { return m_mapper; }
-    void setResourceFileMapper(QQmlJSResourceFileMapper *mapper) { m_mapper = mapper; }
+    const QQmlJSResourceFileMapper *resourceFileMapper() const { return m_mapper; }
+    void setResourceFileMapper(const QQmlJSResourceFileMapper *mapper) { m_mapper = mapper; }
 
     QQmlJSResourceFileMapper *metaDataMapper() const { return m_metaDataMapper; }
     void setMetaDataMapper(QQmlJSResourceFileMapper *mapper) { m_metaDataMapper = mapper; }
@@ -140,12 +155,14 @@ public:
     QList<QQmlJS::DiagnosticMessage> importQmldirs(const QStringList &qmltypesFiles);
 
     QQmlJSScope::Ptr importFile(const QString &file);
-    ImportedTypes importDirectory(const QString &directory, const QString &prefix = QString());
+    ImportedTypes importDirectory(const QString &directory, quint8 precedence,
+                                  const QString &prefix = QString());
 
     // ### qmltc needs this. once re-written, we no longer need to expose this
     QHash<QString, QQmlJSScope::Ptr> importedFiles() const { return m_importedFiles; }
 
-    ImportedTypes importModule(const QString &module, const QString &prefix = QString(),
+    ImportedTypes importModule(const QString &module, quint8 precedence,
+                               const QString &prefix = QString(),
                                QTypeRevision version = QTypeRevision(),
                                QStringList *staticModuleList = nullptr);
 
@@ -164,6 +181,11 @@ public:
     void clearCache();
 
     QQmlJSScope::ConstPtr jsGlobalObject();
+    QString pathOfModule(const QString &moduleName, QTypeRevision revision) const
+    {
+        const auto it = m_seenImports.constFind({ moduleName, revision });
+        return it != m_seenImports.constEnd() ? *it : QString();
+    }
 
     struct ImportVisitorPrerequisites
     {
@@ -197,10 +219,10 @@ public:
                                              const ImportVisitorPrerequisites &prerequisites)>;
 
     void setImportVisitor(ImportVisitor visitor) { m_importVisitor = visitor; }
+    void setFlags(const QQmlJSImporterFlags &flags) { m_flags = flags; }
+    QQmlJSImporterFlags flags() const { return m_flags; }
 
 private:
-    friend class QDeferredFactory<QQmlJSScope>;
-
     struct AvailableTypes
     {
         AvailableTypes(QQmlJS::ContextualTypes builtins)
@@ -226,9 +248,12 @@ private:
     };
 
     struct Import {
+        enum Type : bool { Directory, Qmldir };
+
         QString name;
         bool isStaticModule = false;
         bool isSystemModule = false;
+        Type type = Directory;
 
         QList<QQmlJSExportedScope> objects;
         QHash<QString, QQmlJSExportedScope> scripts;
@@ -240,33 +265,59 @@ private:
     };
 
     AvailableTypes builtinImportHelper();
-    bool importHelper(const QString &module, AvailableTypes *types,
+    bool importHelper(const QString &module, AvailableTypes *types, quint8 precedence,
                       const QString &prefix = QString(), QTypeRevision version = QTypeRevision(),
                       bool isDependency = false, bool isFile = false);
-    void processImport(
-            const QQmlJS::Import &importDescription, const Import &import, AvailableTypes *types);
-    void importDependencies(
-            const Import &import, AvailableTypes *types, const QString &prefix = QString(),
-            QTypeRevision version = QTypeRevision(), bool isDependency = false);
+    void processImport(const QQmlJS::Import &importDescription, const Import &import,
+                       quint8 precedence, AvailableTypes *types);
+    static void insertAliases(const QQmlJS::ContextualType &type,
+                              QQmlJSImporter::AvailableTypes *types);
+    void insertExport(const QQmlJS::ContextualType &type, const QQmlJS::Export &valExport,
+                      const QString &qmlName,
+                      QHash<QString, QList<QQmlJSScope::Export>> *seenExports,
+                      QQmlJSImporter::AvailableTypes *types) const;
+    QQmlJSScope::Export
+    resolveConflictingExports(const QQmlJS::Import &importDescription,
+                              const QQmlJSExportedScope &val, quint8 precedence,
+                              QHash<QString, QList<QQmlJSScope::Export>> *seenExports,
+                              QQmlJSImporter::AvailableTypes *types);
+    enum SeenVersion { LowerVersion, SameVersion, HigherVersion };
+    void insertExportWithConflictingVersion(const QQmlJSExportedScope &val, quint8 precedence,
+                                            const QString &qmlName,
+                                            const QQmlJSScope::Export &valExport,
+                                            const QQmlJSScope::ConstPtr &scope,
+                                            QHash<QString, QList<QQmlJSScope::Export>> *seenExports,
+                                            QQmlJSImporter::AvailableTypes *types,
+                                            SeenVersion seenVersion) const;
+    SeenVersion computeSeenVersion(const QQmlJS::Import &importDescription,
+                                   const QList<QQmlJS::Export> &existingExports,
+                                   QTypeRevision valExportVersion) const;
+    void insertExports(const QQmlJS::Import &importDescription, const QQmlJSExportedScope &val,
+                       const QString &cppName, quint8 precedence,
+                       QHash<QString, QList<QQmlJSScope::Export>> *seenExports,
+                       QQmlJSImporter::AvailableTypes *types);
+    void importDependencies(const Import &import, quint8 precedence, AvailableTypes *types,
+                            const QString &prefix = QString(),
+                            QTypeRevision version = QTypeRevision(), bool isDependency = false);
     QQmlDirParser createQmldirParserForFile(const QString &filename, Import *import);
     void readQmltypes(const QString &filename, Import *result);
     Import readQmldir(const QString &dirname);
     Import readDirectory(const QString &directory);
 
-    QQmlJSScope::Ptr localFile2ScopeTree(const QString &filePath);
+    QQmlJSScope::Ptr localFile2QQmlJSScope(const QString &filePath);
     static void setQualifiedNamesOn(const Import &import);
 
     QStringList m_importPaths;
 
-    QHash<QPair<QString, QTypeRevision>, QString> m_seenImports;
+    QHash<std::pair<QString, QTypeRevision>, QString> m_seenImports;
     QHash<QQmlJS::Import, QSharedPointer<AvailableTypes>> m_cachedImportTypes;
-    QHash<QString, Import> m_seenQmldirFiles;
+    QHash<QString, Import> m_seenQmldirFilesAndDirectories;
 
     QHash<QString, QQmlJSScope::Ptr> m_importedFiles;
     QList<QQmlJS::DiagnosticMessage> m_globalWarnings;
     std::optional<AvailableTypes> m_builtins;
 
-    QQmlJSResourceFileMapper *m_mapper = nullptr;
+    const QQmlJSResourceFileMapper *m_mapper = nullptr;
     QQmlJSResourceFileMapper *m_metaDataMapper = nullptr;
     QQmlJSImporterFlags m_flags;
     bool useOptionalImports() const { return m_flags.testFlag(UseOptionalImports); };

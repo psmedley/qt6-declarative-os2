@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QTQUICKGLOBAL_P_H
 #define QTQUICKGLOBAL_P_H
@@ -33,7 +34,6 @@ void Q_QUICK_EXPORT QQuick_initializeModule();
 Q_DECLARE_LOGGING_CATEGORY(lcTouch)
 Q_DECLARE_LOGGING_CATEGORY(lcMouse)
 Q_DECLARE_LOGGING_CATEGORY(lcFocus)
-Q_DECLARE_LOGGING_CATEGORY(lcDirty)
 
 /*
     This is needed for QuickTestUtils. Q_AUTOTEST_EXPORT checks QT_BUILDING_QT

@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGMATERIALSHADER_P_H
 #define QSGMATERIALSHADER_P_H
@@ -50,7 +51,7 @@ public:
         ShaderStageData(const QShader &shader) : shader(shader) { }
         QShader shader;
         QShader::Variant shaderVariant = QShader::StandardShader;
-        QVector<int> vertexInputLocations; // excluding rewriter-inserted ones
+        QList<int> vertexInputLocations; // excluding rewriter-inserted ones
         int qt_order_attrib_location = -1; // rewriter-inserted
     };
     QHash<QShader::Stage, ShaderStageData> shaders;

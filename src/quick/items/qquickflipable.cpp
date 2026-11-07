@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickflipable_p.h"
 #include "qquickitem_p.h"
@@ -80,7 +81,8 @@ public:
 
     \snippet qml/flipable/flipable.qml 0
 
-    \image flipable.gif
+    \image flipable.gif {Qt logo flipping between front and back sides
+           with rotation animation}
 
     The \l Transition creates the animation that changes the angle over
     four seconds. When the item changes between its "back" and

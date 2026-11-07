@@ -1,8 +1,11 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickdesignersupportitems_p.h"
 #include "qquickdesignersupportproperties_p.h"
+
+#include <QtQml/qqmlcomponent.h>
 
 #include <private/qabstractanimation_p.h>
 #include <private/qobject_p.h>
@@ -294,8 +297,7 @@ void QQuickDesignerSupportItems::disableBehaivour(QObject *object)
 
 void QQuickDesignerSupportItems::stopUnifiedTimer()
 {
-    QUnifiedTimer::instance()->setSlowdownFactor(0.00001);
-    QUnifiedTimer::instance()->setSlowModeEnabled(true);
+    QUnifiedTimer::instance()->setSpeedModifier(0);
 }
 
 void QQuickDesignerSupportItems::registerFixResourcePathsForObjectCallBack(void (*callback)(QObject *))

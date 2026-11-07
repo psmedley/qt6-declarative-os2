@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QANDROIDVIEWSIGNALMANAGER_P_H
 #define QANDROIDVIEWSIGNALMANAGER_P_H
@@ -17,41 +18,67 @@
 
 #include <QtCore/qhash.h>
 #include <QtCore/qjnitypes.h>
+#include <QtCore/qjniobject.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qobject.h>
+#include <QtCore/qmutex.h>
+#include <QtQuick/qquickview.h>
 
 QT_BEGIN_NAMESPACE
 
 class QAndroidViewSignalManager : public QObject
 {
-    Q_OBJECT
+    using connection_key_t = int;
+
 public:
+    explicit QAndroidViewSignalManager(QQuickView *view, QObject *parent = nullptr);
+
+    int qt_metacall(QMetaObject::Call call, int methodId, void **args) override;
+
+    void removeConnection(connection_key_t signalIdx);
+    bool addConnection(const QString &signalName,
+                      const QJniArray<jclass> &argTypes,
+                      const QJniObject &listener,
+                      int id);
+
+private:
+    /*
+        This will store the necessary information to call the listener
+        when the signal is emitted, including the Java function name and
+        signature so that we can call it quickly without recalculating those.
+    */
     struct ConnectionInfo
     {
-        int id;
-        QJniObject listener;
-        QByteArray javaArgType;
-        QByteArray signalSignature;
-        int propertyIndex{ -1 };
+        QMetaObject::Connection connection;
+        QJniObject listenerObject;
+        QString qmlSignalName;
+
+        QList<QMetaType::Type> qmlArgumentTypes;
+        bool isPropertySignal;
+        std::optional<int> qmlPropertyIndex; // Only filled if isPropertySignal
+        int connectionId;
     };
 
-    explicit QAndroidViewSignalManager()
-        : QObject(), connectionHandleCounter(0)
+    struct QueuedConnectionInfo
     {
-    }
-    void invokeListener(QObject *sender, int senderSignalIndex, QVariant signalValue);
+        connection_key_t id;
+        QString signalName;
+        QJniArray<jclass> argTypes;
+        QJniObject listener;
+    };
 
-    int connectionHandleCounter;
-    QMultiMap<QByteArray, ConnectionInfo> connectionInfoMap;
-    QHash<int, QMetaObject::Connection> connections;
+    bool hasConnection(connection_key_t key) const;
+    connection_key_t createNewSignalKey() const;
+    void onViewStatusChanged(QQuickView::Status status);
+    bool queueConnection(const QString &signalName,
+                         const QJniArray<jclass> &argTypes,
+                         const QJniObject &listener,
+                         int id);
 
-public slots:
-    void forwardSignal();
-    void forwardSignal(int);
-    void forwardSignal(double);
-    void forwardSignal(float);
-    void forwardSignal(bool);
-    void forwardSignal(QString);
+    QMap<connection_key_t, ConnectionInfo> m_connections;
+    QQuickView *m_view;
+    QList<QueuedConnectionInfo> m_queuedConnections;
+    QMutex m_queueMutex;
 };
 
 QT_END_NAMESPACE

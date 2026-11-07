@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKOVERLAY_P_H
 #define QQUICKOVERLAY_P_H
@@ -45,7 +46,7 @@ public:
     QQmlComponent *modeless() const;
     void setModeless(QQmlComponent *modeless);
 
-    static QQuickOverlay *overlay(QQuickWindow *window);
+    static QQuickOverlay *overlay(QQuickWindow *window, QQuickItem *parent = nullptr);
 
     static QQuickOverlayAttached *qmlAttachedProperties(QObject *object);
 
@@ -68,6 +69,13 @@ protected:
 #if QT_CONFIG(wheelevent)
     void wheelEvent(QWheelEvent *event) override;
 #endif
+#if QT_CONFIG(quick_draganddrop)
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+#endif
+    void handleWheelAndDnDEvents(QEvent *event);
     bool childMouseEventFilter(QQuickItem *item, QEvent *event) override;
     bool eventFilter(QObject *object, QEvent *event) override;
 

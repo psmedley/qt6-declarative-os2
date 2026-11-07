@@ -1,11 +1,10 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "qmltccommandlineutils.h"
-#include "qmltcvisitor.h"
-#include "qmltctyperesolver.h"
-
-#include "qmltccompiler.h"
+#include <private/qqmltccommandlineutils_p.h>
+#include <private/qqmltccompiler_p.h>
+#include <private/qqmltctyperesolver_p.h>
+#include <private/qqmltcvisitor_p.h>
 
 #include <private/qqmljscompiler_p.h>
 #include <private/qqmljsresourcefilemapper_p.h>
@@ -19,14 +18,14 @@
 #include <QtCore/qcommandlineparser.h>
 #include <QtCore/qregularexpression.h>
 
-#include <QtQml/private/qqmljslexer_p.h>
-#include <QtQml/private/qqmljsparser_p.h>
-#include <QtQml/private/qqmljsengine_p.h>
-#include <QtQml/private/qqmljsastvisitor_p.h>
-#include <QtQml/private/qqmljsast_p.h>
-#include <QtQml/private/qqmljsdiagnosticmessage_p.h>
+#include <private/qqmljslexer_p.h>
+#include <private/qqmljsparser_p.h>
+#include <private/qqmljsengine_p.h>
+#include <private/qqmljsastvisitor_p.h>
+#include <private/qqmljsast_p.h>
+#include <private/qqmljsdiagnosticmessage_p.h>
 #include <QtQmlCompiler/qqmlsa.h>
-#include <QtQmlCompiler/private/qqmljsliteralbindingcheck_p.h>
+#include <private/qqmljsliteralbindingcheck_p.h>
 
 #include <cstdlib> // EXIT_SUCCESS, EXIT_FAILURE
 
@@ -34,11 +33,9 @@ using namespace Qt::StringLiterals;
 
 void setupLogger(QQmlJSLogger &logger) // prepare logger to work with compiler
 {
-    for (const QQmlJS::LoggerCategory &category : logger.categories()) {
-        if (category.id() == qmlUnusedImports)
-            continue;
-        logger.setCategoryLevel(category.id(), QtCriticalMsg);
-        logger.setCategoryIgnored(category.id(), false);
+    for (const auto &[id, catOverride] : QQmltc::categoryOverrides()) {
+        if (catOverride.has_value())
+            logger.setCategorySeverity(id, catOverride.value());
     }
 }
 
@@ -137,7 +134,7 @@ int main(int argc, char **argv)
     }
     const QString inputFile = sources.first();
 
-    QString url = parseUrlArgument(inputFile);
+    QString url = QQmltc::parseUrlArgument(inputFile);
     if (url.isNull())
         return EXIT_FAILURE;
     if (!url.endsWith(u".qml")) {
@@ -154,11 +151,11 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    QString sourceCode = loadUrl(url);
+    QString sourceCode = QQmltc::loadUrl(url);
     if (sourceCode.isEmpty())
         return EXIT_FAILURE;
 
-    QString implicitImportDirectory = getImplicitImportDirectory(url);
+    QString implicitImportDirectory = QQmltc::getImplicitImportDirectory(url);
     if (implicitImportDirectory.isEmpty())
         return EXIT_FAILURE;
 
@@ -173,7 +170,7 @@ int main(int argc, char **argv)
         importPaths.append(parser.values(importPathOption));
 
     if (!parser.isSet(bareOption))
-        importPaths.append(QLibraryInfo::path(QLibraryInfo::QmlImportsPath));
+        importPaths.append(QLibraryInfo::paths(QLibraryInfo::QmlImportsPath));
 
     QStringList qmldirFiles = QQmlJSUtils::cleanPaths(parser.values(qmldirOption));
 
@@ -241,7 +238,7 @@ int main(int argc, char **argv)
         }
     }
 
-    QmltcCompilerInfo info;
+    QQmltc::CompilerInfo info;
     info.outputCppFile = parser.value(outputCppOption);
     info.outputHFile = parser.value(outputHOption);
     info.resourcePath = firstQml(paths);
@@ -261,8 +258,8 @@ int main(int argc, char **argv)
     QQmlJSImporter importer { importPaths, &mapper };
     importer.setMetaDataMapper(&metaDataMapper);
     auto qmltcVisitor = [](QQmlJS::AST::Node *rootNode, QQmlJSImporter *self,
-                                 const QQmlJSImporter::ImportVisitorPrerequisites &p) {
-        QmltcVisitor v(p.m_target, self, p.m_logger, p.m_implicitImportDirectory, p.m_qmldirFiles);
+                           const QQmlJSImporter::ImportVisitorPrerequisites &p) {
+        QQmltc::Visitor v(self, p.m_logger, p.m_implicitImportDirectory, p.m_qmldirFiles);
         QQmlJS::AST::Node::accept(rootNode, &v);
     };
     importer.setImportVisitor(qmltcVisitor);
@@ -272,14 +269,18 @@ int main(int argc, char **argv)
     logger.setCode(sourceCode);
     setupLogger(logger);
 
-    auto currentScope = QQmlJSScope::create();
-    if (parser.isSet(moduleOption))
-        currentScope->setOwnModuleName(parser.value(moduleOption));
-
-    QmltcVisitor visitor(currentScope, &importer, &logger,
-                         QQmlJSImportVisitor::implicitImportDirectory(url, &mapper), qmldirFiles);
-    visitor.setMode(QmltcVisitor::Compile);
-    QmltcTypeResolver typeResolver { &importer };
+    auto currentScope = importer.importFile(url);
+    if (parser.isSet(moduleOption)) {
+        if (auto factory = currentScope.factory())
+            factory->setModuleName(parser.value(moduleOption));
+        else
+            currentScope->setOwnModuleName(parser.value(moduleOption));
+    }
+    QQmltc::Visitor visitor(&importer, &logger,
+                            QQmlJSImportVisitor::implicitImportDirectory(url, &mapper),
+                            qmldirFiles);
+    visitor.setMode(QQmltc::Visitor::Compile);
+    QQmltc::TypeResolver typeResolver{ &importer };
     typeResolver.init(&visitor, qmlParser.rootNode());
 
     using PassManagerPtr =
@@ -291,8 +292,14 @@ int main(int argc, char **argv)
                                   QString(), QString(), QString());
     passMan->analyze(QQmlJSScope::createQQmlSAElement(visitor.result()));
 
-    if (logger.hasErrors())
+    if (logger.hasErrors()) {
+        if (visitor.hasSeenCustomParsers()) {
+            logger.log(QStringLiteral("qmltc does not support custom parsers such as ListModel or "
+                                      "old forms of Connections and PropertyChanges."),
+                       qmlCompiler, QQmlJS::SourceLocation());
+        }
         return EXIT_FAILURE;
+    }
 
     QList<QQmlJS::DiagnosticMessage> warnings = importer.takeGlobalWarnings();
     if (!warnings.isEmpty()) {
@@ -303,7 +310,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    QmltcCompiler compiler(url, &typeResolver, &visitor, &logger);
+    QQmltc::Compiler compiler(url, &typeResolver, &visitor, &logger);
     compiler.compile(info);
 
     if (logger.hasErrors())

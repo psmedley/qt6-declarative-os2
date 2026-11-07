@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // Copyright (C) 2016 BasysKom GmbH.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLVMEMETAOBJECT_P_H
 #define QQMLVMEMETAOBJECT_P_H
@@ -16,6 +17,7 @@
 // We mean it.
 //
 
+#include "qqmldata_p.h"
 #include <private/qbipointer_p.h>
 #include <private/qqmlguard_p.h>
 #include <private/qqmlguardedcontextdata_p.h>
@@ -34,7 +36,6 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
-#include <QtCore/qpair.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,14 +52,24 @@ public:
     QV4::Heap::Object *list() const { return m_list; }
     quintptr id() const { return m_id; }
 
+    // if m_propertyAndMethodStorage of the object is gone,
+    // the list is unusable
+    bool isValid() const { return m_list; }
+
     void append(QObject *o) const;
     void replace(qsizetype i, QObject *o) const;
     QObject *at(qsizetype i) const;
 
-    qsizetype size() const { return m_list->arrayData->length(); }
+    qsizetype size() const
+    {
+        Q_ASSERT(isValid());
+        return m_list->arrayData->length();
+    }
 
     void clear() const
     {
+        Q_ASSERT(isValid());
+
         QV4::Scope scope(m_list->internalClass->engine);
         QV4::ScopedObject object(scope, m_list);
         m_list->arrayData->vtable()->truncate(object, 0);
@@ -66,6 +77,8 @@ public:
 
     void removeLast() const
     {
+        Q_ASSERT(isValid());
+
         const uint length = m_list->arrayData->length();
         if (length == 0)
             return;
@@ -108,10 +121,24 @@ public:
 
     static QQmlInterceptorMetaObject *get(QObject *obj);
 
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    const QMetaObject *toDynamicMetaObject(QObject *o) const override;
+#else
     QMetaObject *toDynamicMetaObject(QObject *o) override;
+#endif
 
     // Used by auto-tests for inspection
     QQmlPropertyCache::ConstPtr propertyCache() const { return cache; }
+
+    // Re-point this meta-object at an identically-shaped property cache. Used by the QML preview's
+    // in-place patch to give a live instance the reloaded type's identity, so it keeps satisfying
+    // is-a checks against consumers whose type references were redirected to the new unit. The
+    // lazily-built dynamic meta-object is dropped so it is rebuilt from the new cache on next use.
+    void setPropertyCache(const QQmlPropertyCache::ConstPtr &newCache)
+    {
+        cache = newCache;
+        metaObject = QTaggedPointer<const QMetaObject, MetaObjectValidity>();
+    }
 
     bool intercepts(QQmlPropertyIndex propertyIndex) const
     {
@@ -126,7 +153,11 @@ public:
 
     void invalidate() { metaObject.setTag(MetaObjectInvalid); }
 
-    QObject *object = nullptr;
+    // only used for Bindable so far; Write instead passes a flag via the metacall
+    enum InterceptionBehavior { Intercept, SkipInterception };
+    static void setInterceptionMode(QObject *object, InterceptionBehavior behavior);
+
+    QTaggedPointer<QObject> object = nullptr;
     QQmlPropertyCache::ConstPtr cache;
 
 protected:
@@ -142,6 +173,9 @@ protected:
                 return false;
             break;
         case QMetaObject::BindableProperty:
+            if (object.tag() == SkipInterception) {
+                return false;
+            }
             break;
         default:
             return false;
@@ -172,14 +206,25 @@ inline QQmlInterceptorMetaObject *QQmlInterceptorMetaObject::get(QObject *obj)
     return nullptr;
 }
 
+inline void QQmlInterceptorMetaObject::setInterceptionMode(
+        QObject *object, QQmlInterceptorMetaObject::InterceptionBehavior behavior)
+{
+    QQmlInterceptorMetaObject *interceptorMetaObject = get(object);
+    while (interceptorMetaObject) {
+        interceptorMetaObject->object.setTag(behavior);
+        auto parent = interceptorMetaObject->parent;
+        interceptorMetaObject = ((parent.isT1() && parent.flag()) ? static_cast<QQmlInterceptorMetaObject *>(parent.asT1()) : nullptr);
+    }
+}
+
 class QQmlVMEMetaObjectEndpoint;
 class Q_QML_EXPORT QQmlVMEMetaObject : public QQmlInterceptorMetaObject
 {
 public:
-    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj,
-                      const QQmlPropertyCache::ConstPtr &cache,
-                      const QQmlRefPointer<QV4::ExecutableCompilationUnit> &qmlCompilationUnit,
-                      int qmlObjectId);
+    QQmlVMEMetaObject(
+            QV4::ExecutionEngine *engine, QObject *obj, const QQmlPropertyCache::ConstPtr &cache,
+            const QQmlRefPointer<QV4::ExecutableCompilationUnit> &qmlCompilationUnit,
+            int qmlObjectId);
     ~QQmlVMEMetaObject() override;
 
     bool aliasTarget(int index, QObject **target, int *coreIndex, int *valueTypeIndex) const;
@@ -200,21 +245,15 @@ public:
     static void list_append_nosignal(QQmlListProperty<QObject> *prop, QObject *o);
     static void list_clear_nosignal(QQmlListProperty<QObject> *prop);
 
-protected:
-    int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) override;
-
-public:
-    QV4::ExecutionEngine *engine;
-    QQmlGuardedContextData ctxt;
-
     inline int propOffset() const;
-    inline int methodOffset() const;
+    inline int propCount() const;
+    inline int aliasOffset() const;
+    inline int aliasCount() const;
     inline int signalOffset() const;
     inline int signalCount() const;
+    inline int methodOffset() const;
+    inline int methodCount() const;
 
-    QQmlVMEMetaObjectEndpoint *aliasEndpoints;
-
-    QV4::WeakValue propertyAndMethodStorage;
     QV4::MemberData *propertyAndMethodStorageAsMemberData() const;
 
     int readPropertyAsInt(int id) const;
@@ -246,9 +285,9 @@ public:
     {
         QV4::MemberData *md = propertyAndMethodStorageAsMemberData();
         if (md) {
-            QV4::Scope scope(engine);
+            QV4::Scope scope(m_engine);
             QV4::Scoped<QV4::MemberData>(scope, md)->set(
-                        engine, id, engine->newVariantObject(
+                        m_engine, id, m_engine->newVariantObject(
                             QMetaType::fromType<VariantCompatible>(), &v));
         }
     }
@@ -259,28 +298,68 @@ public:
 
     void mark(QV4::MarkStack *markStack);
 
-    void connectAlias(int aliasId);
+    void connectAlias(const QV4::CompiledData::Object *compiledObject, int aliasId);
 
     QV4::ReturnedValue method(int) const;
 
     QV4::ReturnedValue readVarProperty(int) const;
     void writeVarProperty(int, const QV4::Value &);
     QVariant readPropertyAsVariant(int) const;
-    void writeProperty(int, const QVariant &);
 
     inline QQmlVMEMetaObject *parentVMEMetaObject() const;
+    inline void setParentVMEMetaObject(QQmlVMEMetaObject *newParent);
 
     void activate(QObject *, int, void **);
 
-    QList<QQmlVMEVariantQObjectPtr *> varObjectGuards;
-
     QQmlVMEVariantQObjectPtr *getQObjectGuardForProperty(int) const;
 
+    QQmlRefPointer<QQmlContextData> contextData() const { return m_ctxt.contextData(); }
+    QV4::ExecutionEngine *engine() const { return m_engine; }
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit() const
+    {
+        return m_compilationUnit;
+    }
+
+    void setCompilationUnit(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit)
+    {
+        m_compilationUnit = compilationUnit;
+    }
+
+    int qmlObjectId() const { return m_qmlObjectId; }
+
+protected:
+    int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) override;
+    bool getListProperty(int id, QQmlListProperty<QObject> *target);
+
+private:
+    friend class QQmlVMEMetaObjectEndpoint;
+    friend class QQmlVMEResolvedList;
+    friend class QQmlVMEVariantQObjectPtr;
+
+    const QV4::CompiledData::Object *findCompiledObject() const {
+        // If the executable CU has been stripped of its engine, it has an empty base CU
+        if (!m_compilationUnit || !m_compilationUnit->engine)
+            return nullptr;
+
+        Q_ASSERT(m_qmlObjectId >= 0 && m_qmlObjectId < m_compilationUnit->objectCount());
+        return m_compilationUnit->objectAt(m_qmlObjectId);
+    }
+
+    void writeKnownVarProperty(int id, const QVariant &value);
+
+    QV4::ExecutionEngine *m_engine;
+    QQmlGuardedContextData m_ctxt;
+
+    QQmlVMEMetaObjectEndpoint *m_aliasEndpoints;
+    QV4::WeakValue m_propertyAndMethodStorage;
+
+    QList<QQmlVMEVariantQObjectPtr *> m_varObjectGuards;
 
     // keep a reference to the compilation unit in order to still
     // do property access when the context has been invalidated.
-    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
-    const QV4::CompiledData::Object *compiledObject;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> m_compilationUnit;
+    int m_qmlObjectId = -1;
+    int m_numAliases = 0;
 };
 
 QQmlVMEMetaObject *QQmlVMEMetaObject::get(QObject *obj)
@@ -297,22 +376,50 @@ QQmlVMEMetaObject *QQmlVMEMetaObject::get(QObject *obj)
 
 int QQmlVMEMetaObject::propOffset() const
 {
+    // Regular properties are before aliases
     return cache->propertyOffset();
 }
 
-int QQmlVMEMetaObject::methodOffset() const
+int QQmlVMEMetaObject::propCount() const
 {
-    return cache->methodOffset();
+    // Properties excluding aliases
+    return cache->ownPropertyCount() - m_numAliases;
+}
+
+int QQmlVMEMetaObject::aliasOffset() const
+{
+    // Aliases are after regular properties
+    return propOffset() + propCount();
+}
+
+int QQmlVMEMetaObject::aliasCount() const
+{
+    // We need to cache this since we don't want to count over and over.
+    return m_numAliases;
 }
 
 int QQmlVMEMetaObject::signalOffset() const
 {
-    return cache->signalOffset();
+    // Signals are before regular methods
+    return cache->methodOffset();
 }
 
 int QQmlVMEMetaObject::signalCount() const
 {
-    return cache->signalCount();
+    // Signals including signals for properties and aliases
+    return cache->ownSignalCount();
+}
+
+int QQmlVMEMetaObject::methodOffset() const
+{
+    // Regular methods are after signals
+    return signalOffset() + signalCount();
+}
+
+int QQmlVMEMetaObject::methodCount() const
+{
+    // Methods excluding signals
+    return cache->ownMethodCount() - signalCount();
 }
 
 QQmlVMEMetaObject *QQmlVMEMetaObject::parentVMEMetaObject() const
@@ -321,6 +428,12 @@ QQmlVMEMetaObject *QQmlVMEMetaObject::parentVMEMetaObject() const
         return static_cast<QQmlVMEMetaObject *>(parent.asT1());
 
     return nullptr;
+}
+
+inline void QQmlVMEMetaObject::setParentVMEMetaObject(QQmlVMEMetaObject *newParent)
+{
+    parent = newParent;
+    parent.setFlag();
 }
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlplatform_p.h"
 #include "qqmlglobal_p.h"
@@ -37,8 +38,8 @@ QString QQmlPlatform::os()
     return QStringLiteral("osx");
 #elif defined(Q_OS_WIN)
     return QStringLiteral("windows");
-#elif defined(Q_OS_OS2)
-    return QStringLiteral("os2");
+#elif defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    return QStringLiteral("harmonyos");
 #elif defined(Q_OS_LINUX)
     return QStringLiteral("linux");
 #elif defined(Q_OS_QNX)

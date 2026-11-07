@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMICON_P_H
 #define QQUICKLABSPLATFORMICON_P_H
@@ -29,6 +30,7 @@ class QQuickLabsPlatformIcon
 {
     Q_GADGET
     QML_ANONYMOUS
+    QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(QUrl source READ source WRITE setSource FINAL)
     Q_PROPERTY(QString name READ name WRITE setName FINAL)
     Q_PROPERTY(bool mask READ isMask WRITE setMask FINAL)

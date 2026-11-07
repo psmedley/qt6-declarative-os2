@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "proxytranslator.h"
 
@@ -43,10 +44,15 @@ void ProxyTranslator::setLanguage(const QUrl &context, const QLocale &locale)
     m_currentUILanguages = locale.uiLanguages().join(QLatin1Char(' '));
 
     m_qtTranslator.reset(new QTranslator());
-    if (!m_qtTranslator->load(locale, QLatin1String("qt"), QLatin1String("_"),
-                              QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
-        m_qtTranslator.reset();
+    const QStringList qtPaths = QLibraryInfo::paths(QLibraryInfo::TranslationsPath);
+    bool ok = false;
+    for (const QString &path : qtPaths) {
+        ok = m_qtTranslator->load(locale, QLatin1String("qt"), QLatin1String("_"), path);
+        if (ok)
+            break;
     }
+    if (!ok)
+        m_qtTranslator.reset();
 
     m_qmlTranslator.reset(new QTranslator(this));
     if (!m_qmlTranslator->load(locale, QLatin1String("qml"), QLatin1String("_"),

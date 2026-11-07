@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickanimatedsprite_p.h"
 #include "qquickanimatedsprite_p_p.h"
@@ -35,11 +36,13 @@ QT_BEGIN_NAMESPACE
 
     Consider the following sprite sheet:
 
-    \image animatedsprite-loading.png
+    \image animatedsprite-loading.png {Sprite sheet with four frames
+           showing progressively appearing blue dots}
 
     It can be divided up into four frames:
 
-    \image animatedsprite-loading-frames.png
+    \image animatedsprite-loading-frames.png {Sprite sheet divided into
+           four frames with visible borders}
 
     To play each of these frames at a speed of 500 milliseconds per frame, the
     following code can be used:
@@ -60,7 +63,8 @@ QT_BEGIN_NAMESPACE
                 }
                 \endcode
             \li
-                \image animatedsprite-loading-interpolated.gif
+                \image animatedsprite-loading-interpolated.gif {Loading
+                       animation playing with frame interpolation}
     \endtable
 
     By default, the frames are interpolated (blended together) to make the
@@ -83,7 +87,8 @@ QT_BEGIN_NAMESPACE
                 }
                 \endcode
             \li
-                \image animatedsprite-loading.gif
+                \image animatedsprite-loading.gif {Loading animation
+                       playing without frame interpolation}
     \endtable
 
     To control how AnimatedSprite responds to being scaled, use the
@@ -240,7 +245,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \qmlmethod int QtQuick::AnimatedSprite::restart()
+    \qmlmethod void QtQuick::AnimatedSprite::restart()
 
     Stops, then starts the sprite animation.
 */
@@ -388,7 +393,7 @@ void QQuickAnimatedSprite::componentComplete()
 }
 
 /*!
-    \qmlmethod QtQuick::AnimatedSprite::start()
+    \qmlmethod void QtQuick::AnimatedSprite::start()
     \since 5.15
 
     Starts the sprite animation. If the animation is already running, calling
@@ -418,7 +423,7 @@ void QQuickAnimatedSprite::start()
 }
 
 /*!
-    \qmlmethod QtQuick::AnimatedSprite::stop()
+    \qmlmethod void QtQuick::AnimatedSprite::stop()
     \since 5.15
 
     Stops the sprite animation. If the animation is not running, calling this
@@ -440,9 +445,9 @@ void QQuickAnimatedSprite::stop()
 }
 
 /*!
-    \qmlmethod int QtQuick::AnimatedSprite::advance()
+    \qmlmethod void QtQuick::AnimatedSprite::advance(int frames = 1)
 
-    Advances the sprite animation by one frame.
+    Advances the sprite animation by a specified number of \a frames.
 */
 void QQuickAnimatedSprite::advance(int frames)
 {
@@ -475,7 +480,7 @@ void QQuickAnimatedSprite::itemChange(ItemChange change, const ItemChangeData &v
 }
 
 /*!
-    \qmlmethod int QtQuick::AnimatedSprite::pause()
+    \qmlmethod void QtQuick::AnimatedSprite::pause()
 
     Pauses the sprite animation. This does nothing if
     \l paused is \c true.
@@ -495,7 +500,7 @@ void QQuickAnimatedSprite::pause()
 }
 
 /*!
-    \qmlmethod int QtQuick::AnimatedSprite::resume()
+    \qmlmethod void QtQuick::AnimatedSprite::resume()
 
     Resumes the sprite animation if \l paused is \c true;
     otherwise, this does nothing.
@@ -553,7 +558,7 @@ void QQuickAnimatedSprite::setSource(const QUrl &arg)
     Q_D(QQuickAnimatedSprite);
 
     if (d->m_sprite->m_source != arg) {
-        const qreal targetDevicePixelRatio = (window() ? window()->effectiveDevicePixelRatio() : qApp->devicePixelRatio());
+        const qreal targetDevicePixelRatio = d->effectiveDevicePixelRatio();
         d->m_sprite->setDevicePixelRatio(targetDevicePixelRatio);
         d->m_sprite->setSource(arg);
         Q_EMIT sourceChanged(arg);

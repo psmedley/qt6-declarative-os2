@@ -9,7 +9,7 @@ find_package(Qt6 QUIET OPTIONAL_COMPONENTS Multimedia)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
-add_subdirectory("../../../examples/quick/shared" "shared")
+add_subdirectory("../shared" "shared")
 
 qt_add_executable(windowembedding_test
     WIN32
@@ -79,7 +79,6 @@ install(TARGETS windowembedding_test
 qt_generate_deploy_qml_app_script(
     TARGET windowembedding_test
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

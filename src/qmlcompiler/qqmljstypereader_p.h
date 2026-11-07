@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSTYPEREADER_P_H
 #define QQMLJSTYPEREADER_P_H
@@ -14,35 +15,23 @@
 //
 // We mean it.
 
-#include "qqmljsscope_p.h"
-#include "qqmljsimporter_p.h"
-#include "qqmljsresourcefilemapper_p.h"
-
 #include <QtQml/private/qqmljsastfwd_p.h>
 #include <QtQml/private/qqmljsdiagnosticmessage_p.h>
 
-#include <QtCore/qpair.h>
 #include <QtCore/qset.h>
+#include <QtCore/qsharedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlJSTypeReader
-{
-public:
-    QQmlJSTypeReader(QQmlJSImporter *importer, const QString &file)
-        : m_importer(importer)
-        , m_file(file)
-    {}
+class QQmlJSImporter;
+class QQmlJSScope;
 
-    bool operator()(const QSharedPointer<QQmlJSScope> &scope);
-    QList<QQmlJS::DiagnosticMessage> errors() const { return m_errors; }
-
-private:
-    QQmlJSImporter *m_importer;
-    QString m_file;
-    QStringList m_qmldirFiles;
-    QList<QQmlJS::DiagnosticMessage> m_errors;
-};
+namespace QQmlJS {
+using TypeReader = std::function<void(QQmlJSImporter *importer, const QString &filePath,
+                                      const QSharedPointer<QQmlJSScope> &scopeToPopulate)>;
+void defaultTypeReader(QQmlJSImporter *importer, const QString &filePath,
+                       const QSharedPointer<QQmlJSScope> &scope);
+} // namespace QQmlJS
 
 QT_END_NAMESPACE
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicktranslate_p.h"
 #include "qquickitem_p.h"
@@ -48,7 +49,8 @@ public:
     }
     \endqml
 
-    \image translate.png
+    \image translate.png {Blue and red rectangles, with red translated
+           20 pixels upward}
 */
 QQuickTranslate::QQuickTranslate(QObject *parent)
 : QQuickTransform(*new QQuickTranslatePrivate, parent)
@@ -257,10 +259,11 @@ class QQuickRotationPrivate : public QQuickTransformPrivate
 {
 public:
     QQuickRotationPrivate()
-        : angle(0), axis(0, 0, 1) {}
+        : origin(), axis(0, 0, 1), angle(0), distanceToPlane(1024.0) {}
     QVector3D origin;
-    qreal angle;
     QVector3D axis;
+    qreal angle;
+    qreal distanceToPlane;
 };
 
 /*!
@@ -294,7 +297,8 @@ public:
 
     \snippet qml/rotation.qml 0
 
-    \image axisrotation.png
+    \image axisrotation.png {Five Qt logos showing 3D rotations around
+           the vertical axis}
 
     \sa {customitems/dialcontrol}{Dial Control example}, {Qt Quick Demo - Clocks}
 */
@@ -361,7 +365,8 @@ void QQuickRotation::setAngle(qreal angle)
     For a typical 3D-like rotation you will usually specify both the origin
     and the axis.
 
-    \image 3d-rotation-axis.png
+    \image 3d-rotation-axis.png {3D coordinate system with purple
+           rectangle rotated around the y-axis in the XY plane}
 */
 QVector3D QQuickRotation::axis() const
 {
@@ -394,6 +399,43 @@ void QQuickRotation::setAxis(Qt::Axis axis)
     }
 }
 
+/*!
+    \qmlproperty real QtQuick::Rotation::distanceToPlane
+    \since 6.11
+
+    This property defines the distance between the view plane (the virtual screen)
+    and the observer in the perspective projection model.
+
+    A smaller distance produces a stronger perspective effect, making the object
+    appear to recede or advance more dramatically during rotation. A larger value
+    results in a flatter, more orthographic appearance with less visible
+    perspective distortion.
+
+    The default value is \c 1024.0, which provides a moderate perspective suitable
+    for most use cases.
+
+    When this property is set to \c 0, no perspective projection is applied.
+    In this case, the rotation is performed directly in 3D space using the
+    transformation defined by \l QMatrix4x4::rotate().
+
+    This property only affects rotations around the x and y axes. Rotations around
+    the z axis (2D rotations) are not influenced by this property.
+*/
+qreal QQuickRotation::distanceToPlane() const
+{
+    Q_D(const QQuickRotation);
+    return d->distanceToPlane;
+}
+
+void QQuickRotation::setDistanceToPlane(qreal newDistanceToPlane)
+{
+    Q_D(QQuickRotation);
+    if (qFuzzyCompare(d->distanceToPlane, newDistanceToPlane))
+        return;
+    d->distanceToPlane = newDistanceToPlane;
+    emit distanceToPlaneChanged();
+}
+
 void QQuickRotation::applyTo(QMatrix4x4 *matrix) const
 {
     Q_D(const QQuickRotation);
@@ -402,9 +444,222 @@ void QQuickRotation::applyTo(QMatrix4x4 *matrix) const
         return;
 
     matrix->translate(d->origin);
-    matrix->projectedRotate(d->angle, d->axis.x(), d->axis.y(), d->axis.z());
+    matrix->projectedRotate(d->angle, d->axis.x(), d->axis.y(), d->axis.z(), d->distanceToPlane);
     matrix->translate(-d->origin);
 }
+
+/*!
+    \qmltype Shear
+    \nativetype QQuickShear
+    \inqmlmodule QtQuick
+    \ingroup qtquick-visual-transforms
+    \since 6.9
+    \brief Provides a way to shear an Item.
+
+    The Shear type provides a way to transform an \l Item by a two-dimensional shear-type
+    matrix, sometimes known as a \e skew transform.
+
+    \qml
+    Rectangle {
+        width: 100; height: 100
+        color: "blue"
+        transform: Shear {
+            xFactor: 1.0
+        }
+    }
+    \endqml
+
+    This shears the item by a factor of \c 1.0 along the x-axis without modifying anything along the
+    y-axis. Each point \c P is displaced by \c{xFactor(P.y - origin.y)} (the signed vertical
+    distance to the \l{origin} multiplied with the \l{xFactor}). Setting the \l{yFactor} shears the
+    item along the y-axis and proportionally to the horizontal distance.
+
+    \image x-shear.png {Blue rectangle sheared along the x-axis into
+           a parallelogram}
+
+    Since the default origin is at \c{(0, 0)}, the top of the item remains untransformed, whereas
+    the bottom is displaced 100 pixels to the right (corresponding to the height of the item.)
+
+    This code is equivalent to the following:
+
+    \qml
+    Rectangle {
+        width: 100; height: 100
+        color: "blue"
+        transform: Shear {
+            xAngle: 45.0
+        }
+    }
+    \endqml
+
+    \note If both \c{xFactor}/\c{yFactor} and \c{xAngle}/\c{yAngle} are set, then the sum of the
+    two displacements will be used.
+*/
+class QQuickShearPrivate : public QQuickTransformPrivate
+{
+public:
+    QVector3D origin;
+    qreal xFactor = 0.0;
+    qreal yFactor = 0.0;
+    qreal xAngle = 0.0;
+    qreal yAngle = 0.0;
+};
+
+QQuickShear::QQuickShear(QObject *parent)
+    : QQuickTransform(*new QQuickShearPrivate, parent)
+{
+}
+
+/*!
+    \qmlpropertygroup QtQuick::Shear::origin
+    \qmlproperty real QtQuick::Shear::origin.x
+    \qmlproperty real QtQuick::Shear::origin.y
+
+    The origin point of the transformation (i.e., the point that stays fixed relative to the parent
+    as the rest of the item is sheared).
+
+    By default the origin is \c (0, 0).
+*/
+QVector3D QQuickShear::origin() const
+{
+    Q_D(const QQuickShear);
+    return d->origin;
+}
+
+void QQuickShear::setOrigin(const QVector3D &point)
+{
+    Q_D(QQuickShear);
+    if (d->origin == point)
+        return;
+    d->origin = point;
+    update();
+    emit originChanged();
+}
+
+/*!
+    \qmlproperty real QtQuick::Shear::xFactor
+
+    The factor by which to shear the item's coordinate system along the x-axis. Each point \c P is
+    displaced by \c{xFactor(P.y - origin.y)}
+
+    This corresponds to the \c sh parameter in \l{QTransform::shear()} and the \c xShear parameter
+    in calls to \l{PlanarTransform::fromShear()}.
+
+    The default value is \c 0.0.
+
+    \sa xAngle
+*/
+qreal QQuickShear::xFactor() const
+{
+    Q_D(const QQuickShear);
+    return d->xFactor;
+}
+void QQuickShear::setXFactor(qreal xFactor)
+{
+    Q_D(QQuickShear);
+    if (d->xFactor == xFactor)
+        return;
+    d->xFactor = xFactor;
+    update();
+    emit xFactorChanged();
+}
+
+/*!
+    \qmlproperty real QtQuick::Shear::yFactor
+
+    The factor by which to shear the item's coordinate system along the y-axis. The factor by which
+    to shear the item's coordinate system along the x-axis. Each point \c P is displaced by
+    \c{xFactor(P.y - origin.y)}
+
+    This corresponds to the \c sv parameter in \l{QTransform::shear()} and the \c yShear parameter
+    in calls to \l{PlanarTransform::fromShear()}.
+
+    The default value is \c 0.0.
+
+    \sa yAngle
+*/
+qreal QQuickShear::yFactor() const
+{
+    Q_D(const QQuickShear);
+    return d->yFactor;
+}
+void QQuickShear::setYFactor(qreal yFactor)
+{
+    Q_D(QQuickShear);
+    if (d->yFactor == yFactor)
+        return;
+    d->yFactor = yFactor;
+    update();
+    emit yFactorChanged();
+}
+
+/*!
+    \qmlproperty real QtQuick::Shear::xAngle
+
+    The angle (in degrees) by which to shear the item's coordinate system along the x-axis. This
+    is equivalent to setting \l{xFactor} to \c{tan(xAngle)}.
+
+    The default value is \c 0.0.
+
+    \sa xFactor
+*/
+qreal QQuickShear::xAngle() const
+{
+    Q_D(const QQuickShear);
+    return d->xAngle;
+}
+void QQuickShear::setXAngle(qreal xAngle)
+{
+    Q_D(QQuickShear);
+    if (d->xAngle == xAngle)
+        return;
+    d->xAngle = xAngle;
+    update();
+    emit xAngleChanged();
+}
+
+/*!
+    \qmlproperty real QtQuick::Shear::yAngle
+
+    The angle (in degrees) by which to shear the item's coordinate system along the y-axis. This
+    is equivalent to setting \l{yFactor} to \c{tan(yAngle)}.
+
+    The default value is \c 0.0.
+
+    \sa yFactor
+*/
+qreal QQuickShear::yAngle() const
+{
+    Q_D(const QQuickShear);
+    return d->yAngle;
+}
+void QQuickShear::setYAngle(qreal yAngle)
+{
+    Q_D(QQuickShear);
+    if (d->yAngle == yAngle)
+        return;
+    d->yAngle = yAngle;
+    update();
+    emit yAngleChanged();
+}
+
+void QQuickShear::applyTo(QMatrix4x4 *matrix) const
+{
+    Q_D(const QQuickShear);
+    if (d->xFactor == 0.0 && d->yFactor == 0.0 && d->xAngle == 0.0 && d->yAngle == 0.0)
+        return;
+
+    const qreal xShear = qTan(qDegreesToRadians(d->xAngle)) + d->xFactor;
+    const qreal yShear = qTan(qDegreesToRadians(d->yAngle)) + d->yFactor;
+
+    matrix->translate(d->origin);
+    *matrix *= QMatrix4x4(1.0, xShear, 0.0, 0.0,
+                          yShear, 1.0, 0.0, 0.0,
+                          0.0, 0.0, 1.0, 0.0,
+                          0.0, 0.0, 0.0, 1.0);
+    matrix->translate(-d->origin);
+}
+
 
 class QQuickMatrix4x4Private : public QQuickTransformPrivate
 {

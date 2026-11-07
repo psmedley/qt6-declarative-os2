@@ -14,6 +14,8 @@ qt_add_executable(testbedexample WIN32 MACOSX_BUNDLE
     main.cpp
 )
 
+set_target_properties(testbedexample PROPERTIES FOLDER "qtc_runnable")
+
 target_link_libraries(testbedexample PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -67,7 +69,6 @@ install(TARGETS testbedexample
 qt_generate_deploy_qml_app_script(
     TARGET testbedexample
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

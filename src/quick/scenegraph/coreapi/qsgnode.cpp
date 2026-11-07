@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgnode.h"
 #include "qsgnode_p.h"
@@ -7,11 +8,11 @@
 #include "qsgnodeupdater_p.h"
 #include "qsgmaterial.h"
 
+#include <algorithm>
+
 #include "limits.h"
 
 QT_BEGIN_NAMESPACE
-
-Q_DECLARE_LOGGING_CATEGORY(lcQsgLeak)
 
 #ifndef QT_NO_DEBUG
 static int qt_node_count = 0;
@@ -28,7 +29,7 @@ static void qt_print_node_count()
     \title Qt Quick Scene Graph Node classes
     \brief Nodes that can be used as part of the scene graph.
 
-    This page lists the nodes in \l {Qt Quick}'s \l {scene graph}{Qt Quick Scene Graph}.
+    This page lists the nodes in \l {Qt Quick}'s \l {Qt Quick Scene Graph}{scene graph}.
  */
 
 /*!
@@ -356,6 +357,33 @@ void QSGNode::destroy()
     Q_ASSERT(m_firstChild == nullptr && m_lastChild == nullptr);
 }
 
+quint8 QSGNodePrivate::mutabilityGroup(const QSGNode *node)
+{
+    return !node->d_ptr.isNull()
+               ? node->d_ptr->m_mutabilityGroup
+               : 0;
+}
+
+/*!
+   \internal
+
+   Sets the mutability group of this node. Recurses to children.
+ */
+void QSGNodePrivate::setMutabilityGroupOfSubtree(QSGNode *node, quint8 group)
+{
+    Q_ASSERT((group & 0xf) == group);
+
+    const quint8 currentMutabilityGroup = mutabilityGroup(node);
+    if (currentMutabilityGroup != group) {
+        if (node->d_ptr.isNull())
+            node->d_ptr.reset(new QSGNodePrivate());
+        node->d_ptr->m_mutabilityGroup = group;
+        node->markDirty(QSGNode::DirtyGeometry);
+    }
+
+    for (int i = 0; i < node->childCount(); ++i)
+        QSGNodePrivate::setMutabilityGroupOfSubtree(node->childAtIndex(i), group);
+}
 
 /*!
     Prepends \a node to this node's the list of children.
@@ -786,7 +814,7 @@ void QSGBasicGeometryNode::setGeometry(QSGGeometry *geometry)
     line using a QSGGeometryNode:
     \code
         QSGGeometry *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 2);
-        geometry->setDrawingMode(GL_LINES);
+        geometry->setDrawingMode(QSGGeometry::DrawLines);
         geometry->setLineWidth(3);
         geometry->vertexDataAsPoint2D()[0].set(0, 0);
         geometry->vertexDataAsPoint2D()[1].set(width(), height());
@@ -1311,7 +1339,7 @@ const qreal OPACITY_THRESHOLD = 0.001;
 
 void QSGOpacityNode::setOpacity(qreal opacity)
 {
-    opacity = qBound<qreal>(0, opacity, 1);
+    opacity = std::clamp(opacity, qreal(0.0),  qreal(1.0));
     if (m_opacity == opacity)
         return;
     DirtyState dirtyState = DirtyOpacity;

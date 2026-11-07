@@ -12,7 +12,6 @@ qt_internal_add_module(QuickWidgets
         qquickwidget.cpp qquickwidget.h qquickwidget_p.h
         qtquickwidgetsglobal.h
     DEFINES
-        QT_NO_FOREACH
         QT_NO_INTEGER_EVENT_COORDINATES
         QT_NO_URL_CAST_FROM_STRING
     LIBRARIES
@@ -33,11 +32,15 @@ qt_internal_add_module(QuickWidgets
         Qt::QmlPrivate
         Qt::QuickPrivate
         Qt::WidgetsPrivate
-    OS2_SHORT_NAME Qt6QuiWi
 )
 
 qt_internal_extend_target(QuickWidgets CONDITION QT_FEATURE_accessibility
     SOURCES
         qaccessiblequickwidget.cpp qaccessiblequickwidget_p.h
         qaccessiblequickwidgetfactory.cpp qaccessiblequickwidgetfactory_p.h
+)
+
+target_sources(QuickWidgets
+    PRIVATE
+        doc/src/qtquickwidgets-index.qdoc
 )

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgsoftwarerenderloop_p.h"
 
@@ -20,6 +21,9 @@
 #include <qtquick_tracepoints_p.h>
 
 QT_BEGIN_NAMESPACE
+
+// polish, animations, sync, render and swap in the render loop
+Q_STATIC_LOGGING_CATEGORY(QSG_RASTER_LOG_TIME_RENDERLOOP,     "qt.scenegraph.time.renderloop")
 
 QSGSoftwareRenderLoop::QSGSoftwareRenderLoop()
 {

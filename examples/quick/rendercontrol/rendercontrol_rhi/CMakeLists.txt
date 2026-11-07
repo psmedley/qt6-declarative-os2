@@ -4,9 +4,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(rendercontrol_rhi LANGUAGES CXX)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core GuiPrivate Quick Widgets)
 
-qt_standard_project_setup(REQUIRES 6.8)
+qt_standard_project_setup(REQUIRES 6.9)
 
 qt_add_executable(rendercontrol_rhi WIN32 MACOSX_BUNDLE
     main.cpp
@@ -37,7 +37,6 @@ install(TARGETS rendercontrol_rhi
 qt_generate_deploy_qml_app_script(
     TARGET rendercontrol_rhi
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

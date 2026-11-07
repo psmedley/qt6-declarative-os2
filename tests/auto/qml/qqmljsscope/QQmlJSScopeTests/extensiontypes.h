@@ -136,6 +136,8 @@ public:
     int getCount() const { return 42; }
     void setCount(int) { }
 
+    Q_INVOKABLE int myInvokable() const { return 42; }
+
     QObject *p() const { return m_p; }
 
     enum ExtensionEnum {
@@ -167,6 +169,13 @@ class NonNamespaceExtended : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_EXTENDED(ExtensionNamespace)
+};
+
+class SelfExtension
+{
+    Q_GADGET
+    QML_VALUE_TYPE(selfExtension)
+    QML_EXTENDED(SelfExtension)
 };
 
 #endif // EXTENSIONTYPES_H

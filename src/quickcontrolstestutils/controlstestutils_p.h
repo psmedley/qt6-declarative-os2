@@ -15,6 +15,7 @@
 // We mean it.
 //
 
+#include <QtTest/qtest.h>
 #include <QtGui/qpa/qplatformtheme.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 
@@ -25,6 +26,8 @@ class QQmlEngine;
 class QQuickApplicationWindow;
 class QQuickAbstractButton;
 class QQuickControl;
+class QQuickMenuItem;
+class QQuickPopup;
 
 namespace QQuickControlsTestUtils
 {
@@ -46,15 +49,17 @@ namespace QQuickControlsTestUtils
         QScopedPointer<QQmlEngine> engine;
     };
 
-    typedef std::function<void(const QString &/*relativePath*/, const QUrl &/*absoluteUrl*/)> ForEachCallback;
+    typedef std::function<void(const QString &/*styleName*/, const QString &/*typeName*/,
+        const QString &/*relativePath*/, const QUrl &/*absoluteUrl*/)> ForEachCallback;
 
-    void forEachControl(QQmlEngine *engine, const QString &qqc2ImportPath, const QString &sourcePath,
+    void forEachControl(QQmlEngine *engine, const QString &qqc2ImportPath, const QString &styleName,
         const QString &targetPath, const QStringList &skipList, ForEachCallback callback);
-    void addTestRowForEachControl(QQmlEngine *engine, const QString &qqc2ImportPath, const QString &sourcePath,
-        const QString &targetPath, const QStringList &skipList = QStringList());
+    void addTestRowForEachControl(QQmlEngine *engine, const QString &qqc2ImportPath, const QString &styleName,
+                                  const QString &targetPath, const QStringList &skipList = QStringList());
 
     [[nodiscard]] bool verifyButtonClickable(QQuickAbstractButton *button);
     [[nodiscard]] bool clickButton(QQuickAbstractButton *button);
+    [[nodiscard]] bool clickMenuItem(QQuickMenuItem *menuItem);
     [[nodiscard]] bool doubleClickButton(QQuickAbstractButton *button);
     [[nodiscard]] QString visualFocusFailureMessage(QQuickControl *control);
 
@@ -77,7 +82,34 @@ namespace QQuickControlsTestUtils
         QML_SINGLETON
 
     public:
+        // Used by C++.
+        void initialize(const QString &controlsImportPath);
+        static StyleInfo *instance();
+
+        // Needed for QML integration.
+        static StyleInfo *create(QQmlEngine *, QJSEngine *);
+
         QString styleName() const;
+
+        struct QmlFileData {
+            bool operator<(const QmlFileData &rhs) const;
+
+            QString styleName;
+            QString typeName;
+            QString relativePath;
+            QString absolutePath;
+        };
+
+        QList<QmlFileData> sourceQmlFiles() const;
+        QList<QmlFileData> installedQmlFiles() const;
+
+    private:
+        StyleInfo() = default;
+
+        void warnIfNotInitialized() const;
+
+        QList<QmlFileData> m_sourceQmlFiles;
+        QList<QmlFileData> m_installedQmlFiles;
     };
 
     class MockPlatformTheme : public QPlatformTheme
@@ -89,18 +121,72 @@ namespace QQuickControlsTestUtils
         void requestColorScheme(Qt::ColorScheme theme) override
         {
             m_colorScheme = theme;
-            QWindowSystemInterfacePrivate::ThemeChangeEvent tce{nullptr};
-            QGuiApplicationPrivate::processThemeChanged(&tce);
+            QWindowSystemInterface::handleThemeChange<QWindowSystemInterface::SynchronousDelivery>();
         }
 
     private:
-        Qt::ColorScheme m_colorScheme = Qt::ColorScheme::Unknown;
+        Qt::ColorScheme m_colorScheme = QGuiApplication::styleHints()->colorScheme();
+    };
+
+    class SystemEnvironment : public QObject
+    {
+        Q_OBJECT
+        QML_ELEMENT
+        QML_SINGLETON
+
+    public:
+        Q_INVOKABLE QString value(const QString &name);
+        Q_INVOKABLE bool setValue(const QString &name, const QString &value);
+    };
+
+    class ApplicationAttributes : public QObject
+    {
+        Q_OBJECT
+        QML_ELEMENT
+        QML_SINGLETON
+
+    public:
+        Q_INVOKABLE bool test(Qt::ApplicationAttribute attribute) const;
+        Q_INVOKABLE void set(Qt::ApplicationAttribute attribute, bool on = true);
+    };
+
+    [[nodiscard]] bool arePopupWindowsSupported();
+    [[nodiscard]] QQuickPopup *popupParent(QQuickItem *item);
+
+    // Helper that allows us to call setFastAnimations, which requires a QCoreApplication instance.
+    class QmlTestHelper : public QObject
+    {
+        Q_OBJECT
+
+    public slots:
+        void applicationAvailable()
+        {
+            QQuickVisualTestUtils::setFastAnimations(true);
+        }
     };
 }
+
+namespace QQuickTest
+{
+namespace Private {
+// Overload of the one in quicktest.h.
+[[nodiscard]] QByteArray qActiveFocusFailureMessage(QQuickPopup *popup);
+} // namespace Private
+} // namespace QQuickTest
 
 #define VERIFY_VISUAL_FOCUS(control) \
 do { \
     QVERIFY2(control->hasVisualFocus(), qUtf8Printable(visualFocusFailureMessage(control))); \
+} while (false)
+
+#define TRY_VERIFY_POPUP_OPENED(popup) \
+do { \
+    QTRY_VERIFY(popup->isOpened()); \
+    if (auto *popupWindow = QQuickPopupPrivate::get(popup)->popupWindow) { \
+        QVERIFY(QTest::qWaitForWindowExposed(popupWindow)); \
+        if (QQuickTest::qIsPolishScheduled(popupWindow)) \
+            QQuickTest::qWaitForPolish(popupWindow); \
+    } \
 } while (false)
 
 QT_END_NAMESPACE

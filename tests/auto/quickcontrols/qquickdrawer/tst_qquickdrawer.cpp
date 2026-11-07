@@ -21,14 +21,15 @@
 #include <QtQuickTemplates2/private/qquickoverlay_p_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p_p.h>
 #include <QtQuickTemplates2/private/qquickdrawer_p.h>
+#include <QtQuickTemplates2/private/qquickdrawer_p_p.h>
 #include <QtQuickTemplates2/private/qquickbutton_p.h>
 #include <QtQuickTemplates2/private/qquickslider_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
 
-//using namespace QQuickVisualTestUtils;
 using namespace QQuickControlsTestUtils;
+using namespace QQuickVisualTestUtils;
 using namespace Qt::StringLiterals;
 
 class tst_QQuickDrawer : public QQmlDataTest
@@ -57,6 +58,7 @@ private slots:
 
     void reposition();
     void rotate();
+    void rotateTouchOpen();
     void header();
 
     void dragHandlerInteraction();
@@ -117,6 +119,8 @@ void tst_QQuickDrawer::initTestCase()
     qputenv("QML_NO_TOUCH_COMPRESSION", "1");
 
     touchDevice.reset(QTest::createTouchDevice());
+
+    setFastAnimations(true);
 }
 
 void tst_QQuickDrawer::defaults()
@@ -306,39 +310,31 @@ void tst_QQuickDrawer::state()
 void tst_QQuickDrawer::position_data()
 {
     QTest::addColumn<Qt::Edge>("edge");
-    QTest::addColumn<QPoint>("press");
-    QTest::addColumn<QPoint>("from");
-    QTest::addColumn<QPoint>("to");
+    QTest::addColumn<QMargins>("press");
+    QTest::addColumn<QMargins>("from");
+    QTest::addColumn<QMargins>("to");
     QTest::addColumn<qreal>("position");
 
-    // We need to start swiping exactly from the selected edge, but on Android
-    // ApplicationWindow will be fullscreen instead of the defined size, so
-    // we need to extract the edge values from screen geometry.
-#ifndef Q_OS_ANDROID
-    const int rightMargin = 399;
-    const int bottomMargin = 399;
-#else
-    const QRect screenGeometry = QGuiApplication::primaryScreen()->availableGeometry();
-    const int rightMargin = screenGeometry.right();
-    const int bottomMargin = screenGeometry.bottom();
-#endif
-
-    QTest::newRow("top") << Qt::TopEdge << QPoint(100, 0) << QPoint(100, 50) << QPoint(100, 150) << qreal(0.5);
-    QTest::newRow("left") << Qt::LeftEdge << QPoint(0, 100) << QPoint(50, 100) << QPoint(150, 100) << qreal(0.5);
-    QTest::newRow("right") << Qt::RightEdge << QPoint(rightMargin, 100)
-                           << QPoint(rightMargin - 50, 100) << QPoint(rightMargin - 150, 100)
+    QTest::newRow("top") << Qt::TopEdge << QMargins(100, 0, 0, 0)
+                         << QMargins(100, 50, 0, 0) << QMargins(100, 150, 0, 0)
+                         << qreal(0.5);
+    QTest::newRow("left") << Qt::LeftEdge << QMargins(0, 100, 0, 0)
+                          << QMargins(50, 100, 0, 0) << QMargins(150, 100, 0, 0)
+                          << qreal(0.5);
+    QTest::newRow("right") << Qt::RightEdge << QMargins(0, 100, 0, 0)
+                           << QMargins(0, 100, 50, 0) << QMargins(0, 100, 150, 0)
                            << qreal(0.5);
-    QTest::newRow("bottom") << Qt::BottomEdge << QPoint(100, bottomMargin)
-                            << QPoint(100, bottomMargin - 50) << QPoint(150, bottomMargin - 150)
+    QTest::newRow("bottom") << Qt::BottomEdge << QMargins(100, 0, 0, 0)
+                            << QMargins(100, 0, 0, 50) << QMargins(150, 0, 0, 150)
                             << qreal(0.5);
 }
 
 void tst_QQuickDrawer::position()
 {
     QFETCH(Qt::Edge, edge);
-    QFETCH(QPoint, press);
-    QFETCH(QPoint, from);
-    QFETCH(QPoint, to);
+    QFETCH(QMargins, press);
+    QFETCH(QMargins, from);
+    QFETCH(QMargins, to);
     QFETCH(qreal, position);
 
     QQuickControlsApplicationHelper helper(this, QStringLiteral("applicationwindow.qml"));
@@ -352,14 +348,25 @@ void tst_QQuickDrawer::position()
     QVERIFY(drawer);
     drawer->setEdge(edge);
 
+    const QRect rect(QPoint(0, 0), window->geometry().size());
+    auto windowLocalPoint = [&](const QMargins &margins) {
+        const QRect inner = rect - margins;
+        switch (edge) {
+        case Qt::TopEdge: return inner.topLeft();
+        case Qt::LeftEdge: return inner.topLeft();
+        case Qt::RightEdge: return inner.topRight();
+        case Qt::BottomEdge: return inner.bottomLeft();
+        }
+        Q_UNREACHABLE_RETURN(QPoint{});
+    };
     // Give it some time (50 ms) before the press to avoid flakiness on OpenSUSE: QTBUG-77946
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, press, 50);
-    QTest::mouseMove(window, from);
-    QTest::mouseMove(window, to);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, windowLocalPoint(press), 50);
+    QTest::mouseMove(window, windowLocalPoint(from));
+    QTest::mouseMove(window, windowLocalPoint(to));
     QCOMPARE(drawer->position(), position);
 
     // moved half-way open at almost infinite speed => snap to open
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to);
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, windowLocalPoint(to));
     QTRY_COMPARE(drawer->position(), 1.0);
 }
 
@@ -451,34 +458,45 @@ void tst_QQuickDrawer::reposition()
     QVERIFY(dimmer);
 
     QCOMPARE(geometry(dimmer), QRectF(0, 0, window->width(), window->height()));
-    QTRY_COMPARE(geometry(popupItem), QRectF(0, 0, window->width() / 2., window->height()));
+    QTRY_COMPARE(geometry(popupItem), QRectF(0, 0, drawer->width(), window->height()));
 
-    drawer->setY(100);
-    QCOMPARE(geometry(dimmer), QRectF(0, 100, window->width(), window->height() - 100));
-    QCOMPARE(geometry(popupItem), QRectF(0, 100, window->width() / 2., window->height() - 100));
+    const qreal drawerY = 100;
+    drawer->setY(drawerY);
+    QCOMPARE(geometry(dimmer), QRectF(0, drawerY, window->width(), window->height() - drawerY));
+    QCOMPARE(geometry(popupItem), QRectF(0, drawerY, drawer->width(), window->height() - drawerY));
 
     drawer->setHeight(window->height());
-    QCOMPARE(geometry(dimmer), QRectF(0, 100, window->width(), window->height()));
-    QCOMPARE(geometry(popupItem), QRectF(0, 100, window->width() / 2., window->height()));
+    QCOMPARE(geometry(dimmer), QRectF(0, drawerY, window->width(), window->height()));
+    QCOMPARE(geometry(popupItem), QRectF(0, drawerY, drawer->width(), window->height()));
 
     drawer->resetHeight();
-    QCOMPARE(geometry(dimmer), QRectF(0, 100, window->width(), window->height() - 100));
-    QCOMPARE(geometry(popupItem), QRectF(0, 100, window->width() / 2., window->height() - 100));
+    QCOMPARE(geometry(dimmer), QRectF(0, drawerY, window->width(), window->height() - drawerY));
+    QCOMPARE(geometry(popupItem), QRectF(0, drawerY, drawer->width(), window->height() - drawerY));
+
+    // The drawer's top is the sum of contentItem()->y() (which accounts for both
+    // safe margins and the header in ApplicationWindow) plus the drawer->y().
+    const qreal drawerTop = window->contentItem()->y() + drawer->y();
+    const auto dimmerRect = [&] {
+        return QRectF(0, drawerTop, window->width(), window->height() - drawerTop);
+    };
+    const auto popupRect = [&](qreal x) {
+        return QRectF(x, drawerTop, drawer->width(), window->height() - drawerTop);
+    };
 
     drawer->setParentItem(window->contentItem());
-    QCOMPARE(geometry(dimmer), QRectF(0, 150, window->width(), window->height() - 150));
-    QCOMPARE(geometry(popupItem), QRectF(0, 150, window->width() / 2., window->height() - 150));
+    QCOMPARE(geometry(dimmer), dimmerRect());
+    QCOMPARE(geometry(popupItem), popupRect(0));
 
     drawer->setEdge(Qt::RightEdge);
-    QCOMPARE(geometry(dimmer), QRectF(0, 150, window->width(), window->height() - 150));
-    QTRY_COMPARE(geometry(popupItem), QRectF(window->width() - drawer->width(), 150, window->width() / 2., window->height() - 150));
+    QCOMPARE(geometry(dimmer), dimmerRect());
+    QTRY_COMPARE(geometry(popupItem), popupRect(window->width() - drawer->width()));
 
     window->setWidth(window->width() + 100);
-    QTRY_COMPARE(geometry(dimmer), QRectF(0, 150, window->width(), window->height() - 150));
-    QTRY_COMPARE(geometry(popupItem), QRectF(window->width() - drawer->width(), 150, window->width() / 2., window->height() - 150));
+    QTRY_COMPARE(geometry(dimmer), dimmerRect());
+    QTRY_COMPARE(geometry(popupItem), popupRect(window->width() - drawer->width()));
 
     drawer->close();
-    QTRY_COMPARE(geometry(popupItem), QRectF(window->width(), 150, window->width() / 2., window->height() - 150));
+    QTRY_COMPARE(geometry(popupItem), popupRect(window->width()));
 
     QQuickDrawer *drawer2 = window->property("drawer2").value<QQuickDrawer *>();
     QVERIFY(drawer2);
@@ -538,6 +556,43 @@ void tst_QQuickDrawer::rotate()
     }
 }
 
+void tst_QQuickDrawer::rotateTouchOpen()
+{
+    QQuickControlsApplicationHelper helper(this, u"rotate.qml"_s);
+    QVERIFY2(helper.ready, helper.failureMessage());
+
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->setProperty("rotated", true);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QQuickDrawer *drawer_LR = window->property("drawer_LR").value<QQuickDrawer*>();
+    QQuickDrawer *drawer_TB = window->property("drawer_TB").value<QQuickDrawer*>();
+    QVERIFY(drawer_LR);
+    QVERIFY(drawer_TB);
+    QCOMPARE(drawer_LR->edge(), Qt::LeftEdge);
+    QCOMPARE(drawer_TB->edge(), Qt::TopEdge);
+    QCOMPARE(drawer_LR->position(), 0.0);
+    QCOMPARE(drawer_TB->position(), 0.0);
+    QCOMPARE(window->QQuickWindow::contentItem()->rotation(), 90);
+    QCOMPARE(QQuickDrawerPrivate::get(drawer_LR)->effectiveEdge(), Qt::TopEdge);
+    QCOMPARE(QQuickDrawerPrivate::get(drawer_TB)->effectiveEdge(), Qt::RightEdge);
+
+    // Swipe down from the window's top edge
+    const int hCenter = window->width()/2;
+    const int vCenter = window->height()/2;
+    const int topSafeMargin = window->safeAreaMargins().top();
+    // Extend drag margin to cover the safe area so the press is recognized.
+    drawer_LR->setDragMargin(qMax(drawer_LR->dragMargin(), static_cast<qreal>(topSafeMargin + 1)));
+    QTest::touchEvent(window, touchDevice.data()).press(0, QPoint(hCenter, topSafeMargin));
+    QTest::touchEvent(window, touchDevice.data()).move(0, QPoint(hCenter, topSafeMargin + vCenter/2));
+    QTest::touchEvent(window, touchDevice.data()).move(0, QPoint(hCenter, topSafeMargin + vCenter));
+    QTest::touchEvent(window, touchDevice.data()).release(0, QPoint(hCenter, topSafeMargin + vCenter));
+
+    QTRY_COMPARE(drawer_LR->position(), 1.0); // "Left Drawer" is at the window's top edge
+    QTRY_COMPARE(drawer_TB->position(), 0.0); // "Top Drawer" is at the window's right edge
+}
+
 void tst_QQuickDrawer::header()
 {
     QQuickControlsApplicationHelper helper(this, QStringLiteral("header.qml"));
@@ -575,7 +630,8 @@ void tst_QQuickDrawer::header()
     // must be possible to interact with the header when the drawer is below the header
     QSignalSpy clickSpy(button, SIGNAL(clicked()));
     QVERIFY(clickSpy.isValid());
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(button->x() + button->width() / 2, button->y() + button->height() / 2));
+    QPoint p = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, p);
     QCOMPARE(clickSpy.size(), 1);
 }
 
@@ -638,7 +694,8 @@ void tst_QQuickDrawer::hover()
     QVERIFY(openedSpy.size() == 1 || openedSpy.wait());
 
     // hover the background button outside the drawer
-    QTest::mouseMove(window, QPoint(window->width() - 1, window->height() - 1));
+    auto topSafeMargin = window->safeAreaMargins().top();
+    QTest::mouseMove(window, QPoint(window->width() - 1, window->height() - topSafeMargin - 1));
     QCOMPARE(backgroundButton->isHovered(), !modal);
     QVERIFY(!drawerButton->isHovered());
     QVERIFY(!drawerItem->isHovered());
@@ -742,7 +799,8 @@ void tst_QQuickDrawer::wheel()
         qreal oldContentValue = contentSlider->value();
         qreal oldDrawerValue = drawerSlider->value();
 
-        QVERIFY(sendWheelEvent(QQuickOverlay::overlay(window), QPoint(0, 0), 15));
+        auto *overlay = QQuickOverlay::overlay(window);
+        QVERIFY(sendWheelEvent(overlay, QPoint(0, overlay->height() / 2), 15));
 
         if (modal) {
             // the content below a modal overlay must not move
@@ -1103,7 +1161,7 @@ void tst_QQuickDrawer::interactive_data()
 
 void tst_QQuickDrawer::interactive()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QFETCH(QString, source);
     QQuickControlsApplicationHelper helper(this, source);

@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -25,6 +26,10 @@ T.TextArea {
     placeholderTextColor: control.palette.placeholderText
     cursorDelegate: CursorDelegate {}
 
+    ContextMenu.menu: TextEditingContextMenu {
+        editor: control
+    }
+
     PlaceholderText {
         id: placeholder
         x: control.leftPadding
@@ -37,6 +42,7 @@ T.TextArea {
         color: control.placeholderTextColor
         verticalAlignment: control.verticalAlignment
         visible: !control.length && !control.preeditText && (!control.activeFocus || control.horizontalAlignment !== Qt.AlignHCenter)
+        wrapMode: control.wrapMode
         elide: Text.ElideRight
         renderType: control.renderType
     }

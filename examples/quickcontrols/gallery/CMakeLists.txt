@@ -12,6 +12,8 @@ qt_add_executable(galleryexample WIN32 MACOSX_BUNDLE
     gallery.cpp
 )
 
+set_source_files_properties(pages/GalleryConfig.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(galleryexample
     URI gallery
     NO_RESOURCE_TARGET_PATH
@@ -28,7 +30,10 @@ qt_add_qml_module(galleryexample
         "pages/DialPage.qml"
         "pages/DialogPage.qml"
         "pages/FramePage.qml"
+        "pages/GalleryConfig.qml"
         "pages/GroupBoxPage.qml"
+        "pages/MenuBarPage.qml"
+        "pages/MonthGridPage.qml"
         "pages/PageIndicatorPage.qml"
         "pages/ProgressBarPage.qml"
         "pages/RadioButtonPage.qml"
@@ -36,15 +41,20 @@ qt_add_qml_module(galleryexample
         "pages/ScrollBarPage.qml"
         "pages/ScrollIndicatorPage.qml"
         "pages/ScrollablePage.qml"
+        "pages/SearchFieldPage.qml"
         "pages/SliderPage.qml"
         "pages/SpinBoxPage.qml"
+        "pages/SplitViewPage.qml"
         "pages/StackViewPage.qml"
         "pages/SwipeViewPage.qml"
         "pages/SwitchPage.qml"
         "pages/TabBarPage.qml"
+        "pages/TableViewPage.qml"
         "pages/TextAreaPage.qml"
         "pages/TextFieldPage.qml"
+        "pages/ToolBarPage.qml"
         "pages/ToolTipPage.qml"
+        "pages/TreeViewPage.qml"
         "pages/TumblerPage.qml"
     RESOURCES
         "icons/gallery/20x20/back.png"
@@ -98,7 +108,6 @@ install(TARGETS galleryexample
 qt_generate_deploy_qml_app_script(
     TARGET galleryexample
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

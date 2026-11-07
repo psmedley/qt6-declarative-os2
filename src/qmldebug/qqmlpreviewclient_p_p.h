@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLPREVIEWCLIENT_P_P_H
 #define QQMLPREVIEWCLIENT_P_P_H
@@ -26,7 +27,17 @@ class QQmlPreviewClientPrivate : public QQmlDebugClientPrivate
 public:
     QQmlPreviewClientPrivate(QQmlDebugConnection *connection)
         : QQmlDebugClientPrivate(QLatin1String("QmlPreview"), connection)
+        , eventReceiver(connection)
+        , recordClient(connection, &eventReceiver, 1 << ProfileInputEvents)
+        , replayClient(connection)
     {}
+
+    QQmlProfilerQtdWriter eventReceiver;
+    QQmlProfilerClient recordClient;
+    QQuickEventReplayClient replayClient;
+    QTimer replayTimer;
+
+    qsizetype m_numExpectedEvents = 0;
 };
 
 QT_END_NAMESPACE

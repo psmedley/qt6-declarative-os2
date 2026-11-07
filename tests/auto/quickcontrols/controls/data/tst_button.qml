@@ -169,50 +169,82 @@ TestCase {
         let control1 = createTemporaryObject(button, testCase)
         verify(control1)
 
+        let pressedChangedCount1 = 0
         let pressedCount1 = 0
 
-        let pressedSpy1 = signalSpy.createObject(control1, {target: control1, signalName: "pressedChanged"})
+        let pressedChangedSpy1 = signalSpy.createObject(control1, {target: control1, signalName: "pressedChanged"})
+        verify(pressedChangedSpy1.valid)
+
+        let pressedSpy1 = signalSpy.createObject(control1, {target: control1, signalName: "pressed"})
         verify(pressedSpy1.valid)
 
         let touch = touchEvent(control1)
-        touch.press(0, control1, 0, 0).commit().move(0, control1, control1.width - 1, control1.height - 1).commit()
+        touch.press(0, control1, 1, 1).commit().move(0, control1, control1.width - 1, control1.height - 1).commit()
 
+        compare(pressedChangedSpy1.count, ++pressedChangedCount1)
         compare(pressedSpy1.count, ++pressedCount1)
         compare(control1.pressed, true)
 
         // second touch point on the same control is ignored
-        touch.stationary(0).press(1, control1, 0, 0).commit()
+        touch.stationary(0).press(1, control1, 1, 1).commit()
         touch.stationary(0).move(1, control1).commit()
         touch.stationary(0).release(1).commit()
 
+        compare(pressedChangedSpy1.count, pressedChangedCount1)
         compare(pressedSpy1.count, pressedCount1)
         compare(control1.pressed, true)
 
         let control2 = createTemporaryObject(button, testCase, {y: control1.height})
         verify(control2)
 
+        let pressedChangedCount2 = 0
         let pressedCount2 = 0
 
-        let pressedSpy2 = signalSpy.createObject(control2, {target: control2, signalName: "pressedChanged"})
+        let pressedChangedSpy2 = signalSpy.createObject(control2, {target: control2, signalName: "pressedChanged"})
+        verify(pressedChangedSpy2.valid)
+
+        let pressedSpy2 = signalSpy.createObject(control2, {target: control2, signalName: "pressed"})
         verify(pressedSpy2.valid)
 
         // press the second button
-        touch.stationary(0).press(2, control2, 0, 0).commit()
+        touch.stationary(0).press(2, control2, 1, 1).commit()
 
+        compare(pressedChangedSpy2.count, ++pressedChangedCount2)
         compare(pressedSpy2.count, ++pressedCount2)
         compare(control2.pressed, true)
 
-        compare(pressedSpy1.count, pressedCount1)
+        compare(pressedChangedSpy1.count, pressedChangedCount1)
+        compare(pressedSpy1.count, pressedChangedCount1)
         compare(control1.pressed, true)
 
         // release both buttons
         touch.release(0, control1).release(2, control2).commit()
 
-        compare(pressedSpy2.count, ++pressedCount2)
+        compare(pressedChangedSpy2.count, ++pressedChangedCount2)
+        compare(pressedSpy2.count, pressedCount2)
         compare(control2.pressed, false)
 
-        compare(pressedSpy1.count, ++pressedCount1)
+        compare(pressedChangedSpy1.count, ++pressedChangedCount1)
         compare(control1.pressed, false)
+
+        // press two buttons with two fingers, then release: each should only be pressed once
+        touch.press(1, control1, 1, 1).commit()
+
+        compare(pressedChangedSpy1.count, ++pressedChangedCount1)
+        compare(pressedSpy1.count, ++pressedCount1)
+        compare(control1.pressed, true)
+
+        touch.stationary(1).press(2, control2).commit()
+
+        compare(pressedChangedSpy2.count, ++pressedChangedCount2)
+        compare(pressedSpy2.count, ++pressedCount2)
+        compare(control2.pressed, true)
+
+        touch.release(1, control1).release(2, control2).commit()
+        compare(control1.pressed, false)
+        compare(control2.pressed, false)
+        compare(pressedSpy1.count, pressedCount1)
+        compare(pressedSpy2.count, pressedCount2)
     }
 
     function test_keys() {
@@ -490,5 +522,41 @@ TestCase {
             }
             break;
         }
+    }
+
+    Component {
+        id: iconColorSetInActionComponent
+
+        Button {
+            action: Action {
+                icon.source: "images/heart.svg"
+                icon.color: "tomato"
+            }
+        }
+    }
+
+    Component {
+        id: iconColorSetInControlComponent
+
+        Button {
+            icon.source: "images/heart.svg"
+            icon.color: "wheat"
+        }
+    }
+
+    function test_iconColor_data() {
+        return [
+            { tag: "icon color set in action", component: iconColorSetInActionComponent,
+                expectedIconColor: "#ff6347" },
+            { tag: "icon color set in control", component: iconColorSetInControlComponent,
+                expectedIconColor: "#f5deb3"}
+        ]
+    }
+
+    function test_iconColor(data) {
+        let control = createTemporaryObject(data.component, testCase)
+        let iconImage = findChild(control.contentItem, "image")
+        verify(iconImage)
+        compare(iconImage.color, data.expectedIconColor)
     }
 }

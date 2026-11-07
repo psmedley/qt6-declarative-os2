@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QDEFERREDPOINTER_P_H
 #define QDEFERREDPOINTER_P_H
@@ -26,6 +27,9 @@ class QDeferredSharedPointer;
 
 template<typename T>
 class QDeferredWeakPointer;
+
+template<typename U, typename F>
+void resetFactoryImpl(QDeferredSharedPointer<U>&, F&&);
 
 template<typename T>
 class QDeferredFactory
@@ -74,8 +78,8 @@ public:
 
     operator QDeferredSharedPointer<const T>() const { return { m_data, m_factory }; }
 
-    [[nodiscard]] T &operator*() const { return QSharedPointer<T>(*this).operator*(); }
-    [[nodiscard]] T *operator->() const { return QSharedPointer<T>(*this).operator->(); }
+    [[nodiscard]] T &operator*() const { lazyLoad(); return m_data.operator*(); }
+    [[nodiscard]] T *operator->() const { lazyLoad(); return m_data.operator->(); }
 
     bool isNull() const
     {
@@ -85,7 +89,7 @@ public:
     explicit operator bool() const noexcept { return !isNull(); }
     bool operator !() const noexcept { return isNull(); }
 
-    [[nodiscard]] T *data() const { return QSharedPointer<T>(*this).data(); }
+    [[nodiscard]] T *data() const { lazyLoad(); return m_data.data(); }
     [[nodiscard]] T *get() const { return data(); }
 
     friend size_t qHash(const QDeferredSharedPointer &ptr, size_t seed = 0)
@@ -155,14 +159,10 @@ public:
         return (m_factory && m_factory->isValid()) ? m_factory.data() : nullptr;
     }
 
-    void resetFactory(const Factory& newFactory)
-    {
-        m_data.reset();
-        *m_factory = newFactory;
-    }
-
 private:
     friend class QDeferredWeakPointer<T>;
+    template<typename U, typename F>
+    friend void resetFactoryImpl(QDeferredSharedPointer<U>&, F&&);
 
     void lazyLoad() const
     {
@@ -200,16 +200,13 @@ public:
         return m_data;
     }
 
-    [[nodiscard]] operator QDeferredSharedPointer<T>() const
-    {
-        return QDeferredSharedPointer<T>(m_data.toStrongRef(), m_factory.toStrongRef());
-    }
+    [[nodiscard]] operator QDeferredSharedPointer<T>() const { return toStrongRef(); }
 
     operator QDeferredWeakPointer<const T>() const { return {m_data, m_factory}; }
 
-    [[nodiscard]] QSharedPointer<T> toStrongRef() const
+    [[nodiscard]] QDeferredSharedPointer<T> toStrongRef() const
     {
-        return QWeakPointer<T>(*this).toStrongRef();
+        return QDeferredSharedPointer<T>(m_data.toStrongRef(), m_factory.toStrongRef());
     }
 
     bool isNull() const { return m_data.isNull(); }

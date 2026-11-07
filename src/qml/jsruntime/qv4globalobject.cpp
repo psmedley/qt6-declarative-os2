@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4globalobject_p.h"
 
@@ -298,21 +299,31 @@ void Heap::EvalFunction::init(QV4::ExecutionEngine *engine)
     f->defineReadonlyConfigurableProperty(s.engine->id_length(), Value::fromInt32(1));
 }
 
+static ExecutionContext *evalContext(QV4::ExecutionEngine *v4, bool directCall)
+{
+    // In case of !directCall, the context for eval should be the global scope
+    if (!directCall)
+        return v4->scriptContext();
+
+    // Otherwise there has to be a current stack frame. We need to be called from somewhere.
+    Q_ASSERT(v4->currentStackFrame);
+    return v4->currentContext();
+}
+
 ReturnedValue EvalFunction::evalCall(const Value *, const Value *argv, int argc, bool directCall) const
 {
     if (argc < 1)
         return Encode::undefined();
 
     ExecutionEngine *v4 = engine();
-    bool isStrict = v4->currentStackFrame->v4Function->isStrict();
+    const Function *v4Function = v4->currentStackFrame
+            ? v4->currentStackFrame->v4Function
+            : v4->globalCode;
+    const bool isStrict = v4Function && v4Function->isStrict();
 
     Scope scope(v4);
-    ScopedContext ctx(scope, v4->currentContext());
 
-    if (!directCall) {
-        // the context for eval should be the global scope
-        ctx = v4->scriptContext();
-    }
+    ScopedContext ctx(scope, evalContext(v4, directCall));
 
     String *scode = argv[0].stringValue();
     if (!scode)
@@ -322,8 +333,8 @@ ReturnedValue EvalFunction::evalCall(const Value *, const Value *argv, int argc,
     bool inheritContext = !isStrict;
 
     Script script(ctx, QV4::Compiler::ContextType::Eval, code, QStringLiteral("eval code"));
-    script.strictMode = (directCall && isStrict);
-    script.inheritContext = inheritContext;
+    script.setStrictMode(directCall && isStrict);
+    script.setInheritContext(inheritContext);
     script.parse();
     if (v4->hasException)
         return Encode::undefined();
@@ -333,13 +344,13 @@ ReturnedValue EvalFunction::evalCall(const Value *, const Value *argv, int argc,
         return Encode::undefined();
     function->kind = Function::Eval;
 
+    ScopedValue thisObject(scope, directCall
+                                   ? scope.engine->currentStackFrame->thisObject()
+                                   : scope.engine->globalObject->asReturnedValue());
     if (function->isStrict() || isStrict) {
         ScopedFunctionObject e(scope, FunctionObject::createScriptFunction(ctx, function));
-        ScopedValue thisObject(scope, directCall ? scope.engine->currentStackFrame->thisObject() : scope.engine->globalObject->asReturnedValue());
         return checkedResult(v4, e->call(thisObject, nullptr, 0));
     }
-
-    ScopedValue thisObject(scope, scope.engine->currentStackFrame->thisObject());
 
     return checkedResult(v4, function->call(thisObject, nullptr, 0, ctx));
 }

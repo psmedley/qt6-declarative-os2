@@ -9,7 +9,7 @@
 #include "inaccessible/base.h"
 #include "inaccessible/property.h"
 #include "inaccessible/invisible.h"
-
+#include "mytype.h"
 #include <QtQmlTypeRegistrar/private/qqmltyperegistrar_p.h>
 
 #ifdef QT_QUICK_LIB
@@ -916,6 +916,49 @@ class ForeignQOjbectQml
 };
 }
 
+class WithVirtual : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+    Q_PROPERTY(int virtualP MEMBER virtualP VIRTUAL)
+
+    int virtualP;
+};
+
+class WithOverride : public WithVirtual
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(QString virtualP MEMBER virtualP OVERRIDE)
+
+    QString virtualP;
+};
+
+class ForeignFromAnotherFileForeign
+{
+    Q_GADGET
+    QML_NAMED_ELEMENT(ForeignFromAnotherFile);
+    QML_FOREIGN(MyType);
+
+private:
+    QString m_foreignProperty;
+};
+
+struct QBarSet : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+};
+
+struct CppQListBarSet
+{
+    Q_GADGET
+    QML_ANONYMOUS
+    QML_FOREIGN(QList<QBarSet *>)
+    QML_SEQUENTIAL_CONTAINER(QBarSet *)
+};
+
 class tst_qmltyperegistrar : public QObject
 {
     Q_OBJECT
@@ -929,10 +972,11 @@ private slots:
     void qmltypesHasPropertyIndex();
     void qmltypesHasFileNames();
     void qmltypesHasFlags();
+    void qmltypesHasVirtualAndOverride();
     void superAndForeignTypes();
     void accessSemantics();
     void isBindable();
-    void restrictToImportVersion();
+    void doNotRestrictToImportVersion();
     void pastMajorVersions();
     void implementsInterfaces();
     void namespacedElement();
@@ -964,9 +1008,11 @@ private slots:
     void typeInModuleMajorVersionZero();
     void resettableProperty();
     void duplicateExportWarnings();
+
     void clonedSignal();
     void baseVersionInQmltypes();
     void unconstructibleValueType();
+    void valueTypeList();
     void constructibleValueType();
     void structuredValueType();
     void anonymousAndUncreatable();
@@ -984,7 +1030,10 @@ private slots:
     void javaScriptExtension();
 
     void consistencyWarnings();
+    void deduplicateCleanPaths();
     void enumWarnings();
+
+    void lowercaseEnumWarning();
 
     void relatedAddedInVersion();
     void longNumberTypes();
@@ -1002,10 +1051,14 @@ private slots:
     void preserveVoidStarPropTypes();
 
     void inaccessibleBase();
+    void opaqueBase();
     void enumsExplicitlyScoped();
     void namespacedExtracted();
     void derivedFromInvisible();
+    void foreignFileAndLinePointsToNonForeign();
     void foreignNamespacedWithEnum();
+
+    void mergeQtConfImportPathOrder();
 
 #ifdef QT_QMLJSROOTGEN_PRESENT
     void verifyJsRoot();

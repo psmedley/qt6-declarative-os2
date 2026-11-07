@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgcurvefillnode_p_p.h"
 #include "qsgcurvefillnode_p.h"
@@ -115,7 +116,7 @@ namespace {
                 memcpy(buf->data() + offset + viewIndex * 64, m.constData(), 64);
             }
 
-            matrixScale = qSqrt(qAbs(state.determinant()));
+            matrixScale = qSqrt(qAbs(state.determinant())) * state.devicePixelRatio();
             memcpy(buf->data() + offset + newEffect->viewCount() * 64, &matrixScale, 4);
 
             changed = true;
@@ -336,32 +337,8 @@ int QSGCurveFillMaterial::compare(const QSGMaterial *other) const
             const QSGGradientCache::GradientDesc &ga = *a->fillGradient();
             const QSGGradientCache::GradientDesc &gb = *b->fillGradient();
 
-            if (int d = ga.a.x() - gb.a.x())
+            if (int d = ga.compare(gb))
                 return d;
-            if (int d = ga.a.y() - gb.a.y())
-                return d;
-            if (int d = ga.b.x() - gb.b.x())
-                return d;
-            if (int d = ga.b.y() - gb.b.y())
-                return d;
-
-            if (int d = ga.v0 - gb.v0)
-                return d;
-            if (int d = ga.v1 - gb.v1)
-                return d;
-
-            if (int d = ga.spread - gb.spread)
-                return d;
-
-            if (int d = ga.stops.size() - gb.stops.size())
-                return d;
-
-            for (int i = 0; i < ga.stops.size(); ++i) {
-                if (int d = ga.stops[i].first - gb.stops[i].first)
-                    return d;
-                if (int d = ga.stops[i].second.rgba() - gb.stops[i].second.rgba())
-                    return d;
-            }
         }
 
         if (int d = a->fillTransform()->compareTo(*b->fillTransform()))
@@ -379,17 +356,18 @@ QSGMaterialType *QSGCurveFillMaterial::type() const
     Q_ASSERT((index & ~3) == 0); // Only two first bits for gradient type
 
     if (node()->gradientType() == QGradient::NoGradient && node()->fillTextureProvider() != nullptr)
-        index = 5;
+        index = 4;
 
     return &type[index];
 }
 
 QSGMaterialShader *QSGCurveFillMaterial::createShader(QSGRendererInterface::RenderMode renderMode) const
 {
+    Q_UNUSED(renderMode);
     return new QSGCurveFillMaterialShader(node()->gradientType(),
                                           node()->gradientType() == QGradient::NoGradient
-                                              && node()->fillTextureProvider() != nullptr,
-                                          renderMode == QSGRendererInterface::RenderMode3D,
+                                            && node()->fillTextureProvider() != nullptr,
+                                          node()->useStandardDerivatives(),
                                           viewCount());
 }
 

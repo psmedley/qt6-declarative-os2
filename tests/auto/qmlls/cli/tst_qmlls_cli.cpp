@@ -19,14 +19,6 @@ void tst_qmlls_cli::initTestCase()
     m_server.setProgram(m_qmllsPath);
 }
 
-void tst_qmlls_cli::cleanup()
-{
-    m_server.closeWriteChannel();
-    m_server.waitForFinished();
-    QTRY_COMPARE(m_server.state(), QProcess::NotRunning);
-    QCOMPARE(m_server.exitStatus(), QProcess::NormalExit);
-}
-
 // Helper structs to avoid confusions between expected and unexpected messages and between expected
 // and unexpected diagnostics.
 struct ExpectedMessages : public QStringList
@@ -47,9 +39,9 @@ struct UnexpectedDiagnostics : public QStringList
 };
 
 // Extra environment variables to be added to qmlls's environment.
-struct Environment : public QList<QPair<QString, QString>>
+struct Environment : public QList<std::pair<QString, QString>>
 {
-    using QList<QPair<QString, QString>>::QList;
+    using QList<std::pair<QString, QString>>::QList;
 };
 
 void tst_qmlls_cli::warnings_data()
@@ -72,9 +64,11 @@ void tst_qmlls_cli::warnings_data()
 
     const QString fileImportingDir1 = testFile(u"sourceFolder/ImportFromImportPath1.qml"_s);
     const QString fileImportingBothDirs = testFile(u"sourceFolder/ImportFromBothPaths.qml"_s);
+    const QString fileImportingQtQuick = testFile(u"sourceFolder/ImportQtQuick.qml"_s);
 
     const QString importWarningDir1 = u"Warnings occurred while importing module \"SomeModule\""_s;
     const QString importWarningDir2 = u"Warnings occurred while importing module \"AnotherModule\""_s;
+    const QString importWarningQtQuick = u"Warnings occurred while importing module \"QtQuick\""_s;
 
     const UnexpectedMessages noUnexpectedMessages;
     const QString warnAboutQmllsIniFiles{
@@ -170,6 +164,52 @@ void tst_qmlls_cli::warnings_data()
                                          .arg(dir2) }
             << UnexpectedMessages{} << ExpectedDiagnostics{}
             << UnexpectedDiagnostics{ importWarningDir1, importWarningDir2 };
+
+    QTest::addRow("bare")
+            << QStringList{ u"--bare"_s, } << Environment{ { u"QML_IMPORT_PATH"_s, dir2 } }
+            << fileImportingQtQuick
+            << ExpectedMessages{}
+            << UnexpectedMessages{ u"Using import directories passed from environment variable \"QML_IMPORT_PATH\": \"%1\"."_s.arg(dir2)}
+            << ExpectedDiagnostics{ importWarningQtQuick } << UnexpectedDiagnostics {} ;
+
+    QTest::addRow("unbare")
+            << QStringList{} << Environment{ { u"QML_IMPORT_PATH"_s, dir2 } }
+            << fileImportingQtQuick << ExpectedMessages{}
+            << UnexpectedMessages{ u"Using import directories passed from environment variable \"QML_IMPORT_PATH\": \"%1\"."_s
+                                           .arg(dir2) }
+            << ExpectedDiagnostics{} << UnexpectedDiagnostics{ importWarningQtQuick };
+
+    QTest::addRow("cmake-jobs-commandline")
+            << QStringList{ "-j"_L1, "8"_L1 } << Environment{ { "QMLLS_CMAKE_JOBS"_L1, "42"_L1 } }
+            << fileImportingQtQuick
+            << ExpectedMessages{ "Using 8 jobs for CMake, set via --cmake-jobs."_L1 }
+            << UnexpectedMessages{ "QMLLS_CMAKE_JOBS environment variable"_L1 }
+            << ExpectedDiagnostics{} << UnexpectedDiagnostics{};
+    QTest::addRow("cmake-jobs-commandline-bad")
+            << QStringList{ "-j"_L1, "8.5"_L1 } << Environment{} << fileImportingQtQuick
+            << ExpectedMessages{ "Value \"8.5\" passed to --cmake-jobs is not a number greater than 0 and not \"max\", using default value of 1 instead."_L1 }
+            << UnexpectedMessages{} << ExpectedDiagnostics{}
+            << UnexpectedDiagnostics{ importWarningQtQuick };
+    QTest::addRow("cmake-jobs-environment")
+            << QStringList{} << Environment{ { "QMLLS_CMAKE_JOBS"_L1, "42"_L1 } }
+            << fileImportingQtQuick
+            << ExpectedMessages{ "Using 42 jobs for CMake, set via QMLLS_CMAKE_JOBS environment variable."_L1 }
+            << UnexpectedMessages{} << ExpectedDiagnostics{} << UnexpectedDiagnostics{};
+    QTest::addRow("cmake-jobs-environment-bad")
+            << QStringList{} << Environment{ { "QMLLS_CMAKE_JOBS"_L1, "8.5"_L1 } }
+            << fileImportingQtQuick
+            << ExpectedMessages{ "Value \"8.5\" passed to QMLLS_CMAKE_JOBS is not a number greater than 0 and not \"max\", using default value of 1 instead."_L1 }
+            << UnexpectedMessages{} << ExpectedDiagnostics{}
+            << UnexpectedDiagnostics{ importWarningQtQuick };
+    QTest::addRow("cmake-jobs-default")
+            << QStringList{} << Environment{} << fileImportingQtQuick
+            << ExpectedMessages{ "Using 1 job for CMake" } << UnexpectedMessages{}
+            << ExpectedDiagnostics{} << UnexpectedDiagnostics{};
+    QTest::addRow("cmake-jobs-max")
+            << QStringList{ "-j"_L1, "max"_L1 } << Environment{} << fileImportingQtQuick
+            << ExpectedMessages{ "Using max (%1) jobs for CMake"_L1.arg(
+                       QString::number(QThread::idealThreadCount())) }
+            << UnexpectedMessages{} << ExpectedDiagnostics{} << UnexpectedDiagnostics{};
 }
 
 auto tst_qmlls_cli::startServerRAII()
@@ -212,6 +252,10 @@ void tst_qmlls_cli::startServerImpl()
 
 void tst_qmlls_cli::stopServerImpl()
 {
+    // note: the lambdas used in the "connect"-call of the tests might reference local variables, so
+    // disconnect the lambda via QScopedGuard to avoid the lambda to be called during
+    // waitForFinished();
+    disconnect(&m_server, nullptr, nullptr, nullptr);
     m_server.closeWriteChannel();
     m_server.waitForFinished();
     QTRY_COMPARE(m_server.state(), QProcess::NotRunning);
@@ -239,11 +283,6 @@ void tst_qmlls_cli::warnings()
     QList<int> countExpectedDiagnostics(expectedDiagnostics.size(), 0);
     QList<int> countUnexpectedDiagnostics(unexpectedDiagnostics.size(), 0);
 
-    auto guard = qScopeGuard([this]() {
-        // note: the lambda used in the "connect"-call references local variables, so disconnect the
-        // lambda via QScopedGuard to avoid its captured references to dangle
-        disconnect(&m_server, &QProcess::readyReadStandardOutput, nullptr, nullptr);
-    });
     connect(&m_server, &QProcess::readyReadStandardError, this,
             [this, &expectedMessages, &countExpectedMessages, &unexpectedMessages,
              &countUnexpectedMessages]() {
@@ -261,7 +300,7 @@ void tst_qmlls_cli::warnings()
                 }
             });
 
-    auto guard2 = startServerRAII();
+    auto guard = startServerRAII();
 
     // each expected message should appear exactly one time
     QTRY_COMPARE_WITH_TIMEOUT(countExpectedMessages, QList<int>(expectedMessages.size(), 1), 500);
@@ -303,7 +342,44 @@ void tst_qmlls_cli::warnings()
     QCOMPARE(countExpectedDiagnostics, QList<int>(expectedDiagnostics.size(), 1));
     // each unexpected diagnostic should appear exactly zero times
     QCOMPARE(countUnexpectedDiagnostics, QList<int>(unexpectedDiagnostics.size(), 0));
+}
 
+void tst_qmlls_cli::inputFile()
+{
+    m_server.setArguments({ "--inputFile"_L1, testFile("serverInput.jsonrpc") });
+    m_protocol =
+            std::make_unique<QLanguageServerProtocol>([](const QByteArray &) { /* ignored */ });
+
+    connect(&m_server, &QProcess::readyReadStandardOutput, this, [this]() {
+        QByteArray data = m_server.readAllStandardOutput();
+        m_protocol->receiveData(data);
+    });
+
+    bool didInit = false;
+
+    QLspSpecification::InitializeParams params;
+    m_protocol->requestInitialize(
+            params, [&didInit](const QLspSpecification::InitializeResult &) { didInit = true; });
+
+    m_server.start();
+    QTRY_COMPARE_WITH_TIMEOUT(didInit, true, 10000);
+
+    disconnect(&m_server, &QProcess::readyReadStandardOutput, nullptr, nullptr);
+    m_server.close();
+    m_server.waitForFinished();
+    QTRY_COMPARE(m_server.state(), QProcess::NotRunning);
+}
+
+void tst_qmlls_cli::dontShutdownOnStartup()
+{
+    m_server.setArguments({});
+    m_server.start();
+    // it shouldn't shutdown before the close() call.
+    m_server.waitForFinished(3000);
+    QCOMPARE(m_server.state(), QProcess::Running);
+    m_server.close();
+    m_server.waitForFinished();
+    QTRY_COMPARE(m_server.state(), QProcess::NotRunning);
 }
 
 QTEST_MAIN(tst_qmlls_cli)

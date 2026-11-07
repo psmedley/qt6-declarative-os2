@@ -20,11 +20,11 @@
 #include "qqmldom_global.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QList>
 #include <QtCore/QMetaEnum>
 #include <QtCore/QString>
 #include <QtCore/QStringView>
 #include <QtCore/QStringList>
-#include <QtCore/QVector>
 #include <QtCore/QDebug>
 
 #include <functional>
@@ -350,22 +350,22 @@ inline bool operator>=(const PathComponent& lhs, const PathComponent& rhs){ retu
 
 class PathData {
 public:
-    PathData(const QStringList &strData, const QVector<PathComponent> &components)
+    PathData(const QStringList &strData, const QList<PathComponent> &components)
         : strData(strData), components(components)
     {}
-    PathData(const QStringList &strData, const QVector<PathComponent> &components,
+    PathData(const QStringList &strData, const QList<PathComponent> &components,
              const std::shared_ptr<PathData> &parent)
         : strData(strData), components(components), parent(parent)
     {}
 
     QStringList strData;
-    QVector<PathComponent> components;
+    QList<PathComponent> components;
     std::shared_ptr<PathData> parent;
 };
 
 } // namespace PathEls
 
-#define QMLDOM_USTRING(s) u##s
+#define QMLDOM_USTRING(s) QStringView(u##s)
 #define QMLDOM_FIELD(name) inline constexpr const auto name = QMLDOM_USTRING(#name)
 /*!
    \internal
@@ -519,12 +519,10 @@ QMLDOM_FIELD(path);
 QMLDOM_FIELD(regExpPattern);
 QMLDOM_FIELD(plugins);
 QMLDOM_FIELD(postCode);
-QMLDOM_FIELD(postCommentLocations);
 QMLDOM_FIELD(postComments);
 QMLDOM_FIELD(pragma);
 QMLDOM_FIELD(pragmas);
 QMLDOM_FIELD(preCode);
-QMLDOM_FIELD(preCommentLocations);
 QMLDOM_FIELD(preComments);
 QMLDOM_FIELD(properties);
 QMLDOM_FIELD(propertyDef);
@@ -575,13 +573,12 @@ QMLDOM_FIELD(typeArgumentName);
 QMLDOM_FIELD(typeName);
 QMLDOM_FIELD(types);
 QMLDOM_FIELD(universe);
-QMLDOM_FIELD(updatedScriptExpressions);
 QMLDOM_FIELD(uri);
 QMLDOM_FIELD(uris);
 QMLDOM_FIELD(validExposedAt);
 QMLDOM_FIELD(validItem);
 QMLDOM_FIELD(value);
-QMLDOM_FIELD(valueTypeName);
+QMLDOM_FIELD(elementTypeName);
 QMLDOM_FIELD(values);
 QMLDOM_FIELD(version);
 QMLDOM_FIELD(when);
@@ -604,7 +601,7 @@ public:
     Path() = default;
     explicit Path(const PathEls::PathComponent &c) : m_endOffset(0), m_length(0)
     {
-        *this = appendComponent(c);
+        *this = withComponent(c);
     }
 
     int length() const { return m_length; }
@@ -631,38 +628,37 @@ public:
     Path dropTail(int n = 1) const;
     Path mid(int offset, int length) const;
     Path mid(int offset) const;
-    Path appendComponent(const PathEls::PathComponent &c);
+    Path withComponent(const PathEls::PathComponent &c);
 
     // # Path construction
     static Path fromString(const QString &s, const ErrorHandler &errorHandler = nullptr);
     static Path fromString(QStringView s, const ErrorHandler &errorHandler = nullptr);
-    static Path Root(PathRoot r);
-    static Path Root(QStringView s=u"");
-    static Path Root(const QString &s);
-    static Path Index(index_type i);
-    static Path Field(QStringView s=u"");
-    static Path Field(const QString &s);
-    static Path Key(QStringView s=u"");
-    static Path Key(const QString &s);
-    static Path Current(PathCurrent c);
-    static Path Current(QStringView s=u"");
-    static Path Current(const QString &s);
-    static Path Empty();
+    static Path fromRoot(PathRoot r);
+    static Path fromRoot(QStringView s=u"");
+    static Path fromRoot(const QString &s);
+    static Path fromIndex(index_type i);
+    static Path fromField(QStringView s=u"");
+    static Path fromField(const QString &s);
+    static Path fromKey(QStringView s=u"");
+    static Path fromKey(const QString &s);
+    static Path fromCurrent(PathCurrent c);
+    static Path fromCurrent(QStringView s=u"");
+    static Path fromCurrent(const QString &s);
     // add
-    Path empty() const;
-    Path field(const QString &name) const;
-    Path field(QStringView name) const;
-    Path key(const QString &name) const;
-    Path key(QStringView name) const;
-    Path index(index_type i) const;
-    Path any() const;
-    Path filter(const std::function<bool(const DomItem &)> &, const QString &) const;
-    Path filter(const std::function<bool(const DomItem &)> &,
+    Path withEmpty() const;
+    Path withField(const QString &name) const;
+    Path withField(QStringView name) const;
+    Path withKey(const QString &name) const;
+    Path withKey(QStringView name) const;
+    Path withIndex(index_type i) const;
+    Path withAny() const;
+    Path withFilter(const std::function<bool(const DomItem &)> &, const QString &) const;
+    Path withFilter(const std::function<bool(const DomItem &)> &,
                 QStringView desc=u"<native code filter>") const;
-    Path current(PathCurrent s) const;
-    Path current(const QString &s) const;
-    Path current(QStringView s=u"") const;
-    Path path(const Path &toAdd, bool avoidToAddAsBase = false) const;
+    Path withCurrent(PathCurrent s) const;
+    Path withCurrent(const QString &s) const;
+    Path withCurrent(QStringView s=u"") const;
+    Path withPath(const Path &toAdd, bool avoidToAddAsBase = false) const;
 
     Path expandFront() const;
     Path expandBack() const;

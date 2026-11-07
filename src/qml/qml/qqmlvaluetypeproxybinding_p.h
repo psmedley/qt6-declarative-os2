@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLVALUETYPEPROXYBINDING_P_H
 #define QQMLVALUETYPEPROXYBINDING_P_H
@@ -24,7 +25,7 @@ class Q_AUTOTEST_EXPORT QQmlValueTypeProxyBinding : public QQmlAbstractBinding
 public:
     QQmlValueTypeProxyBinding(QObject *o, QQmlPropertyIndex coreIndex);
 
-    QQmlAbstractBinding *subBindings() const;
+    QQmlAbstractBinding *subBindings() const { return m_bindings.data(); }
     QQmlAbstractBinding *binding(QQmlPropertyIndex targetPropertyIndex) const;
     void removeBindings(quint32 mask);
 

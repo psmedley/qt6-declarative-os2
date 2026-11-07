@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTYPELOADERNETWORKREPLYPROXY_P_H
 #define QQMLTYPELOADERNETWORKREPLYPROXY_P_H
@@ -35,7 +36,7 @@ class QQmlTypeLoaderNetworkReplyProxy : public QObject
 {
     Q_OBJECT
 public:
-    QQmlTypeLoaderNetworkReplyProxy(QQmlTypeLoader *l);
+    QQmlTypeLoaderNetworkReplyProxy(QQmlTypeLoader *l, QObject *parent);
 
 public Q_SLOTS:
     void finished();

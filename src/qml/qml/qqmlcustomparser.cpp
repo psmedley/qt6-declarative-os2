@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qml/qqmlpropertyvalidator_p.h"
 #include "qqmlcustomparser_p.h"
@@ -162,7 +163,7 @@ int QQmlCustomParser::evaluateEnum(const QString &script, bool *ok) const
         if (documentUrl.isValid() && documentUrl == type.sourceUrl()) {
             Q_ASSERT(validator);
             const QQmlPropertyCache::ConstPtr rootCache = validator->rootPropertyCache();
-            const int count = rootCache->qmlEnumCount();
+            const int count = rootCache->ownEnumCount();
             for (int ii = 0; ii < count; ++ii) {
                 const QQmlEnumData *enumData = rootCache->qmlEnum(ii);
                 if (!scopedEnumName.isEmpty() && scopedEnumName != enumData->name)
@@ -221,7 +222,7 @@ QQmlTypeLoader *QQmlCustomParser::typeLoader() const
     if (!engine && !validator)
         return nullptr;
 
-    return validator ? validator->typeLoader() : &engine->typeLoader;
+    return validator ? validator->typeLoader() : QQmlTypeLoader::get(engine);
 }
 
 QT_END_NAMESPACE

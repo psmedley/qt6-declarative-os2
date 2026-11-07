@@ -28,6 +28,7 @@ qt_internal_add_test(tst_qqmllanguage
         Qt::Gui
         Qt::GuiPrivate
         Qt::Network
+        Qt::Qml
         Qt::QmlPrivate
         Qt::QuickTestUtilsPrivate
     TESTDATA ${test_data}
@@ -51,6 +52,34 @@ if(ANDROID)
             ${qqmllanguage_resource_files}
     )
 endif()
+
+# These modules rely on resource paths in qmldir "prefer" directives, so they
+# must always be compiled into the binary regardless of platform.
+qt_internal_add_resource(tst_qqmllanguage "modulewithinternaltypessubdir"
+    PREFIX
+        "/"
+    FILES
+        data/modulewithinternaltypessubdir/qmldir
+        data/modulewithinternaltypessubdir/Qml/qmldir
+        data/modulewithinternaltypessubdir/Qml/MyInternalType.qml
+        data/modulewithinternaltypessubdir/Qml/MyPublicType.qml
+        data/modulewithinternaltypessubdir/submodule/qmldir
+        data/modulewithinternaltypessubdir/submodule/SubType.qml
+)
+
+qt_internal_add_resource(tst_qqmllanguage "modulewithinternaltypescomplexsubdir"
+    PREFIX
+        "/"
+    FILES
+        data/modulewithinternaltypescomplexsubdir/qmldir
+        data/modulewithinternaltypescomplexsubdir/A.qml
+        data/modulewithinternaltypescomplexsubdir/sub1/qmldir
+        data/modulewithinternaltypescomplexsubdir/sub1/B.qml
+        data/modulewithinternaltypescomplexsubdir/sub2/qmldir
+        data/modulewithinternaltypescomplexsubdir/sub2/usesB.qml
+        data/modulewithinternaltypescomplexsubdir/submodule/qmldir
+        data/modulewithinternaltypescomplexsubdir/submodule/SubType.qml
+)
 
 qt_internal_extend_target(tst_qqmllanguage CONDITION ANDROID OR IOS
     DEFINES

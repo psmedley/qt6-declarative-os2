@@ -11,6 +11,8 @@
 #include <QQmlEngine>
 #include <QQmlError>
 
+using namespace Qt::StringLiterals;
+
 static QtMessageHandler testlibMsgHandler = nullptr;
 void msgHandlerFilter(QtMsgType type, const QMessageLogContext &ctxt, const QString &msg)
 {
@@ -106,7 +108,7 @@ void tst_examples::namingConvention(const QDir &d)
             return;
     }
 
-    const QStringList files = d.entryList(QStringList() << QLatin1String("*.qml"), QDir::Files);
+    const QStringList files = d.entryList(QStringList{u"*.qml"_s}, QDir::Files);
 
     bool seenQml = !files.isEmpty();
     bool seenLowercase = false;
@@ -139,9 +141,9 @@ void tst_examples::namingConvention(const QDir &d)
 
 void tst_examples::namingConvention()
 {
-    const QStringList examplesLocations = {
-        QLibraryInfo::path(QLibraryInfo::ExamplesPath) + QLatin1String("/qml"),
-        QLibraryInfo::path(QLibraryInfo::ExamplesPath) + QLatin1String("/quick")
+    const QString examplesLocations[] = {
+        QLibraryInfo::path(QLibraryInfo::ExamplesPath) + "/qml"_L1,
+        QLibraryInfo::path(QLibraryInfo::ExamplesPath) + "/quick"_L1
     };
 
     for (const QString &examples : examplesLocations) {
@@ -163,7 +165,7 @@ QStringList tst_examples::findQmlFiles(const QDir &d)
 
     QStringList cppfiles = d.entryList(QStringList() << QLatin1String("*.cpp"), QDir::Files);
     if (cppfiles.isEmpty()) {
-        const QStringList files = d.entryList(QStringList() << QLatin1String("*.qml"), QDir::Files);
+        const QStringList files = d.entryList(QStringList{u"*.qml"_s}, QDir::Files);
         for (const QString &file : files) {
             if (file.at(0).isLower()) {
                 bool superContinue = false;
@@ -286,7 +288,17 @@ void tst_examples::snippets()
 
     QFETCH(QString, file);
 
-    QQmlComponent component(&engine, QUrl::fromLocalFile(file));
+    QUrl url = QUrl::fromLocalFile(file);
+#if !QT_CONFIG(qml_labs)
+    QStringList filesUsingLabs {
+        "boundaryRule.qml"
+    };
+
+    if (filesUsingLabs.contains(url.fileName()))
+        QSKIP("Test requires feature qml-labs");
+#endif
+
+    QQmlComponent component(&engine, url);
     if (component.status() == QQmlComponent::Error)
         qWarning() << component.errors();
     QCOMPARE(component.status(), QQmlComponent::Ready);

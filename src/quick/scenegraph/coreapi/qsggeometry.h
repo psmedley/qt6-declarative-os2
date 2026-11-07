@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGGEOMETRY_H
 #define QSGGEOMETRY_H
@@ -118,6 +119,7 @@ public:
     void allocate(int vertexCount, int indexCount = 0);
 
     int vertexCount() const { return m_vertex_count; }
+    void setVertexCount(int count);
 
     void *vertexData() { return m_data; }
     inline Point2D *vertexDataAsPoint2D();
@@ -132,6 +134,7 @@ public:
     inline int indexType() const { return m_index_type; }
 
     int indexCount() const { return m_index_count; }
+    void setIndexCount(int count);
 
     void *indexData();
     inline uint *indexDataAsUInt();

@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickmenuitem_p.h"
 
@@ -22,7 +23,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcNativeMenuItem, "qt.quick.controls.nativemenuitem")
+Q_STATIC_LOGGING_CATEGORY(lcNativeMenuItem, "qt.quick.controls.nativemenuitem")
 
 /*!
     \class QQuickNativeMenuItem
@@ -314,18 +315,21 @@ void QQuickNativeMenuItem::removeShortcut()
 
 QString QQuickNativeMenuItem::debugText() const
 {
+    // Prepend below to avoid extra lines from break statements.
+    QString text = QDebug::toString(m_handle.get());
+
     switch (m_type) {
     case Type::Action:
-        return QString::fromLatin1("Action(text = %1)").arg(action()->text());
+        return text.prepend(QString::fromLatin1("Action(text = %1) ").arg(action()->text()));
     case Type::SubMenu:
-        return QString::fromLatin1("Sub-menu(title = %1)").arg(subMenu()->title());
+        return text.prepend(QString::fromLatin1("Sub-menu(title = %1) ").arg(subMenu()->title()));
     case Type::MenuItem:
-        return QString::fromLatin1("MenuItem(text = %1)").arg(
-            qobject_cast<QQuickMenuItem *>(m_nonNativeItem)->text());
+        return text.prepend(QString::fromLatin1("MenuItem(text = %1) ").arg(
+            qobject_cast<QQuickMenuItem *>(m_nonNativeItem)->text()));
     case Type::Separator:
-        return QStringLiteral("Separator");
+        return text.prepend(QStringLiteral("Separator "));
     case Type::Unknown:
-        return QStringLiteral("(Unknown)");
+        return text.prepend(QStringLiteral("(Unknown) "));
     }
 
     Q_UNREACHABLE();

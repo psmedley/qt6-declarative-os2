@@ -1,9 +1,11 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include <QtQml/qqml.h>
 #include <QtQuickControls2/private/qquickstyleplugin_p.h>
 #include <QtQuickControls2/qquickstyle.h>
+#include <private/qquicktheme_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -34,8 +36,10 @@ QString QtQuickControls2MacOSStylePlugin::name() const
     return QStringLiteral("macOS");
 }
 
-void QtQuickControls2MacOSStylePlugin::initializeTheme(QQuickTheme */*theme*/)
+void QtQuickControls2MacOSStylePlugin::initializeTheme(QQuickTheme *theme)
 {
+    Q_ASSERT(theme);
+    theme->setUsePlatformPalette(true);
 }
 
 QT_END_NAMESPACE

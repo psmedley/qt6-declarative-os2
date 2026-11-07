@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicktextdocument.h"
 #include "qquicktextdocument_p.h"
@@ -16,7 +17,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcTextDoc, "qt.quick.textdocument")
+Q_STATIC_LOGGING_CATEGORY(lcTextDoc, "qt.quick.textdocument")
 
 using namespace Qt::StringLiterals;
 
@@ -240,7 +241,7 @@ void QQuickTextDocument::setSource(const QUrl &url)
 
     if (isModified()) {
         qmlWarning(this) << "Existing document modified: you should save(),"
-                            "or call TextEdit.clear() before setting a different source";
+                            " or set modified=false before setting a different source";
         return;
     }
 
@@ -352,6 +353,7 @@ void QQuickTextDocumentPrivate::load()
             {
                 doc->setPlainText(QString::fromUtf8(data));
             }
+            editor->setCursorPosition(0);
             setStatus(QQuickTextDocument::Status::Loaded, {});
             qCDebug(lcTextDoc) << editor << "loaded" << filePath
                                << "as" << editor->textFormat() << "detected" << detectedFormat
@@ -376,7 +378,7 @@ void QQuickTextDocumentPrivate::writeTo(const QUrl &fileUrl)
     if (!doc)
         return;
 
-    const QString filePath = fileUrl.toLocalFile();
+    const QString filePath = QQmlFile::urlToLocalFileOrQrc(fileUrl);
     const bool sameUrl = fileUrl == url;
     if (!sameUrl) {
 #if QT_CONFIG(mimetype)
@@ -515,7 +517,7 @@ void QQuickTextDocument::setTextDocument(QTextDocument *document)
 
     Saves the contents to the same file and format specified by \l source.
 
-    \note You can save only to a \l {QUrl::isLocalFile()}{file on a mounted filesystem}.
+    \note You can save to a local file, or on Android to a \c content URL.
 
     \sa source, saveAs()
 */
@@ -526,7 +528,7 @@ void QQuickTextDocument::setTextDocument(QTextDocument *document)
     \since 6.7
     \preliminary
 
-    \note You can save only to a \l {QUrl::isLocalFile()}{file on a mounted filesystem}.
+    \note You can save to a local file, or on Android to a \c content URL.
 
     \sa source, saveAs()
 */
@@ -545,7 +547,7 @@ void QQuickTextDocument::save()
     The file extension in \a url specifies the file format
     (as determined by QMimeDatabase::mimeTypeForUrl()).
 
-    \note You can save only to a \l {QUrl::isLocalFile()}{file on a mounted filesystem}.
+    \note You can save to a local file, or on Android to a \c content URL.
 
     \sa source, save()
 */
@@ -559,14 +561,18 @@ void QQuickTextDocument::save()
     The file extension in \a url specifies the file format
     (as determined by QMimeDatabase::mimeTypeForUrl()).
 
-    \note You can save only to a \l {QUrl::isLocalFile()}{file on a mounted filesystem}.
+    \note You can save to a local file, or on Android to a \c content URL.
 
     \sa source, save()
 */
 void QQuickTextDocument::saveAs(const QUrl &url)
 {
     Q_D(QQuickTextDocument);
-    if (!url.isLocalFile()) {
+    bool canWrite = url.isLocalFile();
+#ifdef Q_OS_ANDROID
+    canWrite = canWrite || url.scheme() == "content"_L1;
+#endif
+    if (!canWrite) {
         d->setStatus(QQuickTextDocument::Status::NonLocalFileError,
                      QQuickTextDocument::tr("Can only save to local files"));
         return;
@@ -590,9 +596,9 @@ QSizeF QQuickTextImageHandler::intrinsicSize(
 {
     if (format.isImageFormat()) {
         QTextImageFormat imageFormat = format.toImageFormat();
-        int width = qRound(imageFormat.width());
+        int width = qRound(qBound(qreal(INT_MIN), imageFormat.width(), qreal(INT_MAX)));
         const bool hasWidth = imageFormat.hasProperty(QTextFormat::ImageWidth) && width > 0;
-        const int height = qRound(imageFormat.height());
+        const int height = qRound(qBound(qreal(INT_MIN), imageFormat.height(), qreal(INT_MAX)));
         const bool hasHeight = imageFormat.hasProperty(QTextFormat::ImageHeight) && height > 0;
         const auto maxWidth = imageFormat.maximumWidth();
         const bool hasMaxWidth = imageFormat.hasProperty(QTextFormat::ImageMaxWidth) && maxWidth.type() != QTextLength::VariableLength;

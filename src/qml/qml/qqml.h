@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQML_H
 #define QQML_H
@@ -10,8 +11,11 @@
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qmetaobject.h>
-#include <QtCore/qmetacontainer.h>
+#include <QtCore/qmetasequence.h>
+#include <QtCore/qtyperevision.h>
+#if !defined(QT_LEAN_HEADERS) || QT_LEAN_HEADERS < 3
 #include <QtCore/qversionnumber.h>
+#endif
 
 #define QML_VERSION     0x020000
 #define QML_VERSION_STR "2.0"
@@ -637,7 +641,7 @@ Q_QML_EXPORT QQmlEngine *qmlEngine(const QObject *);
 Q_QML_EXPORT QQmlAttachedPropertiesFunc qmlAttachedPropertiesFunction(QObject *,
                                                                       const QMetaObject *);
 Q_QML_EXPORT QObject *qmlAttachedPropertiesObject(QObject *, QQmlAttachedPropertiesFunc func,
-                                                  bool create = true);
+    bool createIfMissing = true);
 Q_QML_EXPORT QObject *qmlExtendedObject(QObject *);
 
 //The C++ version of protected namespaces in qmldir
@@ -839,14 +843,30 @@ struct QmlTypeAndRevisionsRegistration<T, Resolved, Extended, false, false, fals
     {
 #if QT_DEPRECATED_SINCE(6, 4)
         // ### Qt7: Remove the warning, and leave only the static assert below.
+        if constexpr (!std::is_base_of_v<QObject, Resolved>) {
+            if constexpr (!QQmlPrivate::QmlMetaType<Resolved>::hasAcceptableCtors()) {
+                QQmlPrivate::qmlRegistrationWarning(
+                        QQmlPrivate::UnconstructibleType, QMetaType::fromType<Resolved>());
+            }
+            if constexpr (QQmlTypeInfo<Resolved>::hasAttachedProperties) {
+                QQmlPrivate::qmlRegistrationWarning(
+                        QQmlPrivate::NonQObjectWithAtached, QMetaType::fromType<Resolved>());
+            }
+        }
+#elif QT_DEPRECATED_SINCE(6, 10)
+        static_assert(std::is_base_of_v<QObject, Resolved>
+                || !QQmlTypeInfo<Resolved>::hasAttachedProperties);
+
+        // ### Qt7: Remove the warning, and leave only the static assert below.
         if constexpr (!std::is_base_of_v<QObject, Resolved>
-                && QQmlTypeInfo<Resolved>::hasAttachedProperties) {
-            QQmlPrivate::qmlRegistrationWarning(QQmlPrivate::NonQObjectWithAtached,
-                                                QMetaType::fromType<Resolved>());
+                && !QQmlPrivate::QmlMetaType<Resolved>::hasAcceptableCtors()) {
+            QQmlPrivate::qmlRegistrationWarning(
+                    QQmlPrivate::UnconstructibleType, QMetaType::fromType<Resolved>());
         }
 #else
         static_assert(std::is_base_of_v<QObject, Resolved>
-                || !QQmlTypeInfo<Resolved>::hasAttachedProperties);
+                || (QQmlPrivate::QmlMetaType<Resolved>::hasAcceptableCtors()
+                    && !QQmlTypeInfo<Resolved>::hasAttachedProperties));
 #endif
         QQmlPrivate::qmlRegisterTypeAndRevisions<Resolved, Extended>(
                     uri, versionMajor, QQmlPrivate::StaticMetaObject<T>::staticMetaObject(),
@@ -977,6 +997,22 @@ inline void qmlRegisterNamespaceAndRevisions(const QMetaObject *metaObject,
 {
     qmlRegisterNamespaceAndRevisions(metaObject, uri, versionMajor, qmlTypeIds,
                                      classInfoMetaObject, nullptr);
+}
+
+template<typename Enum>
+void qmlRegisterEnum(const char *name)
+{
+    const QMetaType metaType = QMetaType::fromType<Enum>();
+
+    // Calling id() generally makes the metatype usable with fromName().
+    metaType.id();
+
+    // If the enum was registered with the old Q_ENUMS or Q_FLAGS,
+    // we need to manually set up the typedef.
+    if constexpr (QtPrivate::IsQEnumHelper<Enum>::Value)
+        Q_UNUSED(name)
+    else
+        QMetaType::registerNormalizedTypedef(name, metaType);
 }
 
 int Q_QML_EXPORT qmlTypeId(const char *uri, int versionMajor, int versionMinor, const char *qmlName);

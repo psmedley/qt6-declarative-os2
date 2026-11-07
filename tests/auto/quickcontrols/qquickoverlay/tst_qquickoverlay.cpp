@@ -3,13 +3,22 @@
 
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
+#include <QtTest/private/qtesthelpers_p.h>
 
 #include <QtQuick/qquickwindow.h>
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickpointerdevicehandler_p.h>
+#include <QtQuick/private/qquicktaphandler_p.h>
+#include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+#include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
+#include <QtQuickTemplates2/private/qquickapplicationwindow_p.h>
 #include <QtQuickTemplates2/private/qquickoverlay_p.h>
 
-class tst_QQuickOverlay : public QObject
+using namespace QQuickControlsTestUtils;
+using namespace QQuickVisualTestUtils;
+
+class tst_QQuickOverlay : public QQmlDataTest
 {
     Q_OBJECT
 
@@ -19,6 +28,8 @@ public:
 private slots:
     void clearGrabbers();
     void retainOrientation();
+    void pressedAndReleased();
+    void eventsToWindowlessPopupInAsyncLoader();
 };
 
 class TestInputHandler : public QQuickPointerDeviceHandler
@@ -42,7 +53,7 @@ public:
         return ret || (ret && event->exclusiveGrabber(point) != this);
     }
 
-    bool grabPoints(QPointerEvent * event, const QVector<QEventPoint> & points)
+    bool grabPoints(QPointerEvent * event, const QList<QEventPoint> & points)
     {
         if (points.isEmpty())
             return false;
@@ -143,7 +154,10 @@ public:
     QList<int> m_points;
 };
 
-tst_QQuickOverlay::tst_QQuickOverlay() = default;
+tst_QQuickOverlay::tst_QQuickOverlay()
+    : QQmlDataTest(QT_QMLTEST_DATADIR, FailOnWarningsPolicy::FailOnWarnings)
+{
+}
 
 void tst_QQuickOverlay::clearGrabbers()
 {
@@ -216,6 +230,73 @@ void tst_QQuickOverlay::retainOrientation()
     QTRY_COMPARE_NE(overlay->size(), sz);
 
     QCOMPARE(overlay->rotation(), rot);
+}
+
+void tst_QQuickOverlay::pressedAndReleased()
+{
+    QQuickControlsApplicationHelper helper(this, "tapHandler.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    // Verify that the position and framePosition are correct
+    // to avoid flakiness on openSuSe KDE.
+    QVERIFY(QTestPrivate::ensurePositionTopLeft(window));
+
+    auto *overlay = QQuickOverlay::overlay(window);
+    QVERIFY(overlay);
+    const QSignalSpy pressedSpy(overlay, SIGNAL(pressed()));
+    QVERIFY(pressedSpy.isValid());
+    const QSignalSpy releasedSpy(overlay, SIGNAL(released()));
+    QVERIFY(releasedSpy.isValid());
+
+    auto *tapHandler = window->findChild<QQuickTapHandler *>();
+    QVERIFY(tapHandler);
+    const QSignalSpy tappedSpy(tapHandler, SIGNAL(tapped(QEventPoint,Qt::MouseButton)));
+    QVERIFY(tappedSpy.isValid());
+
+    // Left click should cause pressed to be emitted.
+    const QPoint &windowCenter = mapCenterToWindow(window->contentItem());
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, windowCenter);
+    QCOMPARE(pressedSpy.count(), 1);
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, windowCenter);
+    QCOMPARE(releasedSpy.count(), 1);
+    QCOMPARE(tappedSpy.count(), 1);
+
+    // Right press shouldn't cause pressed and released to be emitted
+    // now that we need that to synthesize QContextMenuEvents for ContextMenu.
+    QTest::mousePress(window, Qt::RightButton, Qt::NoModifier, windowCenter);
+    QCOMPARE(pressedSpy.count(), 1);
+    QTest::mouseRelease(window, Qt::RightButton, Qt::NoModifier, windowCenter);
+    QCOMPARE(releasedSpy.count(), 1);
+    QCOMPARE(tappedSpy.count(), 1);
+}
+
+void tst_QQuickOverlay::eventsToWindowlessPopupInAsyncLoader()
+{
+    QQuickControlsApplicationHelper helper(this, "eventsToWindowlessPopupInAsyncLoader.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    const QPoint startPos(0, 0);
+    const QPoint targetPos(40, 40);
+    const int steps = 80;
+    const int delay = 1;
+
+    // Test various event types. None of them should cause crashes.
+    PointLerper mousePointLerper(window, startPos);
+    mousePointLerper.move(targetPos, steps, delay);
+
+    std::unique_ptr<QPointingDevice> touchscreen { QTest::createTouchDevice() };
+    PointLerper touchPointLerper(window, startPos, touchscreen.get());
+    touchPointLerper.move(targetPos, steps, delay);
+
+    forEachStep(steps, [&](qreal progress) {
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+            lerpPoints(startPos, targetPos, progress), delay);
+    });
 }
 
 QTEST_MAIN(tst_QQuickOverlay)

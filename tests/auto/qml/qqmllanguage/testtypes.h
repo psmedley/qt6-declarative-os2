@@ -282,19 +282,15 @@ private:
 class MyEnumContainer : public QObject
 {
     Q_OBJECT
-    Q_ENUMS(RelatedEnum)
 
 public:
     enum RelatedEnum { RelatedInvalid = -1, RelatedValue = 42 };
+    Q_ENUM(RelatedEnum)
 };
 
 class MyTypeObject : public QObject
 {
     Q_OBJECT
-    Q_ENUMS(MyEnum)
-    Q_ENUMS(MyMirroredEnum)
-    Q_ENUMS(MyEnumContainer::RelatedEnum)
-    Q_FLAGS(MyFlags)
 
     Q_PROPERTY(QString id READ id WRITE setId)
     Q_PROPERTY(QObject *objectProperty READ objectProperty WRITE setObjectProperty NOTIFY objectPropertyChanged)
@@ -370,6 +366,7 @@ public:
 
     enum MyFlag { FlagVal1 = 0x01, FlagVal2 = 0x02, FlagVal3 = 0x04 };
     Q_DECLARE_FLAGS(MyFlags, MyFlag)
+    Q_FLAG(MyFlags)
     MyFlags flagPropertyValue;
     MyFlags flagProperty() const {
         return flagPropertyValue;
@@ -380,6 +377,8 @@ public:
     }
 
     enum MyEnum { EnumVal1, EnumVal2, lowercaseEnumVal };
+    Q_ENUM(MyEnum)
+
     MyEnum enumPropertyValue;
     MyEnum enumProperty() const {
         return enumPropertyValue;
@@ -406,6 +405,8 @@ public:
         MirroredEnumVal1 = Qt::AlignLeft,
         MirroredEnumVal2 = Qt::AlignRight,
         MirroredEnumVal3 = Qt::AlignHCenter };
+    Q_ENUM(MyMirroredEnum)
+
     MyMirroredEnum mirroredEnumPropertyValue;
     MyMirroredEnum mirroredEnumProperty() const {
         return mirroredEnumPropertyValue;
@@ -1241,7 +1242,6 @@ class MyVersion2Class : public QObject
 class MyEnum1Class : public QObject
 {
     Q_OBJECT
-    Q_ENUMS(EnumA)
 
 public:
     MyEnum1Class() : value(A_Invalid) {}
@@ -1253,6 +1253,7 @@ public:
         A_11 = 11,
         A_13 = 13
     };
+    Q_ENUM(EnumA)
 
     Q_INVOKABLE void setValue(EnumA v) { value = v; }
 
@@ -1265,8 +1266,6 @@ private:
 class MyEnum2Class : public QObject
 {
     Q_OBJECT
-    Q_ENUMS(EnumB)
-    Q_ENUMS(EnumE)
 
 public:
     MyEnum2Class() : valueA(MyEnum1Class::A_Invalid), valueB(B_Invalid), valueC(Qt::PlainText),
@@ -1280,6 +1279,7 @@ public:
         B_31 = 31,
         B_37 = 37
     };
+    Q_ENUM(EnumB)
 
     enum EnumE
     {
@@ -1288,6 +1288,7 @@ public:
         E_14 = 14,
         E_76 = 76
     };
+    Q_ENUM(EnumE)
 
     MyEnum1Class::EnumA getValueA() { return valueA; }
     EnumB getValueB() { return valueB; }
@@ -1328,12 +1329,14 @@ class MyEnumDerivedClass : public MyEnum2Class
 class MyCompositeBaseType : public QObject
 {
     Q_OBJECT
-    Q_ENUMS(CompositeEnum)
-    Q_ENUMS(ScopedCompositeEnum)
 
 public:
     enum CompositeEnum { EnumValue0, EnumValue42 = 42 };
+    Q_ENUM(CompositeEnum)
+
     enum class ScopedCompositeEnum : int { EnumValue15 = 15 };
+    Q_ENUM(ScopedCompositeEnum)
+
     static QObject *qmlAttachedProperties(QObject *parent) { return new QObject(parent); }
 };
 
@@ -1398,8 +1401,8 @@ public:
     enum  ui8 : quint8 {};
     enum si16 : qint16 {};
     enum ui16 : quint16 {};
-    enum ui64 : qint64 {};
-    enum si64 : quint64 {};
+    enum si64 : qint64 {};
+    enum ui64 : quint64 {};
     Q_ENUM(si8)
     Q_ENUM(ui8)
     Q_ENUM(si16)
@@ -1588,13 +1591,14 @@ Q_ENUM_NS(OtherScopedEnum)
 class ScopedEnumsWithResolvedNameClash
 {
     Q_GADGET
-    Q_ENUMS(ScopedEnum)
-    Q_ENUMS(OtherScopedEnum)
     Q_CLASSINFO("RegisterEnumClassesUnscoped", "false")
 
 public:
     enum class ScopedEnum : int { ScopedVal1, ScopedVal2, ScopedVal3, OtherScopedEnum };
+    Q_ENUM(ScopedEnum)
+
     enum class OtherScopedEnum : int { ScopedVal1, ScopedVal2, ScopedVal3 };
+    Q_ENUM(OtherScopedEnum)
 };
 
 class AttachedType : public QObject
@@ -3074,6 +3078,47 @@ private:
     std::vector<std::vector<int>> m_list;
 };
 
+class VariantAssociationProvider : public QObject {
+
+    Q_OBJECT
+    Q_PROPERTY(QVariantMap variantMap READ getMap WRITE setMap)
+    Q_PROPERTY(QVariantHash variantHash READ getHash WRITE setHash)
+    Q_PROPERTY(QVariantList variantList READ getList WRITE setList)
+
+    QML_ELEMENT
+
+    QVariantMap m_variantMap;
+    QVariantHash m_variantHash;
+    QVariantList m_variantList;
+
+public:
+    VariantAssociationProvider(QObject* parent = nullptr) : QObject(parent)
+    {}
+
+    QVariantMap getMap() { return m_variantMap; }
+    void setMap(const QVariantMap& map) { m_variantMap = map; }
+
+    QVariantHash getHash() { return m_variantHash; }
+    void setHash(const QVariantHash& hash) { m_variantHash = hash; }
+
+    QVariantList getList() { return m_variantList; }
+    void setList(const QVariantList &list) { m_variantList = list; }
+
+    Q_INVOKABLE QVariantList getListOfMap() const {
+        return QVariantList{
+            QVariantMap{},
+            QVariantMap{ { "email", "Alice Smith"} }
+        };
+    }
+
+    Q_INVOKABLE QVariantList getListOfHash() const {
+        return QVariantList{
+            QVariantHash{},
+            QVariantHash{ { "email", "Alice Smith"} }
+        };
+    }
+};
+
 namespace YepNamespaceA {
 class YepAttached : public QObject
 {
@@ -3113,5 +3158,262 @@ public:
     Q_INVOKABLE QString s() const { return QStringLiteral("StaticTest"); }
 };
 } // namespace YepNamespaceA
+
+class ReadCounterInner {
+    Q_GADGET
+    QML_ELEMENT
+
+    Q_PROPERTY(QDateTime firstDate READ getFirstDate WRITE setFirstDate)
+    Q_PROPERTY(QDateTime secondDate READ getSecondDate WRITE setSecondDate)
+
+public:
+    ReadCounterInner() {}
+
+    inline static std::size_t timesRead = 0;
+
+    QDateTime getFirstDate() {
+        ++timesRead;
+        return m_firstDate;
+    }
+    void setFirstDate(const QDateTime& l) { m_firstDate = l; }
+
+    QDateTime getSecondDate() {
+        ++timesRead;
+        return m_secondDate;
+    }
+    void setSecondDate(const QDateTime& l) { m_secondDate = l; }
+
+
+    QDateTime m_firstDate{};
+    QDateTime m_secondDate{};
+};
+
+class ReadCounter : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+
+    Q_PROPERTY(QStringList stringList READ getStringList WRITE setStringList NOTIFY stringListChanged)
+    Q_PROPERTY(QDateTime dateTime READ getDateTime WRITE setDateTime NOTIFY dateTimeChanged)
+    Q_PROPERTY(ValueTypeWithEnum1 valueType READ getValueType WRITE setValueType NOTIFY valueTypeChanged)
+    Q_PROPERTY(QStringList bindable READ getBindable WRITE default BINDABLE bindableProperty FINAL)
+    Q_PROPERTY(ReadCounterInner inner READ getInner WRITE setInner NOTIFY innerChanged)
+    Q_PROPERTY(QStringList notifyBindable READ default WRITE default BINDABLE notifyBindableProperty NOTIFY notifyBindableChanged)
+
+public:
+    ReadCounter(QObject* parent = nullptr)
+        : QObject(parent)
+    {}
+
+    std::size_t timesRead = 0;
+
+    QStringList getStringList() {
+        ++timesRead;
+        return m_stringList;
+    }
+    void setStringList(const QStringList& l) { m_stringList = l; }
+
+    QDateTime getDateTime() {
+        ++timesRead;
+        return m_dateTime;
+    }
+    void setDateTime(const QDateTime& d) { m_dateTime = d; }
+
+    ValueTypeWithEnum1 getValueType() {
+        ++timesRead;
+        return m_valueType;
+    }
+    void setValueType(const ValueTypeWithEnum1& v) { m_valueType = v; emit valueTypeChanged(); }
+
+    QBindable<QStringList> bindableProperty() { return QBindable<QStringList>(&m_bindable); }
+    QStringList getBindable() {
+        ++timesRead;
+        return m_bindable;
+    }
+
+    ReadCounterInner getInner() {
+        ++timesRead;
+        return m_inner;
+    }
+    void setInner(const ReadCounterInner& l) { m_inner = l; emit innerChanged(); }
+
+    QBindable<QStringList> notifyBindableProperty() { return QBindable<QStringList>(&m_notifyBindable); }
+
+    std::size_t destroyedConnections = 0;
+    std::size_t notifyBindableSignalConnections = 0;
+
+    void connectNotify(const QMetaMethod& signal) override {
+        if (signal == QMetaMethod::fromSignal(&ReadCounter::destroyed))
+            ++destroyedConnections;
+        if (signal == QMetaMethod::fromSignal(&ReadCounter::notifyBindableChanged))
+            ++notifyBindableSignalConnections;
+    }
+
+    void disconnectNotify(const QMetaMethod& signal) override {
+        if (signal == QMetaMethod::fromSignal(&ReadCounter::destroyed))
+            --destroyedConnections;
+        if (signal == QMetaMethod::fromSignal(&ReadCounter::notifyBindableChanged))
+            --notifyBindableSignalConnections;
+    }
+
+signals:
+    void stringListChanged();
+    void dateTimeChanged();
+    void valueTypeChanged();
+    void innerChanged();
+    void notifyBindableChanged();
+
+private:
+    QStringList m_stringList;
+    QDateTime m_dateTime;
+    ValueTypeWithEnum1 m_valueType;
+    QProperty<QStringList> m_bindable;
+    ReadCounterInner m_inner{};
+    QProperty<QStringList> m_notifyBindable;
+};
+
+class BindablePoint : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(QPointF point BINDABLE bindablePoint READ default WRITE default)
+public:
+    BindablePoint(QObject *parent = nullptr) : QObject(parent), m_point(QPointF(101, 102)) {}
+
+    QBindable<QPointF> bindablePoint() { return QBindable<QPointF>(&m_point); }
+
+private:
+    QProperty<QPointF> m_point;
+};
+
+class LargeRevisionBase : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(int c MEMBER m_c CONSTANT)
+    Q_PROPERTY(int d MEMBER m_d CONSTANT)
+public:
+    int m_c = 11;
+    int m_d = 12;
+};
+
+class LargeRevision : public LargeRevisionBase
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(int a MEMBER m_a CONSTANT REVISION(1, 12))
+    Q_PROPERTY(int b MEMBER m_b CONSTANT REVISION(12, 12))
+    Q_PROPERTY(int c MEMBER m_c CONSTANT REVISION(1, 12))
+    Q_PROPERTY(int d MEMBER m_d CONSTANT REVISION(12, 12))
+public:
+    int m_a = 13;
+    int m_b = 14;
+    int m_c = 15;
+    int m_d = 16;
+};
+
+class CppEnum : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum class Scoped { S1, S2, S3 = 5, S4 = 5 };
+    Q_ENUM(Scoped)
+    enum Unscoped { U1, U2, U3 = 5, U4 = 5 };
+    Q_ENUM(Unscoped)
+};
+
+namespace EnumNamespace {
+Q_NAMESPACE
+QML_ELEMENT
+
+enum Unscoped { U1, U2, U3 = 5, U4 = 5 };
+Q_ENUM_NS(Unscoped)
+enum class Scoped { S1, S2, S3 = 5, S4 = 5 };
+Q_ENUM_NS(Scoped)
+} // namespace EnumNamespace
+
+class ConflictingEnums : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum class E1 { A = 1 };
+    Q_ENUM(E1);
+    enum E2 { A = 2 };
+    Q_ENUM(E2);
+};
+
+template <class T>
+class IdType
+{
+public:
+    IdType(T id) : value(id) {}
+    T get() const { return value; }
+
+private:
+    T value;
+};
+
+using CustomId = IdType<int32_t>;
+
+class CustomIdentifier
+{
+    Q_GADGET
+    QML_VALUE_TYPE(customIdentifier)
+    QML_STRUCTURED_VALUE
+
+    Q_PROPERTY(int customId READ getCustomId CONSTANT FINAL)
+public:
+    CustomIdentifier() = default;
+    CustomIdentifier(CustomId custom_id) : id(std::move(custom_id)) {}
+
+    int getCustomId() const { return id.get(); }
+    Q_INVOKABLE int toVisualId() const { return id.get() + 1; }
+
+    friend bool operator==(const CustomIdentifier &a, const CustomIdentifier &b)
+    {
+        return a.id.get() == b.id.get();
+    }
+
+    CustomId id {-1};
+};
+
+class IdProvider : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+public:
+    IdProvider() = default;
+
+    static CustomId id1() { return CustomId(20); }
+    static CustomId id2() { return CustomId(21); }
+
+    Q_INVOKABLE CustomIdentifier getId1() const { return CustomIdentifier(id1()); }
+    Q_INVOKABLE CustomIdentifier getId2() const { return CustomIdentifier(id2()); }
+};
+
+class IntListRegistration
+{
+public:
+    Q_GADGET
+    QML_FOREIGN(std::list<int>)
+    QML_ANONYMOUS
+    QML_SEQUENTIAL_CONTAINER(int)
+};
+
+struct SomeQmlInterface
+{
+    QML_INTERFACE
+public:
+    virtual ~SomeQmlInterface() {}
+    virtual void doSomething() = 0;
+};
+
+QT_BEGIN_NAMESPACE
+Q_DECLARE_INTERFACE(SomeQmlInterface, "org.test.QmlTypes")
+QT_END_NAMESPACE
 
 #endif // TESTTYPES_H

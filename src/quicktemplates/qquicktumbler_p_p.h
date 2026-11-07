@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTUMBLER_P_P_H
 #define QQUICKTUMBLER_P_P_H
@@ -19,6 +20,7 @@
 #include <QtQuickTemplates2/private/qquicktumbler_p.h>
 
 #include <QtCore/qpointer.h>
+#include <QtQml/private/qqmlpropertyutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -47,6 +49,7 @@ public:
     int visibleItemCount = 5;
     bool wrap = true;
     bool explicitWrap = false;
+    qreal flickDeceleration = 0.0;
     bool modelBeingSet = false;
     bool currentIndexSetDuringModelChange = false;
     QQuickItem *view = nullptr;
@@ -87,7 +90,8 @@ public:
     void setCurrentIndex(int newCurrentIndex, PropertyChangeReason changeReason = InternalChange);
     void setCount(int newCount);
     void setWrapBasedOnCount();
-    void setWrap(bool shouldWrap, bool isExplicit);
+    void setWrap(bool shouldWrap, QQml::PropertyUtils::State propertyState);
+    qreal effectiveFlickDeceleration() const;
     void beginSetModel();
     void endSetModel();
 

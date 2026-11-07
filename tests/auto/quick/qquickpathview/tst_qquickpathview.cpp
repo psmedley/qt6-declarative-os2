@@ -1,7 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QtQuick/qquickview.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -18,6 +18,7 @@
 #include <QtQmlModels/private/qqmllistmodel_p.h>
 #include <QtQml/private/qqmlvaluetype_p.h>
 #include <QtGui/qstandarditemmodel.h>
+#include <QtGui/private/qpointingdevice_p.h>
 #include <QStringListModel>
 #include <QFile>
 #include <QEvent>
@@ -115,6 +116,8 @@ private slots:
     void indexAt_itemAt();
     void indexAt_itemAt_data();
     void cacheItemCount();
+    void fullyCachedModelSynchronous();
+    void fullyCachedModelSynchronous_data();
     void changePathDuringRefill();
     void nestedinFlickable();
     void ungrabNestedinFlickable();
@@ -131,13 +134,14 @@ private slots:
     void requiredPropertiesInDelegate();
     void requiredPropertiesInDelegatePreventUnrelated();
     void touchMove();
+    void respectKeepTouchGrab();
     void mousePressAfterFlick();
     void qtbug90479();
     void overCached();
     void qtbug46487();
 
 private:
-    QScopedPointer<QPointingDevice> touchDevice = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
+    std::unique_ptr<QPointingDevice> touchscreen{QTest::createTouchDevice()};
 };
 
 class TestObject : public QObject
@@ -401,9 +405,9 @@ void tst_QQuickPathView::insertModel()
     else
         pathview->setOffset(4);
 
-    QList<QPair<QString, QString> > items;
+    QList<std::pair<QString, QString> > items;
     for (int i = 0; i < count; ++i)
-        items.append(qMakePair(QString("New"), QString::number(i)));
+        items.append(std::make_pair(QString("New"), QString::number(i)));
 
     model.insertItems(idx, items);
     QTRY_COMPARE(pathview->offset(), offset);
@@ -690,9 +694,9 @@ void tst_QQuickPathView::consecutiveModelChanges()
         switch (changes[i].type) {
             case ListChange::Inserted:
             {
-                QList<QPair<QString, QString> > items;
+                QList<std::pair<QString, QString> > items;
                 for (int j=changes[i].index; j<changes[i].index + changes[i].count; ++j)
-                    items << qMakePair(QString("new item %1").arg(j), QString::number(j));
+                    items << std::make_pair(QString("new item %1").arg(j), QString::number(j));
                 model.insertItems(changes[i].index, items);
                 break;
             }
@@ -771,10 +775,6 @@ void tst_QQuickPathView::path()
 
 void tst_QQuickPathView::dataModel()
 {
-#ifdef Q_OS_MACOS
-    QSKIP("this test currently crashes on MacOS. See QTBUG-68047");
-#endif
-
     QScopedPointer<QQuickView> window(createView());
     window->show();
 
@@ -1560,7 +1560,7 @@ void tst_QQuickPathView::mouseDrag()
     QCOMPARE(draggingSpy.size(), 2);
     QCOMPARE(dragStartedSpy.size(), 1);
     QCOMPARE(dragEndedSpy.size(), 1);
-    QTRY_COMPARE(movingSpy.size(), 2);
+    QTRY_COMPARE_EQ_WITH_TIMEOUT(movingSpy.size(), 2, 2000);
     QTRY_COMPARE(moveEndedSpy.size(), 1);
     QCOMPARE(moveStartedSpy.size(), 1);
 
@@ -2237,6 +2237,54 @@ void tst_QQuickPathView::cacheItemCount()
     }
 }
 
+void tst_QQuickPathView::fullyCachedModelSynchronous_data()
+{
+    QTest::addColumn<int>("modelCount");
+
+    // fullycached.qml sets pathItemCount to 3 and the test passes
+    // cacheItemCount as modelCount - 3, so every item of the model has to be
+    // created. The append and the prepend range meet at the index at
+    // modelCount / 2, independently of pathItemCount, which makes every even
+    // model count a candidate for losing that item to rounding. With IEEE-754
+    // doubles only a modelCount of 14 actually loses it (index 7); the
+    // remaining rows are cheap coverage of the neighbouring counts. The lowest
+    // row is 4, the smallest modelCount that still leaves a cache item, and
+    // the highest is 24, which keeps five even counts on either side of 14.
+    for (int i = 4; i <= 24; ++i)
+        QTest::addRow("%d", i) << i;
+}
+
+void tst_QQuickPathView::fullyCachedModelSynchronous()
+{
+    QFETCH(int, modelCount);
+
+    // A plain QQmlEngine has no incubation controller, so QQmlEnginePrivate::incubate()
+    // downgrades PathView's asynchronous cache item requests to synchronous ones. All
+    // delegates therefore exist by the time create() returns.
+    QQmlEngine engine;
+    Q_ASSERT(!engine.incubationController());
+    QQmlComponent component(&engine, testFileUrl("fullycached.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> root(component.createWithInitialProperties(
+            { { QStringLiteral("model"), modelCount },
+              { QStringLiteral("cacheItemCount"), modelCount - 3 } }));
+    QVERIFY2(root, qPrintable(component.errorString()));
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView *>(root.get());
+    QVERIFY(pathview);
+    // Both initial properties have to have arrived, otherwise a broken setup would
+    // be reported as a missing delegate.
+    QCOMPARE(pathview->count(), modelCount);
+    QCOMPARE(pathview->pathItemCount() + pathview->cacheItemCount(), modelCount);
+
+    for (int i = 0; i < modelCount; ++i) {
+        QVERIFY2(findItem<QQuickItem>(pathview, "wrapper", i),
+                 qPrintable(QStringLiteral("delegate %1 of %2 was not created")
+                            .arg(i).arg(modelCount)));
+    }
+}
+
 static void testCurrentIndexChange(QQuickPathView *pathView, const QStringList &objectNamesInOrder)
 {
     for (int visualIndex = 0; visualIndex < objectNamesInOrder.size() - 1; ++visualIndex) {
@@ -2320,7 +2368,7 @@ void tst_QQuickPathView::nestedinFlickable()
 
     // no further moves after the initial move beyond threshold
     QTest::mouseRelease(window.data(), Qt::LeftButton, Qt::NoModifier, QPoint(73,219));
-    QTRY_COMPARE(movingSpy.size(), 2);
+    QTRY_COMPARE_WITH_TIMEOUT(movingSpy.size(), 2, 2s);
     QTRY_COMPARE(moveEndedSpy.size(), 1);
     QCOMPARE(moveStartedSpy.size(), 1);
     // Flickable should not handle this
@@ -2700,9 +2748,9 @@ void tst_QQuickPathView::objectModelMove()
     QCOMPARE(pathView->count(), 3);
 
     // Keep track of the amount of listeners
-    QVector<QString> itemObjectNames;
+    QList<QString> itemObjectNames;
     itemObjectNames << QLatin1String("red") << QLatin1String("green") << QLatin1String("blue");
-    QVector<QQuickItem*> childItems;
+    QList<QQuickItem*> childItems;
     for (const QString &itemObjectName : std::as_const(itemObjectNames)) {
         QQuickItem *childItem = findItem<QQuickItem>(pathView, itemObjectName);
         QVERIFY(childItem);
@@ -2782,7 +2830,7 @@ void tst_QQuickPathView::touchMove()
     QPoint from(250, 100);
     QPoint to(10, 100);
 
-    QTest::touchEvent(window.data(), touchDevice.data()).press(0, from, window.data());
+    QTest::touchEvent(window.data(), touchscreen.get()).press(0, from, window.data());
     QQuickTouchUtils::flush(window.data());
 
     QVERIFY(!pathview->isMoving());
@@ -2797,7 +2845,7 @@ void tst_QQuickPathView::touchMove()
     QCOMPARE(flickEndedSpy.size(), 0);
 
     from -= QPoint(QGuiApplication::styleHints()->startDragDistance() + 1, 0);
-    QTest::touchEvent(window.data(), touchDevice.data()).move(0, from, window.data());
+    QTest::touchEvent(window.data(), touchscreen.get()).move(0, from, window.data());
     QQuickTouchUtils::flush(window.data());
 
     // first move does not trigger move/drag
@@ -2815,7 +2863,7 @@ void tst_QQuickPathView::touchMove()
     QPoint diff = from - to;
     int moveCount = 4;
     for (int i = 1; i <= moveCount; ++i) {
-        QTest::touchEvent(window.data(), touchDevice.data()).move(0, from - i * diff / moveCount, window.data());
+        QTest::touchEvent(window.data(), touchscreen.get()).move(0, from - i * diff / moveCount, window.data());
         QQuickTouchUtils::flush(window.data());
 
         QVERIFY(pathview->isMoving());
@@ -2831,7 +2879,7 @@ void tst_QQuickPathView::touchMove()
     }
     QVERIFY(pathview->currentIndex() != current);
 
-    QTest::touchEvent(window.data(), touchDevice.data()).release(0, to, window.data());
+    QTest::touchEvent(window.data(), touchscreen.get()).release(0, to, window.data());
     QQuickTouchUtils::flush(window.data());
 
     QVERIFY(pathview->isMoving());
@@ -2848,7 +2896,7 @@ void tst_QQuickPathView::touchMove()
     // Wait for the flick to finish
     QVERIFY(QTest::qWaitFor([&]()
         { return !pathview->isFlicking(); }
-    ));
+    , QDeadlineTimer(5000)));
     QVERIFY(!pathview->isMoving());
     QVERIFY(!pathview->isDragging());
     QCOMPARE(movingSpy.size(), 2);
@@ -2860,6 +2908,63 @@ void tst_QQuickPathView::touchMove()
     QCOMPARE(flickStartedSpy.size(), 1);
     QCOMPARE(flickEndedSpy.size(), 1);
 
+}
+
+void tst_QQuickPathView::respectKeepTouchGrab()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("withSliders.qml")));
+    QQuickPathView *pathview = window.rootObject()->findChild<QQuickPathView *>();
+    QVERIFY(pathview);
+    QQuickItem *leftSlider = pathview->currentItem()->findChild<QQuickItem *>("adHocSlider");
+    QVERIFY(leftSlider);
+    QQuickItem *rightSlider = pathview->currentItem()->findChild<QQuickItem *>("controlsSlider");
+    QVERIFY(rightSlider);
+
+    const auto *touchScreenPriv = QPointingDevicePrivate::get(touchscreen.get());
+    auto dragAndGrab = [&window, this, pathview, touchScreenPriv](QQuickItem *slider) {
+        QSignalSpy movingSpy(pathview, &QQuickPathView::movingChanged);
+        QSignalSpy moveStartedSpy(pathview, &QQuickPathView::movementStarted);
+        QSignalSpy draggingSpy(pathview, &QQuickPathView::draggingChanged);
+        QSignalSpy dragStartedSpy(pathview, &QQuickPathView::dragStarted);
+        QSignalSpy flickStartedSpy(pathview, &QQuickPathView::flickStarted);
+
+        QPoint p = (slider->position() + slider->boundingRect().center()).toPoint();
+        const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
+        const int currentIdx = pathview->currentIndex();
+
+        QTest::touchEvent(&window, touchscreen.get()).press(1, p, &window);
+
+        // drag upwards to get the slider moving
+        for (int i = 0; i < 3; ++i) {
+            p.setY(p.y() - dragThreshold);
+            QTest::touchEvent(&window, touchscreen.get()).move(1, p, &window);
+            QQuickTouchUtils::flush(&window);
+        }
+        const QObject* grabber = touchScreenPriv->pointById(1)->exclusiveGrabber;
+        QVERIFY(grabber); // either Slider or DragHandler, but not null
+
+        // drag sideways: grabber stays the same, PathView does not take over
+        for (int dx = dragThreshold; dx < 80; ++dx) {
+            QTest::touchEvent(&window, touchscreen.get()).move(1, p + QPoint(dx, 0), &window);
+            QQuickTouchUtils::flush(&window);
+            QCOMPARE(touchScreenPriv->pointById(1)->exclusiveGrabber, grabber);
+        }
+
+        QTest::touchEvent(&window, touchscreen.get()).release(1, p, &window);
+        QQuickTouchUtils::flush(&window);
+        QTRY_COMPARE(touchScreenPriv->pointById(1)->exclusiveGrabber, nullptr);
+
+        QCOMPARE(movingSpy.size(), 0);
+        QCOMPARE(moveStartedSpy.size(), 0);
+        QCOMPARE(draggingSpy.size(), 0);
+        QCOMPARE(dragStartedSpy.size(), 0);
+        QCOMPARE(flickStartedSpy.size(), 0);
+        QCOMPARE(pathview->currentIndex(), currentIdx);
+    };
+
+    dragAndGrab(leftSlider);
+    dragAndGrab(rightSlider);
 }
 
 void tst_QQuickPathView::mousePressAfterFlick() // QTBUG-115121
@@ -2949,11 +3054,11 @@ public:
         m_values << 0 << 1 << 2 << 3 << 4;
     }
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const {
+    int rowCount(const QModelIndex &parent = QModelIndex()) const final {
         Q_UNUSED(parent);
         return m_values.count();
     }
-    QVariant data(const QModelIndex &index, int role) const {
+    QVariant data(const QModelIndex &index, int) const final {
         if (index.row() < 0 || m_values.count() <= index.row())
             return QVariant();
 
@@ -2986,20 +3091,17 @@ void tst_QQuickPathView::qtbug46487()
     QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
     QVERIFY(pathview);
 
-    QTest::qWait(500);
-
     // Should create just pathItemCount amount and not destroy any
-    QCOMPARE(pathview->count(), 5);
+    QTRY_COMPARE(pathview->count(), 5);
     QCOMPARE(pathview->property("delegatesCreated").toInt(), 5);
     QCOMPARE(pathview->property("delegatesDestroyed").toInt(), 0);
 
     // Resets the model and removes 2 items.
     model->shrink();
-    QTest::qWait(500);
 
     // Should destroy previous items (begin/endResetModel) and
     // (re)create 3 new items.
-    QCOMPARE(pathview->count(), 3);
+    QTRY_COMPARE(pathview->count(), 3);
     QCOMPARE(pathview->property("delegatesCreated").toInt(), 5 + 3);
     QCOMPARE(pathview->property("delegatesDestroyed").toInt(), 5);
 }

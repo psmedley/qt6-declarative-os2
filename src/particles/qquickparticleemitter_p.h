@@ -22,8 +22,10 @@
 #include "qquickdirection_p.h"
 
 #include <QList>
-#include <QPair>
 #include <QPointF>
+
+#include <utility>
+
 QT_BEGIN_NAMESPACE
 
 class Q_QUICKPARTICLES_EXPORT QQuickParticleEmitter : public QQuickItem
@@ -32,7 +34,7 @@ class Q_QUICKPARTICLES_EXPORT QQuickParticleEmitter : public QQuickItem
     Q_PROPERTY(QQuickParticleSystem* system READ system WRITE setSystem NOTIFY systemChanged)
     Q_PROPERTY(QString group READ group WRITE setGroup NOTIFY groupChanged)
     Q_PROPERTY(QQuickParticleExtruder* shape READ extruder WRITE setExtruder NOTIFY extruderChanged)
-    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged OVERRIDE)
     Q_PROPERTY(int startTime READ startTime WRITE setStartTime NOTIFY startTimeChanged)
 
     Q_PROPERTY(qreal emitRate READ particlesPerSecond WRITE setParticlesPerSecond NOTIFY particlesPerSecondChanged)
@@ -142,6 +144,7 @@ public Q_SLOTS:
     {
         if (m_particlesPerSecond != arg) {
             m_particlesPerSecond = arg;
+            callSystemEmittersChanged();
             Q_EMIT particlesPerSecondChanged(arg);
         }
     }
@@ -150,19 +153,29 @@ public Q_SLOTS:
     {
         if (m_particleDuration != arg) {
             m_particleDuration = arg;
+            callSystemEmittersChanged();
             Q_EMIT particleDurationChanged(arg);
         }
     }
 
     void setSystem(QQuickParticleSystem* arg)
     {
-        if (m_system != arg) {
-            m_system = arg;
-            m_groupIdNeedRecalculation = true;
-            if (m_system)
-                m_system->registerParticleEmitter(this);
-            Q_EMIT systemChanged(arg);
+        if (arg == m_system)
+            return;
+
+        if (m_system)
+            m_system->unregisterParticleEmitter(this);
+
+        m_system = arg;
+        m_groupIdNeedRecalculation = true;
+
+        if (m_system) {
+            m_system->registerParticleEmitter(this);
+            if (isComponentComplete())
+                m_system->finishRegisteringParticleEmitter(this);
         }
+
+        Q_EMIT systemChanged(arg);
     }
 
     void setGroup(const QString &arg)
@@ -170,6 +183,7 @@ public Q_SLOTS:
         if (m_group != arg) {
             m_group = arg;
             m_groupIdNeedRecalculation = true;
+            callSystemEmittersChanged();
             Q_EMIT groupChanged(arg);
         }
     }
@@ -309,7 +323,7 @@ protected:
        bool m_overwrite;
 
        int m_pulseLeft;
-       QList<QPair<int, QPointF > > m_burstQueue;
+       QList<std::pair<int, QPointF > > m_burstQueue;
        int m_maxParticleCount;
 
        //Used in default implementation, but might be useful
@@ -326,6 +340,8 @@ protected:
        bool isEmitConnected();
 
 private: // data
+       void callSystemEmittersChanged();
+
        QString m_group;
        mutable bool m_groupIdNeedRecalculation;
        mutable QQuickParticleGroupData::ID m_groupId;

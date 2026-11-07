@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickwindowmodule_p.h"
 #include "qquickwindowattached_p.h"
@@ -22,7 +23,7 @@ QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
 
-Q_DECLARE_LOGGING_CATEGORY(lcTransient)
+Q_STATIC_LOGGING_CATEGORY(lcTransient, "qt.quick.window.transient")
 
 QQuickWindowQmlImplPrivate::QQuickWindowQmlImplPrivate() = default;
 
@@ -48,7 +49,14 @@ QQuickWindowQmlImpl::QQuickWindowQmlImpl(QQuickWindowQmlImplPrivate &dd, QWindow
         d->visibilityExplicitlySet = false;
         emit QQuickWindowQmlImpl::visibilityChanged(d->visibility);
     });
-    connect(this, &QWindow::screenChanged, this, &QQuickWindowQmlImpl::screenChanged);
+
+    connect(this, &QWindow::screenChanged, this, [this]() {
+        Q_D(QQuickWindowQmlImpl);
+        delete d->screenInfo;
+        d->screenInfo = nullptr;
+
+        emit QQuickWindowQmlImpl::screenChanged();
+    });
 
     // We shadow the x and y properties, so that we can re-map them in case
     // we have an Item as our visual parent, which will result in creating an
@@ -531,15 +539,17 @@ qreal QQuickWindowQmlImpl::z() const
 
 // --------------------------------------------------------------------
 
-QObject *QQuickWindowQmlImpl::screen() const
+QQuickScreenInfo *QQuickWindowQmlImpl::screen() const
 {
-    return new QQuickScreenInfo(const_cast<QQuickWindowQmlImpl *>(this), QWindow::screen());
+    Q_D(const QQuickWindowQmlImpl);
+    if (!d->screenInfo)
+        d->screenInfo = new QQuickScreenInfo(const_cast<QQuickWindowQmlImpl *>(this), QWindow::screen());
+    return d->screenInfo;
 }
 
-void QQuickWindowQmlImpl::setScreen(QObject *screen)
+void QQuickWindowQmlImpl::setScreen(QQuickScreenInfo *screen)
 {
-    QQuickScreenInfo *screenWrapper = qobject_cast<QQuickScreenInfo *>(screen);
-    QWindow::setScreen(screenWrapper ? screenWrapper->wrappedScreen() : nullptr);
+    QWindow::setScreen(screen ? screen->wrappedScreen() : nullptr);
 }
 
 QQuickWindowAttached *QQuickWindowQmlImpl::qmlAttachedProperties(QObject *object)

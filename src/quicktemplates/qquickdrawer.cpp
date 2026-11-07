@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickdrawer_p.h"
 #include "qquickdrawer_p_p.h"
@@ -13,6 +14,8 @@
 #include <QtQuick/private/qquickanimation_p.h>
 #include <QtQuick/private/qquicktransition_p.h>
 #include <QtQuickTemplates2/private/qquickoverlay_p.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -30,6 +33,7 @@ QT_BEGIN_NAMESPACE
     touch interfaces to provide a central location for navigation.
 
     \image qtquickcontrols-drawer.gif
+           {Drawer sliding in from edge}
 
     Drawer can be positioned at any of the four edges of the content item.
     The drawer above is positioned against the left edge of the window. The
@@ -206,7 +210,7 @@ void QQuickDrawerPositioner::reposition()
 
     // The overlay is assumed to fully cover the window's contents, although the overlay's geometry
     // might not always equal the window's geometry (for example, if the window's contents are rotated).
-    QQuickOverlay *overlay = QQuickOverlay::overlay(drawer->window());
+    QQuickOverlay *overlay = QQuickOverlay::overlay(drawer->window(), drawer->parentItem());
     if (!overlay)
         return;
 
@@ -245,7 +249,7 @@ void QQuickDrawerPrivate::resizeDimmer()
     if (!dimmer || !window)
         return;
 
-    const QQuickOverlay *overlay = QQuickOverlay::overlay(window);
+    const QQuickOverlay *overlay = QQuickOverlay::overlay(window, parentItem);
 
     QRectF geometry(0, 0, overlay ? overlay->width() : 0, overlay ? overlay->height() : 0);
 
@@ -343,8 +347,10 @@ bool QQuickDrawerPrivate::grabMouse(QQuickItem *item, QMouseEvent *event)
     bool overThreshold = false;
     Qt::Edge effEdge = effectiveEdge();
     if (position > 0 || dragMargin > 0) {
-        const bool xOverThreshold = QQuickWindowPrivate::dragOverThreshold(movePoint.x() - pressPoint.x(), Qt::XAxis, event, threshold);
-        const bool yOverThreshold = QQuickWindowPrivate::dragOverThreshold(movePoint.y() - pressPoint.y(), Qt::YAxis, event, threshold);
+        const bool xOverThreshold = QQuickDeliveryAgentPrivate::dragOverThreshold(movePoint.x() - pressPoint.x(),
+                                                                    Qt::XAxis, event, threshold);
+        const bool yOverThreshold = QQuickDeliveryAgentPrivate::dragOverThreshold(movePoint.y() - pressPoint.y(),
+                                                                    Qt::YAxis, event, threshold);
         if (effEdge == Qt::LeftEdge || effEdge == Qt::RightEdge)
             overThreshold = xOverThreshold && !yOverThreshold;
         else
@@ -396,8 +402,10 @@ bool QQuickDrawerPrivate::grabTouch(QQuickItem *item, QTouchEvent *event)
         const int threshold = qMax(20, QGuiApplication::styleHints()->startDragDistance() + 5);
         const Qt::Edge effEdge = effectiveEdge();
         if (position > 0 || dragMargin > 0) {
-            const bool xOverThreshold = QQuickWindowPrivate::dragOverThreshold(movePoint.x() - pressPoint.x(), Qt::XAxis, &point, threshold);
-            const bool yOverThreshold = QQuickWindowPrivate::dragOverThreshold(movePoint.y() - pressPoint.y(), Qt::YAxis, &point, threshold);
+            const bool xOverThreshold = QQuickDeliveryAgentPrivate::dragOverThreshold(movePoint.x() - pressPoint.x(),
+                                                                    Qt::XAxis, point, threshold);
+            const bool yOverThreshold = QQuickDeliveryAgentPrivate::dragOverThreshold(movePoint.y() - pressPoint.y(),
+                                                                    Qt::YAxis, point, threshold);
             if (effEdge == Qt::LeftEdge || effEdge == Qt::RightEdge)
                 overThreshold = xOverThreshold && !yOverThreshold;
             else
@@ -640,6 +648,12 @@ QQuickDrawer::QQuickDrawer(QObject *parent)
 
     setFocus(true);
     setModal(true);
+
+    QQuickItemPrivate::get(d->popupItem)->isTabFence = isModal();
+    connect(this, &QQuickPopup::modalChanged, this, [this] {
+        QQuickItemPrivate::get(d_func()->popupItem)->isTabFence = isModal();
+    });
+
     setFiltersChildMouseEvents(true);
     setClosePolicy(CloseOnEscape | CloseOnReleaseOutside);
 }
@@ -716,7 +730,7 @@ qreal QQuickDrawer::position() const
 void QQuickDrawer::setPosition(qreal position)
 {
     Q_D(QQuickDrawer);
-    position = qBound<qreal>(0.0, position, 1.0);
+    position = std::clamp(position, qreal(0.0), qreal(1.0));
     if (qFuzzyCompare(d->position, position))
         return;
 

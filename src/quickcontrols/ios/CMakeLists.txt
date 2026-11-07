@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #####################################################################
-## qtquickcontrols2iosstyleplugin Plugin:
+## QuickControls2IOS Module:
 #####################################################################
 
 add_subdirectory(impl)
@@ -15,6 +15,7 @@ set(qml_files
     "CheckBox.qml"
     "RadioButton.qml"
     "SpinBox.qml"
+    "DoubleSpinBox.qml"
     "ProgressBar.qml"
     "Dial.qml"
     "PageIndicator.qml"
@@ -46,20 +47,33 @@ set(qml_files
     "BusyIndicator.qml"
     "ComboBox.qml"
     "HorizontalHeaderView.qml"
+    "HorizontalHeaderViewDelegate.qml"
     "VerticalHeaderView.qml"
+    "VerticalHeaderViewDelegate.qml"
     "Dialog.qml"
     "DialogButtonBox.qml"
     "DelayButton.qml"
     "SelectionRectangle.qml"
     "ToolTip.qml"
     "ToolSeparator.qml"
+    "ApplicationWindow.qml"
+    "SearchField.qml"
 )
 
 set_source_files_properties(Slider.qml PROPERTIES
     QT_QML_SOURCE_VERSIONS "2.2;6.0"
 )
+set_source_files_properties(HorizontalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+set_source_files_properties(VerticalHeaderViewDelegate.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+set_source_files_properties(SearchField.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
 
-qt_internal_add_qml_module(qtquickcontrols2iosstyleplugin
+qt_internal_add_qml_module(QuickControls2IOS
     URI "QtQuick.Controls.iOS"
     VERSION "${PROJECT_VERSION}"
     CLASS_NAME QtQuickControls2IOSStylePlugin
@@ -70,7 +84,6 @@ qt_internal_add_qml_module(qtquickcontrols2iosstyleplugin
     NO_PLUGIN_OPTIONAL
     NO_GENERATE_PLUGIN_SOURCE
     SOURCES
-        qtquickcontrols2iosstyleplugin.cpp
         qquickiostheme_p.h qquickiostheme.mm
     QML_FILES
         ${qml_files}
@@ -86,11 +99,14 @@ qt_internal_add_qml_module(qtquickcontrols2iosstyleplugin
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+        Qt::QuickControls2BasicPrivate
 )
 
-qt_internal_extend_target(qtquickcontrols2iosstyleplugin CONDITION APPLE AND IOS
+qt_internal_extend_target(QuickControls2IOS CONDITION APPLE AND IOS
     LIBRARIES
         ${FWUIKit}
+    LINK_OPTIONS
+        "-fobjc-link-runtime"
 )
 
 file(GLOB resource_glob RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "images/*.png")
@@ -99,15 +115,26 @@ foreach(file IN LISTS resource_glob_0)
 endforeach()
 
 # Resources:
-set(qmake_qtquickcontrols2iosstyleplugin_resource_files
+set(qmake_qtquickcontrols2ios_resource_files
     ${resource_glob}
 )
 
-qt_internal_add_resource(qtquickcontrols2iosstyleplugin "qmake_qtquickcontrols2iosstyleplugin"
+qt_internal_add_resource(QuickControls2IOS "qmake_qtquickcontrols2ios"
     PREFIX
         "/qt-project.org/imports/QtQuick/Controls/iOS"
     FILES
-        ${qmake_qtquickcontrols2iosstyleplugin_resource_files}
+        ${qmake_qtquickcontrols2ios_resource_files}
+)
+
+target_sources(qtquickcontrols2iosstyleplugin
+    PRIVATE
+        qtquickcontrols2iosstyleplugin.cpp
+)
+
+qt_internal_extend_target(qtquickcontrols2iosstyleplugin
+    LIBRARIES
+        Qt::QuickControls2Private
+        Qt::QuickTemplates2Private
 )
 
 _qt_internal_add_qml_static_plugin_dependency(qtquickcontrols2iosstyleplugin

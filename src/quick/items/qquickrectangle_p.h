@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKRECTANGLE_P_H
 #define QQUICKRECTANGLE_P_H
@@ -80,7 +81,7 @@ private:
     void updateGradient();
 
 private:
-    qreal m_position;
+    qreal m_position = 0.0;
     QColor m_color;
 };
 
@@ -129,7 +130,7 @@ class Q_QUICK_EXPORT QQuickRectangle : public QQuickItem
 {
     Q_OBJECT
 
-    Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
+    Q_PROPERTY(QColor color READ color WRITE setColor RESET resetColor NOTIFY colorChanged)
     Q_PROPERTY(QJSValue gradient READ gradient WRITE setGradient RESET resetGradient)
     Q_PROPERTY(QQuickPen * border READ border CONSTANT)
     Q_PROPERTY(qreal radius READ radius WRITE setRadius NOTIFY radiusChanged)
@@ -144,6 +145,7 @@ public:
 
     QColor color() const;
     void setColor(const QColor &);
+    void resetColor();
 
     QQuickPen *border();
 

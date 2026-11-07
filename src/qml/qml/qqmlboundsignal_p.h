@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLBOUNDSIGNAL_P_H
 #define QQMLBOUNDSIGNAL_P_H
@@ -62,6 +63,8 @@ private:
     const QObject *m_target;
 };
 
+namespace QQmlPreview { class BindingPatchContext; }
+
 class Q_QML_EXPORT QQmlBoundSignal : public QQmlNotifierEndpoint
 {
 public:
@@ -80,6 +83,7 @@ private:
     friend class QQmlPropertyPrivate;
     friend class QQmlData;
     friend class QQmlEngineDebugService;
+    friend class QQmlPreview::BindingPatchContext;
 
     void addToObject(QObject *owner);
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPOPUP_P_H
 #define QQUICKPOPUP_P_H
@@ -26,6 +27,8 @@
 #include <QtQml/qqmllist.h>
 #include <QtQml/qqmlparserstatus.h>
 #include <QtQuick/qquickitem.h>
+#include <QtQuick/private/qquicksafearea_p.h>
+#include <QtQuick/private/qquickattachedpropertypropagatortarget_p.h>
 
 #if QT_CONFIG(accessibility)
 #include <QtGui/qaccessible.h>
@@ -38,10 +41,16 @@ class QQuickPopupAnchors;
 class QQuickPopupPrivate;
 class QQuickTransition;
 
-class Q_QUICKTEMPLATES2_EXPORT QQuickPopup : public QObject, public QQmlParserStatus
+class Q_QUICKTEMPLATES2_EXPORT QQuickPopup
+    : public QObject
+    , public QQmlParserStatus
+    , private QQuickSafeAreaAttachable
+    , public QQuickAttachedPropertyPropagatorTarget
 {
     Q_OBJECT
     Q_INTERFACES(QQmlParserStatus)
+    Q_INTERFACES(QQuickSafeAreaAttachable)
+    Q_INTERFACES(QQuickAttachedPropertyPropagatorTarget)
     Q_PROPERTY(qreal x READ x WRITE setX NOTIFY xChanged FINAL)
     Q_PROPERTY(qreal y READ y WRITE setY NOTIFY yChanged FINAL)
     Q_PROPERTY(qreal z READ z WRITE setZ RESET resetZ NOTIFY zChanged FINAL)
@@ -68,7 +77,7 @@ class Q_QUICKTEMPLATES2_EXPORT QQuickPopup : public QObject, public QQmlParserSt
     Q_PROPERTY(QQuickItem *parent READ parentItem WRITE setParentItem RESET resetParentItem NOTIFY parentChanged FINAL)
     Q_PROPERTY(QQuickItem *background READ background WRITE setBackground NOTIFY backgroundChanged FINAL)
     Q_PROPERTY(QQuickItem *contentItem READ contentItem WRITE setContentItem NOTIFY contentItemChanged FINAL)
-    Q_PRIVATE_PROPERTY(QQuickPopup::d_func(), QQmlListProperty<QObject> contentData READ contentData)
+    Q_PRIVATE_PROPERTY(QQuickPopup::d_func(), QQmlListProperty<QObject> contentData READ contentData VIRTUAL)
     Q_PRIVATE_PROPERTY(QQuickPopup::d_func(), QQmlListProperty<QQuickItem> contentChildren READ contentChildren NOTIFY contentChildrenChanged FINAL)
     Q_PROPERTY(bool clip READ clip WRITE setClip NOTIFY clipChanged FINAL)
     Q_PROPERTY(bool focus READ hasFocus WRITE setFocus NOTIFY focusChanged FINAL)
@@ -238,7 +247,8 @@ public:
         CloseOnPressOutsideParent = 0x02,
         CloseOnReleaseOutside = 0x04,
         CloseOnReleaseOutsideParent = 0x08,
-        CloseOnEscape = 0x10
+        CloseOnEscape = 0x10,
+        CloseMultiple = 0x20,
     };
     Q_DECLARE_FLAGS(ClosePolicy, ClosePolicyFlag)
     Q_FLAG(ClosePolicy)
@@ -311,6 +321,8 @@ public:
     qreal bottomInset() const;
     void setBottomInset(qreal inset);
     void resetBottomInset();
+
+    void setWindowModality(const Qt::WindowModality modality);
 
     enum PopupType {
         Item,
@@ -416,6 +428,12 @@ protected:
 #if QT_CONFIG(wheelevent)
     virtual void wheelEvent(QWheelEvent *event);
 #endif
+#if QT_CONFIG(quick_draganddrop)
+    virtual void dragEnterEvent(QDragEnterEvent *event);
+    virtual void dragMoveEvent(QDragMoveEvent *event);
+    virtual void dragLeaveEvent(QDragLeaveEvent *event);
+    virtual void dropEvent(QDropEvent *event);
+#endif
 
     virtual void contentItemChange(QQuickItem *newItem, QQuickItem *oldItem);
     virtual void contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize);
@@ -446,6 +464,12 @@ protected:
 
 private:
     QQuickItem *findParentItem() const;
+
+    QQuickItem *safeAreaAttachmentItem() override;
+
+    QQuickItem *attacheeItem() const override;
+    QtPrivate::QQuickAttachedPropertyPropagator *attachedParent(
+        const QMetaObject *attachedType) const override;
 
     Q_DISABLE_COPY(QQuickPopup)
     Q_DECLARE_PRIVATE(QQuickPopup)

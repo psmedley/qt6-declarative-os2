@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4runtime_p.h"
 
@@ -41,7 +42,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcCoercingTypeAssertion, "qt.qml.coercingTypeAssertion");
+Q_STATIC_LOGGING_CATEGORY(lcCoercingTypeAssertion, "qt.qml.coercingTypeAssertion");
 
 namespace QV4 {
 
@@ -90,25 +91,25 @@ struct RuntimeCounters::Data {
         tag2 = Type(signature & 7);
     }
 
-    typedef QVector<quint64> Counters;
+    typedef QList<quint64> Counters;
     QHash<const char *, Counters> counters;
 
     inline void count(const char *func) {
-        QVector<quint64> &cnt = counters[func];
+        QList<quint64> &cnt = counters[func];
         if (cnt.isEmpty())
             cnt.resize(64);
         cnt[0] += 1;
     }
 
     inline void count(const char *func, unsigned tag) {
-        QVector<quint64> &cnt = counters[func];
+        QList<quint64> &cnt = counters[func];
         if (cnt.isEmpty())
             cnt.resize(64);
         cnt[mangle(tag)] += 1;
     }
 
     inline void count(const char *func, unsigned tag1, unsigned tag2) {
-        QVector<quint64> &cnt = counters[func];
+        QList<quint64> &cnt = counters[func];
         if (cnt.isEmpty())
             cnt.resize(64);
         cnt[mangle(tag1, tag2)] += 1;
@@ -747,7 +748,9 @@ static Q_NEVER_INLINE ReturnedValue getElementFallback(ExecutionEngine *engine, 
     ScopedObject o(scope, object);
     if (!o) {
         if (object.isNullOrUndefined()) {
-            QString message = QStringLiteral("Cannot read property '%1' of %2").arg(index.toQStringNoThrow()).arg(object.toQStringNoThrow());
+            const QString message =
+                    QStringLiteral("Cannot read property '%1' of %2")
+                            .arg(index.toQStringNoThrow(), object.toQStringNoThrow());
             return engine->throwTypeError(message);
         }
 
@@ -1065,7 +1068,8 @@ ReturnedValue Runtime::LoadProperty::call(ExecutionEngine *engine, const Value &
         return o->get(name);
 
     if (object.isNullOrUndefined()) {
-        QString message = QStringLiteral("Cannot read property '%1' of %2").arg(name->toQString()).arg(object.toQStringNoThrow());
+        const QString message = QStringLiteral("Cannot read property '%1' of %2")
+                                        .arg(name->toQString(), object.toQStringNoThrow());
         return engine->throwTypeError(message);
     }
 
@@ -1190,33 +1194,33 @@ void Runtime::StoreSuperProperty::call(ExecutionEngine *engine, const Value &pro
 ReturnedValue Runtime::LoadGlobalLookup::call(ExecutionEngine *engine, Function *f, int index)
 {
     Lookup *l = runtimeLookup(f, index);
-    return l->globalGetter(l, engine);
+    return l->globalGetter(engine);
 }
 
 ReturnedValue Runtime::LoadQmlContextPropertyLookup::call(ExecutionEngine *engine, uint index)
 {
     Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
-    return l->qmlContextPropertyGetter(l, engine, nullptr);
+    return l->contextGetter(engine, nullptr);
 }
 
 ReturnedValue Runtime::GetLookup::call(ExecutionEngine *engine, Function *f, const Value &base, int index)
 {
     Lookup *l = runtimeLookup(f, index);
-    return l->getter(l, engine, base);
+    return l->getter(engine, base);
 }
 
 void Runtime::SetLookupSloppy::call(Function *f, const Value &base, int index, const Value &value)
 {
     ExecutionEngine *engine = f->internalClass->engine;
     QV4::Lookup *l = runtimeLookup(f, index);
-    l->setter(l, engine, const_cast<Value &>(base), value);
+    l->setter(engine, const_cast<Value &>(base), value);
 }
 
 void Runtime::SetLookupStrict::call(Function *f, const Value &base, int index, const Value &value)
 {
     ExecutionEngine *engine = f->internalClass->engine;
     QV4::Lookup *l = runtimeLookup(f, index);
-    if (!l->setter(l, engine, const_cast<Value &>(base), value))
+    if (!l->setter(engine, const_cast<Value &>(base), value))
         engine->throwTypeError();
 }
 
@@ -1445,7 +1449,7 @@ ReturnedValue Runtime::CallGlobalLookup::call(ExecutionEngine *engine, uint inde
 {
     Scope scope(engine);
     Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
-    Value function = Value::fromReturnedValue(l->globalGetter(l, engine));
+    Value function = Value::fromReturnedValue(l->globalGetter(engine));
     Value thisObject = Value::undefinedValue();
     if (!function.isFunctionObject()) {
         return throwPropertyIsNotAFunctionTypeError(engine, &thisObject,
@@ -1462,7 +1466,7 @@ ReturnedValue Runtime::CallQmlContextPropertyLookup::call(ExecutionEngine *engin
     Scope scope(engine);
     ScopedValue thisObject(scope);
     Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
-    Value function = Value::fromReturnedValue(l->qmlContextPropertyGetter(l, engine, thisObject));
+    Value function = Value::fromReturnedValue(l->contextGetter(engine, thisObject));
     if (!function.isFunctionObject()) {
         return throwPropertyIsNotAFunctionTypeError(engine, thisObject,
                                                     engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[l->nameIndex]->toQString());
@@ -1556,7 +1560,7 @@ ReturnedValue Runtime::CallPropertyLookup::call(ExecutionEngine *engine, const V
 {
     Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
     // ok to have the value on the stack here
-    Value f = Value::fromReturnedValue(l->getter(l, engine, base));
+    Value f = Value::fromReturnedValue(l->getter(engine, base));
 
     if (Q_LIKELY(f.isFunctionObject()))
         return checkedResult(engine, static_cast<FunctionObject &>(f).call(&base, argv, argc));
@@ -1565,9 +1569,10 @@ ReturnedValue Runtime::CallPropertyLookup::call(ExecutionEngine *engine, const V
         return checkedResult(engine, handler->call(&base, argv, argc));
 
     const QString message = QStringLiteral("Property '%1' of object %2 is not a function")
-                                  .arg(engine->currentStackFrame->v4Function->compilationUnit
-                                               ->runtimeStrings[l->nameIndex]->toQString())
-                                  .arg(base.toQStringNoThrow());
+                                    .arg(engine->currentStackFrame->v4Function->compilationUnit
+                                                 ->runtimeStrings[l->nameIndex]
+                                                 ->toQString(),
+                                         base.toQStringNoThrow());
     return engine->throwTypeError(message);
 }
 
@@ -1601,13 +1606,13 @@ static CallArgs createSpreadArguments(Scope &scope, Value *argv, int argc)
 
     int argCount = 0;
 
-    Value *v = scope.alloc<Scope::Uninitialized>();
+    Value *v = scope.constructUndefined(1);
     Value *arguments = v;
     for (int i = 0; i < argc; ++i) {
         if (!argv[i].isEmpty()) {
             *v = argv[i];
             ++argCount;
-            v = scope.alloc<Scope::Uninitialized>();
+            v = scope.constructUndefined(1);
             continue;
         }
         // spread element
@@ -1628,7 +1633,7 @@ static CallArgs createSpreadArguments(Scope &scope, Value *argv, int argc)
                 scope.engine->throwRangeError(QLatin1String("Too many elements in array to use it with the spread operator"));
                         return { nullptr, 0 };
             }
-            v = scope.alloc<Scope::Uninitialized>();
+            v = scope.constructUndefined(1);
         }
     }
     return { arguments, argCount };

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4object_p.h"
 #include "qv4function_p.h"
@@ -346,7 +347,7 @@ ReturnedValue FunctionPrototype::method_apply(const QV4::FunctionObject *b, cons
     const int len = v4->safeForAllocLength(arr->getLength());
     CHECK_EXCEPTION();
 
-    Value *arguments = scope.alloc<Scope::Uninitialized>(len);
+    Value *arguments = scope.alloc(len);
     if (len) {
         if (ArgumentsObject::isNonStrictArgumentsObject(arr) && !arr->cast<ArgumentsObject>()->fullyCreated()) {
             QV4::ArgumentsObject *a = arr->cast<ArgumentsObject>();
@@ -539,12 +540,15 @@ ReturnedValue ArrowFunction::virtualCall(const QV4::FunctionObject *fo, const Va
     const ArrowFunction *self = static_cast<const ArrowFunction *>(fo);
     Function *function = self->function();
     switch (function->kind) {
-    case Function::AotCompiled:
+    case Function::AotCompiled: {
+        const auto &types = function->aotCompiledFunction.types;
         return QV4::convertAndCall(
-                    fo->engine(), &function->aotCompiledFunction, thisObject, argv, argc,
-                    [fo](QObject *thisObject, void **a, const QMetaType *types, int argc) {
-            ArrowFunction::virtualCallWithMetaTypes(fo, thisObject, a, types, argc);
+                    fo->engine(), types.data(), types.length(), argv, argc,
+                    [fo, thisObject](void **a, const QMetaType *types, int argc) {
+            ArrowFunction::virtualCallWithMetaTypes(
+                            fo, QV4::cppThisObject(thisObject), a, types, argc);
         });
+    }
     case Function::JsTyped:
         return QV4::coerceAndCall(
                 fo->engine(), &function->jsTypedFunction, function->compiledFunction, argv, argc,

@@ -3,6 +3,7 @@
 
 #include <qtest.h>
 #include <QtTest/QSignalSpy>
+#include <QtQuickTest/quicktest.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <QtQuickTestUtils/private/viewtestutils_p.h>
@@ -30,6 +31,8 @@
 #include "qplatformdefs.h"
 #include <QtQuickTestUtils/private/platformquirks_p.h>
 #include <QtQuickTestUtils/private/platforminputcontext_p.h>
+
+using namespace Qt::StringLiterals;
 
 Q_DECLARE_METATYPE(QQuickTextInput::SelectionMode)
 Q_DECLARE_METATYPE(QQuickTextInput::EchoMode)
@@ -67,6 +70,7 @@ private slots:
     void color();
     void wrap();
     void selection();
+    void selectedTextStaysOnTopWhenSelectionChanges();
     void persistentSelection();
     void overwriteMode();
     void isRightToLeft_data();
@@ -194,7 +198,7 @@ private slots:
     void fixup();
     void baselineOffset_data();
     void baselineOffset();
-
+    void testCtrlBackspaceClearsSelectedText();
     void ensureVisible();
     void padding();
 
@@ -209,6 +213,9 @@ private slots:
     void touchscreenDoesNotSelect();
     void touchscreenSetsFocusAndMovesCursor();
 
+    void imeSelectionWithCommitMovesCursor_NoMask();
+    void imeSelectionWithCommitDoesNotOverride_WithMask();
+
 private:
     void simulateKeys(QWindow *window, const QList<Key> &keys);
 #if QT_CONFIG(shortcut)
@@ -216,9 +223,15 @@ private:
 #endif
 
     QQmlEngine engine;
-    QStringList standard;
+    const QStringList standard = {
+        u"the quick brown fox jumped over the lazy dog"_s,
+        u"It's supercalifragisiticexpialidocious!"_s,
+        u"Hello, world!"_s,
+        u"!dlrow ,olleH"_s,
+        u" spacey   text "_s,
+    };
     QStringList colorStrings;
-    QScopedPointer<QPointingDevice> touchscreen = QScopedPointer<QPointingDevice>(QTest::createTouchDevice());
+    std::unique_ptr<QPointingDevice> touchscreen{QTest::createTouchDevice()};
 };
 
 typedef QList<int> IntList;
@@ -273,12 +286,6 @@ void tst_qquicktextinput::cleanup()
 tst_qquicktextinput::tst_qquicktextinput()
     : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
-    standard << "the quick brown fox jumped over the lazy dog"
-        << "It's supercalifragisiticexpialidocious!"
-        << "Hello, world!"
-        << "!dlrow ,olleH"
-        << " spacey   text ";
-
     colorStrings << "aliceblue"
                  << "antiquewhite"
                  << "aqua"
@@ -713,6 +720,37 @@ void tst_qquicktextinput::selection()
     delete textinputObject;
 }
 
+static int countSelectedTextPixels(const QImage &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() > 200 && color.green() > 200 && color.blue() > 200)
+                ++count;
+        }
+    }
+    return count;
+}
+
+void tst_qquicktextinput::selectedTextStaysOnTopWhenSelectionChanges()
+{
+    SKIP_IF_NO_WINDOW_GRAB;
+
+    QQuickView window(testFileUrl("selectedTextRendering.qml"));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QQuickTextInput *input = window.rootObject()->findChild<QQuickTextInput *>();
+    QVERIFY(input);
+
+    input->select(0, 2);
+    QCOMPARE_GT(countSelectedTextPixels(window.grabWindow()), 0);
+
+    input->selectAll();
+    QCOMPARE_GT(countSelectedTextPixels(window.grabWindow()), 0);
+}
+
 void tst_qquicktextinput::persistentSelection()
 {
     QQuickView window(testFileUrl("persistentSelection.qml"));
@@ -722,7 +760,7 @@ void tst_qquicktextinput::persistentSelection()
 
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(window.rootObject());
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     QSignalSpy spy(input, SIGNAL(persistentSelectionChanged()));
 
@@ -771,7 +809,7 @@ void tst_qquicktextinput::overwriteMode()
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     textInput->setOverwriteMode(true);
     QCOMPARE(spy.size(), 1);
@@ -1333,7 +1371,6 @@ void tst_qquicktextinput::mouseSelectionMode()
     QQuickView window(QUrl::fromLocalFile(qmlfile));
 
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QVERIFY(window.rootObject() != nullptr);
@@ -1515,7 +1552,7 @@ void tst_qquicktextinput::horizontalAlignment_RightToLeft()
 
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     // If there is no committed text, the preedit text should determine the alignment.
     textInput->setText(QString());
@@ -1776,7 +1813,6 @@ void tst_qquicktextinput::positionAt()
     QQuickView window(testFileUrl("positionAt.qml"));
     QVERIFY(window.rootObject() != nullptr);
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QQuickTextInput *textinputObject = qobject_cast<QQuickTextInput *>(window.rootObject());
@@ -1866,21 +1902,20 @@ void tst_qquicktextinput::maxLength()
     QQuickView window(testFileUrl("maxLength.qml"));
     QVERIFY(window.rootObject() != nullptr);
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QQuickTextInput *textinputObject = qobject_cast<QQuickTextInput *>(window.rootObject());
     QVERIFY(textinputObject != nullptr);
     QVERIFY(textinputObject->text().isEmpty());
     QCOMPARE(textinputObject->maxLength(), 10);
-    for (const QString &str : std::as_const(standard)) {
+    for (const QString &str : standard) {
         QVERIFY(textinputObject->text().size() <= 10);
         textinputObject->setText(str);
         QVERIFY(textinputObject->text().size() <= 10);
     }
 
     textinputObject->setText("");
-    QTRY_VERIFY(textinputObject->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(textinputObject);
     for (int i=0; i<20; i++) {
         QTRY_COMPARE(textinputObject->text().size(), qMin(i,10));
         QTest::keyClick(&window, Qt::Key_A);
@@ -1897,7 +1932,7 @@ void tst_qquicktextinput::masks()
     QVERIFY(window.rootObject() != nullptr);
     QQuickTextInput *textinputObject = qobject_cast<QQuickTextInput *>(window.rootObject());
     QVERIFY(textinputObject != nullptr);
-    QTRY_VERIFY(textinputObject->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(textinputObject);
     QCOMPARE(textinputObject->text().size(), 0);
     QCOMPARE(textinputObject->inputMask(), QString("HHHHhhhh; "));
     QCOMPARE(textinputObject->length(), 8);
@@ -1917,6 +1952,9 @@ void tst_qquicktextinput::validators()
     // so you may need to run their tests first. All validators are checked
     // here to ensure that their exposure to QML is working.
 
+    auto restoreLocale = qScopeGuard([original = QLocale()] {
+        QLocale::setDefault(original);
+    });
     QLocale::setDefault(QLocale(QStringLiteral("C")));
 
     QQuickView window(testFileUrl("validators.qml"));
@@ -1946,7 +1984,7 @@ void tst_qquicktextinput::validators()
     QCOMPARE(intInput->validator()->locale(), defaultLocale);
 
     intInput->setFocus(true);
-    QTRY_VERIFY(intInput->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(intInput);
     QCOMPARE(intInput->hasAcceptableInput(), false);
     QCOMPARE(intInput->property("acceptable").toBool(), false);
     QTest::keyPress(&window, Qt::Key_1);
@@ -2009,7 +2047,7 @@ void tst_qquicktextinput::validators()
     QCOMPARE(dblInput->validator()->locale(), defaultLocale);
 
     dblInput->setFocus(true);
-    QVERIFY(dblInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(dblInput);
     QCOMPARE(dblInput->hasAcceptableInput(), false);
     QCOMPARE(dblInput->property("acceptable").toBool(), false);
     QTest::keyPress(&window, Qt::Key_1);
@@ -2147,7 +2185,7 @@ void tst_qquicktextinput::validators()
     QVERIFY(strInput);
     QSignalSpy strSpy(strInput, SIGNAL(acceptableInputChanged()));
     strInput->setFocus(true);
-    QVERIFY(strInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(strInput);
     QCOMPARE(strInput->hasAcceptableInput(), false);
     QCOMPARE(strInput->property("acceptable").toBool(), false);
     QTest::keyPress(&window, Qt::Key_1);
@@ -2191,7 +2229,7 @@ void tst_qquicktextinput::validators()
     QVERIFY(unvalidatedInput);
     QSignalSpy unvalidatedSpy(unvalidatedInput, SIGNAL(acceptableInputChanged()));
     unvalidatedInput->setFocus(true);
-    QVERIFY(unvalidatedInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(unvalidatedInput);
     QCOMPARE(unvalidatedInput->hasAcceptableInput(), true);
     QCOMPARE(unvalidatedInput->property("acceptable").toBool(), true);
     QTest::keyPress(&window, Qt::Key_1);
@@ -2212,7 +2250,6 @@ void tst_qquicktextinput::inputMethods()
 {
     QQuickView window(testFileUrl("inputmethods.qml"));
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     // test input method hints
@@ -2232,7 +2269,7 @@ void tst_qquicktextinput::inputMethods()
     QCOMPARE(plainInput.inputMethodHints(), Qt::ImhNone);
 
     input->setFocus(true);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     // test that input method event is committed
     QInputMethodEvent event;
     event.setCommitString( "My ", -12, 0);
@@ -2334,7 +2371,6 @@ void tst_qquicktextinput::signal_accepted()
 {
     QQuickView window(testFileUrl("signal_accepted.qml"));
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QVERIFY(window.rootObject() != nullptr);
@@ -2345,7 +2381,7 @@ void tst_qquicktextinput::signal_accepted()
     QSignalSpy inputSpy(input, SIGNAL(acceptableInputChanged()));
 
     input->setFocus(true);
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
     QCOMPARE(input->hasAcceptableInput(), false);
     QCOMPARE(input->property("acceptable").toBool(), false);
 
@@ -2376,7 +2412,6 @@ void tst_qquicktextinput::signal_editingfinished()
 {
     QQuickView window(testFileUrl("signal_editingfinished.qml"));
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QVERIFY(window.rootObject() != nullptr);
@@ -2389,7 +2424,7 @@ void tst_qquicktextinput::signal_editingfinished()
     QSignalSpy input1Spy(input1, SIGNAL(acceptableInputChanged()));
 
     input1->setFocus(true);
-    QTRY_VERIFY(input1->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input1);
     QTRY_VERIFY(!input2->hasActiveFocus());
 
     QTest::keyPress(&window, Qt::Key_A);
@@ -2420,7 +2455,7 @@ void tst_qquicktextinput::signal_editingfinished()
 
     input2->setFocus(true);
     QTRY_VERIFY(!input1->hasActiveFocus());
-    QTRY_VERIFY(input2->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input2);
 
     QTest::keyPress(&window, Qt::Key_A);
     QTest::keyRelease(&window, Qt::Key_A, Qt::NoModifier);
@@ -2437,7 +2472,7 @@ void tst_qquicktextinput::signal_editingfinished()
     QTRY_COMPARE(input2Spy.size(), 1);
 
     input1->setFocus(true);
-    QTRY_VERIFY(input1->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input1);
     QTRY_VERIFY(!input2->hasActiveFocus());
     QTRY_COMPARE(editingFinished2Spy.size(), 1);
 }
@@ -2446,7 +2481,6 @@ void tst_qquicktextinput::signal_textEdited()
 {
     QQuickWindow window;
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QQuickTextInput *input = new QQuickTextInput(window.contentItem());
@@ -2459,7 +2493,7 @@ void tst_qquicktextinput::signal_textEdited()
     QVERIFY(textEditedSpy.isValid());
 
     input->forceActiveFocus();
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
 
     int textChanges = 0;
     int textEdits = 0;
@@ -2510,11 +2544,11 @@ void tst_qquicktextinput::navigation()
 
     QVERIFY(input != nullptr);
     input->setCursorPosition(0);
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
     QTest::keyClick(&window, Qt::Key_Left);
     QVERIFY(!input->hasActiveFocus());
     QTest::keyClick(&window, Qt::Key_Right);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     //QT-2944: If text is selected, ensure we deselect upon cursor motion
     input->setCursorPosition(input->text().size());
     input->select(0,input->text().size());
@@ -2522,11 +2556,11 @@ void tst_qquicktextinput::navigation()
     QTest::keyClick(&window, Qt::Key_Right);
     QCOMPARE(input->selectionStart(), input->selectionEnd());
     QCOMPARE(input->selectionStart(), input->text().size());
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QTest::keyClick(&window, Qt::Key_Right);
     QVERIFY(!input->hasActiveFocus());
     QTest::keyClick(&window, Qt::Key_Left);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     // Up and Down should NOT do Home/End, even on OS X (QTBUG-10438).
     input->setCursorPosition(2);
@@ -2562,7 +2596,7 @@ void tst_qquicktextinput::navigation_RTL()
     input->setText(QString::fromUtf16(arabic_str, 11));
 
     input->setCursorPosition(0);
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
 
     // move off
     QTest::keyClick(&window, Qt::Key_Right);
@@ -2570,10 +2604,10 @@ void tst_qquicktextinput::navigation_RTL()
 
     // move back
     QTest::keyClick(&window, Qt::Key_Left);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     input->setCursorPosition(input->text().size());
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     // move off
     QTest::keyClick(&window, Qt::Key_Left);
@@ -2581,7 +2615,7 @@ void tst_qquicktextinput::navigation_RTL()
 
     // move back
     QTest::keyClick(&window, Qt::Key_Right);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 }
 
 #if QT_CONFIG(clipboard) && QT_CONFIG(shortcut)
@@ -2697,11 +2731,10 @@ void tst_qquicktextinput::copyAndPasteKeySequence()
     QQuickWindow window;
     textInput->setParentItem(window.contentItem());
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     // copy and paste
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
     QCOMPARE(textInput->text().size(), 12);
     textInput->select(0, textInput->text().size());
     simulateKeys(&window, QKeySequence::Copy);
@@ -2797,7 +2830,6 @@ void tst_qquicktextinput::middleClickPaste()
     QQuickView window(testFileUrl("mouseselectionmode_default.qml"));
 
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QVERIFY(window.rootObject() != nullptr);
@@ -2863,7 +2895,6 @@ void tst_qquicktextinput::cursorDelegate()
     QFETCH(QUrl, source);
     QQuickView view(source);
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *textInputObject = view.rootObject()->findChild<QQuickTextInput*>("textInputObject");
     QVERIFY(textInputObject != nullptr);
@@ -2982,7 +3013,6 @@ void tst_qquicktextinput::remoteCursorDelegate()
     view.rootContext()->setContextProperty("contextDelegate", &component);
     view.setSource(testFileUrl("cursorTestRemote.qml"));
     view.show();
-    view.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *textInputObject = view.rootObject()->findChild<QQuickTextInput*>("textInputObject");
     QVERIFY(textInputObject != nullptr);
@@ -3316,7 +3346,7 @@ void tst_qquicktextinput::readOnly()
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(qvariant_cast<QObject *>(window.rootObject()->property("myInput")));
 
     QVERIFY(input != nullptr);
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
     QVERIFY(input->isReadOnly());
     QVERIFY(!input->isCursorVisible());
     QString initial = input->text();
@@ -3338,7 +3368,6 @@ void tst_qquicktextinput::echoMode()
 {
     QQuickView window(testFileUrl("echoMode.qml"));
     window.show();
-    window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
     QVERIFY(window.rootObject() != nullptr);
@@ -3346,7 +3375,7 @@ void tst_qquicktextinput::echoMode()
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(qvariant_cast<QObject *>(window.rootObject()->property("myInput")));
 
     QVERIFY(input != nullptr);
-    QTRY_VERIFY(input->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(input);
     QString initial = input->text();
     Qt::InputMethodHints ref;
     QCOMPARE(initial, QLatin1String("ABCDefgh"));
@@ -3367,7 +3396,7 @@ void tst_qquicktextinput::echoMode()
     COMPARE_INPUT_METHOD_QUERY(Qt::InputMethodHints, input, Qt::ImHints, toInt, ref);
     input->setEchoMode(QQuickTextInput::Password);
     //Password
-    ref |= Qt::ImhHiddenText;
+    ref &= ~Qt::ImhHiddenText;
     ref |= (Qt::ImhNoAutoUppercase | Qt::ImhNoPredictiveText | Qt::ImhSensitiveData);
     QCOMPARE(input->text(), initial);
     QCOMPARE(input->displayText(), QString(8, passwordMaskCharacter.at(0)));
@@ -3398,7 +3427,7 @@ void tst_qquicktextinput::echoMode()
     QCOMPARE(input->displayText(), QLatin1String("Q"));
     COMPARE_INPUT_METHOD_QUERY(QString, input, Qt::ImSurroundingText, toString, QLatin1String("Q"));
     input->setFocus(true);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QInputMethodEvent inputEvent;
     inputEvent.setCommitString(initial);
     QGuiApplication::sendEvent(input, &inputEvent);
@@ -3421,7 +3450,7 @@ void tst_qquicktextinput::passwordEchoDelay()
 
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(qvariant_cast<QObject *>(window.rootObject()->property("myInput")));
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     QQuickItem *cursor = input->findChild<QQuickItem *>("cursor");
     QVERIFY(cursor);
@@ -3575,7 +3604,7 @@ void tst_qquicktextinput::focusOnPressOnlyOneItem()
     QQuickTextInput *third = window.rootObject()->findChild<QQuickTextInput*>("third");
 
     // second is focused onComplete
-    QVERIFY(second->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(second);
 
     // and first will try focus when we press it
     QVERIFY(first->focusOnPress());
@@ -3595,7 +3624,7 @@ void tst_qquicktextinput::focusOnPressOnlyOneItem()
     // make sure the press is processed.
     QGuiApplication::processEvents();
 
-    QVERIFY(second->hasActiveFocus()); // make sure it's still there
+    QVERIFY_ACTIVE_FOCUS(second); // make sure it's still there
     QVERIFY(!third->hasActiveFocus()); // make sure it didn't end up anywhere else
     QVERIFY(!first->hasActiveFocus()); // make sure it didn't end up anywhere else
 
@@ -3627,7 +3656,7 @@ void tst_qquicktextinput::openInputPanel()
     Qt::KeyboardModifiers noModifiers = {};
     QTest::mousePress(&view, Qt::LeftButton, noModifiers);
     QGuiApplication::processEvents();
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QCOMPARE(qApp->focusObject(), input);
     QCOMPARE(qApp->inputMethod()->isVisible(), true);
     QTest::mouseRelease(&view, Qt::LeftButton, noModifiers);
@@ -3635,7 +3664,7 @@ void tst_qquicktextinput::openInputPanel()
     // input panel should be re-opened when pressing already focused TextInput
     qApp->inputMethod()->hide();
     QCOMPARE(qApp->inputMethod()->isVisible(), false);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QTest::mousePress(&view, Qt::LeftButton, noModifiers);
     QGuiApplication::processEvents();
     QCOMPARE(qApp->inputMethod()->isVisible(), true);
@@ -3836,7 +3865,7 @@ void tst_qquicktextinput::preeditAutoScroll()
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(view.rootObject());
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     input->setWidth(input->implicitWidth());
 
@@ -3922,7 +3951,7 @@ void tst_qquicktextinput::preeditCursorRectangle()
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(view.rootObject());
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     QQuickItem *cursor = input->findChild<QQuickItem *>("cursor");
     QVERIFY(cursor);
@@ -4041,7 +4070,7 @@ void tst_qquicktextinput::inputMethodComposing()
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(view.rootObject());
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QSignalSpy spy(input, SIGNAL(inputMethodComposingChanged()));
 
     QCOMPARE(input->isInputMethodComposing(), false);
@@ -4147,7 +4176,7 @@ void tst_qquicktextinput::inputMethodUpdate()
     QVERIFY(QTest::qWaitForWindowActive(&view));
     QQuickTextInput *input = qobject_cast<QQuickTextInput *>(view.rootObject());
     QVERIFY(input);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     // text change even without cursor position change needs to trigger update
     input->setText("test");
@@ -4235,7 +4264,7 @@ void tst_qquicktextinput::cursorRectangleSize()
     window->show();
     window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     QInputMethodQueryEvent event(Qt::ImCursorRectangle);
     qApp->sendEvent(textInput, &event);
@@ -5264,7 +5293,7 @@ void tst_qquicktextinput::keySequence()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     QTest::keyClick(&window, layoutDirection);
 
@@ -5427,7 +5456,7 @@ void tst_qquicktextinput::undo()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     QVERIFY(!textInput->canUndo());
 
@@ -5514,7 +5543,7 @@ void tst_qquicktextinput::redo()
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
 
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
     QVERIFY(!textInput->canUndo());
     QVERIFY(!textInput->canRedo());
 
@@ -5847,7 +5876,7 @@ void tst_qquicktextinput::undo_keypressevents()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     simulateKeys(&window, keys);
 
@@ -5873,7 +5902,7 @@ void tst_qquicktextinput::clear()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
     QVERIFY(!textInput->canUndo());
 
     QSignalSpy spy(textInput, SIGNAL(canUndoChanged()));
@@ -5961,7 +5990,7 @@ void tst_qquicktextinput::QTBUG_19956()
     QQuickTextInput *input = qobject_cast<QQuickTextInput*>(window.rootObject());
     QVERIFY(input);
     input->setFocus(true);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     QCOMPARE(window.rootObject()->property("topvalue").toInt(), 30);
     QCOMPARE(window.rootObject()->property("bottomvalue").toInt(), 10);
@@ -6000,7 +6029,7 @@ void tst_qquicktextinput::QTBUG_19956_regexp()
     QQuickTextInput *input = qobject_cast<QQuickTextInput*>(window.rootObject());
     QVERIFY(input);
     input->setFocus(true);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
 
     window.rootObject()->setProperty("regexvalue", QRegularExpression("abc"));
     QCOMPARE(window.rootObject()->property("regexvalue").toRegularExpression(), QRegularExpression("abc"));
@@ -6188,7 +6217,7 @@ void tst_qquicktextinput::keypress_inputMask_withValidator()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     simulateKeys(&window, keys);
 
@@ -6442,7 +6471,7 @@ void tst_qquicktextinput::setInputMask()
         window.show();
         window.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&window));
-        QVERIFY(textInput->hasActiveFocus());
+        QVERIFY_ACTIVE_FOCUS(textInput);
 
         textInput->setCursorPosition(0);
         for (int i = 0; i < input.size(); i++)
@@ -6575,7 +6604,7 @@ void tst_qquicktextinput::keypress_inputMask()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     simulateKeys(&window, keys);
 
@@ -6598,7 +6627,7 @@ void tst_qquicktextinput::keypress_inputMethod_inputMask()
     window.show();
     window.requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(&window));
-    QVERIFY(textInput->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(textInput);
 
     {
         QList<QInputMethodEvent::Attribute> attributes;
@@ -6741,7 +6770,7 @@ void tst_qquicktextinput::fixup()
 
     // fixup() on accept
     input->setFocus(true);
-    QVERIFY(input->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(input);
     QTest::keyClick(&window, Qt::Key_Enter);
     QCOMPARE(input->text(), QStringLiteral("ok"));
 
@@ -6887,6 +6916,25 @@ void tst_qquicktextinput::baselineOffset()
         if (setHeight >= 0)
             item->setHeight(setHeight);
     }
+}
+
+void tst_qquicktextinput::testCtrlBackspaceClearsSelectedText()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("openInputPanel.qml")));
+
+    QQuickTextInput *textInput = qmlobject_cast<QQuickTextInput *>(window.rootObject());
+    QVERIFY(textInput != nullptr);
+
+    textInput->forceActiveFocus();
+    QVERIFY(textInput->hasActiveFocus());
+
+    textInput->selectAll();
+    QCOMPARE(textInput->selectedText(), QString("Hello world"));
+
+    QTest::keySequence(&window, QKeySequence::DeleteStartOfWord);
+
+    QCOMPARE(textInput->text(), QString(""));
 }
 
 void tst_qquicktextinput::ensureVisible()
@@ -7045,8 +7093,8 @@ void tst_qquicktextinput::checkCursorDelegateWhenPaddingChanged()
     QQuickTextInput *textInput = view.rootObject()->findChild<QQuickTextInput *>("textInput");
     QVERIFY(textInput);
 
+    QTRY_VERIFY(textInput->findChild<QQuickItem *>("cursorDelegate"));
     QQuickItem *cursorDelegate = textInput->findChild<QQuickItem *>("cursorDelegate");
-    QVERIFY(cursorDelegate);
 
     QCOMPARE(cursorDelegate->x(), textInput->leftPadding());
     QCOMPARE(cursorDelegate->y(), textInput->topPadding());
@@ -7173,9 +7221,9 @@ void tst_qquicktextinput::touchscreenDoesNotSelect()
     int x1 = 10;
     int x2 = 70;
     int y = textInputObject->height() / 2;
-    QTest::touchEvent(&window, touchscreen.data()).press(0, QPoint(x1,y), &window);
-    QTest::touchEvent(&window, touchscreen.data()).move(0, QPoint(x2,y), &window);
-    QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).press(0, QPoint(x1,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).move(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).release(0, QPoint(x2,y), &window);
     QQuickTouchUtils::flush(&window);
     QVERIFY(textInputObject->selectedText().isEmpty());
 
@@ -7184,8 +7232,8 @@ void tst_qquicktextinput::touchscreenDoesNotSelect()
     // with new API, it remains selected, and the cursor remains at the end
     textInputObject->selectAll();
     const int cursorPos = textInputObject->cursorPosition();
-    QTest::touchEvent(&window, touchscreen.data()).press(0, QPoint(x2,y), &window);
-    QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).press(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).release(0, QPoint(x2,y), &window);
     QQuickTouchUtils::flush(&window);
     QCOMPARE(textInputObject->selectedText().isEmpty(), true);
     QCOMPARE_NE(textInputObject->cursorPosition(), cursorPos);
@@ -7194,7 +7242,7 @@ void tst_qquicktextinput::touchscreenDoesNotSelect()
 
 void tst_qquicktextinput::touchscreenSetsFocusAndMovesCursor()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickView window;
     QVERIFY(QQuickTest::showView(window, testFileUrl("twoInAColumn.qml")));
@@ -7209,7 +7257,7 @@ void tst_qquicktextinput::touchscreenSetsFocusAndMovesCursor()
     // tap the bottom field
     int x1 = 10;
     int y = bottom->position().y() + bottom->height() / 2;
-    QTest::touchEvent(&window, touchscreen.data()).press(0, QPoint(x1,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).press(0, QPoint(x1,y), &window);
     QQuickTouchUtils::flush(&window);
     QCOMPARE(qApp->focusObject(), bottom);
     // text cursor is at the end by default, on press
@@ -7220,7 +7268,7 @@ void tst_qquicktextinput::touchscreenSetsFocusAndMovesCursor()
     QTest::keyClick(&window, Qt::Key_Q);
     QVERIFY(bottom->text().endsWith('q'));
     QCOMPARE(bottom->text().size(), len + 1);
-    QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x1,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).release(0, QPoint(x1,y), &window);
     QQuickTouchUtils::flush(&window);
     // the cursor gets moved on release, as long as TextInput's grab wasn't stolen (e.g. by Flickable)
     QVERIFY(bottom->cursorPosition() < 5);
@@ -7228,12 +7276,75 @@ void tst_qquicktextinput::touchscreenSetsFocusAndMovesCursor()
     // press-drag-and-release from x1 to x2 on the top field
     int x2 = 70;
     y = top->position().y() + top->height() / 2;
-    QTest::touchEvent(&window, touchscreen.data()).press(0, QPoint(x1,y), &window);
-    QTest::touchEvent(&window, touchscreen.data()).move(0, QPoint(x2,y), &window);
-    QTest::touchEvent(&window, touchscreen.data()).release(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).press(0, QPoint(x1,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).move(0, QPoint(x2,y), &window);
+    QTest::touchEvent(&window, touchscreen.get()).release(0, QPoint(x2,y), &window);
     QQuickTouchUtils::flush(&window);
     QCOMPARE(qApp->focusObject(), top);
     QVERIFY(top->selectedText().isEmpty());
+}
+
+void tst_qquicktextinput::imeSelectionWithCommitMovesCursor_NoMask()
+{
+    // QTBUG-140400: Selection (len 0) must move cursor even when commit is present.
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true; text: \"abcdef\" }";
+    QQmlComponent comp(&engine);
+    comp.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *ti = qobject_cast<QQuickTextInput*>(comp.create());
+    QVERIFY(ti);
+
+    QQuickWindow win;
+    ti->setParentItem(win.contentItem());
+    win.show();
+    QVERIFY(QTest::qWaitForWindowActive(&win));
+    QVERIFY_ACTIVE_FOCUS(ti);
+
+    ti->setCursorPosition(3);
+    QCOMPARE(ti->cursorPosition(), 3);
+
+    // Commit + Selection(start=4, length=0) in the same IME event.
+    {
+        QList<QInputMethodEvent::Attribute> attrs;
+        attrs << QInputMethodEvent::Attribute(QInputMethodEvent::Selection, 4, 0, QVariant());
+        QInputMethodEvent ev(QString(), attrs);
+        ev.setCommitString("HELLO");
+        QGuiApplication::sendEvent(ti, &ev);
+    }
+
+    // Commit happened at old cursor (-> abcHELLOdef), then Selection moved cursor to 4.
+    QCOMPARE(ti->text(), QStringLiteral("abcHELLOdef"));
+    QCOMPARE(ti->selectionStart(), ti->selectionEnd());
+    QCOMPARE(ti->cursorPosition(), 4);
+}
+
+void tst_qquicktextinput::imeSelectionWithCommitDoesNotOverride_WithMask()
+{
+    // Preserve QTBUG-94253 behavior: with input mask, Selection must not override
+    // cursor set by internalInsert() when a commit is present.
+    QString componentStr = "import QtQuick 2.0\nTextInput { focus: true; inputMask: \"AA.AA.AA\" }";
+    QQmlComponent comp(&engine);
+    comp.setData(componentStr.toLatin1(), QUrl());
+    QQuickTextInput *ti = qobject_cast<QQuickTextInput*>(comp.create());
+    QVERIFY(ti);
+
+    QQuickWindow win;
+    ti->setParentItem(win.contentItem());
+    win.show();
+    QVERIFY(QTest::qWaitForWindowActive(&win));
+    QVERIFY_ACTIVE_FOCUS(ti);
+
+    // One IME event: commit + Selection(start: 4, length: 0). Selection start must NOT override the cursor.
+    {
+        QList<QInputMethodEvent::Attribute> attrs;
+        attrs << QInputMethodEvent::Attribute(QInputMethodEvent::Selection, 4, 0, QVariant());
+        QInputMethodEvent ev(QString(), attrs);
+        ev.setCommitString("HELLO");
+        QGuiApplication::sendEvent(ti, &ev);
+    }
+
+    // Matches existing mask expectations (cursor at the end after commit string)
+    QCOMPARE(ti->text(), QStringLiteral("HE.LL.O"));
+    QCOMPARE(ti->cursorPosition(), ti->text().size());
 }
 
 QTEST_MAIN(tst_qquicktextinput)

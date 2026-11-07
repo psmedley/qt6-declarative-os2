@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLSA_P_H
 #define QQMLSA_P_H
@@ -17,25 +18,18 @@
 #include <qtqmlcompilerexports.h>
 
 #include <private/qqmljslogger_p.h>
-#include <QtCore/qset.h>
+#include <private/qqmlsasourcelocation_p.h>
 #include "qqmljsmetatypes_p.h"
 
-#include <map>
 #include <unordered_map>
 #include <vector>
 #include <memory>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlJSTypeResolver;
-struct QQmlJSTypePropagator;
 class QQmlJSImportVisitor;
 
 namespace QQmlSA {
-
-class Bindings;
-class GenericPassPrivate;
-class PassManager;
 
 enum class Flag {
     Creatable = 0x1,
@@ -51,17 +45,9 @@ enum class Flag {
     IsListProperty = 0x400,
 };
 
-struct BindingInfo
+struct PropertyPassInvocation
 {
-    QString fullPropertyName;
-    QQmlSA::Binding binding;
-    QQmlSA::Element bindingScope;
-    bool isAttached;
-};
-
-struct PropertyPassInfo
-{
-    QStringList properties;
+    QString property;
     std::shared_ptr<QQmlSA::PropertyPass> pass;
     bool allowInheritance = true;
 };
@@ -83,12 +69,12 @@ public:
     static QQmlSA::Binding::Bindings
     createBindings(const QMultiHash<QString, QQmlJSMetaPropertyBinding> &);
     static QQmlSA::Binding::Bindings
-            createBindings(QPair<QMultiHash<QString, QQmlJSMetaPropertyBinding>::const_iterator,
+            createBindings(std::pair<QMultiHash<QString, QQmlJSMetaPropertyBinding>::const_iterator,
                                  QMultiHash<QString, QQmlJSMetaPropertyBinding>::const_iterator>);
 
 private:
     QMultiHash<QString, Binding> m_bindings;
-    QQmlSA::Binding::Bindings *q_ptr;
+    QQmlSA::Binding::Bindings *q_ptr = nullptr;
 };
 
 class BindingPrivate
@@ -100,14 +86,29 @@ public:
     explicit BindingPrivate(Binding *);
     BindingPrivate(Binding *, const BindingPrivate &);
 
+    static BindingPrivate *get(Binding *binding) { return binding->d_func(); }
+    static const BindingPrivate *get(const Binding *binding) { return binding->d_func(); }
+
     static QQmlSA::Binding createBinding(const QQmlJSMetaPropertyBinding &);
     static QQmlJSMetaPropertyBinding binding(QQmlSA::Binding &binding);
     static const QQmlJSMetaPropertyBinding binding(const QQmlSA::Binding &binding);
 
+    void setPropertyName(QString name) { m_binding.setPropertyName(name); }
+
+    Element bindingScope() const { return m_bindingScope; }
+    void setBindingScope(Element bindingScope) { m_bindingScope = bindingScope; }
+
+    bool isAttached() const { return m_isAttached; }
+    void setIsAttached(bool isAttached) { m_isAttached = isAttached; }
+
 private:
     QQmlJSMetaPropertyBinding m_binding;
-    Binding *q_ptr;
+    Element m_bindingScope;
+    Binding *q_ptr = nullptr;
+    bool m_isAttached = false;
 };
+
+bool isRegularBindingType(BindingType type);
 
 class MethodPrivate
 {
@@ -127,7 +128,7 @@ public:
 
 private:
     QQmlJSMetaMethod m_method;
-    Method *q_ptr;
+    Method *q_ptr = nullptr;
 };
 
 class MethodsPrivate
@@ -148,10 +149,10 @@ public:
 
 private:
     QMultiHash<QString, Method> m_methods;
-    QQmlSA::Method::Methods *q_ptr;
+    QQmlSA::Method::Methods *q_ptr = nullptr;
 };
 
-class PropertyPrivate
+class Q_QMLCOMPILER_EXPORT PropertyPrivate
 {
     friend class QT_PREPEND_NAMESPACE(QQmlJSMetaProperty);
     Q_DECLARE_PUBLIC(QQmlSA::Property)
@@ -172,7 +173,7 @@ public:
 
 private:
     QQmlJSMetaProperty m_property;
-    QQmlSA::Property *q_ptr;
+    QQmlSA::Property *q_ptr = nullptr;
 };
 
 class Q_QMLCOMPILER_EXPORT PassManagerPrivate
@@ -203,6 +204,11 @@ public:
                               QAnyStringView typeName,
                               QAnyStringView propertyName = QAnyStringView(),
                               bool allowInheritance = true);
+    bool registerPropertyPassOnBuiltinType(std::shared_ptr<PropertyPass> pass,
+                                           QAnyStringView typeName,
+                                           QAnyStringView propertyName = QAnyStringView(),
+                                           bool allowInheritance = true);
+
     void analyze(const Element &root);
 
     bool hasImportedModule(QAnyStringView name) const;
@@ -214,23 +220,25 @@ public:
     QSet<PropertyPass *> findPropertyUsePasses(const QQmlSA::Element &element,
                                                const QString &propertyName);
 
-    void analyzeWrite(const QQmlSA::Element &element, QString propertyName,
+    void analyzeWrite(const QQmlSA::Element &element, const QString &propertyName,
                       const QQmlSA::Element &value, const QQmlSA::Element &writeScope,
-                      QQmlSA::SourceLocation location);
-    void analyzeRead(const QQmlSA::Element &element, QString propertyName,
-                     const QQmlSA::Element &readScope, QQmlSA::SourceLocation location);
+                      const QQmlSA::SourceLocation &location);
+    void analyzeRead(const QQmlSA::Element &element, const QString &propertyName,
+                     const QQmlSA::Element &readScope, const QQmlSA::SourceLocation &location);
+    void analyzeCall(const QQmlSA::Element &element, const QString &propertyName,
+                     const QQmlSA::Element &readScope, const QQmlSA::SourceLocation &location);
     void analyzeBinding(const QQmlSA::Element &element, const QQmlSA::Element &value,
-                        QQmlSA::SourceLocation location);
+                        const QQmlSA::SourceLocation &location);
 
     void addBindingSourceLocations(const QQmlSA::Element &element,
                                    const QQmlSA::Element &scope = QQmlSA::Element(),
                                    const QString prefix = QString(), bool isAttached = false);
 
-    std::vector<std::shared_ptr<ElementPass>> m_elementPasses;
-    std::multimap<QString, PropertyPassInfo> m_propertyPasses;
-    std::unordered_map<quint32, BindingInfo> m_bindingsByLocation;
-    QQmlJSImportVisitor *m_visitor;
-    QQmlJSTypeResolver *m_typeResolver;
+    std::vector<std::unique_ptr<ElementPass>> m_elementPasses;
+    std::multimap<QString, PropertyPassInvocation> m_propertyPasses;
+    std::unordered_map<quint32, Binding> m_bindingsByLocation;
+    QQmlJSImportVisitor *m_visitor = nullptr;
+    QQmlJSTypeResolver *m_typeResolver = nullptr;
 };
 
 class FixSuggestionPrivate
@@ -240,31 +248,177 @@ class FixSuggestionPrivate
 
 public:
     explicit FixSuggestionPrivate(FixSuggestion *);
-    FixSuggestionPrivate(FixSuggestion *, const QString &fixDescription,
-                         const QQmlSA::SourceLocation &location, const QString &replacement);
+    FixSuggestionPrivate(
+            FixSuggestion *, const QString &description, const SourceLocation &location,
+            const QList<DocumentEdit> &documentEdits = {});
     FixSuggestionPrivate(FixSuggestion *, const FixSuggestionPrivate &);
     FixSuggestionPrivate(FixSuggestion *, FixSuggestionPrivate &&);
     ~FixSuggestionPrivate() = default;
 
-    QString fixDescription() const;
-    QQmlSA::SourceLocation location() const;
-    QString replacement() const;
+    SourceLocation location() const;
+    QString description() const;
+
+    void addDocumentEdit(const DocumentEdit &);
+    QList<DocumentEdit> documentEdits() const;
 
     void setFileName(const QString &);
     QString fileName() const;
-
-    void setHint(const QString &);
-    QString hint() const;
 
     void setAutoApplicable(bool autoApplicable = true);
     bool isAutoApplicable() const;
 
     static QQmlJSFixSuggestion &fixSuggestion(QQmlSA::FixSuggestion &);
     static const QQmlJSFixSuggestion &fixSuggestion(const QQmlSA::FixSuggestion &);
+    static FixSuggestion createQQmlSAFixSuggestion(const QQmlJSFixSuggestion &);
 
 private:
     QQmlJSFixSuggestion m_fixSuggestion;
-    QQmlSA::FixSuggestion *q_ptr;
+    QQmlSA::FixSuggestion *q_ptr = nullptr;
+};
+
+class DocumentEditPrivate
+{
+    Q_DECLARE_PUBLIC(DocumentEdit)
+
+public:
+    DocumentEditPrivate(DocumentEdit *, const QString &filename,
+                          const SourceLocation &location, const QString &replacement);
+    DocumentEditPrivate(DocumentEdit *, const DocumentEditPrivate &);
+    DocumentEditPrivate(DocumentEdit *, DocumentEditPrivate &&);
+    ~DocumentEditPrivate() = default;
+
+    QString filename() const;
+    SourceLocation location() const;
+    QString replacement() const;
+
+    static QQmlJSDocumentEdit documentEdit(const DocumentEdit &edit);
+    static QList<QQmlJSDocumentEdit> documentEdits(const QList<DocumentEdit> &edits);
+    static DocumentEdit createQQmlSADocumentEdit(const QQmlJSDocumentEdit &edit);
+
+private:
+    QQmlJSDocumentEdit m_documentEdit;
+    QQmlSA::DocumentEdit *q_ptr = nullptr;
+};
+
+Q_QMLCOMPILER_EXPORT void emitWarningWithOptionalFix(GenericPass &pass, QAnyStringView diagnostic,
+                                                     const LoggerWarningId &id,
+                                                     const QQmlSA::SourceLocation &srcLocation,
+                                                     const std::optional<QQmlJSFixSuggestion> &fixSuggestion);
+
+struct GenericPropertyPass : public PropertyPass
+{
+    using PropertyPass::PropertyPass;
+
+    static void onBindingDefault(PropertyPass *, const Element &, const QString &, const Binding &,
+                                 const Element &, const Element &)
+    {
+    }
+    static void onReadDefault(PropertyPass *, const Element &, const QString &, const Element &,
+                              SourceLocation)
+    {
+    }
+    static void onCallDefault(PropertyPass *, const Element &, const QString &, const Element &,
+                              SourceLocation)
+    {
+    }
+    static void onWriteDefault(PropertyPass *, const Element &, const QString &, const Element &,
+                               const Element &, SourceLocation)
+    {
+    }
+
+    using OnBinding = decltype(&onBindingDefault);
+    using OnRead = decltype(&onReadDefault);
+    using OnCall = decltype(&onCallDefault);
+    using OnWrite = decltype(&onWriteDefault);
+
+    void onBinding(const Element &element, const QString &propertyName, const Binding &binding,
+                   const Element &bindingScope, const Element &value) override
+    {
+        m_onBinding(this, element, propertyName, binding, bindingScope, value);
+    }
+    void onRead(const Element &element, const QString &propertyName, const Element &readScope,
+                SourceLocation location) override
+    {
+        m_onRead(this, element, propertyName, readScope, location);
+    }
+    void onCall(const Element &element, const QString &propertyName, const Element &readScope,
+                SourceLocation location) override
+    {
+        m_onCall(this, element, propertyName, readScope, location);
+    }
+    void onWrite(const Element &element, const QString &propertyName, const Element &value,
+                 const Element &writeScope, SourceLocation location) override
+    {
+        m_onWrite(this, element, propertyName, value, writeScope, location);
+    }
+
+    OnBinding m_onBinding = &onBindingDefault;
+    OnRead m_onRead = &onReadDefault;
+    OnCall m_onCall = &onCallDefault;
+    OnWrite m_onWrite = &onWriteDefault;
+};
+
+class PropertyPassBuilder
+{
+public:
+    PropertyPassBuilder(PassManager *passManager)
+        : m_pass(std::make_unique<GenericPropertyPass>(passManager)), m_passManager(passManager)
+    {
+        Q_ASSERT(m_passManager);
+    }
+
+    PropertyPassBuilder() = delete;
+    Q_DISABLE_COPY_MOVE(PropertyPassBuilder)
+    ~PropertyPassBuilder()
+    {
+        Q_ASSERT_X(!m_pass, "GenericPropertyPassBuilder", "Built PropertyPass was not registered!");
+    }
+
+    PropertyPassBuilder &withOnBinding(GenericPropertyPass::OnBinding onBinding)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "PropertyPasses can't be modified after registration");
+        m_pass->m_onBinding = onBinding;
+        return *this;
+    }
+    PropertyPassBuilder &withOnRead(GenericPropertyPass::OnRead onRead)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "PropertyPasses can't be modified after registration");
+        m_pass->m_onRead = onRead;
+        return *this;
+    }
+    PropertyPassBuilder &withOnCall(GenericPropertyPass::OnCall onCall)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "PropertyPasses can't be modified after registration");
+        m_pass->m_onCall = onCall;
+        return *this;
+    }
+    PropertyPassBuilder &withOnWrite(GenericPropertyPass::OnWrite onWrite)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "PropertyPasses can't be modified after registration");
+        m_pass->m_onWrite = onWrite;
+        return *this;
+    }
+    void registerOn(QAnyStringView module, QAnyStringView type, QAnyStringView property)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "Current PropertyPass was already registered");
+        m_passManager->registerPropertyPass(std::move(m_pass), module, type, property);
+    }
+    void registerOnBuiltin(QAnyStringView type, QAnyStringView property)
+    {
+        Q_ASSERT_X(m_pass, "GenericPropertyPassBuilder",
+                   "Current PropertyPass was already registered");
+        PassManagerPrivate::get(m_passManager)
+                ->registerPropertyPassOnBuiltinType(std::move(m_pass), type, property);
+    }
+
+private:
+    std::unique_ptr<GenericPropertyPass> m_pass;
+    PassManager *m_passManager;
 };
 
 } // namespace QQmlSA

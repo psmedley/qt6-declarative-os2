@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickview.h"
 #include "qquickview_p.h"
@@ -9,6 +10,7 @@
 #include "qquickitemchangelistener_p.h"
 
 #include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlcomponent.h>
 #include <private/qqmlengine_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 #include <QtCore/qbasictimer.h>

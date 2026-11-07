@@ -6,7 +6,7 @@
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 
 class tst_qqmljsutils: public QQmlDataTest
 {
@@ -19,6 +19,8 @@ private slots:
 
     void qmlFileSourcePathFromBuildPath_data();
     void qmlFileSourcePathFromBuildPath();
+
+    void qmlBuildPathFromSourcePathWithMultipleRegistrations();
 };
 
 #endif // TST_QQMLJSUTILS_P_H

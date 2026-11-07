@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLANYBINDINGPTR_P_H
 #define QQMLANYBINDINGPTR_P_H
@@ -14,10 +15,12 @@
 //
 // We mean it.
 //
-
+#include "qqmlvmemetaobject_p.h"
 #include <qqmlproperty.h>
 #include <private/qqmlpropertybinding_p.h>
 #include <private/qqmlbinding_p.h>
+#include <private/qqmlvmemetaobject_p.h>
+#include <utility>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,19 +74,31 @@ public:
      */
     static QQmlAnyBinding ofProperty(QObject *object, QQmlPropertyIndex index)
     {
-        QQmlAnyBinding binding;
+        const auto result = [](auto &&result) -> QQmlAnyBinding {
+            QQmlAnyBinding binding;
+            binding = std::forward<decltype(result)>(result);
+            return binding;
+        };
+
         Q_ASSERT(object);
-        auto coreIndex = index.coreIndex();
+        const auto coreIndex = index.coreIndex();
+
         // we don't support bindable properties on value types so far
-        if (!index.hasValueTypeIndex()
-            && QQmlData::ensurePropertyCache(object)->property(coreIndex)->isBindable()) {
-            auto metaProp = object->metaObject()->property(coreIndex);
-            QUntypedBindable bindable = metaProp.bindable(object);
-            binding = bindable.binding();
-        } else {
-            binding = QQmlPropertyPrivate::binding(object, index);
+        if (index.hasValueTypeIndex())
+            return result(QQmlPropertyPrivate::binding(object, index));
+
+        if (QQmlPropertyCache::ConstPtr propertyCache = QQmlData::ensurePropertyCache(object)) {
+            const QQmlPropertyData *property = propertyCache->property(coreIndex);
+            return (property->acceptsQBinding())
+                    ? result(property->propertyBindable(object).binding())
+                    : result(QQmlPropertyPrivate::binding(object, index));
         }
-        return binding;
+
+        const QMetaObject *metaObject = object->metaObject();
+        const QMetaProperty metaProp = metaObject->property(coreIndex);
+        return metaProp.isBindable()
+                ? result(metaProp.bindable(object).binding())
+                : result(QQmlPropertyPrivate::binding(object, index));
     }
 
     /*!
@@ -162,12 +177,12 @@ public:
         \internal
         Removes the binding from \a prop if there is any.
      */
-    static void removeBindingFrom(QQmlProperty &prop)
+    static void removeBindingFrom(const QQmlProperty &prop)
     {
         if (prop.isBindable())
             prop.property().bindable(prop.object()).takeBinding();
         else
-            QQmlPropertyPrivate::removeBinding(prop);
+            QQmlPropertyPrivate::removeBinding(prop, QQmlPropertyPrivate::OverrideSticky);
     }
 
     /*!
@@ -234,7 +249,7 @@ public:
         if (isAbstractPropertyBinding()) {
             auto abstractBinding = asAbstractBinding();
             Q_ASSERT(abstractBinding->targetObject() == target.object() || QQmlPropertyPrivate::get(target)->core.isAlias());
-            Q_ASSERT(!target.isBindable());
+            Q_ASSERT(!target.isBindable() || QQmlPropertyPrivate::get(target)->isValueType());
             if (mode == IgnoreInterceptors)
                 QQmlPropertyPrivate::setBinding(abstractBinding, QQmlPropertyPrivate::None, QQmlPropertyData::DontRemoveBinding | QQmlPropertyData::BypassInterceptor);
             else
@@ -243,8 +258,22 @@ public:
             Q_ASSERT(target.isBindable());
             QUntypedBindable bindable;
             void *argv[] = {&bindable};
-            if (mode == IgnoreInterceptors) {
-                target.object()->qt_metacall(QMetaObject::BindableProperty, target.index(), argv);
+            if (mode == IgnoreInterceptors && QObjectPrivate::get(target.object())->metaObject) {
+                // we want to tell any interceptor to avoid interception, but if there's an alias,
+                // we'd end up querying the wrong object
+                auto targetObject = target.object();
+                const QQmlPropertyData *targetProp = &QQmlPropertyPrivate::get(target)->core;
+                QQmlPropertyIndex originalIndex(targetProp->coreIndex());
+                QQmlPropertyIndex propIndex = originalIndex;
+                if (targetProp->isAlias()) {
+                    QQmlPropertyPrivate::findAliasTarget(targetObject, originalIndex, &targetObject, &propIndex);
+                    // we currently don't support bindable on value types, we would need to handle valueTypeIndex
+                    // if that were to change in the future
+                    Q_ASSERT(propIndex.valueTypeIndex() == -1);
+                }
+                QQmlInterceptorMetaObject::setInterceptionMode(targetObject, QQmlInterceptorMetaObject::SkipInterception);
+                QMetaObject::metacall(targetObject, QMetaObject::BindableProperty, propIndex.coreIndex(), argv);
+                QQmlInterceptorMetaObject::setInterceptionMode(targetObject, QQmlInterceptorMetaObject::Intercept);
             } else {
                 QMetaObject::metacall(target.object(), QMetaObject::BindableProperty, target.index(), argv);
             }
@@ -267,6 +296,25 @@ public:
         } else {
             return asUntypedPropertyBinding().error().hasError();
         }
+    }
+
+    bool isSticky() const
+    {
+        if (d.isNull())
+            return false;
+        if (d.isT1())
+            return d.asT1()->isSticky();
+        return d.asT2()->isSticky();
+    }
+
+    void setSticky(bool sticky = true)
+    {
+        if (d.isNull())
+            return;
+        if (d.isT1())
+            d.asT1()->setSticky(sticky);
+        else
+            d.asT2()->setSticky(sticky);
     }
 
     /*!
@@ -309,7 +357,7 @@ public:
         if (d.isT1()  || d.isNull())
             return {};
         auto priv = d.asT2();
-        return QUntypedPropertyBinding {priv};
+        return QPropertyBindingPrivate::makeUntyped(priv);
     }
 
     /*!

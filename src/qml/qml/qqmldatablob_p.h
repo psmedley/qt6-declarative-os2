@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDATABLOB_P_H
 #define QQMLDATABLOB_P_H
@@ -60,6 +61,7 @@ public:
     void startLoading();
 
     QQmlTypeLoader *typeLoader() const { return m_typeLoader; }
+    void resetTypeLoader() { m_typeLoader = nullptr; }
 
     Type type() const;
 
@@ -71,6 +73,7 @@ public:
     bool isError() const;
     bool isCompleteOrError() const;
 
+    bool isAsync() const;
     qreal progress() const;
 
     QUrl url() const;
@@ -84,9 +87,9 @@ public:
     public:
         QString readAll(QString *error) const;
         QDateTime sourceTimeStamp() const;
-        bool exists() const;
-        bool isEmpty() const;
-        bool isCacheable() const { return !hasInlineSourceCode; }
+        QByteArray checksum() const;
+        bool exists() const { return hasInlineSourceCode || fileExists; }
+        bool isCacheable() const { return !hasStaticData; }
         bool isValid() const
         {
             return hasInlineSourceCode || !fileInfo.filePath().isEmpty();
@@ -98,7 +101,37 @@ public:
         QString inlineSourceCode;
         QFileInfo fileInfo;
         bool hasInlineSourceCode = false;
+        bool hasStaticData = false;
+        bool fileExists = false;
     };
+
+    template<typename Loader = QQmlTypeLoader>
+    void assertTypeLoaderThreadIfRunning() const
+    {
+        const Loader *loader = m_typeLoader;
+        Q_ASSERT(!loader || !loader->thread() || loader->thread()->isThisThread());
+    }
+
+    template<typename Loader = QQmlTypeLoader>
+    void assertTypeLoaderThread() const
+    {
+        const Loader *loader = m_typeLoader;
+        Q_ASSERT(loader && loader->thread() && loader->thread()->isThisThread());
+    }
+
+    template<typename Loader = QQmlTypeLoader>
+    void assertEngineThreadIfRunning() const
+    {
+        const Loader *loader = m_typeLoader;
+        Q_ASSERT(!loader || !loader->thread() || loader->thread()->isParentThread());
+    }
+
+    template<typename Loader = QQmlTypeLoader>
+    void assertEngineThread() const
+    {
+        const Loader *loader = m_typeLoader;
+        Q_ASSERT(loader && loader->thread() && loader->thread()->isParentThread());
+    }
 
 protected:
     // Can be called from within callbacks
@@ -106,7 +139,7 @@ protected:
     void setError(const QList<QQmlError> &errors);
     void setError(const QQmlJS::DiagnosticMessage &error);
     void setError(const QString &description);
-    void addDependency(QQmlDataBlob *);
+    void addDependency(const QQmlDataBlob::Ptr &);
 
     // Callbacks made in load thread
     virtual void dataReceived(const SourceCodeData &) = 0;
@@ -115,8 +148,8 @@ protected:
 #if QT_CONFIG(qml_network)
     virtual void networkError(QNetworkReply::NetworkError);
 #endif
-    virtual void dependencyError(QQmlDataBlob *);
-    virtual void dependencyComplete(QQmlDataBlob *);
+    virtual void dependencyError(const QQmlDataBlob::Ptr &);
+    virtual void dependencyComplete(const QQmlDataBlob::Ptr &);
     virtual void allDependenciesDone();
 
     // Callbacks made in main thread
@@ -134,9 +167,38 @@ private:
     void tryDone();
     void cancelAllWaitingFor();
     void notifyAllWaitingOnMe();
-    void notifyComplete(QQmlDataBlob *);
+    void notifyComplete(const QQmlDataBlob::Ptr &);
+
+    bool setStatus(Status status);
+    bool setIsAsync(bool async) { return m_data.setIsAsync(async); }
+    bool setProgress(qreal progress) { return m_data.setProgress(progress); }
 
     struct ThreadData {
+    public:
+        friend bool QQmlDataBlob::setStatus(Status);
+        friend bool QQmlDataBlob::setIsAsync(bool);
+        friend bool QQmlDataBlob::setProgress(qreal);
+
+        inline ThreadData()
+            : _p(0)
+        {
+        }
+
+        inline QQmlDataBlob::Status status() const
+        {
+            return QQmlDataBlob::Status((_p.loadAcquire() & StatusMask) >> StatusShift);
+        }
+
+        inline bool isAsync() const
+        {
+            return _p.loadAcquire() & AsyncMask;
+        }
+
+        inline qreal progress() const
+        {
+            return quint8((_p.loadAcquire() & ProgressMask) >> ProgressShift) / float(0xFF);
+        }
+
     private:
         enum {
             StatusMask = 0x0000FFFF,
@@ -147,53 +209,47 @@ private:
             NoMask = 0
         };
 
-    public:
-        inline ThreadData()
-            : _p(0)
-        {
-        }
 
-        inline QQmlDataBlob::Status status() const
-        {
-            return QQmlDataBlob::Status((_p.loadRelaxed() & StatusMask) >> StatusShift);
-        }
-
-        inline void setStatus(QQmlDataBlob::Status status)
+        inline bool setStatus(QQmlDataBlob::Status status)
         {
             while (true) {
-                int d = _p.loadRelaxed();
+                int d = _p.loadAcquire();
                 int nd = (d & ~StatusMask) | ((status << StatusShift) & StatusMask);
-                if (d == nd || _p.testAndSetOrdered(d, nd)) return;
+                if (d == nd)
+                    return false;
+                if (_p.testAndSetRelease(d, nd))
+                    return true;
             }
+
+            Q_UNREACHABLE_RETURN(false);
         }
 
-        inline bool isAsync() const
-        {
-            return _p.loadRelaxed() & AsyncMask;
-        }
-
-        inline void setIsAsync(bool v)
+        inline bool setIsAsync(bool v)
         {
             while (true) {
-                int d = _p.loadRelaxed();
+                int d = _p.loadAcquire();
                 int nd = (d & ~AsyncMask) | (v ? AsyncMask : NoMask);
-                if (d == nd || _p.testAndSetOrdered(d, nd)) return;
+                if (d == nd)
+                    return false;
+                if (_p.testAndSetRelease(d, nd))
+                    return true;
             }
+
+            Q_UNREACHABLE_RETURN(false);
         }
 
-        inline qreal progress() const
-        {
-            return quint8((_p.loadRelaxed() & ProgressMask) >> ProgressShift) / float(0xFF);
-        }
-
-        inline void setProgress(qreal progress)
+        inline bool setProgress(qreal progress)
         {
             quint8 v = 0xFF * progress;
             while (true) {
-                int d = _p.loadRelaxed();
+                int d = _p.loadAcquire();
                 int nd = (d & ~ProgressMask) | ((v << ProgressShift) & ProgressMask);
-                if (d == nd || _p.testAndSetOrdered(d, nd)) return;
+                if (d == nd)
+                    return false;
+                if (_p.testAndSetRelease(d, nd))
+                    return true;
             }
+            Q_UNREACHABLE_RETURN(false);
         }
 
     private:
@@ -220,7 +276,7 @@ protected:
 private:
 
     // List of QQmlDataBlob's that I am waiting for to complete.
-    QVector<QQmlRefPointer<QQmlDataBlob>> m_waitingFor;
+    QList<QQmlRefPointer<QQmlDataBlob>> m_waitingFor;
 
     int m_redirectCount:30;
     bool m_inCallback:1;

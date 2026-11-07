@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
 
 #include "qquicktextcontrol_p.h"
 #include "qquicktextcontrol_p_p.h"
@@ -42,7 +43,6 @@
 const int textCursorWidth = 1;
 
 QT_BEGIN_NAMESPACE
-Q_DECLARE_LOGGING_CATEGORY(lcHoverTrace)
 
 // could go into QTextCursor...
 static QTextLine currentTextLine(const QTextCursor &cursor)
@@ -82,6 +82,7 @@ QQuickTextControlPrivate::QQuickTextControlPrivate()
       hoveredMarker(false),
       selectByTouchDrag(false),
       imSelectionAfterPress(false),
+      beingEdited(false),
       lastSelectionStart(-1),
       lastSelectionEnd(-1)
 {}
@@ -755,7 +756,7 @@ void QQuickTextControl::processEvent(QEvent *e, const QTransform &transform)
 
         case QEvent::ShortcutOverride:
             if (d->interactionFlags & Qt::TextEditable) {
-                QKeyEvent* ke = static_cast<QKeyEvent *>(e);
+                QKeyEvent *ke = static_cast<QKeyEvent *>(e);
                 ke->setAccepted(isCommonTextEditShortcut(ke));
             }
             break;
@@ -767,6 +768,12 @@ void QQuickTextControl::processEvent(QEvent *e, const QTransform &transform)
 bool QQuickTextControl::event(QEvent *e)
 {
     return QObject::event(e);
+}
+
+bool QQuickTextControl::isBeingEdited()
+{
+    Q_D(QQuickTextControl);
+    return d->beingEdited;
 }
 
 void QQuickTextControl::timerEvent(QTimerEvent *e)
@@ -807,6 +814,7 @@ void QQuickTextControlPrivate::keyPressEvent(QKeyEvent *e)
 {
     Q_Q(QQuickTextControl);
 
+    QScopedValueRollback<bool> rollbackBeingEdited(beingEdited, true);
     if (e->key() == Qt::Key_Back) {
          e->ignore();
          return;
@@ -905,9 +913,12 @@ void QQuickTextControlPrivate::keyPressEvent(QKeyEvent *e)
         cursor.removeSelectedText();
     }
     else if (e == QKeySequence::DeleteStartOfWord) {
+        const int oldCursorPos = cursor.position();
         if (!cursor.hasSelection())
             cursor.movePosition(QTextCursor::PreviousWord, QTextCursor::KeepAnchor);
         cursor.removeSelectedText();
+        if (cursor.position() != oldCursorPos)
+            emit q->cursorPositionChanged();
     }
     else if (e == QKeySequence::DeleteEndOfLine) {
         QTextBlock block = cursor.block();
@@ -1316,6 +1327,11 @@ void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
     bool forceSelectionChanged = false;
     int oldCursorPos = cursor.position();
 
+    // Input method commits (e.g. accented characters such as é, ç, à) edit the document
+    // without going through keyPressEvent. Mark it edited here too, so that
+    // QQuickTextEdit::q_textChanged emits textEdited() for committed input-method text.
+    QScopedValueRollback<bool> rollbackBeingEdited(beingEdited, isGettingInput && textEditable);
+
     cursor.beginEditBlock();
     if (isGettingInput && textEditable) {
         cursor.removeSelectedText();
@@ -1325,12 +1341,17 @@ void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
 
     // insert commit string
     if (textEditable && (!e->commitString().isEmpty() || e->replacementLength())) {
-        if (e->commitString().endsWith(QChar::LineFeed))
-            block = cursor.block(); // Remember the block where the preedit text is
-        QTextCursor c = cursor;
-        c.setPosition(c.position() + e->replacementStart());
-        c.setPosition(c.position() + e->replacementLength(), QTextCursor::KeepAnchor);
-        c.insertText(e->commitString());
+        auto *mimeData = QInputControl::mimeDataForInputEvent(e);
+        if (mimeData && q->canInsertFromMimeData(mimeData)) {
+            q->insertFromMimeData(mimeData);
+        } else {
+            if (e->commitString().endsWith(QChar::LineFeed))
+                block = cursor.block(); // Remember the block where the preedit text is
+            QTextCursor c = cursor;
+            c.setPosition(c.position() + e->replacementStart());
+            c.setPosition(c.position() + e->replacementLength(), QTextCursor::KeepAnchor);
+            c.insertText(e->commitString());
+        }
     }
 
     if (interactionFlags & (Qt::TextSelectableByKeyboard | Qt::TextSelectableByMouse)) {
@@ -1359,7 +1380,7 @@ void QQuickTextControlPrivate::inputMethodEvent(QInputMethodEvent *e)
             layout->setPreeditArea(cursor.position() - block.position(), e->preeditString());
             emit q->preeditTextChanged();
         }
-        QVector<QTextLayout::FormatRange> overrides;
+        QList<QTextLayout::FormatRange> overrides;
         preeditCursor = e->preeditString().size();
         hasImState = !e->preeditString().isEmpty();
         cursorVisible = true;
@@ -1419,8 +1440,11 @@ QVariant QQuickTextControl::inputMethodQuery(Qt::InputMethodQuery property, cons
     }
     case Qt::ImSurroundingText:
         return QVariant(block.text());
-    case Qt::ImCurrentSelection:
-        return QVariant(d->cursor.selectedText());
+    case Qt::ImCurrentSelection: {
+        QMimeData *mimeData = createMimeDataFromSelection();
+        mimeData->deleteLater();
+        return QInputControl::selectionWrapper(mimeData);
+    }
     case Qt::ImMaximumTextLength:
         return QVariant(); // No limit.
     case Qt::ImAnchorPosition:
@@ -1489,7 +1513,10 @@ void QQuickTextControlPrivate::focusEvent(QFocusEvent *e)
             && e->reason() != Qt::PopupFocusReason
             && cursor.hasSelection()) {
             cursor.clearSelection();
-            emit q->selectionChanged();
+            // Use the private overload so lastSelectionStart/End are updated too;
+            // a bare emit would leave that cache stale and suppress a later
+            // programmatic select() to the same range (QTBUG-83224).
+            selectionChanged();
         }
     }
 }

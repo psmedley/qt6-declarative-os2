@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlboundsignal_p.h"
 
@@ -28,6 +29,12 @@ Q_TRACE_POINT(qtqml, QQmlHandlingSignal_entry, const QQmlEngine *engine, const Q
               const QString &fileName, int line, int column)
 Q_TRACE_POINT(qtqml, QQmlHandlingSignal_exit)
 
+/*!
+    \class QQmlBoundSignal
+    \inmodule QtQml
+    \internal
+*/
+
 QQmlBoundSignalExpression::QQmlBoundSignalExpression(const QObject *target, int index, const QQmlRefPointer<QQmlContextData> &ctxt, QObject *scope,
         const QString &expression, const QString &fileName, quint16 line, quint16 column,
         const QString &handlerName, const QString &parameterString)
@@ -51,7 +58,7 @@ QQmlBoundSignalExpression::QQmlBoundSignalExpression(const QObject *target, int 
         //TODO: look at using the property cache here (as in the compiler)
         //      for further optimization
         QMetaMethod signal = QMetaObjectPrivate::signal(m_target->metaObject(), m_index);
-        function += QQmlPropertyCache::signalParameterStringForJS(v4, signal.parameterNames(), &error);
+        function += QQmlPropertyCache::signalParameterStringForJS(signal.parameterNames(), &error);
 
         if (!error.isEmpty()) {
             qmlWarning(scopeObject()) << error;
@@ -83,7 +90,7 @@ QQmlBoundSignalExpression::QQmlBoundSignalExpression(const QObject *target, int 
         QList<QByteArray> signalParameters = QMetaObjectPrivate::signal(m_target->metaObject(), m_index).parameterNames();
         if (!signalParameters.isEmpty()) {
             QString error;
-            QQmlPropertyCache::signalParameterStringForJS(engine, signalParameters, &error);
+            QQmlPropertyCache::signalParameterStringForJS(signalParameters, &error);
             if (!error.isEmpty()) {
                 qmlWarning(scopeObject) << error;
                 return;
@@ -225,7 +232,7 @@ QQmlBoundSignal::QQmlBoundSignal(QObject *target, int signal, QObject *owner,
         This ensures that 'parameter' will be available from QML.
     */
     signal = QQmlPropertyCache::originalClone(target, signal);
-    QQmlNotifierEndpoint::connect(target, signal, engine);
+    QQmlData::connectEndpoint(this, target, signal, engine);
 }
 
 QQmlBoundSignal::~QQmlBoundSignal()

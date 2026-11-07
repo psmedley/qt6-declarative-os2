@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QANDROIDQUICKVIEWEMBEDDING_P_H
 #define QANDROIDQUICKVIEWEMBEDDING_P_H
@@ -36,12 +37,16 @@ namespace QtAndroidQuickViewEmbedding
     jobject getRootObjectProperty(JNIEnv *env, jobject, jlong parentWindowReference,
                                   jstring propertyName);
     Q_DECLARE_JNI_NATIVE_METHOD_IN_CURRENT_SCOPE(getRootObjectProperty)
-    int addRootObjectSignalListener(JNIEnv *env, jobject, jlong parentWindowReference,
-                                   jstring signalName, jclass argType, jobject listener);
+    bool addRootObjectSignalListener(JNIEnv *env, jobject, jlong windowReference,
+                                     jstring signalName, QJniArray<jclass> argTypes,
+                                     jobject listener, jint id);
     Q_DECLARE_JNI_NATIVE_METHOD_IN_CURRENT_SCOPE(addRootObjectSignalListener)
     bool removeRootObjectSignalListener(JNIEnv *env, jobject, jlong parentWindowReference,
                                        jint signalListenerId);
     Q_DECLARE_JNI_NATIVE_METHOD_IN_CURRENT_SCOPE(removeRootObjectSignalListener)
+    void invokeMethod(JNIEnv *, jobject, jlong viewReference, QtJniTypes::String methodName,
+                      QJniArray<jobject> params);
+    Q_DECLARE_JNI_NATIVE_METHOD_IN_CURRENT_SCOPE(invokeMethod)
 
     class QAndroidQuickView : public QQuickView
     {
@@ -50,7 +55,7 @@ namespace QtAndroidQuickViewEmbedding
 
     public:
         explicit QAndroidQuickView(QWindow *parent)
-            : QQuickView(parent), m_signalManager(new QAndroidViewSignalManager())
+            : QQuickView(parent), m_signalManager(new QAndroidViewSignalManager(this))
         {
         }
         inline QAndroidViewSignalManager *signalManager() const { return m_signalManager.get(); };

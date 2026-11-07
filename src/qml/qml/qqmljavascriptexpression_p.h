@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLJAVASCRIPTEXPRESSION_P_H
 #define QQMLJAVASCRIPTEXPRESSION_P_H
@@ -103,6 +104,11 @@ public:
     }
 
     QV4::Function *function() const { return m_v4Function; }
+    void setFunction(QV4::Function *f);
+
+    QV4::ExecutableCompilationUnit *compilationUnit() const { return m_compilationUnit.data(); }
+
+    QQmlJavaScriptExpression *nextExpression() const { return m_nextExpression; }
 
     virtual void refresh();
 

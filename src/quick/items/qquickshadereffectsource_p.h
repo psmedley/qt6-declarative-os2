@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSHADEREFFECTSOURCE_P_H
 #define QQUICKSHADEREFFECTSOURCE_P_H
@@ -39,7 +40,8 @@ class QSGSimpleRectNode;
 
 class QQuickShaderEffectSourceTextureProvider;
 
-class Q_QUICK_EXPORT QQuickShaderEffectSource : public QQuickItem, public QQuickItemChangeListener
+class Q_QUICK_EXPORT QQuickShaderEffectSource : public QQuickItem,
+                                                public QSafeQuickItemChangeListener<QQuickShaderEffectSource>
 {
     Q_OBJECT
     Q_PROPERTY(WrapMode wrapMode READ wrapMode WRITE setWrapMode NOTIFY wrapModeChanged)

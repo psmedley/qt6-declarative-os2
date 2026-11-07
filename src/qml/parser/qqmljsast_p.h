@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLJSAST_P_H
 #define QQMLJSAST_P_H
@@ -21,7 +22,7 @@
 #include <private/qqmljsmemorypool_p.h>
 
 #include <QtCore/qtaggedpointer.h>
-#include <QtCore/qversionnumber.h>
+#include <QtCore/qtyperevision.h>
 
 #include <type_traits>
 
@@ -374,7 +375,9 @@ public:
     { return typeId->firstSourceLocation(); }
 
     SourceLocation lastSourceLocation() const override
-    { return typeArgument ? typeArgument->lastSourceLocation() : typeId->lastSourceLocation(); }
+    {
+        return rAngleBracketToken.isValid() ? rAngleBracketToken : typeId->lastSourceLocation();
+    }
 
     QString toString() const;
     void toString(QString *out) const;
@@ -382,6 +385,8 @@ public:
 // attributes
     UiQualifiedId *typeId;
     UiQualifiedId *typeArgument;
+    SourceLocation lAngleBracketToken;
+    SourceLocation rAngleBracketToken;
 };
 
 class QML_PARSER_EXPORT TypeAnnotation: public Node
@@ -724,7 +729,7 @@ public:
         Binding
     };
     Pattern *patternCast() override;
-    virtual bool convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage) = 0;
+    virtual bool convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage) = 0;
     ParseMode parseMode = Literal;
 };
 
@@ -747,7 +752,7 @@ public:
 
     bool isValidArrayLiteral(SourceLocation *errorLocation = nullptr) const;
 
-    bool convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage) override;
+    bool convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage) override;
 
 // attributes
     PatternElementList *elements = nullptr;
@@ -776,7 +781,7 @@ public:
     SourceLocation lastSourceLocation() const override
     { return rbraceToken; }
 
-    bool convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage) override;
+    bool convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage) override;
 
 // attributes
     PatternPropertyList *properties = nullptr;
@@ -857,7 +862,7 @@ struct QML_PARSER_EXPORT BoundName
     bool isInjected() const { return typeAnnotation.tag() == Injected; }
 };
 
-struct BoundNames : public QVector<BoundName>
+struct BoundNames : public QList<BoundName>
 {
     int indexOf(const QString &name, int from = 0) const
     {
@@ -968,7 +973,7 @@ public:
     }
 
     void accept0(BaseVisitor *visitor) override;
-    virtual bool convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage);
+    virtual bool convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage);
 
     SourceLocation firstSourceLocation() const override
     { return identifierToken.isValid() ? identifierToken : (bindingTarget ? bindingTarget->firstSourceLocation() : initializer->firstSourceLocation()); }
@@ -1008,7 +1013,10 @@ public:
 
     PatternElementList(Elision *elision, PatternElement *element)
         : elision(elision), element(element), next(this)
-    { kind = K; }
+    {
+        Q_ASSERT(elision || element);
+        kind = K;
+    }
 
     PatternElementList *append(PatternElementList *n) {
         n->next = next;
@@ -1039,6 +1047,7 @@ public:
     Elision *elision = nullptr;
     PatternElement *element = nullptr;
     PatternElementList *next;
+    SourceLocation commaToken;
 };
 
 class QML_PARSER_EXPORT PatternProperty : public PatternElement
@@ -1069,7 +1078,7 @@ public:
     }
 
     void boundNames(BoundNames *names) override;
-    bool convertLiteralToAssignmentPattern(MemoryPool *pool, SourceLocation *errorLocation, QString *errorMessage) override;
+    bool convertLiteralToAssignmentPattern(SourceLocation *errorLocation, QString *errorMessage) override;
 
 // attributes
     PropertyName *name;
@@ -1372,7 +1381,7 @@ public:
     ExpressionNode *expression;
     ArgumentList *next;
     SourceLocation commaToken;
-    bool isSpreadElement = false;
+    SourceLocation spreadToken;
 };
 
 class QML_PARSER_EXPORT PostIncrementExpression: public ExpressionNode
@@ -1657,12 +1666,12 @@ public:
     SourceLocation colonToken;
 };
 
-class QML_PARSER_EXPORT Expression: public ExpressionNode // ### rename
+class QML_PARSER_EXPORT CommaExpression: public ExpressionNode
 {
 public:
     QQMLJS_DECLARE_AST_NODE(Expression)
 
-    Expression(ExpressionNode *l, ExpressionNode *r):
+    CommaExpression(ExpressionNode *l, ExpressionNode *r):
         left (l), right (r) { kind = K; }
 
     void accept0(BaseVisitor *visitor) override;
@@ -2522,6 +2531,7 @@ public:
 // attributes
     PatternElement *element = nullptr;
     FormalParameterList *next;
+    SourceLocation commaToken;
 };
 
 class QML_PARSER_EXPORT ClassExpression : public ExpressionNode
@@ -3437,11 +3447,18 @@ public:
     bool isRequired() const { return requiredToken().isValid(); }
     SourceLocation readonlyToken() const { return m_readonlyToken; }
     bool isReadonly() const { return readonlyToken().isValid(); }
+    SourceLocation finalToken() const { return m_finalToken; }
+    bool isFinal() const { return finalToken().isValid(); }
+    SourceLocation virtualToken() const { return m_virtualToken; }
+    bool isVirtual() const { return virtualToken().isValid(); }
+    SourceLocation overrideToken() const { return m_overrideToken; }
+    bool isOverride() const { return overrideToken().isValid(); }
 
     SourceLocation propertyToken() const { return m_propertyToken; }
 
     template <bool InvalidIsLargest = true>
-    static bool compareLocationsByBegin(const SourceLocation *& lhs, const SourceLocation *& rhs)
+    static bool compareLocationsByBegin(const SourceLocation * const &lhs,
+                                        const SourceLocation * const &rhs)
     {
         if (lhs->isValid() && rhs->isValid())
             return lhs->begin() < rhs->begin();
@@ -3462,6 +3479,9 @@ private:
     SourceLocation m_defaultToken;
     SourceLocation m_readonlyToken;
     SourceLocation m_requiredToken;
+    SourceLocation m_finalToken;
+    SourceLocation m_virtualToken;
+    SourceLocation m_overrideToken;
     SourceLocation m_propertyToken;
 };
 
@@ -3519,6 +3539,24 @@ public:
     }
     bool isReadonly() const { return readonlyToken().isValid(); }
 
+    SourceLocation finalToken() const
+    {
+        return hasAttributes ? m_attributes->finalToken() : SourceLocation {};
+    }
+    bool isFinal() const { return finalToken().isValid(); }
+
+    SourceLocation overrideToken() const
+    {
+        return hasAttributes ? m_attributes->overrideToken() : SourceLocation{};
+    }
+    bool isOverride() const { return overrideToken().isValid(); }
+
+    SourceLocation virtualToken() const
+    {
+        return hasAttributes ? m_attributes->virtualToken() : SourceLocation{};
+    }
+    bool isVirtual() const { return virtualToken().isValid(); }
+
     void setAttributes(UiPropertyAttributes *attributes)
     {
         m_attributes = attributes;
@@ -3551,6 +3589,8 @@ public:
     SourceLocation identifierToken;
     SourceLocation colonToken;
     SourceLocation semicolonToken;
+    SourceLocation lparenToken;
+    SourceLocation rparenToken;
 private:
     union {
         SourceLocation m_propertyToken = SourceLocation {};
@@ -3776,7 +3816,9 @@ public:
     UiEnumMemberList *next;
     QStringView member;
     double value;
+    SourceLocation commaToken;
     SourceLocation memberToken;
+    SourceLocation equalToken;
     SourceLocation valueToken;
 };
 

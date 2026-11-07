@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTABLEVIEW_P_H
 #define QQUICKTABLEVIEW_P_H
@@ -19,11 +20,15 @@
 QT_REQUIRE_CONFIG(quick_tableview);
 
 #include <QtCore/qpointer.h>
+#include <QtCore/qpoint.h>
+#include <QtCore/qrect.h>
 #include <QtQuick/private/qtquickglobal_p.h>
 #include <QtQuick/private/qquickflickable_p.h>
+#include <QtQml/qqmlcomponent.h>
 #include <QtQml/private/qqmlnullablevalue_p.h>
 #include <QtQml/private/qqmlfinalizer_p.h>
 #include <QtQml/private/qqmlguard_p.h>
+#include <QtQmlModels/private/qqmldelegatemodel_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -45,8 +50,8 @@ class Q_QUICK_EXPORT QQuickTableView : public QQuickFlickable, public QQmlFinali
     Q_PROPERTY(QVariant model READ model WRITE setModel NOTIFY modelChanged)
     Q_PROPERTY(QQmlComponent *delegate READ delegate WRITE setDelegate NOTIFY delegateChanged)
     Q_PROPERTY(bool reuseItems READ reuseItems WRITE setReuseItems NOTIFY reuseItemsChanged)
-    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged)
-    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged)
+    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged OVERRIDE)
+    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged OVERRIDE)
     Q_PROPERTY(QQuickTableView *syncView READ syncView WRITE setSyncView NOTIFY syncViewChanged REVISION(2, 14))
     Q_PROPERTY(Qt::Orientations syncDirection READ syncDirection WRITE setSyncDirection NOTIFY syncDirectionChanged REVISION(2, 14))
     Q_PROPERTY(int leftColumn READ leftColumn NOTIFY leftColumnChanged REVISION(6, 0))
@@ -65,26 +70,14 @@ class Q_QUICK_EXPORT QQuickTableView : public QQuickFlickable, public QQmlFinali
     Q_PROPERTY(bool resizableRows READ resizableRows WRITE setResizableRows NOTIFY resizableRowsChanged REVISION(6, 5) FINAL)
     Q_PROPERTY(EditTriggers editTriggers READ editTriggers WRITE setEditTriggers NOTIFY editTriggersChanged REVISION(6, 5) FINAL)
     Q_PROPERTY(SelectionMode selectionMode READ selectionMode WRITE setSelectionMode NOTIFY selectionModeChanged REVISION(6, 6) FINAL)
+    Q_PROPERTY(QQmlDelegateModel::DelegateModelAccess delegateModelAccess READ delegateModelAccess
+            WRITE setDelegateModelAccess NOTIFY delegateModelAccessChanged REVISION(6, 10) FINAL)
 
     QML_NAMED_ELEMENT(TableView)
     QML_ADDED_IN_VERSION(2, 12)
     QML_ATTACHED(QQuickTableViewAttached)
 
 public:
-    enum PositionModeFlag {
-        AlignLeft = Qt::AlignLeft,
-        AlignRight = Qt::AlignRight,
-        AlignHCenter = Qt::AlignHCenter,
-        AlignTop = Qt::AlignTop,
-        AlignBottom = Qt::AlignBottom,
-        AlignVCenter = Qt::AlignVCenter,
-        AlignCenter = AlignVCenter | AlignHCenter,
-        Visible = 0x01000,
-        Contain = 0x02000
-    };
-    Q_DECLARE_FLAGS(PositionMode, PositionModeFlag)
-    Q_FLAG(PositionMode)
-
     enum SelectionBehavior {
         SelectionDisabled,
         SelectCells,
@@ -182,11 +175,14 @@ public:
     EditTriggers editTriggers() const;
     void setEditTriggers(EditTriggers editTriggers);
 
+    QQmlDelegateModel::DelegateModelAccess delegateModelAccess() const;
+    void setDelegateModelAccess(QQmlDelegateModel::DelegateModelAccess delegateModelAccess);
+
     Q_INVOKABLE void forceLayout();
-    Q_INVOKABLE void positionViewAtCell(const QPoint &cell, PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
-    Q_INVOKABLE void positionViewAtIndex(const QModelIndex &index, PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
-    Q_INVOKABLE void positionViewAtRow(int row, PositionMode mode, qreal offset = 0, const QRectF &subRect = QRectF());
-    Q_INVOKABLE void positionViewAtColumn(int column, PositionMode mode, qreal offset = 0, const QRectF &subRect = QRectF());
+    Q_INVOKABLE void positionViewAtCell(const QPoint &cell, QQuickFlickable::PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
+    Q_INVOKABLE void positionViewAtIndex(const QModelIndex &index, QQuickFlickable::PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
+    Q_INVOKABLE void positionViewAtRow(int row, QQuickFlickable::PositionMode mode, qreal offset = 0, const QRectF &subRect = QRectF());
+    Q_INVOKABLE void positionViewAtColumn(int column, QQuickFlickable::PositionMode mode, qreal offset = 0, const QRectF &subRect = QRectF());
     Q_INVOKABLE QQuickItem *itemAtCell(const QPoint &cell) const;
 
     Q_REVISION(6, 4) Q_INVOKABLE QPoint cellAtPosition(const QPointF &position, bool includeSpacing = false) const;
@@ -230,7 +226,7 @@ public:
     QT_DEPRECATED_VERSION_X_6_5("Use itemAtIndex(index(row, column)) instead")
     Q_INVOKABLE QQuickItem *itemAtCell(int column, int row) const;
     QT_DEPRECATED_VERSION_X_6_5("Use positionViewAtIndex(index(row, column)) instead")
-    Q_INVOKABLE void positionViewAtCell(int column, int row, PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
+    Q_INVOKABLE void positionViewAtCell(int column, int row, QQuickFlickable::PositionMode mode, const QPointF &offset = QPointF(), const QRectF &subRect = QRectF());
 #endif
 
     Q_REVISION(6, 8) Q_INVOKABLE void moveColumn(int source, int destination);
@@ -271,7 +267,7 @@ Q_SIGNALS:
     Q_REVISION(6, 6) void selectionModeChanged();
     Q_REVISION(6, 8) void rowMoved(int logicalIndex, int oldVisualIndex, int newVisualIndex);
     Q_REVISION(6, 8) void columnMoved(int logicalIndex, int oldVisualIndex, int newVisualIndex);
-
+    Q_REVISION(6, 10) void delegateModelAccessChanged();
 
 protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
@@ -301,8 +297,7 @@ class Q_QUICK_EXPORT QQuickTableViewAttached : public QObject
     Q_PROPERTY(QQmlComponent *editDelegate READ editDelegate WRITE setEditDelegate NOTIFY editDelegateChanged FINAL)
 
 public:
-    QQuickTableViewAttached(QObject *parent)
-        : QObject(parent) {}
+    QQuickTableViewAttached(QObject *parent);
 
     QQuickTableView *view() const { return m_view; }
     void setView(QQuickTableView *newTableView) {
@@ -335,7 +330,6 @@ private:
     friend class QQuickTableViewPrivate;
 };
 
-Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickTableView::PositionMode)
 Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickTableView::EditTriggers)
 
 QT_END_NAMESPACE

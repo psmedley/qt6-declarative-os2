@@ -68,13 +68,21 @@ public:
                                                                   : value.name()))
                             .arg(qToUnderlying(binding.bindingType()))
                             .arg(bindingScope.baseTypeName()),
-                    plugin, bindingScope.sourceLocation());
+                    plugin, binding.sourceLocation());
     }
 
     void onRead(const QQmlSA::Element &element, const QString &propertyName,
                 const QQmlSA::Element &readScope, QQmlSA::SourceLocation location) override
     {
         emitWarning(u"Saw read on %1 property %2 in scope %3"_s.arg(
+                            element.baseTypeName(), propertyName, readScope.baseTypeName()),
+                    plugin, location);
+    }
+
+    void onCall(const QQmlSA::Element &element, const QString &propertyName,
+                const QQmlSA::Element &readScope, QQmlSA::SourceLocation location) override
+    {
+        emitWarning(u"Saw call on %1 property %2 in scope %3"_s.arg(
                             element.baseTypeName(), propertyName, readScope.baseTypeName()),
                     plugin, location);
     }
@@ -119,6 +127,31 @@ private:
     QString m_message;
 };
 
+class MultipleDocumentEditsFixSuggestionTest : public QQmlSA::ElementPass
+{
+public:
+    MultipleDocumentEditsFixSuggestionTest(QQmlSA::PassManager *manager)
+        : QQmlSA::ElementPass(manager)
+    {
+    }
+
+    bool shouldRun(const QQmlSA::Element &element) override
+    {
+        return element.baseTypeName() == "MultipleDocumentEditsFixSuggestion"_L1;
+    }
+
+    void run(const QQmlSA::Element &element) override
+    {
+        QList<QQmlSA::DocumentEdit> edits{
+            { element.filePath(), element.sourceLocation(), "NewTypeName"_L1 },
+            { element.filePath(), QQmlSA::SourceLocation::documentOrigin(), "pragma Yep\n" }
+        };
+        QQmlSA::FixSuggestion fix("Rename and add pragma"_L1, element.sourceLocation(), edits);
+        fix.setAutoApplicable(true);
+        emitWarning("Multiple document edits"_L1, plugin, element.sourceLocation(), fix);
+    }
+};
+
 void LintPlugin::registerPasses(QQmlSA::PassManager *manager, const QQmlSA::Element &rootElement)
 {
     if (!rootElement.filePath().endsWith(u"_pluginTest.qml"))
@@ -128,8 +161,16 @@ void LintPlugin::registerPasses(QQmlSA::PassManager *manager, const QQmlSA::Elem
     manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "QtQuick", "Text",
                                   "text");
     manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "x");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "onXChanged");
     manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "log");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "abs");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "now");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "qsTr");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "qsTrId");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "", "", "qsTranslate");
     manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "QtQuick", "ListView");
+    manager->registerPropertyPass(std::make_unique<PropertyTest>(manager), "QtQuick", "$internal$.QQuickEnterKeyAttached", "");
+
     if (manager->hasImportedModule("QtQuick.Controls")) {
         if (manager->hasImportedModule("QtQuick")) {
             if (manager->hasImportedModule("QtQuick.Window")) {
@@ -141,4 +182,6 @@ void LintPlugin::registerPasses(QQmlSA::PassManager *manager, const QQmlSA::Elem
                     manager, "QtQuick.Controls and NO QtQuick present"));
         }
     }
+
+    manager->registerElementPass(std::make_unique<MultipleDocumentEditsFixSuggestionTest>(manager));
 }

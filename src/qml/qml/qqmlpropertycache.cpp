@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpropertycache_p.h"
 
@@ -12,6 +13,7 @@
 #include <private/qqmlpropertycachemethodarguments_p.h>
 #include <private/qqmlsignalnames_p.h>
 
+#include <private/qv4codegen_p.h>
 #include <private/qv4value_p.h>
 
 #include <QtCore/qdebug.h>
@@ -30,6 +32,129 @@ QT_BEGIN_NAMESPACE
 
 #define Q_INT16_MAX 32767
 
+namespace OverrideSemantics {
+namespace detail {
+
+static inline bool hasInvalidModifierCombintation(const QQmlPropertyData &overridingProperty)
+{
+    return (overridingProperty.isVirtual() && overridingProperty.isFinal())
+            || (overridingProperty.doesOverride() && overridingProperty.isFinal())
+            || (overridingProperty.isVirtual() && overridingProperty.doesOverride());
+}
+
+/*
+ * Performs minimal validation of property override semantics.
+ *
+ * This function checks whether an existing property can be overridden.
+ * It distinguishes between the following cases:
+ *  - No base property exists          → Status::NoOverride
+ *  - Base property is marked final    → Status::OverridingFinal
+ *  - Otherwise                        → Status::Valid
+ *
+ * The minimal check is used in contexts where only basic inheritance
+ * constraints (existence and finality) must be verified.
+ */
+static inline Status checkMinimal(const QQmlPropertyData *const existingProperty)
+{
+    if (!existingProperty)
+        return Status::NoOverride;
+
+    if (existingProperty->isFinal()) {
+        return Status::OverridingFinal;
+    }
+
+    return Status::Valid;
+}
+
+/*
+ * Performs full validation of property override semantics.
+ *
+ * This function enforces the full set of rules for `virtual`, `override`,
+ * and `final` keyword combinations when resolving property overrides.
+ * It verifies:
+ *
+ *  - If `override` is specified but no base property exists,
+ *    the override is invalid (Status::MissingBase).
+ *
+ *  - If `override` is NOT specified and no base property exists,
+ *    then there is no override (Status::NoOverride).
+ *
+ *  - If the base property is final, overriding is not allowed
+ *    (Status::OverridingFinal).
+ *
+ *  - If the base property is invokable and overriding is not (and vice-versa),
+ *    override is invalid (Status::InvokabilityMismatch).
+ *
+ *  - If the base property is not virtual, but 'override' is present
+ *    overriding is not allowed (Status::OverridingNonVirtualError),
+ *    otherwise it returns Status::OverridingNonVirtual
+ *
+ *  - If no `override` or `final` keyword is specified for an existing virtual base,
+ *    the override specifier is missing (Status::MissingOverrideOrFinalSpecifier).
+ *
+ * Returns Status::Valid if the combination is semantically correct.
+ */
+static inline Status checkFull(const QQmlPropertyData &overridingProperty,
+                               const QQmlPropertyData *const existingProperty)
+{
+    const auto overrideKeyword = overridingProperty.doesOverride();
+    if (overrideKeyword && !existingProperty) {
+        return Status::MissingBase;
+    }
+
+    const auto minimalCheckRes = checkMinimal(existingProperty);
+    if (minimalCheckRes != Status::Valid) {
+        return minimalCheckRes;
+    }
+
+    // if the property doesn't exist we should have returned MissingBase or NoOverride already
+    Q_ASSERT(existingProperty);
+    if (overridingProperty.isFunction() != existingProperty->isFunction()) {
+        return Status::InvokabilityMismatch;
+    }
+
+    if (!existingProperty->isVirtual()) {
+        return overrideKeyword ? Status::OverridingNonVirtualError
+                               : Status::OverridingNonVirtual;
+    }
+
+    const auto overrideOrFinal = overrideKeyword || overridingProperty.isFinal();
+    if (!overrideOrFinal) {
+        return Status::MissingOverrideOrFinalSpecifier;
+    }
+
+    return Status::Valid;
+}
+
+static inline Status check(const QQmlPropertyData &overridingProperty,
+                           const QQmlPropertyData *const existingProperty, CheckMode mode)
+{
+    Q_ASSERT(!hasInvalidModifierCombintation(overridingProperty));
+
+    switch (mode) {
+    case CheckMode::Minimal:
+        return detail::checkMinimal(existingProperty);
+    case CheckMode::Full:
+        return detail::checkFull(overridingProperty, existingProperty);
+    default:
+        Q_UNREACHABLE_RETURN(Status::Unknown);
+    }
+}
+} // namespace detail
+
+Status handleOverride(QQmlPropertyData &overridingProperty, QQmlPropertyData *existingProperty,
+                      CheckMode mode)
+{
+    const auto status = detail::check(overridingProperty, existingProperty, mode);
+
+    if (isValidOverride(status)) {
+        overridingProperty.markAsOverrideOf(existingProperty);
+    }
+    return status;
+}
+
+} // namespace OverrideSemantics
+
 static int metaObjectSignalCount(const QMetaObject *metaObject)
 {
     int signalCount = 0;
@@ -47,6 +172,8 @@ QQmlPropertyData::flagsForProperty(const QMetaProperty &p)
     flags.setIsWritable(p.isWritable());
     flags.setIsResettable(p.isResettable());
     flags.setIsFinal(p.isFinal());
+    flags.setIsVirtual(p.isVirtual());
+    flags.setDoesOverride(p.isOverride());
     flags.setIsRequired(p.isRequired());
     flags.setIsBindable(p.isBindable());
 
@@ -122,7 +249,10 @@ void QQmlPropertyData::load(const QMetaMethod &m)
     setRevision(QTypeRevision::fromEncodedVersion(m.revision()));
 }
 
+Q_LOGGING_CATEGORY(qqmlPropertyCacheAppend, "qt.qml.propertyCache.append", QtWarningMsg)
+
 /*!
+    \internal
     Creates a standalone QQmlPropertyCache of \a metaObject. It is separate from the usual
     QQmlPropertyCache hierarchy. It's parent is not equal to any other QQmlPropertyCache
     created from QObject::staticMetaObject, for example.
@@ -174,7 +304,7 @@ QQmlPropertyCache::~QQmlPropertyCache()
 QQmlPropertyCache::Ptr QQmlPropertyCache::copy(const QQmlMetaObjectPointer &mo, int reserve) const
 {
     QQmlPropertyCache::Ptr cache = QQmlPropertyCache::Ptr(
-            new QQmlPropertyCache(mo), QQmlPropertyCache::Ptr::Adopt);
+            new QQmlPropertyCache(mo, _handleOverride), QQmlPropertyCache::Ptr::Adopt);
     cache->_parent.reset(this);
     cache->propertyIndexCacheStart = propertyIndexCache.size() + propertyIndexCacheStart;
     cache->methodIndexCacheStart = methodIndexCache.size() + methodIndexCacheStart;
@@ -192,6 +322,89 @@ QQmlPropertyCache::Ptr QQmlPropertyCache::copy() const
     return copy(_metaObject, 0);
 }
 
+QQmlPropertyCache::Ptr QQmlPropertyCache::rebased(const ConstPtr &parent) const
+{
+    // Leave the meta-object empty so createMetaObject() rebuilds it lazily from our own members on
+    // top of the new parent's meta-object. Seeding it with the parent's meta-object would drop our
+    // own members from the derived meta-object.
+    QQmlPropertyCache::Ptr cache = QQmlPropertyCache::Ptr(
+            new QQmlPropertyCache(QQmlMetaObjectPointer(), _handleOverride),
+            QQmlPropertyCache::Ptr::Adopt);
+
+    cache->_parent = parent;
+
+    const int oldPropertyStart = propertyIndexCacheStart;
+    const int oldMethodStart = methodIndexCacheStart;
+    const int oldSignalStart = signalHandlerIndexCacheStart;
+
+    const int deltaProperty = parent->propertyCount() - oldPropertyStart;
+    const int deltaMethod = parent->methodCount() - oldMethodStart;
+    const int deltaSignal = parent->signalCount() - oldSignalStart;
+
+    cache->propertyIndexCacheStart = parent->propertyCount();
+    cache->propertyIndexCache = propertyIndexCache;
+
+    cache->methodIndexCacheStart = parent->methodCount();
+    cache->methodIndexCache = methodIndexCache;
+
+    cache->signalHandlerIndexCacheStart = parent->signalCount();
+    cache->signalHandlerIndexCache = signalHandlerIndexCache;
+
+    cache->enumCache = enumCache;
+
+    const auto shifted = [](int value, int threshold, int delta) {
+        return value >= threshold ? value + delta : value;
+    };
+
+    const auto shiftData = [&](QQmlPropertyData &data, int coreDelta, int coreThreshold) {
+        if (data.coreIndex() >= 0)
+            data.setCoreIndex(shifted(data.coreIndex(), coreThreshold, coreDelta));
+        if (data.notifyIndex() >= 0)
+            data.setNotifyIndex(shifted(data.notifyIndex(), oldSignalStart, deltaSignal));
+    };
+
+    for (QQmlPropertyData &data : cache->propertyIndexCache)
+        shiftData(data, deltaProperty, oldPropertyStart);
+    for (QQmlPropertyData &data : cache->methodIndexCache)
+        shiftData(data, deltaMethod, oldMethodStart);
+    for (QQmlPropertyData &data : cache->signalHandlerIndexCache)
+        shiftData(data, deltaMethod, oldMethodStart);
+
+    cache->stringCache.linkAndReserve(
+            parent->stringCache, ownPropertyCount() + ownMethodCount() + ownSignalCount());
+
+    for (auto it = stringCache.begin(), end = stringCache.end(); it != end; ++it) {
+        const QQmlPropertyData *myData = it.value().second;
+        int index = it.value().first;
+
+        QQmlPropertyData *copyData = nullptr;
+        if (myData->isSignalHandler()) {
+            index = shifted(index, oldSignalStart, deltaSignal);
+            copyData = cache->signalHandlerIndexCache.data() + (index - cache->signalOffset());
+        } else if (myData->isFunction()) {
+            index = shifted(index, oldMethodStart, deltaMethod);
+            copyData = cache->methodIndexCache.data() + (index - cache->methodOffset());
+        } else {
+            index = shifted(index, oldPropertyStart, deltaProperty);
+            copyData = cache->propertyIndexCache.data() + (index - cache->propertyOffset());
+        }
+
+        if (const QQmlPropertyData *overridden = parent->findNamedProperty(it.key()))
+            copyData->setOverrideIndex(overridden->coreIndex());
+        else
+            copyData->setOverrideIndex(-1);
+
+        cache->stringCache.insert(it.key(), std::make_pair(index, copyData));
+    }
+
+    cache->allowedRevisionCache = allowedRevisionCache;
+    cache->_dynamicStringData = _dynamicStringData;
+    cache->_dynamicClassName = _dynamicClassName;
+    cache->_defaultPropertyName = _defaultPropertyName;
+    cache->_listPropertyAssignBehavior = _listPropertyAssignBehavior;
+    return cache;
+}
+
 QQmlPropertyCache::Ptr QQmlPropertyCache::copyAndReserve(
         int propertyCount, int methodCount, int signalCount, int enumCount) const
 {
@@ -204,30 +417,39 @@ QQmlPropertyCache::Ptr QQmlPropertyCache::copyAndReserve(
     return rv;
 }
 
-/*! \internal
-
-    \a notifyIndex MUST be in the signal index range (see QObjectPrivate::signalIndex()).
-    This is different from QMetaMethod::methodIndex().
-*/
-void QQmlPropertyCache::appendProperty(const QString &name, QQmlPropertyData::Flags flags,
-                                       int coreIndex, QMetaType propType, QTypeRevision version,
-                                       int notifyIndex)
+QQmlPropertyCache::AppendResult
+QQmlPropertyCache::appendAlias(const QString &name, QQmlPropertyData::Flags flags, int coreIndex,
+                               QMetaType propType, QTypeRevision version, int notifyIndex,
+                               int encodedTargetIndex, int targetObjectId)
 {
     QQmlPropertyData data;
     data.setPropType(propType);
     data.setCoreIndex(coreIndex);
     data.setNotifyIndex(notifyIndex);
+    flags.setIsAlias(true);
     data.setFlags(flags);
+    data.setAliasTarget(encodedTargetIndex);
+    data.setAliasTargetObjectId(targetObjectId);
     data.setTypeVersion(version);
 
-    const OverrideResult overrideResult = handleOverride(name, &data);
-    if (overrideResult == InvalidOverride)
-        return;
+    return appendPropertyAttr(name, std::move(data));
+}
 
-    int index = propertyIndexCache.size();
-    propertyIndexCache.append(data);
+QQmlPropertyCache::AppendResult
+QQmlPropertyCache::appendComponentWrapper(int coreIndex, int wrappedObjectIndex)
+{
+    QQmlPropertyData data;
+    data.setCoreIndex(coreIndex);
+    QQmlPropertyData::Flags flags;
+    flags.setType(QQmlPropertyData::Flags::ComponentWrapperType);
+    data.setFlags(flags);
+    data.setWrappedObjectIndex(wrappedObjectIndex);
 
-    setNamedProperty(name, index + propertyOffset(), propertyIndexCache.data() + index);
+    // Use a sentinel name so that defaultProperty() can find the wrapper.
+    // NB: We're not actually using the default property as default property. We only
+    //     need some property to hold the wrapped object index.
+    _defaultPropertyName = QStringLiteral(".qt_component_wrapper__");
+    return appendPropertyAttr(_defaultPropertyName, std::move(data));
 }
 
 void QQmlPropertyCache::appendSignal(const QString &name, QQmlPropertyData::Flags flags,
@@ -251,9 +473,24 @@ void QQmlPropertyCache::appendSignal(const QString &name, QQmlPropertyData::Flag
         data.setArguments(args);
     }
 
-    const OverrideResult overrideResult = handleOverride(name, &data);
-    if (overrideResult == InvalidOverride)
+    QQmlPropertyData *old = findNamedProperty(name);
+    const auto overrideStatus = _handleOverride(data, old, OverrideSemantics::CheckMode::Minimal);
+    maybeLog(overrideStatus, name);
+    // remove assert when checkMode is expanded and adjust handling correspondingly. For now it
+    // verifies that some code-path work in the same way as before introduction of virtual and
+    // override keywords
+    Q_ASSERT(overrideStatus == OverrideSemantics::Status::NoOverride
+             || overrideStatus == OverrideSemantics::Status::Valid
+             || overrideStatus == OverrideSemantics::Status::OverridingFinal);
+    if (overrideStatus == OverrideSemantics::Status::OverridingFinal) {
+        // TODO QTBUG-141728
+        // Insert the overridden member and its signal once more, to keep the counts in sync
+        methodIndexCache.append(*old);
+        handler = *old;
+        handler.m_flags.setIsSignalHandler(true);
+        signalHandlerIndexCache.append(handler);
         return;
+    }
 
     int methodIndex = methodIndexCache.size();
     methodIndexCache.append(data);
@@ -271,7 +508,7 @@ void QQmlPropertyCache::appendSignal(const QString &name, QQmlPropertyData::Flag
 void QQmlPropertyCache::appendMethod(const QString &name, QQmlPropertyData::Flags flags,
                                      int coreIndex, QMetaType returnType,
                                      const QList<QByteArray> &names,
-                                     const QVector<QMetaType> &parameterTypes)
+                                     const QList<QMetaType> &parameterTypes)
 {
     int argumentCount = names.size();
 
@@ -279,9 +516,21 @@ void QQmlPropertyCache::appendMethod(const QString &name, QQmlPropertyData::Flag
     data.setPropType(returnType);
     data.setCoreIndex(coreIndex);
     data.setFlags(flags);
-    const OverrideResult overrideResult = handleOverride(name, &data);
-    if (overrideResult == InvalidOverride)
+    QQmlPropertyData *old = findNamedProperty(name);
+    const auto overrideStatus = _handleOverride(data, old, OverrideSemantics::CheckMode::Minimal);
+    maybeLog(overrideStatus, name);
+    // remove assert when checkMode is expanded and adjust handling correspondingly. For now it
+    // verifies that some code-path work in the same way as before introduction of virtual and
+    // override keywords
+    Q_ASSERT(overrideStatus == OverrideSemantics::Status::NoOverride
+             || overrideStatus == OverrideSemantics::Status::Valid
+             || overrideStatus == OverrideSemantics::Status::OverridingFinal);
+    if (overrideStatus == OverrideSemantics::Status::OverridingFinal) {
+        // TODO QTBUG-141728
+        // Insert the overridden member once more, to keep the counts in sync
+        methodIndexCache.append(*old);
         return;
+    }
 
     QQmlPropertyCacheMethodArguments *args = createArgumentsObject(argumentCount, names);
     new (args->types) QMetaType(returnType);
@@ -295,7 +544,7 @@ void QQmlPropertyCache::appendMethod(const QString &name, QQmlPropertyData::Flag
     setNamedProperty(name, methodIndex + methodOffset(), methodIndexCache.data() + methodIndex);
 }
 
-void QQmlPropertyCache::appendEnum(const QString &name, const QVector<QQmlEnumValue> &values)
+void QQmlPropertyCache::appendEnum(const QString &name, const QList<QQmlEnumValue> &values)
 {
     QQmlEnumData data;
     data.name = name;
@@ -374,6 +623,16 @@ static QHashedString signalNameToHandlerName(const QHashedCStringRef &methodName
             QLatin1StringView{ methodName.constData(), methodName.length() });
 }
 
+static inline std::pair<bool, int> deriveEncodingAndLength(const char *str)
+{
+    char utf8 = 0;
+    const char *cptr = str;
+    while (*cptr != 0) {
+        utf8 |= *cptr & 0x80;
+        ++cptr;
+    }
+    return std::make_pair(utf8, cptr - str);
+}
 
 void QQmlPropertyCache::append(const QMetaObject *metaObject,
                                QTypeRevision typeVersion,
@@ -427,20 +686,13 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
     for (int ii = methodOffset; ii < methodCount; ++ii) {
         if (preventDestruction && (ii == destroyedIdx1 || ii == destroyedIdx2 || ii == deleteLaterIdx))
             continue;
-        QMetaMethod m = metaObject->method(ii);
+        const QMetaMethod &m = metaObject->method(ii);
         if (m.access() == QMetaMethod::Private)
             continue;
 
         // Extract method name
         // It's safe to keep the raw name pointer
         Q_ASSERT(QMetaObjectPrivate::get(metaObject)->revision >= 7);
-        const char *rawName = m.name().constData();
-        const char *cptr = rawName;
-        char utf8 = 0;
-        while (*cptr) {
-            utf8 |= *cptr & 0x80;
-            ++cptr;
-        }
 
         QQmlPropertyData *data = &methodIndexCache[ii - methodIndexCacheStart];
         QQmlPropertyData *sigdata = nullptr;
@@ -461,12 +713,30 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
             sigdata->m_flags.setIsSignalHandler(true);
         }
 
-        QQmlPropertyData *old = nullptr;
-
         const auto doSetNamedProperty = [&](const auto &methodName) {
+            QQmlPropertyData *old = nullptr;
             if (StringCache::mapped_type *it = stringCache.value(methodName)) {
-                if (handleOverride(methodName, data, (old = it->second)) == InvalidOverride)
+                const auto overrideStatus = _handleOverride(*data, (old = it->second),
+                                                            OverrideSemantics::CheckMode::Minimal);
+                maybeLog(overrideStatus, methodName);
+                // remove assert when checkMode is expanded and adjust handling correspondingly. For
+                // now it verifies that some code-path work in the same way as before introduction
+                // of virtual and override keywords
+                Q_ASSERT(overrideStatus == OverrideSemantics::Status::NoOverride
+                         || overrideStatus == OverrideSemantics::Status::Valid
+                         || overrideStatus == OverrideSemantics::Status::OverridingFinal);
+                if (overrideStatus == OverrideSemantics::Status::OverridingFinal) {
+                    // TODO QTBUG-141728
+                    *data = *old;
+                    if (sigdata) {
+                        // Keep the signal counts in sync,
+                        // even if the "old" data has no real signal.
+                        *sigdata = *old;
+                        sigdata->m_flags.setIsSignalHandler(true);
+                        ++signalHandlerIndex;
+                    }
                     return;
+                }
             }
 
             setNamedProperty(methodName, ii, data);
@@ -474,7 +744,7 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
             if (data->isSignal()) {
 
                 // TODO: Remove this once we can. Signals should not be overridable.
-                if (!utf8)
+                if constexpr (std::is_same_v<std::decay_t<decltype(methodName)>, QHashedCStringRef>)
                     data->m_flags.setIsOverridableSignal(true);
 
                 setNamedProperty(signalNameToHandlerName(methodName), ii, sigdata);
@@ -482,10 +752,12 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
             }
         };
 
-        if (utf8)
-            doSetNamedProperty(QHashedString(QString::fromUtf8(rawName, cptr - rawName)));
+        const char *str = m.nameView().constData();
+        const auto [isUtf8, len] = deriveEncodingAndLength(str);
+        if (isUtf8)
+            doSetNamedProperty(QHashedString(QString::fromUtf8(str, len)));
         else
-            doSetNamedProperty(QHashedCStringRef(rawName, cptr - rawName));
+            doSetNamedProperty(QHashedCStringRef(str, len));
     }
 
     int propCount = metaObject->propertyCount();
@@ -499,14 +771,7 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
         if (!p.isScriptable())
             continue;
 
-        const char *str = p.name();
-        char utf8 = 0;
-        const char *cptr = str;
-        while (*cptr != 0) {
-            utf8 |= *cptr & 0x80;
-            ++cptr;
-        }
-
+        // TODO QTBUG-141728
         QQmlPropertyData *data = &propertyIndexCache[ii - propertyIndexCacheStart];
 
         data->setFlags(propertyFlags);
@@ -516,23 +781,28 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
         Q_ASSERT((allowedRevisionCache.size() - 1) < Q_INT16_MAX);
         data->setMetaObjectOffset(allowedRevisionCache.size() - 1);
 
-        QQmlPropertyData *old = nullptr;
+        const auto doSetNamedProperty = [this](const auto &propName, int index, auto *propData) {
+            QQmlPropertyData *existingPropData = findNamedProperty(propName);
+            const auto overrideStatus = _handleOverride(*propData, existingPropData,
+                                                        OverrideSemantics::CheckMode::Full);
+            maybeLog(overrideStatus, propName);
+            if (!OverrideSemantics::isValidOverride(overrideStatus)) {
+                if (existingPropData) {
+                    // TODO QTBUG-141728
+                    *propData = *existingPropData;
+                }
+                return;
+            }
 
-        if (utf8) {
-            QHashedString propName(QString::fromUtf8(str, cptr - str));
-            if (StringCache::mapped_type *it = stringCache.value(propName)) {
-                if (handleOverride(propName, data, (old = it->second)) == InvalidOverride)
-                    continue;
-            }
-            setNamedProperty(propName, ii, data);
-        } else {
-            QHashedCStringRef propName(str, cptr - str);
-            if (StringCache::mapped_type *it = stringCache.value(propName)) {
-                if (handleOverride(propName, data, (old = it->second)) == InvalidOverride)
-                    continue;
-            }
-            setNamedProperty(propName, ii, data);
-        }
+            setNamedProperty(propName, index, propData);
+        };
+
+        const char *str = p.name();
+        const auto [isUtf8, len] = deriveEncodingAndLength(str);
+        if (isUtf8)
+            doSetNamedProperty(QHashedString(QString::fromUtf8(str, len)), ii, data);
+        else
+            doSetNamedProperty(QHashedCStringRef(str, len), ii, data);
 
         bool isGadget = true;
         for (const QMetaObject *it = metaObject; it != nullptr; it = it->superClass()) {
@@ -541,7 +811,7 @@ void QQmlPropertyCache::append(const QMetaObject *metaObject,
         }
 
         // otherwise always dispatch over a 'normal' meta-call so the QQmlValueType can intercept
-        if (!isGadget)
+        if (!isGadget && !data->isAlias())
             data->trySetStaticMetaCallFunction(metaObject->d.static_metacall, ii - propOffset);
     }
 }
@@ -648,7 +918,7 @@ const QQmlPropertyData *QQmlPropertyCache::findProperty(
         if (vmemo && context && !contextHasNoExtensions(context)) {
             // Find the meta-object that corresponds to the supplied context
             do {
-                if (vmemo->ctxt.contextData().data() == context.data())
+                if (vmemo->contextData() == context)
                     break;
 
                 vmemo = vmemo->parentVMEMetaObject();
@@ -686,21 +956,42 @@ const QQmlPropertyData *QQmlPropertyCache::findProperty(
     return nullptr;
 }
 
+// Note, this function is called when adding aliases, hence data.isEnum() can possibly be true
+QQmlPropertyCache::AppendResult QQmlPropertyCache::appendPropertyAttr(const QString &name,
+                                                                      QQmlPropertyData &&data)
+{
+    QQmlPropertyData *old = findNamedProperty(name);
+    const auto overrideStatus = _handleOverride(data, old, OverrideSemantics::CheckMode::Full);
+    maybeLog(overrideStatus, name);
+    if (!OverrideSemantics::isValidOverride(overrideStatus)) {
+        // TODO QTBUG-141728
+        // Insert the overridden member once more, to keep the counts in sync
+        propertyIndexCache.append(old ? *old : data);
+        return q23::make_unexpected(overrideStatus);
+    }
 
+    const int index = propertyIndexCache.size();
+    propertyIndexCache.append(std::move(data));
 
+    setNamedProperty(name, index + propertyOffset(), propertyIndexCache.data() + index);
+    return {};
+}
 
-
-bool QQmlPropertyData::markAsOverrideOf(QQmlPropertyData *predecessor)
+void QQmlPropertyData::markAsOverrideOf(QQmlPropertyData *predecessor)
 {
     Q_ASSERT(predecessor != this);
-    if (predecessor->isFinal())
-        return false;
+
+    if (!predecessor) {
+        return;
+    }
 
     setOverrideIndexIsProperty(!predecessor->isFunction());
     setOverrideIndex(predecessor->coreIndex());
+    // propagate "virtuality"
+    m_flags.setIsVirtual(predecessor->isVirtual());
     predecessor->m_flags.setIsOverridden(true);
     Q_ASSERT(predecessor->isOverridden());
-    return true;
+    return;
 }
 
 QQmlPropertyCacheMethodArguments *QQmlPropertyCache::createArgumentsObject(
@@ -714,10 +1005,10 @@ QQmlPropertyCacheMethodArguments *QQmlPropertyCache::createArgumentsObject(
     return args;
 }
 
-QString QQmlPropertyCache::signalParameterStringForJS(QV4::ExecutionEngine *engine, const QList<QByteArray> &parameterNameList, QString *errorString)
+QString QQmlPropertyCache::signalParameterStringForJS(
+        const QList<QByteArray> &parameterNameList, QString *errorString)
 {
     bool unnamedParameter = false;
-    const QSet<QString> &illegalNames = engine->illegalNames();
     QString parameters;
 
     const qsizetype count = parameterNameList.size();
@@ -734,7 +1025,7 @@ QString QQmlPropertyCache::signalParameterStringForJS(QV4::ExecutionEngine *engi
             if (errorString)
                 *errorString = QCoreApplication::translate("QQmlRewrite", "Signal uses unnamed parameter followed by named parameter.");
             return QString();
-        } else if (illegalNames.contains(QString::fromUtf8(param))) {
+        } else if (QV4::Compiler::Codegen::isNameGlobal(param)) {
             if (errorString)
                 *errorString = QCoreApplication::translate("QQmlRewrite", "Signal parameter \"%1\" hides global variable.").arg(QString::fromUtf8(param));
             return QString();
@@ -773,6 +1064,7 @@ template<typename T>
 static QQmlPropertyData qQmlPropertyCacheCreate(const QMetaObject *metaObject, const T& propertyName)
 {
     Q_ASSERT(metaObject);
+    static_assert(std::is_same_v<T, QByteArray>);
 
     QQmlPropertyData rv;
 
@@ -804,7 +1096,7 @@ static QQmlPropertyData qQmlPropertyCacheCreate(const QMetaObject *metaObject, c
     {
         const QMetaObject *cmo = metaObject;
         while (cmo) {
-            int idx = cmo->indexOfProperty(propertyName);
+            int idx = cmo->indexOfProperty(propertyName.data());
             if (idx != -1) {
                 QMetaProperty p = cmo->property(idx);
                 if (p.isScriptable()) {
@@ -828,9 +1120,9 @@ static QQmlPropertyData qQmlPropertyCacheCreate(const QMetaObject *metaObject, c
     return rv;
 }
 
-static inline const char *qQmlPropertyCacheToString(QLatin1String string)
+static inline QByteArray qQmlPropertyCacheToString(QLatin1String string)
 {
-    return string.data();
+    return string.toUtf8();
 }
 
 static inline QByteArray qQmlPropertyCacheToString(QStringView string)
@@ -913,14 +1205,14 @@ const char *QQmlPropertyCache::className() const
 
 void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder) const
 {
-    struct Sort { static bool lt(const QPair<QString, const QQmlPropertyData *> &lhs,
-                                 const QPair<QString, const QQmlPropertyData *> &rhs) {
+    struct Sort { static bool lt(const std::pair<QString, const QQmlPropertyData *> &lhs,
+                                 const std::pair<QString, const QQmlPropertyData *> &rhs) {
         return lhs.second->coreIndex() < rhs.second->coreIndex();
     } };
 
     struct Insert { static void in(const QQmlPropertyCache *This,
-                                   QList<QPair<QString, const QQmlPropertyData *> > &properties,
-                                   QList<QPair<QString, const QQmlPropertyData *> > &methods,
+                                   QList<std::pair<QString, const QQmlPropertyData *> > &properties,
+                                   QList<std::pair<QString, const QQmlPropertyData *> > &methods,
                                    StringCache::ConstIterator iter, const QQmlPropertyData *data) {
         if (data->isSignalHandler())
             return;
@@ -929,7 +1221,7 @@ void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder) const
             if (data->coreIndex() < This->methodIndexCacheStart)
                 return;
 
-            QPair<QString, const QQmlPropertyData *> entry = qMakePair((QString)iter.key(), data);
+            std::pair<QString, const QQmlPropertyData *> entry = std::make_pair((QString)iter.key(), data);
             // Overrides can cause the entry to already exist
             if (!methods.contains(entry)) methods.append(entry);
 
@@ -939,7 +1231,7 @@ void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder) const
             if (data->coreIndex() < This->propertyIndexCacheStart)
                 return;
 
-            QPair<QString, const QQmlPropertyData *> entry = qMakePair((QString)iter.key(), data);
+            std::pair<QString, const QQmlPropertyData *> entry = std::make_pair((QString)iter.key(), data);
             // Overrides can cause the entry to already exist
             if (!properties.contains(entry)) properties.append(entry);
 
@@ -951,14 +1243,16 @@ void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder) const
 
     builder.setClassName(_dynamicClassName);
 
-    QList<QPair<QString, const QQmlPropertyData *> > properties;
-    QList<QPair<QString, const QQmlPropertyData *> > methods;
+    QList<std::pair<QString, const QQmlPropertyData *> > properties;
+    QList<std::pair<QString, const QQmlPropertyData *> > methods;
 
     for (StringCache::ConstIterator iter = stringCache.begin(), cend = stringCache.end(); iter != cend; ++iter)
         Insert::in(this, properties, methods, iter, iter.value().second);
 
-    Q_ASSERT(properties.size() == propertyIndexCache.size());
-    Q_ASSERT(methods.size() == methodIndexCache.size());
+    // Any invalid overrides are not linked by name into the properties and methods hashes.
+    // Therefore there can be more properties and methods than present in the hashes.
+    Q_ASSERT(properties.size() <= propertyIndexCache.size());
+    Q_ASSERT(methods.size() <= methodIndexCache.size());
 
     std::sort(properties.begin(), properties.end(), Sort::lt);
     std::sort(methods.begin(), methods.end(), Sort::lt);
@@ -978,7 +1272,7 @@ void QQmlPropertyCache::toMetaObjectBuilder(QMetaObjectBuilder &builder) const
         property.setReadable(true);
         property.setWritable(data->isWritable());
         property.setResettable(data->isResettable());
-        property.setBindable(data->isBindable());
+        property.setBindable(data->notifiesViaBindable());
         property.setAlias(data->isAlias());
     }
 
@@ -1050,14 +1344,18 @@ int visitMethods(const QMetaObject &mo, int methodOffset, int methodCount,
 {
     int fieldsForParameterData = 0;
 
-    bool hasRevisionedMethods = false;
+    bool hasOldStyleRevisionedMethods = false;
 
     for (int i = 0; i < methodCount; ++i) {
         const int handle = methodOffset + i * QMetaObjectPrivate::IntsPerMethod;
 
         const uint flags = mo.d.data[handle + 4];
-        if (flags & MethodRevisioned)
-            hasRevisionedMethods = true;
+        if (flags & MethodRevisioned) {
+            if (mo.d.data[0] < 13)
+                hasOldStyleRevisionedMethods = true;
+            else
+                fieldsForParameterData += 1;    // revision
+        }
 
         visitString(mo.d.data[handle + 0]); // name
         visitString(mo.d.data[handle + 3]); // tag
@@ -1080,7 +1378,7 @@ int visitMethods(const QMetaObject &mo, int methodOffset, int methodCount,
     }
 
     int fieldsForRevisions = 0;
-    if (hasRevisionedMethods)
+    if (hasOldStyleRevisionedMethods)
         fieldsForRevisions = methodCount;
 
     return methodCount * QMetaObjectPrivate::IntsPerMethod
@@ -1170,7 +1468,7 @@ int countMetaObjectFields(const QMetaObject &mo, StringVisitor stringVisitor)
 
 } // anonymous namespace
 
-static_assert(QMetaObjectPrivate::OutputRevision == 12, "Check and adjust determineMetaObjectSizes");
+static_assert(QMetaObjectPrivate::OutputRevision == 13, "Check and adjust determineMetaObjectSizes");
 
 bool QQmlPropertyCache::determineMetaObjectSizes(const QMetaObject &mo, int *fieldCount,
                                                  int *stringCount)
@@ -1215,7 +1513,7 @@ QByteArray QQmlPropertyCache::checksum(QHash<quintptr, QByteArray> *checksums, b
     }
 
     // Generate a checksum on the meta-object data only on C++ types.
-    if (_metaObject.isShared()) {
+    if (isComposite()) {
         *ok = false;
         return QByteArray();
     }

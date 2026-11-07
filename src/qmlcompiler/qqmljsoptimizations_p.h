@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSOPTIMIZATIONS_P_H
 #define QQMLJSOPTIMIZATIONS_P_H
@@ -25,23 +26,40 @@ public:
 
     QQmlJSOptimizations(const QV4::Compiler::JSUnitGenerator *unitGenerator,
                         const QQmlJSTypeResolver *typeResolver, QQmlJSLogger *logger,
-                        BasicBlocks basicBlocks, InstructionAnnotations annotations,
+                        const BasicBlocks &basicBlocks, const InstructionAnnotations &annotations,
                         QList<ObjectOrArrayDefinition> objectAndArrayDefinitions)
         : QQmlJSCompilePass(unitGenerator, typeResolver, logger, basicBlocks, annotations),
-          m_objectAndArrayDefinitions{ objectAndArrayDefinitions }
+          m_objectAndArrayDefinitions{ std::move(objectAndArrayDefinitions) }
     {
     }
 
     ~QQmlJSOptimizations() = default;
 
-    BlocksAndAnnotations run(const Function *function, QQmlJS::DiagnosticMessage *error);
+    BlocksAndAnnotations run(const Function *function);
 
 private:
     struct RegisterAccess
     {
-        QList<QQmlJSScope::ConstPtr> trackedTypes;
-        QHash<int, QQmlJSScope::ConstPtr> typeReaders;
+        // Content written by this instruction, or contents merged/converted into this register.
+        QList<QQmlJSRegisterContent> trackedTypes;
+
+        // Instructions that genuinely consume the *value* this write produced (never renames/copies
+        // of it), keyed by instruction offset, with the exact content each one reads it as.
+        // Tracked by content identity, so this follows the value across register renames rather
+        // than being tied to one register slot.
+        // Drives the write's required output type (see QQmlJSTypeResolver::adjustTrackedType) and
+        // whether it can be moved into its single use site (see canMove).
+        QHash<int, QQmlJSRegisterContent> typeReaders;
+
+        // Reads of this write's *specific register slot* while it's still the reaching definition
+        // (i.e. before any later write overwrites that register), keyed by instruction offset,
+        // together with the type-conversion instructions crossed between the write and each read.
+        // Drives which type conversions are actually needed in codegen (see liveConversions in
+        // adjustTypes) and, combined with typeReaders, whether a store is conversion-free enough to
+        // move.
         QHash<int, Conversions> registerReadersAndConversions;
+
+        // Register slot written to by this instruction.
         int trackedRegister;
     };
 
@@ -52,9 +70,14 @@ private:
     void endInstruction(QV4::Moth::Instr::Type) override { }
 
     void populateBasicBlocks();
-    void populateReaderLocations();
+    void populateReaderLocationsTrackedTypes();
+    void populateReaderLocationsReadersAndConversions();
     void adjustTypes();
     bool canMove(int instructionOffset, const RegisterAccess &access) const;
+
+    void removeReadsFromErasedInstructions(const QFlatMap<int, InstructionAnnotation>::const_iterator &it);
+    void removeDeadStoresUntilStable();
+    bool eraseDeadStore(const InstructionAnnotations::iterator &it, bool &erasedReaders);
 
     QHash<int, RegisterAccess> m_readerLocations;
     QList<ObjectOrArrayDefinition> m_objectAndArrayDefinitions;

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLVALUETYPE_P_H
 #define QQMLVALUETYPE_P_H
@@ -19,7 +20,6 @@
 
 #include <private/qqmlnullablevalue_p.h>
 #include <private/qmetatype_p.h>
-#include <private/qv4referenceobject_p.h>
 
 #include <QtCore/qobject.h>
 #include <QtCore/qrect.h>
@@ -49,7 +49,11 @@ public:
     const QMetaObject *staticMetaObject() const { return m_staticMetaObject; }
 
     // ---- dynamic meta object data interface
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    const QMetaObject *toDynamicMetaObject(QObject *) const override;
+#else
     QMetaObject *toDynamicMetaObject(QObject *) override;
+#endif
     void objectDestroyed(QObject *) override;
     int metaCall(QObject *obj, QMetaObject::Call type, int _id, void **argv) override;
     // ----
@@ -57,6 +61,7 @@ public:
 private:
     QMetaType m_metaType;
     const QMetaObject *m_staticMetaObject = nullptr;
+    QT7_ONLY(mutable const)
     QMetaObject *m_dynamicMetaObject = nullptr;
 };
 
@@ -70,8 +75,7 @@ public:
     ~QQmlGadgetPtrWrapper();
 
     void read(QObject *obj, int idx);
-    void write(QObject *obj, int idx, QQmlPropertyData::WriteFlags flags,
-               int internalIndex = QV4::ReferenceObject::AllProperties) const;
+    void write(QObject *obj, int idx, QQmlPropertyData::WriteFlags flags, int internalIndex) const;
     QVariant value() const;
     void setValue(const QVariant &value);
 
@@ -103,9 +107,8 @@ private:
     void *m_gadgetPtr = nullptr;
 };
 
-struct Q_QML_EXPORT QQmlPointFValueType
+struct Q_QML_EXPORT QQmlPointFValueType : private QPointF
 {
-    QPointF v;
     Q_PROPERTY(qreal x READ x WRITE setX FINAL)
     Q_PROPERTY(qreal y READ y WRITE setY FINAL)
     Q_GADGET
@@ -116,19 +119,17 @@ struct Q_QML_EXPORT QQmlPointFValueType
 
 public:
     Q_INVOKABLE QQmlPointFValueType() = default;
-    Q_INVOKABLE QQmlPointFValueType(const QPoint &point) : v(point) {}
+    Q_INVOKABLE QQmlPointFValueType(const QPointF &point) : QPointF(point) {}
+    Q_INVOKABLE QQmlPointFValueType(const QPoint &point) : QPointF(point) {}
     Q_INVOKABLE QString toString() const;
     qreal x() const;
     qreal y() const;
     void setX(qreal);
     void setY(qreal);
-
-    operator QPointF() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlPointValueType
+struct Q_QML_EXPORT QQmlPointValueType : private QPoint
 {
-    QPoint v;
     Q_PROPERTY(int x READ x WRITE setX FINAL)
     Q_PROPERTY(int y READ y WRITE setY FINAL)
     Q_GADGET
@@ -139,19 +140,17 @@ struct Q_QML_EXPORT QQmlPointValueType
 
 public:
     QQmlPointValueType() = default;
-    Q_INVOKABLE QQmlPointValueType(const QPointF &point) : v(point.toPoint()) {}
+    Q_INVOKABLE QQmlPointValueType(const QPoint &point) : QPoint(point) {}
+    Q_INVOKABLE QQmlPointValueType(const QPointF &point) : QPoint(point.toPoint()) {}
     Q_INVOKABLE QString toString() const;
     int x() const;
     int y() const;
     void setX(int);
     void setY(int);
-
-    operator QPoint() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlSizeFValueType
+struct Q_QML_EXPORT QQmlSizeFValueType : private QSizeF
 {
-    QSizeF v;
     Q_PROPERTY(qreal width READ width WRITE setWidth FINAL)
     Q_PROPERTY(qreal height READ height WRITE setHeight FINAL)
     Q_GADGET
@@ -162,19 +161,17 @@ struct Q_QML_EXPORT QQmlSizeFValueType
 
 public:
     Q_INVOKABLE QQmlSizeFValueType() = default;
-    Q_INVOKABLE QQmlSizeFValueType(const QSize &size) : v(size) {}
+    Q_INVOKABLE QQmlSizeFValueType(const QSizeF &size) : QSizeF(size) {}
+    Q_INVOKABLE QQmlSizeFValueType(const QSize &size) : QSizeF(size) {}
     Q_INVOKABLE QString toString() const;
     qreal width() const;
     qreal height() const;
     void setWidth(qreal);
     void setHeight(qreal);
-
-    operator QSizeF() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlSizeValueType
+struct Q_QML_EXPORT QQmlSizeValueType : private QSize
 {
-    QSize v;
     Q_PROPERTY(int width READ width WRITE setWidth FINAL)
     Q_PROPERTY(int height READ height WRITE setHeight FINAL)
     Q_GADGET
@@ -185,19 +182,17 @@ struct Q_QML_EXPORT QQmlSizeValueType
 
 public:
     QQmlSizeValueType() = default;
-    Q_INVOKABLE QQmlSizeValueType(const QSizeF &size) : v(size.toSize()) {}
+    Q_INVOKABLE QQmlSizeValueType(const QSize &size) : QSize(size) {}
+    Q_INVOKABLE QQmlSizeValueType(const QSizeF &size) : QSize(size.toSize()) {}
     Q_INVOKABLE QString toString() const;
     int width() const;
     int height() const;
     void setWidth(int);
     void setHeight(int);
-
-    operator QSize() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlRectFValueType
+struct Q_QML_EXPORT QQmlRectFValueType : private QRectF
 {
-    QRectF v;
     Q_PROPERTY(qreal x READ x WRITE setX FINAL)
     Q_PROPERTY(qreal y READ y WRITE setY FINAL)
     Q_PROPERTY(qreal width READ width WRITE setWidth FINAL)
@@ -214,7 +209,8 @@ struct Q_QML_EXPORT QQmlRectFValueType
 
 public:
     Q_INVOKABLE QQmlRectFValueType() = default;
-    Q_INVOKABLE QQmlRectFValueType(const QRect &rect) : v(rect) {}
+    Q_INVOKABLE QQmlRectFValueType(const QRectF &rect) : QRectF(rect) {}
+    Q_INVOKABLE QQmlRectFValueType(const QRect &rect) : QRectF(rect) {}
     Q_INVOKABLE QString toString() const;
     qreal x() const;
     qreal y() const;
@@ -230,13 +226,10 @@ public:
     qreal right() const;
     qreal top() const;
     qreal bottom() const;
-
-    operator QRectF() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlRectValueType
+struct Q_QML_EXPORT QQmlRectValueType : private QRect
 {
-    QRect v;
     Q_PROPERTY(int x READ x WRITE setX FINAL)
     Q_PROPERTY(int y READ y WRITE setY FINAL)
     Q_PROPERTY(int width READ width WRITE setWidth FINAL)
@@ -253,7 +246,8 @@ struct Q_QML_EXPORT QQmlRectValueType
 
 public:
     QQmlRectValueType() = default;
-    Q_INVOKABLE QQmlRectValueType(const QRectF &rect) : v(rect.toRect()) {}
+    Q_INVOKABLE QQmlRectValueType(const QRect &rect) : QRect(rect) {}
+    Q_INVOKABLE QQmlRectValueType(const QRectF &rect) : QRect(rect.toRect()) {}
     Q_INVOKABLE QString toString() const;
     int x() const;
     int y() const;
@@ -269,13 +263,10 @@ public:
     int right() const;
     int top() const;
     int bottom() const;
-
-    operator QRect() const { return v; }
 };
 
-struct Q_QML_EXPORT QQmlMarginsFValueType
+struct Q_QML_EXPORT QQmlMarginsFValueType : private QMarginsF
 {
-    QMarginsF m;
     Q_PROPERTY(qreal left READ left WRITE setLeft FINAL)
     Q_PROPERTY(qreal right READ right WRITE setRight FINAL)
     Q_PROPERTY(qreal top READ top WRITE setTop FINAL)
@@ -288,7 +279,8 @@ struct Q_QML_EXPORT QQmlMarginsFValueType
 
 public:
     QQmlMarginsFValueType() = default;
-    Q_INVOKABLE QQmlMarginsFValueType(const QMargins &margins) : m(margins) {}
+    Q_INVOKABLE QQmlMarginsFValueType(const QMarginsF &margins) : QMarginsF(margins) {}
+    Q_INVOKABLE QQmlMarginsFValueType(const QMargins &margins) : QMarginsF(margins) {}
     Q_INVOKABLE QString toString() const;
     qreal left() const;
     qreal right() const;
@@ -298,13 +290,10 @@ public:
     void setRight(qreal);
     void setTop(qreal);
     void setBottom(qreal);
-
-    operator QMarginsF() const { return m; }
 };
 
-struct Q_QML_EXPORT QQmlMarginsValueType
+struct Q_QML_EXPORT QQmlMarginsValueType : private QMargins
 {
-    QMargins m;
     Q_PROPERTY(int left READ left WRITE setLeft FINAL)
     Q_PROPERTY(int right READ right WRITE setRight FINAL)
     Q_PROPERTY(int top READ top WRITE setTop FINAL)
@@ -317,7 +306,8 @@ struct Q_QML_EXPORT QQmlMarginsValueType
 
 public:
     QQmlMarginsValueType() = default;
-    Q_INVOKABLE QQmlMarginsValueType(const QMarginsF &margins) : m(margins.toMargins()) {}
+    Q_INVOKABLE QQmlMarginsValueType(const QMargins &margins) : QMargins(margins) {}
+    Q_INVOKABLE QQmlMarginsValueType(const QMarginsF &margins) : QMargins(margins.toMargins()) {}
     Q_INVOKABLE QString toString() const;
     int left() const;
     int right() const;
@@ -327,75 +317,81 @@ public:
     void setRight(int);
     void setTop(int);
     void setBottom(int);
-
-    operator QMargins() const { return m; }
 };
 
 #if QT_CONFIG(easingcurve)
-namespace QQmlEasingEnums
+// Easing type that provides enums and convenience valueForProgress function.
+class Q_QML_EXPORT QQmlEasing : public QObject
 {
-Q_NAMESPACE_EXPORT(Q_QML_EXPORT)
-QML_NAMED_ELEMENT(Easing)
+    Q_OBJECT
+    QML_NAMED_ELEMENT(Easing)
+    QML_SINGLETON
 
-enum Type {
-    Linear = QEasingCurve::Linear,
-    InQuad = QEasingCurve::InQuad, OutQuad = QEasingCurve::OutQuad,
-    InOutQuad = QEasingCurve::InOutQuad, OutInQuad = QEasingCurve::OutInQuad,
-    InCubic = QEasingCurve::InCubic, OutCubic = QEasingCurve::OutCubic,
-    InOutCubic = QEasingCurve::InOutCubic, OutInCubic = QEasingCurve::OutInCubic,
-    InQuart = QEasingCurve::InQuart, OutQuart = QEasingCurve::OutQuart,
-    InOutQuart = QEasingCurve::InOutQuart, OutInQuart = QEasingCurve::OutInQuart,
-    InQuint = QEasingCurve::InQuint, OutQuint = QEasingCurve::OutQuint,
-    InOutQuint = QEasingCurve::InOutQuint, OutInQuint = QEasingCurve::OutInQuint,
-    InSine = QEasingCurve::InSine, OutSine = QEasingCurve::OutSine,
-    InOutSine = QEasingCurve::InOutSine, OutInSine = QEasingCurve::OutInSine,
-    InExpo = QEasingCurve::InExpo, OutExpo = QEasingCurve::OutExpo,
-    InOutExpo = QEasingCurve::InOutExpo, OutInExpo = QEasingCurve::OutInExpo,
-    InCirc = QEasingCurve::InCirc, OutCirc = QEasingCurve::OutCirc,
-    InOutCirc = QEasingCurve::InOutCirc, OutInCirc = QEasingCurve::OutInCirc,
-    InElastic = QEasingCurve::InElastic, OutElastic = QEasingCurve::OutElastic,
-    InOutElastic = QEasingCurve::InOutElastic, OutInElastic = QEasingCurve::OutInElastic,
-    InBack = QEasingCurve::InBack, OutBack = QEasingCurve::OutBack,
-    InOutBack = QEasingCurve::InOutBack, OutInBack = QEasingCurve::OutInBack,
-    InBounce = QEasingCurve::InBounce, OutBounce = QEasingCurve::OutBounce,
-    InOutBounce = QEasingCurve::InOutBounce, OutInBounce = QEasingCurve::OutInBounce,
-    InCurve = QEasingCurve::InCurve, OutCurve = QEasingCurve::OutCurve,
-    SineCurve = QEasingCurve::SineCurve, CosineCurve = QEasingCurve::CosineCurve,
-    BezierSpline = QEasingCurve::BezierSpline,
+public:
+    enum Type {
+        Linear = QEasingCurve::Linear,
+        InQuad = QEasingCurve::InQuad, OutQuad = QEasingCurve::OutQuad,
+        InOutQuad = QEasingCurve::InOutQuad, OutInQuad = QEasingCurve::OutInQuad,
+        InCubic = QEasingCurve::InCubic, OutCubic = QEasingCurve::OutCubic,
+        InOutCubic = QEasingCurve::InOutCubic, OutInCubic = QEasingCurve::OutInCubic,
+        InQuart = QEasingCurve::InQuart, OutQuart = QEasingCurve::OutQuart,
+        InOutQuart = QEasingCurve::InOutQuart, OutInQuart = QEasingCurve::OutInQuart,
+        InQuint = QEasingCurve::InQuint, OutQuint = QEasingCurve::OutQuint,
+        InOutQuint = QEasingCurve::InOutQuint, OutInQuint = QEasingCurve::OutInQuint,
+        InSine = QEasingCurve::InSine, OutSine = QEasingCurve::OutSine,
+        InOutSine = QEasingCurve::InOutSine, OutInSine = QEasingCurve::OutInSine,
+        InExpo = QEasingCurve::InExpo, OutExpo = QEasingCurve::OutExpo,
+        InOutExpo = QEasingCurve::InOutExpo, OutInExpo = QEasingCurve::OutInExpo,
+        InCirc = QEasingCurve::InCirc, OutCirc = QEasingCurve::OutCirc,
+        InOutCirc = QEasingCurve::InOutCirc, OutInCirc = QEasingCurve::OutInCirc,
+        InElastic = QEasingCurve::InElastic, OutElastic = QEasingCurve::OutElastic,
+        InOutElastic = QEasingCurve::InOutElastic, OutInElastic = QEasingCurve::OutInElastic,
+        InBack = QEasingCurve::InBack, OutBack = QEasingCurve::OutBack,
+        InOutBack = QEasingCurve::InOutBack, OutInBack = QEasingCurve::OutInBack,
+        InBounce = QEasingCurve::InBounce, OutBounce = QEasingCurve::OutBounce,
+        InOutBounce = QEasingCurve::InOutBounce, OutInBounce = QEasingCurve::OutInBounce,
+        InCurve = QEasingCurve::InCurve, OutCurve = QEasingCurve::OutCurve,
+        SineCurve = QEasingCurve::SineCurve, CosineCurve = QEasingCurve::CosineCurve,
+        BezierSpline = QEasingCurve::BezierSpline,
 
-    Bezier = BezierSpline // Evil! Don't use this!
+        Bezier = BezierSpline // Evil! Don't use this!
+    };
+    Q_ENUM(Type)
+
+    Q_INVOKABLE qreal valueForProgress(QQmlEasing::Type type, qreal progress) const;
 };
-Q_ENUM_NS(Type)
-};
 
-struct Q_QML_EXPORT QQmlEasingValueType
+struct Q_QML_EXPORT QQmlEasingValueType : private QEasingCurve
 {
-    QEasingCurve v;
     Q_GADGET
-    QML_ANONYMOUS
+    QML_VALUE_TYPE(easingCurve)
     QML_FOREIGN(QEasingCurve)
     QML_EXTENDED(QQmlEasingValueType)
     QML_STRUCTURED_VALUE
 
-    Q_PROPERTY(QQmlEasingEnums::Type type READ type WRITE setType FINAL)
+    Q_PROPERTY(QQmlEasing::Type type READ type WRITE setType FINAL)
     Q_PROPERTY(qreal amplitude READ amplitude WRITE setAmplitude FINAL)
     Q_PROPERTY(qreal overshoot READ overshoot WRITE setOvershoot FINAL)
     Q_PROPERTY(qreal period READ period WRITE setPeriod FINAL)
-    Q_PROPERTY(QVariantList bezierCurve READ bezierCurve WRITE setBezierCurve FINAL)
+    Q_PROPERTY(QList<qreal> bezierCurve READ bezierCurve WRITE setBezierCurve FINAL)
 
 public:
-    QQmlEasingEnums::Type type() const;
+    Q_INVOKABLE QQmlEasingValueType() = default;
+    Q_INVOKABLE QQmlEasingValueType(QQmlEasing::Type type);
+    Q_INVOKABLE QQmlEasingValueType(const QEasingCurve &easing) : QEasingCurve(easing) {}
+
+    Q_INVOKABLE qreal valueForProgress(qreal progress);
+
+    QQmlEasing::Type type() const;
     qreal amplitude() const;
     qreal overshoot() const;
     qreal period() const;
-    void setType(QQmlEasingEnums::Type);
+    void setType(QQmlEasing::Type);
     void setAmplitude(qreal);
     void setOvershoot(qreal);
     void setPeriod(qreal);
-    void setBezierCurve(const QVariantList &);
-    QVariantList bezierCurve() const;
-
-    operator QEasingCurve() const { return v; }
+    void setBezierCurve(const QList<qreal> &);
+    QList<qreal> bezierCurve() const;
 };
 #endif
 

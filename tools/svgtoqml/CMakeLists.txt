@@ -9,16 +9,27 @@ qt_get_tool_target_name(target_name svgtoqml)
 qt_internal_add_tool(${target_name}
     TARGET_DESCRIPTION "SVG to QML Converter"
     TOOLS_TARGET Quick
+    EXTRA_CMAKE_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/${QT_CMAKE_EXPORT_NAMESPACE}SvgToQmlMacros.cmake"
+    EXTRA_CMAKE_INCLUDES
+        "${QT_CMAKE_EXPORT_NAMESPACE}SvgToQmlMacros.cmake"
     SOURCES
         main.cpp
     LIBRARIES
         Qt::Core
         Qt::Gui
+        Qt::GuiPrivate
         Qt::Qml
         Qt::Quick
+        Qt::QuickVectorImagePrivate
         Qt::QuickVectorImageGeneratorPrivate
 )
 qt_internal_return_unless_building_tools()
+
+qt_internal_add_plugin_dependencies(${target_name}
+    SKIP_MISSING_PLUGIN_TARGETS
+    PLUGIN_TARGETS Qt::QMinimalIntegrationPlugin
+)
 
 set(resource_files
     "main.qml"

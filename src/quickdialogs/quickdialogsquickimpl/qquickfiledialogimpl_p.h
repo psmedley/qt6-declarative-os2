@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKFILEDIALOGIMPL_P_H
 #define QQUICKFILEDIALOGIMPL_P_H
@@ -32,6 +33,7 @@ class QQuickFileDialogImplAttachedPrivate;
 class QQuickFileDialogImplPrivate;
 class QQuickFileNameFilter;
 class QQuickFolderBreadcrumbBar;
+class QQuickSideBar;
 
 class Q_QUICKDIALOGS2QUICKIMPL_EXPORT QQuickFileDialogImpl : public QQuickDialog
 {
@@ -47,6 +49,7 @@ class Q_QUICKDIALOGS2QUICKIMPL_EXPORT QQuickFileDialogImpl : public QQuickDialog
     QML_ADDED_IN_VERSION(6, 2)
     Q_MOC_INCLUDE(<QtQuickDialogs2Utils/private/qquickfilenamefilter_p.h>)
     Q_MOC_INCLUDE(<QtQuickDialogs2QuickImpl/private/qquickfolderbreadcrumbbar_p.h>)
+    Q_MOC_INCLUDE(<QtQuickDialogs2QuickImpl/private/qquicksidebar_p.h>)
 
 public:
     explicit QQuickFileDialogImpl(QObject *parent = nullptr);
@@ -105,12 +108,14 @@ class Q_QUICKDIALOGS2QUICKIMPL_EXPORT QQuickFileDialogImplAttached : public QObj
 {
     Q_OBJECT
     Q_PROPERTY(QQuickDialogButtonBox *buttonBox READ buttonBox WRITE setButtonBox NOTIFY buttonBoxChanged FINAL)
-    Q_PROPERTY(QQuickComboBox *nameFiltersComboBox READ nameFiltersComboBox WRITE setNameFiltersComboBox NOTIFY nameFiltersComboBoxChanged)
-    Q_PROPERTY(QQuickListView *fileDialogListView READ fileDialogListView WRITE setFileDialogListView NOTIFY fileDialogListViewChanged)
-    Q_PROPERTY(QQuickFolderBreadcrumbBar *breadcrumbBar READ breadcrumbBar WRITE setBreadcrumbBar NOTIFY breadcrumbBarChanged)
+    Q_PROPERTY(QQuickComboBox *nameFiltersComboBox READ nameFiltersComboBox WRITE setNameFiltersComboBox NOTIFY nameFiltersComboBoxChanged FINAL)
+    Q_PROPERTY(QQuickLabel *filterLabel READ filterLabel WRITE setFilterLabel NOTIFY filterLabelChanged FINAL)
+    Q_PROPERTY(QQuickListView *fileDialogListView READ fileDialogListView WRITE setFileDialogListView NOTIFY fileDialogListViewChanged FINAL)
+    Q_PROPERTY(QQuickFolderBreadcrumbBar *breadcrumbBar READ breadcrumbBar WRITE setBreadcrumbBar NOTIFY breadcrumbBarChanged FINAL)
     Q_PROPERTY(QQuickLabel *fileNameLabel READ fileNameLabel WRITE setFileNameLabel NOTIFY fileNameLabelChanged FINAL)
     Q_PROPERTY(QQuickTextField *fileNameTextField READ fileNameTextField WRITE setFileNameTextField NOTIFY fileNameTextFieldChanged FINAL)
     Q_PROPERTY(QQuickDialog *overwriteConfirmationDialog READ overwriteConfirmationDialog WRITE setOverwriteConfirmationDialog NOTIFY overwriteConfirmationDialogChanged FINAL)
+    Q_PROPERTY(QQuickSideBar *sideBar READ sideBar WRITE setSideBar NOTIFY sideBarChanged FINAL)
     Q_MOC_INCLUDE(<QtQuickTemplates2/private/qquickdialogbuttonbox_p.h>)
     Q_MOC_INCLUDE(<QtQuickTemplates2/private/qquickcombobox_p.h>)
     Q_MOC_INCLUDE(<QtQuickTemplates2/private/qquicktextfield_p.h>)
@@ -124,6 +129,9 @@ public:
 
     QQuickComboBox *nameFiltersComboBox() const;
     void setNameFiltersComboBox(QQuickComboBox *nameFiltersComboBox);
+
+    QQuickLabel *filterLabel() const;
+    void setFilterLabel(QQuickLabel *label);
 
     QString selectedNameFilter() const;
     void selectNameFilter(const QString &filter);
@@ -143,14 +151,19 @@ public:
     QQuickDialog *overwriteConfirmationDialog() const;
     void setOverwriteConfirmationDialog(QQuickDialog *dialog);
 
+    QQuickSideBar *sideBar() const;
+    void setSideBar(QQuickSideBar *sideBar);
+
 Q_SIGNALS:
     void buttonBoxChanged();
     void nameFiltersComboBoxChanged();
+    void filterLabelChanged();
     void fileDialogListViewChanged();
     void breadcrumbBarChanged();
     void fileNameLabelChanged();
     void fileNameTextFieldChanged();
     void overwriteConfirmationDialogChanged();
+    Q_REVISION(6, 9) void sideBarChanged();
 
 private:
     Q_DISABLE_COPY(QQuickFileDialogImplAttached)

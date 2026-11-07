@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmldom_utils_p.h"
 #include "qqmldomitem_p.h"
@@ -77,9 +78,9 @@ static bool wrap(const QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor vi
     if (!value)
         return true;
 
-    const bool b =
-            self.dvItemField(visitor, field, [&self, field, &value]() -> QQmlJS::Dom::DomItem {
-                const QQmlJS::Dom::Path pathFromOwner{ self.pathFromOwner().field(field) };
+    const bool b = visitor(
+            QQmlJS::Dom::PathEls::Field(field), [&self, field, &value]() -> QQmlJS::Dom::DomItem {
+                const QQmlJS::Dom::Path pathFromOwner{ self.pathFromOwner().withField(field) };
                 return self.subScriptElementWrapperItem(value);
             });
     return b;
@@ -92,9 +93,9 @@ static bool wrap(const QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor vi
 static bool wrap(const QQmlJS::Dom::DomItem &self, QQmlJS::Dom::DirectVisitor visitor, QStringView field,
                  const ScriptList &value)
 {
-    const bool b =
-            self.dvItemField(visitor, field, [&self, field, &value]() -> QQmlJS::Dom::DomItem {
-                const QQmlJS::Dom::Path pathFromOwner{ self.pathFromOwner().field(field) };
+    const bool b = visitor(
+            QQmlJS::Dom::PathEls::Field(field), [&self, field, &value]() -> QQmlJS::Dom::DomItem {
+                const QQmlJS::Dom::Path pathFromOwner{ self.pathFromOwner().withField(field) };
                 return self.subListItem(value.asList(pathFromOwner));
             });
     return b;
@@ -109,7 +110,7 @@ bool GenericScriptElement::iterateDirectSubpaths(const DomItem &self, DirectVisi
                 it->second);
     }
     for (auto it = m_values.begin(); it != m_values.end(); ++it) {
-        cont &= self.dvValueField(visitor, it->first, it->second);
+        cont &= self.invokeVisitorOnValue(visitor, PathEls::Field(it->first), it->second);
     }
     return cont;
 }
@@ -119,10 +120,10 @@ void GenericScriptElement::updatePathFromOwner(const Path &p)
     BaseT::updatePathFromOwner(p);
     for (auto it = m_children.begin(); it != m_children.end(); ++it) {
         std::visit(qOverloadedVisitor{ [&p, &it](ScriptElementVariant &e) {
-                                          e.base()->updatePathFromOwner(p.field(it->first));
+                                          e.base()->updatePathFromOwner(p.withField(it->first));
                                       },
                                        [&p, &it](ScriptList &list) {
-                                           list.updatePathFromOwner(p.field(it->first));
+                                           list.updatePathFromOwner(p.withField(it->first));
                                        } },
                    it->second);
     }
@@ -151,7 +152,7 @@ bool BlockStatement::iterateDirectSubpaths(const DomItem &self, DirectVisitor vi
 void BlockStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
-    m_statements.updatePathFromOwner(p.field(Fields::statements));
+    m_statements.updatePathFromOwner(p.withField(Fields::statements));
 }
 
 void BlockStatement::createFileLocations(const FileLocations::Tree &base)
@@ -163,16 +164,18 @@ void BlockStatement::createFileLocations(const FileLocations::Tree &base)
 bool IdentifierExpression::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
-    cont &= self.dvValueField(visitor, Fields::identifier, m_name);
+    cont &= self.invokeVisitorOnValue(visitor, PathEls::Field(Fields::identifier), m_name);
     return cont;
 }
 
 bool Literal::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
-    std::visit([&cont, &visitor,
-                &self](auto &&e) { cont &= self.dvValueField(visitor, Fields::value, e); },
-               m_value);
+    std::visit(
+            [&cont, &visitor, &self](auto &&e) {
+                cont &= self.invokeVisitorOnValue(visitor, PathEls::Field(Fields::value), e);
+            },
+            m_value);
     return cont;
 }
 
@@ -190,11 +193,11 @@ void IfStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_condition.base())
-        ptr->updatePathFromOwner(p.field(Fields::condition));
+        ptr->updatePathFromOwner(p.withField(Fields::condition));
     if (auto ptr = m_consequence.base())
-        ptr->updatePathFromOwner(p.field(Fields::consequence));
+        ptr->updatePathFromOwner(p.withField(Fields::consequence));
     if (auto ptr = m_alternative.base())
-        ptr->updatePathFromOwner(p.field(Fields::alternative));
+        ptr->updatePathFromOwner(p.withField(Fields::alternative));
 }
 
 void IfStatement::createFileLocations(const FileLocations::Tree &base)
@@ -223,15 +226,15 @@ void ForStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_initializer.base())
-        ptr->updatePathFromOwner(p.field(Fields::initializer));
+        ptr->updatePathFromOwner(p.withField(Fields::initializer));
     if (auto ptr = m_declarations.base())
-        ptr->updatePathFromOwner(p.field(Fields::declarations));
+        ptr->updatePathFromOwner(p.withField(Fields::declarations));
     if (auto ptr = m_condition.base())
-        ptr->updatePathFromOwner(p.field(Fields::condition));
+        ptr->updatePathFromOwner(p.withField(Fields::condition));
     if (auto ptr = m_expression.base())
-        ptr->updatePathFromOwner(p.field(Fields::expression));
+        ptr->updatePathFromOwner(p.withField(Fields::expression));
     if (auto ptr = m_body.base())
-        ptr->updatePathFromOwner(p.field(Fields::body));
+        ptr->updatePathFromOwner(p.withField(Fields::body));
 }
 
 void ForStatement::createFileLocations(const FileLocations::Tree &base)
@@ -253,7 +256,7 @@ bool BinaryExpression::iterateDirectSubpaths(const DomItem &self, DirectVisitor 
 {
     bool cont = true;
     cont &= wrap(self, visitor, Fields::left, m_left);
-    cont &= self.dvValueField(visitor, Fields::operation, m_operator);
+    cont &= self.invokeVisitorOnValue(visitor, PathEls::Field(Fields::operation), m_operator);
     cont &= wrap(self, visitor, Fields::right, m_right);
     return cont;
 }
@@ -262,9 +265,9 @@ void BinaryExpression::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_left.base())
-        ptr->updatePathFromOwner(p.field(Fields::left));
+        ptr->updatePathFromOwner(p.withField(Fields::left));
     if (auto ptr = m_right.base())
-        ptr->updatePathFromOwner(p.field(Fields::right));
+        ptr->updatePathFromOwner(p.withField(Fields::right));
 }
 
 void BinaryExpression::createFileLocations(const FileLocations::Tree &base)
@@ -279,7 +282,7 @@ void BinaryExpression::createFileLocations(const FileLocations::Tree &base)
 bool VariableDeclarationEntry::iterateDirectSubpaths(const DomItem &self, DirectVisitor visitor) const
 {
     bool cont = true;
-    cont &= self.dvValueField(visitor, Fields::scopeType, m_scopeType);
+    cont &= self.invokeVisitorOnValue(visitor, PathEls::Field(Fields::scopeType), m_scopeType);
     cont &= wrap(self, visitor, Fields::identifier, m_identifier);
     cont &= wrap(self, visitor, Fields::initializer, m_initializer);
     return cont;
@@ -289,9 +292,9 @@ void VariableDeclarationEntry::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_identifier.base())
-        ptr->updatePathFromOwner(p.field(Fields::identifier));
+        ptr->updatePathFromOwner(p.withField(Fields::identifier));
     if (auto ptr = m_initializer.base())
-        ptr->updatePathFromOwner(p.field(Fields::initializer));
+        ptr->updatePathFromOwner(p.withField(Fields::initializer));
 }
 
 void VariableDeclarationEntry::createFileLocations(const FileLocations::Tree &base)
@@ -313,7 +316,7 @@ bool VariableDeclaration::iterateDirectSubpaths(const DomItem &self, DirectVisit
 void VariableDeclaration::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
-    m_declarations.updatePathFromOwner(p.field(Fields::declarations));
+    m_declarations.updatePathFromOwner(p.withField(Fields::declarations));
 }
 
 void VariableDeclaration::createFileLocations(const FileLocations::Tree &base)
@@ -333,7 +336,7 @@ void ReturnStatement::updatePathFromOwner(const Path &p)
 {
     BaseT::updatePathFromOwner(p);
     if (auto ptr = m_expression.base())
-        ptr->updatePathFromOwner(p.field(Fields::expression));
+        ptr->updatePathFromOwner(p.withField(Fields::expression));
 }
 
 void ReturnStatement::createFileLocations(const FileLocations::Tree &base)

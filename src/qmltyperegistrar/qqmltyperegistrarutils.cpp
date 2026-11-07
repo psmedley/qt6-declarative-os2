@@ -1,11 +1,8 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:critical reason:data-parser
 
 #include "qqmltyperegistrarutils_p.h"
-
-#include "qanystringviewutils_p.h"
-#include "qqmltyperegistrarconstants_p.h"
-#include "qqmltyperegistrarconstants_p.h"
 #include "qmetatypesjsonprocessor_p.h"
 
 #include <QtCore/qcborarray.h>
@@ -37,6 +34,7 @@ QAnyStringView interfaceName(const Interface &iface)
 
 static QDebug message(QDebug base, QAnyStringView message, QAnyStringView fileName, int lineNumber)
 {
+    // Formatted such that it becomes a link in QtCreator (even with "::" ending)
     const QString lineString = lineNumber ? QString::number(lineNumber) : QString();
     return (base.noquote().nospace()
             << message << ": " << fileName << ":" << lineString << ":").space();
@@ -65,15 +63,23 @@ QDebug error(QAnyStringView fileName, int lineNumber)
 /*!
     \internal
     \a pathToList points to a file listing all qt.parts.conf files
+    \a pathToFinalQtConfsList points to a file that lists the final merged qt.conf file location
+       for each qt.parts.conf file
     In any given directory, there might be more than one qt.parts.conf file (especially on Winodws).
-    We need to merge all import paths for a a given folder (but want to avoid duplicate entries).
+    We need to merge all import paths for a given folder (but want to avoid duplicate entries).
+
+    The order of the import paths is significant: the QML engine resolves a module against its
+    import paths in order and uses the first match. We therefore preserve the order in which the
+    paths are listed within each qt.parts.conf file, so that the file's author decides which of
+    two paths providing the same module wins. The order between separate qt.parts.conf files in
+    the same directory is however that of QDirIterator, and so arbitrary.
  */
-int mergeQtConfFiles(const QString &pathToList)
+int mergeQtConfFiles(const QString &pathToList, const QString &pathToMergedQtConfsList)
 {
     QFile listFile(pathToList);
     if (!listFile.open(QFile::ReadOnly | QFile::Text))
         return EXIT_FAILURE;
-    QMultiHash<QString, QString> directoryToNecessaryImports;
+    QHash<QString, QStringList> directoryToNecessaryImports;
     while (!listFile.atEnd()) {
         QByteArray partFilePath = listFile.readLine().trimmed();
         QString directoryPath = QFileInfo(QString::fromUtf8(partFilePath)).absolutePath();
@@ -81,23 +87,51 @@ int mergeQtConfFiles(const QString &pathToList)
         while (dirIt.hasNext()) {
             QFile partialFile(dirIt.next());
             if (!partialFile.open(QFile::ReadOnly | QFile::Text)) {
-                qDebug() << "could not open" << partialFile.fileName();
+                qCritical() << "could not open" << partialFile.fileName();
                 return EXIT_FAILURE;
             }
             while (!partialFile.atEnd()) {
                 QByteArray import = partialFile.readLine().trimmed();
-                directoryToNecessaryImports.insert(directoryPath, QString::fromUtf8(import));
+                directoryToNecessaryImports[directoryPath].append(QString::fromUtf8(import));
             }
         }
     }
+
+    // Collect the merged qt paths.
+    QFile mergedPathsListFile(pathToMergedQtConfsList);
+    if (!mergedPathsListFile.open(QFile::ReadOnly | QFile::Text)) {
+        qCritical() << "could not open" << mergedPathsListFile.fileName();
+        return EXIT_FAILURE;
+    }
+    QHash<QString, QString> partialPathToMergedPath;
+    while (!mergedPathsListFile.atEnd()) {
+        QByteArray row = mergedPathsListFile.readLine().trimmed();
+        QList<QByteArray> parts = row.split(';');
+        Q_ASSERT(parts.size() == 2);
+        const QString partialFileDirectoryPath =
+            QFileInfo(QString::fromUtf8(parts[0])).absolutePath();
+        const QString mergedFilePath = QString::fromUtf8(parts[1]);
+        partialPathToMergedPath.insert(partialFileDirectoryPath, mergedFilePath);
+    }
+
     for (const QString &directoryPath: directoryToNecessaryImports.keys()) {
-        QFile consolidatedQtConfFile(directoryPath + QDir::separator() + u"qt.conf");
+        if (!partialPathToMergedPath.contains(directoryPath)) {
+            qCritical() << "no merged qt.conf file found for directory" << directoryPath;
+            return EXIT_FAILURE;
+        }
+        const QString mergedQtConfFilePath = partialPathToMergedPath.value(directoryPath);
+
+        // Pre-create the directory in case it doesn't exist yet. Especially relevant for the
+        // 'Resources' subdirectory for macOS bundles.
+        QDir().mkpath(QFileInfo(mergedQtConfFilePath).absolutePath());
+
+        QFile consolidatedQtConfFile(mergedQtConfFilePath);
         if (!consolidatedQtConfFile.open(QFile::WriteOnly | QFile::Text)) {
-            qDebug() << "could not open" << consolidatedQtConfFile.fileName();
+            qCritical() << "could not open" << consolidatedQtConfFile.fileName();
             return EXIT_FAILURE;
         }
         QTextStream out(&consolidatedQtConfFile);
-        QStringList allIncludes = directoryToNecessaryImports.values(directoryPath);
+        QStringList allIncludes = directoryToNecessaryImports.value(directoryPath);
         allIncludes.removeDuplicates();
         out << "[Config]\nMergeQtConf = true\n"
             << "[Paths]\nQmlImports = "

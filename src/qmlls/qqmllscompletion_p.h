@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQMLLSCOMPLETION_H
 #define QQMLLSCOMPLETION_H
@@ -15,9 +16,9 @@
 // We mean it.
 //
 
-#include "qqmlcompletioncontextstrings_p.h"
-#include "qqmllsutils_p.h"
-#include "qqmllsplugin_p.h"
+#include <private/qqmlcompletioncontextstrings_p.h>
+#include <private/qqmllsutils_p.h>
+#include <private/qqmllsplugin_p.h>
 
 #include <QtLanguageServer/private/qlanguageserverspectypes_p.h>
 #include <QtQmlDom/private/qqmldomexternalitems_p.h>

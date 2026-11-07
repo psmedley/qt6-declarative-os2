@@ -20,6 +20,7 @@
 #include "qqmldomoutwriter_p.h"
 #include "qqmldom_fwd_p.h"
 #include "qqmldomcomments_p.h"
+#include "qqmldomelements_p.h"
 
 #include <QtQml/private/qqmljsast_p.h>
 
@@ -31,23 +32,98 @@ class ScriptFormatter final : protected AST::JSVisitor
 {
 public:
     // TODO QTBUG-121988
-    ScriptFormatter(OutWriter &lw, const std::shared_ptr<AstComments> &comments,
-                    const std::function<QStringView(SourceLocation)> &loc2Str, AST::Node *node)
-        : lw(lw), comments(comments), loc2Str(loc2Str)
+    ScriptFormatter(OutWriter &lw, const ScriptExpression *const script) : lw(lw), m_script(script)
     {
-        accept(node);
+        if (m_script) {
+            comments = m_script->astComments();
+            accept(m_script->ast());
+        }
     }
 
 protected:
-    inline void out(const char *str) { lw.write(QString::fromLatin1(str)); }
-    inline void out(QStringView str) { lw.write(str); }
+    // output functions
+    inline void out(const char *str)
+    {
+        ensureDeferredSpacesAndMarkWriteAsNotComment();
+        lw.write(QString::fromLatin1(str));
+    }
+    inline void out(QStringView str)
+    {
+        ensureDeferredSpacesAndMarkWriteAsNotComment();
+        lw.write(str);
+    }
     inline void out(const SourceLocation &loc)
     {
+        ensureDeferredSpacesAndMarkWriteAsNotComment();
         if (loc.length != 0)
-            out(loc2Str(loc));
+            out(m_script->loc2Str(loc));
     }
-    inline void newLine(quint32 count = 1) { lw.ensureNewline(count); }
+    void writePreComment(const CommentedElement *c)
+    {
+        Q_ASSERT(c);
 
+        if (!c->preComments().empty())
+            deferredSpaces = 0;
+        else
+            ensureDeferredSpaces();
+        c->writePre(lw);
+        if (!c->preComments().empty())
+            lastWriteWasComment = true;
+    }
+
+    void writePostComment(const CommentedElement *c)
+    {
+        Q_ASSERT(c);
+        c->writePost(lw);
+
+        if (!c->postComments().empty())
+            lastWriteWasComment = true;
+    }
+
+    enum CommentOption { TokenAndComment, OnlyComments };
+    void outWithComments(const SourceLocation &loc, AST::Node *node,
+                         CommentOption option = TokenAndComment)
+    {
+        if (!loc.isValid())
+            return;
+        const CommentedElement *c = comments->commentForNode(node, CommentAnchor::from(loc));
+        if (c)
+            writePreComment(c);
+
+        if (option != OnlyComments)
+            out(loc);
+
+        if (c)
+            writePostComment(c);
+    }
+
+    inline void ensureSpaceIfNoComment()
+    {
+        // Comments contain the spaces before and after them. And, in case the comment doesn't end
+        // with spaces, we still respect the user's formatting choice.
+        if (!lastWriteWasComment)
+            ++deferredSpaces;
+        lastWriteWasComment = false;
+    }
+    inline void ensureNewline(quint32 count = 1)
+    {
+        ensureDeferredSpacesAndMarkWriteAsNotComment();
+        lw.ensureNewline(count);
+    }
+
+    inline void ensureDeferredSpaces()
+    {
+        for (int i = 0; i < deferredSpaces; ++i)
+            lw.ensureSpace();
+        deferredSpaces = 0;
+    }
+    inline void ensureDeferredSpacesAndMarkWriteAsNotComment()
+    {
+        ensureDeferredSpaces();
+        lastWriteWasComment = false;
+    }
+
+    // visitor functions
     inline void accept(AST::Node *node) { AST::Node::accept(node, this); }
     void lnAcceptIndented(AST::Node *node);
     bool acceptBlockOrIndented(AST::Node *ast, bool finishWithSpaceOrNewline = false);
@@ -118,6 +194,9 @@ protected:
     bool visit(AST::VariableStatement *ast) override;
 
     bool visit(AST::PatternElement *ast) override;
+    bool visit(AST::TypeAnnotation *ast) override;
+    bool visit(AST::Type *ast) override;
+    bool visit(AST::UiQualifiedId *ast) override;
 
     bool visit(AST::EmptyStatement *ast) override;
 
@@ -134,6 +213,7 @@ protected:
     bool visit(AST::BreakStatement *ast) override;
 
     bool visit(AST::ReturnStatement *ast) override;
+    bool visit(AST::YieldExpression *ast) override;
     bool visit(AST::ThrowStatement *ast) override;
     bool visit(AST::WithStatement *ast) override;
 
@@ -171,7 +251,7 @@ protected:
 
     bool visit(AST::SuperLiteral *) override;
     bool visit(AST::ComputedPropertyName *) override;
-    bool visit(AST::Expression *el) override;
+    bool visit(AST::CommaExpression *el) override;
     bool visit(AST::ExpressionStatement *el) override;
 
     bool visit(AST::ClassDeclaration *ast) override;
@@ -202,17 +282,18 @@ protected:
 
 private:
     bool addSemicolons() const { return expressionDepth > 0; }
-
+    bool canRemoveSemicolon(AST::Node *node);
+    OutWriter &writeOutSemicolon(AST::Node *);
     OutWriter &lw;
     std::shared_ptr<AstComments> comments;
-    std::function<QStringView(SourceLocation)> loc2Str;
+    const ScriptExpression *const m_script = nullptr; // outlives this
     QHash<AST::Node *, QList<std::function<void()>>> postOps;
     int expressionDepth = 0;
+    int deferredSpaces = 0;
+    bool lastWriteWasComment = false;
 };
 
-QMLDOM_EXPORT void reformatAst(
-        OutWriter &lw, const std::shared_ptr<AstComments> &comments,
-        const std::function<QStringView(SourceLocation)> &loc2Str, AST::Node *n);
+QMLDOM_EXPORT void reformatAst(OutWriter &lw, const QQmlJS::Dom::ScriptExpression *const script);
 
 } // namespace Dom
 } // namespace QQmlJS

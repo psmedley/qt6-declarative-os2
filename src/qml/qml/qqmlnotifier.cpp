@@ -1,10 +1,10 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlnotifier_p.h"
-#include "qqmlproperty_p.h"
+#include <private/qqmldata_p.h>
 #include <QtCore/qdebug.h>
-#include <private/qthread_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -13,14 +13,18 @@ typedef void (*Callback)(QQmlNotifierEndpoint *, void **);
 void QQmlBoundSignal_callback(QQmlNotifierEndpoint *, void **);
 void QQmlJavaScriptExpressionGuard_callback(QQmlNotifierEndpoint *, void **);
 void QQmlVMEMetaObjectEndpoint_callback(QQmlNotifierEndpoint *, void **);
-void QQmlPropertyGuard_callback(QQmlNotifierEndpoint *, void **);
+void QQmlUnbindableToUnbindableGuard_callback(QQmlNotifierEndpoint *, void **);
+void QQmlUnbindableToBindableGuard_callback(QQmlNotifierEndpoint *, void **);
+void QQmlDirtyReferenceObject_callback(QQmlNotifierEndpoint *, void **);
 
 static Callback QQmlNotifier_callbacks[] = {
     nullptr,
     QQmlBoundSignal_callback,
     QQmlJavaScriptExpressionGuard_callback,
     QQmlVMEMetaObjectEndpoint_callback,
-    QQmlPropertyGuard_callback
+    QQmlUnbindableToUnbindableGuard_callback,
+    QQmlUnbindableToBindableGuard_callback,
+    QQmlDirtyReferenceObject_callback,
 };
 
 namespace {
@@ -79,37 +83,7 @@ void QQmlNotifier::emitNotify(QQmlNotifierEndpoint *endpoint, void **a)
     \a sourceSignal MUST be in the signal index range (see QObjectPrivate::signalIndex()).
     This is different from QMetaMethod::methodIndex().
 */
-void QQmlNotifierEndpoint::connect(QObject *source, int sourceSignal, QQmlEngine *engine, bool doNotify)
-{
-    disconnect();
 
-    Q_ASSERT(engine);
-    if (QObjectPrivate::get(source)->threadData.loadRelaxed()->threadId.loadRelaxed() !=
-        QObjectPrivate::get(engine)->threadData.loadRelaxed()->threadId.loadRelaxed()) {
-
-        QString sourceName;
-        QDebug(&sourceName) << source;
-        sourceName = sourceName.left(sourceName.size() - 1);
-        QString engineName;
-        QDebug(&engineName).nospace() << engine;
-        engineName = engineName.left(engineName.size() - 1);
-
-        qFatal("QQmlEngine: Illegal attempt to connect to %s that is in"
-               " a different thread than the QML engine %s.", qPrintable(sourceName),
-               qPrintable(engineName));
-    }
-
-    setSender(qintptr(source));
-    this->sourceSignal = sourceSignal;
-    QQmlPropertyPrivate::flushSignal(source, sourceSignal);
-    QQmlData *ddata = QQmlData::get(source, true);
-    ddata->addNotify(sourceSignal, this);
-    if (doNotify) {
-        needsConnectNotify = doNotify;
-        QObjectPrivate * const priv = QObjectPrivate::get(source);
-        priv->connectNotify(QMetaObjectPrivate::signal(source->metaObject(), sourceSignal));
-    }
-}
 
 QT_END_NAMESPACE
 

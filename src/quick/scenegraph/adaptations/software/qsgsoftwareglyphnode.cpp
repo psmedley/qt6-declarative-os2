@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgsoftwareglyphnode_p.h"
 #include <QtGui/private/qrawfont_p.h>
@@ -7,7 +8,8 @@
 QT_BEGIN_NAMESPACE
 
 QSGSoftwareGlyphNode::QSGSoftwareGlyphNode()
-    : m_geometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 0)
+    : QSGGlyphNode(QSGTextNode::NativeRendering)
+    , m_geometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 0)
     , m_style(QQuickText::Normal)
 {
     setMaterial((QSGMaterial*)1);
@@ -29,8 +31,8 @@ QRectF calculateBoundingRect(const QPointF &position, const QGlyphRun &glyphs)
 
     int margin = fontEngine->glyphMargin(glyphFormat);
 
-    const QVector<uint> glyphIndexes = glyphs.glyphIndexes();
-    const QVector<QPointF> glyphPositions = glyphs.positions();
+    const QList<uint> glyphIndexes = glyphs.glyphIndexes();
+    const QList<QPointF> glyphPositions = glyphs.positions();
     for (int i = 0, n = qMin(glyphIndexes.size(), glyphPositions.size()); i < n; ++i) {
         glyph_metrics_t gm = fontEngine->alphaMapBoundingBox(glyphIndexes.at(i), QFixedPoint(), QTransform(), glyphFormat);
 
@@ -63,7 +65,18 @@ void QSGSoftwareGlyphNode::setGlyphs(const QPointF &position, const QGlyphRun &g
     m_glyphRun.setOverline(false);
     m_glyphRun.setStrikeOut(false);
     m_glyphRun.setUnderline(false);
-    m_bounding_rect = calculateBoundingRect(position, glyphs);
+
+    recalculateBoundingRect();
+}
+
+void QSGSoftwareGlyphNode::recalculateBoundingRect()
+{
+    int x1Offset = m_style == QQuickText::Outline ? -1 : 0;
+    int x2Offset = m_style == QQuickText::Outline ? 1 : 0;
+    int y1Offset = m_style == QQuickText::Outline || m_style == QQuickText::Sunken ? -1 : 0;
+    int y2Offset = m_style == QQuickText::Outline || m_style == QQuickText::Raised ? 1 : 0;
+
+    m_bounding_rect = calculateBoundingRect(m_position, m_glyphRun).adjusted(x1Offset, y1Offset, x2Offset, y2Offset);
 }
 
 void QSGSoftwareGlyphNode::setColor(const QColor &color)
@@ -74,6 +87,8 @@ void QSGSoftwareGlyphNode::setColor(const QColor &color)
 void QSGSoftwareGlyphNode::setStyle(QQuickText::TextStyle style)
 {
     m_style = style;
+
+    recalculateBoundingRect();
 }
 
 void QSGSoftwareGlyphNode::setStyleColor(const QColor &color)
@@ -92,6 +107,10 @@ void QSGSoftwareGlyphNode::setPreferredAntialiasingMode(QSGGlyphNode::Antialiasi
 
 void QSGSoftwareGlyphNode::update()
 {
+    if (m_recycled) {
+        markDirty(DirtyGeometry);
+        m_recycled = false;
+    }
 }
 
 void QSGSoftwareGlyphNode::paint(QPainter *painter)
@@ -124,6 +143,18 @@ void QSGSoftwareGlyphNode::paint(QPainter *painter)
 
     painter->setPen(m_color);
     painter->drawGlyphRun(pos, m_glyphRun);
+}
+
+void QSGSoftwareGlyphNode::recycle()
+{
+    QSGGlyphNode::recycle();
+    m_position = QPointF{};
+    m_glyphRun = QGlyphRun{};
+    m_color = QColor{};
+    m_geometry.allocate(0, 0);
+    m_style = QQuickText::Normal;
+    m_styleColor = QColor{};
+    m_recycled = true;
 }
 
 QT_END_NAMESPACE

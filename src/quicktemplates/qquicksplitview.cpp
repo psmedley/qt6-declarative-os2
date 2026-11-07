@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicksplitview_p.h"
 #include "qquicksplitview_p_p.h"
@@ -11,6 +12,7 @@
 #include <QtCore/qcbormap.h>
 #include <QtCore/qcborvalue.h>
 #include <QtQml/QQmlInfo>
+#include <QtQml/qqmlcomponent.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -221,9 +223,9 @@ QT_BEGIN_NAMESPACE
     \sa SplitHandle, {Customizing SplitView}, {Container Controls}
 */
 
-Q_LOGGING_CATEGORY(qlcQQuickSplitView, "qt.quick.controls.splitview")
-Q_LOGGING_CATEGORY(qlcQQuickSplitViewPointer, "qt.quick.controls.splitview.pointer")
-Q_LOGGING_CATEGORY(qlcQQuickSplitViewState, "qt.quick.controls.splitview.state")
+Q_STATIC_LOGGING_CATEGORY(qlcQQuickSplitView, "qt.quick.controls.splitview")
+Q_STATIC_LOGGING_CATEGORY(qlcQQuickSplitViewPointer, "qt.quick.controls.splitview.pointer")
+Q_STATIC_LOGGING_CATEGORY(qlcQQuickSplitViewState, "qt.quick.controls.splitview.state")
 
 /*
     Updates m_fillIndex to be between 0 .. (item count - 1).
@@ -730,7 +732,7 @@ void QQuickSplitViewPrivate::layout()
     // We allow mouse events to instantly trigger layouts, whereas with e.g.
     // attached properties being set, we require a delayed layout.
     // To prevent recursive calls during mouse events, we need this guard.
-    QBoolBlocker guard(m_layingOut, true);
+    QScopedValueRollback guard(m_layingOut, true);
 
     const bool horizontal = isHorizontal();
     qCDebug(qlcQQuickSplitView) << "laying out" << count << "split items"

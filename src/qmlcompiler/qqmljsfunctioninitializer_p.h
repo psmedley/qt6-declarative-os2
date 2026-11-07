@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSFUNCTIONINITIALIAZER_P_H
 #define QQMLJSFUNCTIONINITIALIAZER_P_H
@@ -25,28 +26,28 @@ public:
     QQmlJSFunctionInitializer(
             const QQmlJSTypeResolver *typeResolver,
             const QV4::CompiledData::Location &objectLocation,
-            const QV4::CompiledData::Location &scopeLocation)
+            const QV4::CompiledData::Location &scopeLocation,
+            QQmlJSLogger *logger)
         : m_typeResolver(typeResolver)
+        , m_logger(logger)
         , m_scopeType(typeResolver->scopeForLocation(scopeLocation))
         , m_objectType(typeResolver->scopeForLocation(objectLocation))
     {}
 
     QQmlJSCompilePass::Function run(
-            const QV4::Compiler::Context *context,
-            const QString &propertyName, QQmlJS::AST::Node *astNode,
-            const QmlIR::Binding &irBinding,
-            QQmlJS::DiagnosticMessage *error);
+            const QV4::Compiler::Context *context, const QString &propertyName,
+            QQmlJS::AST::Node *astNode, const QmlIR::Binding &irBinding);
     QQmlJSCompilePass::Function run(
-            const QV4::Compiler::Context *context,
-            const QString &functionName, QQmlJS::AST::Node *astNode,
-            QQmlJS::DiagnosticMessage *error);
+            const QV4::Compiler::Context *context, const QString &functionName,
+            QQmlJS::AST::Node *astNode);
 
 private:
     void populateSignature(
             const QV4::Compiler::Context *context, QQmlJS::AST::FunctionExpression *ast,
-            QQmlJSCompilePass::Function *function, QQmlJS::DiagnosticMessage *error);
+            QQmlJSCompilePass::Function *function);
 
     const QQmlJSTypeResolver *m_typeResolver = nullptr;
+    QQmlJSLogger *m_logger = nullptr;
     const QQmlJSScope::ConstPtr m_scopeType;
     const QQmlJSScope::ConstPtr m_objectType;
 };

@@ -1,7 +1,7 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest>
+#include <QTest>
 #include <QtQuick>
 #include <QtCore/private/qhooks_p.h>
 #include <iostream>
@@ -62,19 +62,53 @@ void tst_ObjectCount::cleanup()
 
 static void initTestRows(QQmlEngine *engine)
 {
-    // Calendar is excluded because it's a singleton and can't be created.
-    // TreeViewDelegate is excluded since it's a delegate that can only be created by TreeView.
+    const QStringList commonExclusions = {
+        // Singleton; can't be created.
+        "Calendar",
+        // Can only be created by HorizontalHeaderView.
+        "HorizontalHeaderViewDelegate",
+        // Can only be created by TreeView.
+        "TreeViewDelegate",
+        // Can only be created by TableView.
+        "TableViewDelegate",
+        // Can only be created by VerticalHeaderView.
+        "VerticalHeaderViewDelegate"
+    };
+
     addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "basic", "QtQuick/Controls/Basic",
-        QStringList() << "Calendar" << "TreeViewDelegate");
+        commonExclusions);
+
     addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "fusion", "QtQuick/Controls/Fusion",
-        QStringList() << "ButtonPanel" << "CheckIndicator" << "RadioIndicator" << "SliderGroove"
-                             << "SliderHandle" << "SwitchIndicator" << "TreeViewDelegate");
-    addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "imagine", "QtQuick/Controls/Imagine");
+        QStringList()
+            << commonExclusions
+            << "ButtonPanel"
+            << "CheckIndicator"
+            << "RadioIndicator"
+            << "SliderGroove"
+            << "SliderHandle"
+            << "SwitchIndicator");
+
+    addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "imagine", "QtQuick/Controls/Imagine",
+        commonExclusions);
+
     addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "material", "QtQuick/Controls/Material",
-        QStringList() << "Ripple" << "SliderHandle" << "CheckIndicator" << "RadioIndicator"
-            << "SwitchIndicator" << "BoxShadow" << "ElevationEffect" << "CursorDelegate" << "TreeViewDelegate");
+        QStringList()
+           << commonExclusions
+           << "BoxShadow"
+           << "CheckIndicator"
+           << "CursorDelegate"
+           << "ElevationEffect"
+           << "RadioIndicator"
+           << "Ripple"
+           << "SliderHandle"
+           << "SwitchIndicator");
+
     addTestRowForEachControl(engine, QQC2_IMPORT_PATH, "universal", "QtQuick/Controls/Universal",
-        QStringList() << "CheckIndicator" << "RadioIndicator" << "SwitchIndicator");
+        QStringList()
+            << commonExclusions
+            << "CheckIndicator"
+            << "RadioIndicator"
+            << "SwitchIndicator");
 }
 
 template <typename T>

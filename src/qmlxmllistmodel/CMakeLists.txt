@@ -21,9 +21,13 @@ qt_internal_add_qml_module(QmlXmlListModel
         Qt::Qml
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
-    OS2_SHORT_NAME QmlXMLLM
     )
 
 qt_internal_add_docs(QmlXmlListModel
     doc/qtqmlxmllistmodel.qdocconf
+)
+
+target_sources(QmlXmlListModel
+    PRIVATE
+        doc/qmlxmllistmodel-index.qdoc
 )

@@ -1,6 +1,7 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
+#include <QtCore/qtconfigmacros.h>
 #undef QT_NO_FOREACH // this file contains unported legacy Q_FOREACH uses
 
 #include <QtQuick/private/qsgcontext_p.h>
@@ -509,13 +510,13 @@ void fillUniformArrayFromImage(float* array, const QImage& img, int size)
     \table
     \row
     \li qrc:///particleresources/star.png
-    \li \inlineimage particles/star.png
+    \li \inlineimage particles/star.png {White star particle}
     \row
     \li qrc:///particleresources/glowdot.png
-    \li \inlineimage particles/glowdot.png
+    \li \inlineimage particles/glowdot.png {White glowing dot particle}
     \row
     \li qrc:///particleresources/fuzzydot.png
-    \li \inlineimage particles/fuzzydot.png
+    \li \inlineimage particles/fuzzydot.png {White fuzzy dot particle}
     \endtable
 
     Note that the images are white and semi-transparent, to allow colorization
@@ -1161,7 +1162,7 @@ static QSGGeometry::AttributeSet SpriteParticle_AttributeSet =
 
 void QQuickImageParticle::clearShadows()
 {
-    foreach (const QVector<QQuickParticleData*> data, m_shadowData)
+    foreach (const QList<QQuickParticleData*> data, m_shadowData)
         qDeleteAll(data);
     m_shadowData.clear();
 }
@@ -1174,7 +1175,7 @@ QQuickParticleData* QQuickImageParticle::getShadowDatum(QQuickParticleData* datu
         return datum;
     if (!m_shadowData.contains(datum->groupId)) {
         QQuickParticleGroupData* gd = m_system->groupData[datum->groupId];
-        QVector<QQuickParticleData*> data;
+        QList<QQuickParticleData*> data;
         const int gdSize = gd->size();
         data.reserve(gdSize);
         for (int i = 0; i < gdSize; i++) {
@@ -1437,7 +1438,7 @@ void QQuickImageParticle::finishBuildParticleNodes(QSGNode** node)
 
         m_nodes.insert(groupId, node);
         m_idxStarts.insert(groupId, m_lastIdxStart);
-        m_startsIdx.append(qMakePair(m_lastIdxStart, groupId));
+        m_startsIdx.append(std::make_pair(m_lastIdxStart, groupId));
         m_lastIdxStart += count;
 
         //Create Particle Geometry

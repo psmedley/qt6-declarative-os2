@@ -3,7 +3,28 @@
 
 set(qml_files
     "CheckIndicator.qml"
+    "CopyAction.qml"
+    "CutAction.qml"
+    "DeleteAction.qml"
+    "PasteAction.qml"
+    "RedoAction.qml"
+    "SelectAllAction.qml"
     "SwitchIndicator.qml"
+    "TextEditingContextMenu.qml"
+    "UndoAction.qml"
+)
+
+set_source_files_properties(
+    CopyAction.qml
+    CutAction.qml
+    DeleteAction.qml
+    PasteAction.qml
+    RedoAction.qml
+    SelectAllAction.qml
+    TextEditingContextMenu.qml
+    UndoAction.qml
+    PROPERTIES
+        QT_QML_SOURCE_VERSIONS "6.11"
 )
 
 qt_internal_add_qml_module(QuickControls2WindowsStyleImpl
@@ -11,6 +32,7 @@ qt_internal_add_qml_module(QuickControls2WindowsStyleImpl
     VERSION "${PROJECT_VERSION}"
     PAST_MAJOR_VERSIONS 2
     CLASS_NAME QtQuickControls2WindowsStyleImplPlugin
+    NO_PRIVATE_MODULE
     DEPENDENCIES
         QtQuick/auto
     PLUGIN_TARGET qtquickcontrols2windowsstyleimplplugin

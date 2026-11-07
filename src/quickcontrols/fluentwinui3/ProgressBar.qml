@@ -1,8 +1,10 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
+import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Templates as T
 import QtQuick.Effects
 
@@ -14,53 +16,54 @@ T.ProgressBar {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    topPadding: config.topPadding || 0
-    bottomPadding: config.bottomPadding || 0
-    leftPadding: config.leftPadding || 0
-    rightPadding: config.rightPadding || 0
+    topPadding: __config.topPadding || 0
+    bottomPadding: __config.bottomPadding || 0
+    leftPadding: __config.leftPadding || 0
+    rightPadding: __config.rightPadding || 0
 
-    topInset: -config.topInset || 0
-    bottomInset: -config.bottomInset || 0
-    leftInset: -config.leftInset || 0
-    rightInset: -config.rightInset || 0
+    topInset: (__isHighContrast ? -1 : 0) - (__config.topInset || 0)
+    bottomInset: (__isHighContrast ? -1 : 0) - (__config.bottomInset || 0)
+    leftInset: (__isHighContrast ? -1 : 0) - (__config.leftInset || 0)
+    rightInset: (__isHighContrast ? -1 : 0) - (__config.rightInset || 0)
 
     readonly property string __currentState: [
         !control.enabled && "disabled",
         control.indeterminate && "indeterminate"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var config: Config.controls.progressbar[__currentState] || {}
+    readonly property var __config: Config.controls.progressbar[__currentState] || {}
+    readonly property bool __isHighContrast: Application.styleHints.accessibility.contrastPreference === Qt.HighContrast
 
     contentItem: Item {
         implicitWidth: control.indeterminate ? parent.availableWidth : progress.implicitWidth
-        implicitHeight: control.indeterminate ? control.config.track.height : progress.implicitHeight
+        implicitHeight: control.indeterminate ? control.__config.track.height : progress.implicitHeight
         scale: control.mirrored ? -1 : 1
         clip: control.indeterminate
 
         readonly property Rectangle progress: Rectangle {
-            x: control.background.groove?.x - 1
-            y: control.background.groove?.y - 1
+            x: control.background.groove?.x - (control.__isHighContrast ? 0 : 1)
+            y: control.background.groove?.y - (control.__isHighContrast ? 0 : 1)
             parent: control.contentItem
             visible: !control.indeterminate && control.value
-            implicitWidth: control.config.track.width
-            implicitHeight: control.config.track.height
+            implicitWidth: control.__config.track.width
+            implicitHeight: control.__config.track.height
             width: control.position * parent.width
-            height: control.config.track.height
-            radius: control.config.track.height * 0.5
+            height: control.__config.track.height
+            radius: control.__config.track.height * 0.5
             color: control.palette.accent
         }
 
         readonly property Rectangle animatedProgress: Rectangle {
             parent: control.contentItem
             implicitWidth: parent.width
-            implicitHeight: control.config.track.height
-            radius: control.config.track.height * 0.5
+            implicitHeight: control.__config.track.height
+            radius: control.__config.track.height * 0.5
             clip: true
             visible: false
             color: "transparent"
             Rectangle {
                 width: 0.5 * parent.width
-                height: control.config.track.height
-                radius: control.config.track.height * 0.5
+                height: control.__config.track.height
+                radius: control.__config.track.height * 0.5
                 color: control.palette.accent
                 SequentialAnimation on x {
                     loops: Animation.Infinite
@@ -102,16 +105,17 @@ T.ProgressBar {
         }
     }
 
-    background: Item {
+    background: Rectangle {
         implicitWidth: groove.width
-        property Item groove: StyleImage {
-            imageConfig: control.config.groove
-            visible: !control.indeterminate
+        radius: height * 0.5
+        color: control.__isHighContrast ? control.palette.window : "transparent"
+        border.color: control.__isHighContrast ? control.palette.text : "transparent"
+        property Item groove: Impl.StyleImage {
+            imageConfig: control.__config.groove
+            visible: !control.indeterminate && !control.__isHighContrast
             parent: control.background
             height: implicitHeight
             width: parent.width
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
         }
     }
 }

@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLTYPEREGISTRARCONSTANTS_P_H
 #define QQMLTYPEREGISTRARCONSTANTS_P_H
@@ -45,25 +46,32 @@ static constexpr QLatin1StringView S_IMMEDIATE_NAMES              { "immediateNa
 static constexpr QLatin1StringView S_INDEX                        { "index" };
 static constexpr QLatin1StringView S_INTERFACES                   { "interfaces" };
 static constexpr QLatin1StringView S_IS_CLONED                    { "isCloned" };
-static constexpr QLatin1StringView S_IS_CONSTANT                  { "isConstant" };
 static constexpr QLatin1StringView S_IS_CONSTRUCTOR               { "isConstructor" };
 static constexpr QLatin1StringView S_IS_CREATABLE                 { "isCreatable" };
 static constexpr QLatin1StringView S_IS_FINAL                     { "isFinal" };
 static constexpr QLatin1StringView S_IS_FLAG                      { "isFlag" };
-static constexpr QLatin1StringView S_IS_JAVASCRIPT_FUNCTION       { "isJavaScriptFunction" };
 static constexpr QLatin1StringView S_IS_JAVASCRIPT_BUILTIN        { "isJavaScriptBuiltin" };
+static constexpr QLatin1StringView S_IS_JAVASCRIPT_FUNCTION       { "isJavaScriptFunction" };
 static constexpr QLatin1StringView S_IS_LIST                      { "isList" };
+static constexpr QLatin1StringView S_IS_METHOD_CONSTANT           { "isMethodConstant" };
 static constexpr QLatin1StringView S_IS_POINTER                   { "isPointer" };
+static constexpr QLatin1StringView S_IS_PROPERTY_CONSTANT         { "isPropertyConstant" };
 static constexpr QLatin1StringView S_IS_READONLY                  { "isReadonly" };
 static constexpr QLatin1StringView S_IS_REQUIRED                  { "isRequired" };
 static constexpr QLatin1StringView S_IS_SCOPED                    { "isScoped" };
 static constexpr QLatin1StringView S_IS_SINGLETON                 { "isSingleton" };
 static constexpr QLatin1StringView S_IS_STRUCTURED                { "isStructured" };
+static constexpr QLatin1StringView S_IS_TYPE_CONSTANT             { "isTypeConstant" };
+static constexpr QLatin1StringView S_IS_SELF_EXTENSION            { "isSelfExtension" };
+static constexpr QLatin1StringView S_IS_TYPE_OPAQUE               { "isTypeOpaque" };
+static constexpr QLatin1StringView S_LINE_NUMBER                  { "lineNumber" };
+static constexpr QLatin1StringView S_LINE_NUMBER_IN_RESOLVED_FILE { "lineNumberInResolvedFile" };
 static constexpr QLatin1StringView S_METHOD                       { "Method" };
 static constexpr QLatin1StringView S_MODULE                       { "Module" };
 static constexpr QLatin1StringView S_NAME                         { "name" };
 static constexpr QLatin1StringView S_NONE                         { "none" };
 static constexpr QLatin1StringView S_NOTIFY                       { "notify" };
+static constexpr QLatin1StringView S_IS_OVERRIDE                  { "isOverride" };
 static constexpr QLatin1StringView S_PARAMETER                    { "Parameter" };
 static constexpr QLatin1StringView S_PARENT_PROPERTY              { "parentProperty" };
 static constexpr QLatin1StringView S_PRIVATE_CLASS                { "privateClass" };
@@ -72,6 +80,7 @@ static constexpr QLatin1StringView S_PROTOTYPE                    { "prototype" 
 static constexpr QLatin1StringView S_READ                         { "read" };
 static constexpr QLatin1StringView S_REFERENCE                    { "reference" };
 static constexpr QLatin1StringView S_RESET                        { "reset" };
+static constexpr QLatin1StringView S_RESOLVED_FILE                { "resolvedFile" };
 static constexpr QLatin1StringView S_REVISION                     { "revision" };
 static constexpr QLatin1StringView S_SEQUENCE                     { "sequence" };
 static constexpr QLatin1StringView S_SIGNAL                       { "Signal" };
@@ -79,6 +88,7 @@ static constexpr QLatin1StringView S_TYPE                         { "type" };
 static constexpr QLatin1StringView S_VALUE                        { "value" };
 static constexpr QLatin1StringView S_VALUES                       { "values" };
 static constexpr QLatin1StringView S_VALUE_TYPE                   { "valueType" };
+static constexpr QLatin1StringView S_IS_VIRTUAL                   { "isVirtual" };
 static constexpr QLatin1StringView S_WRITE                        { "write" };
 }
 
@@ -108,6 +118,7 @@ static constexpr QLatin1StringView S_INPUT_FILE                   { "inputFile" 
 static constexpr QLatin1StringView S_INTERFACES                   { "interfaces" };
 static constexpr QLatin1StringView S_IS_CLASS                     { "isClass" };
 static constexpr QLatin1StringView S_IS_CLONED                    { "isCloned" };
+static constexpr QLatin1StringView S_IS_CONST                     { "isConst" };
 static constexpr QLatin1StringView S_IS_CONSTRUCTOR               { "isConstructor" };
 static constexpr QLatin1StringView S_IS_FLAG                      { "isFlag" };
 static constexpr QLatin1StringView S_IS_JAVASCRIPT_FUNCTION       { "isJavaScriptFunction" };
@@ -119,6 +130,7 @@ static constexpr QLatin1StringView S_NAME                         { "name" };
 static constexpr QLatin1StringView S_NAMESPACE                    { "namespace" };
 static constexpr QLatin1StringView S_NOTIFY                       { "notify" };
 static constexpr QLatin1StringView S_OBJECT                       { "object" };
+static constexpr QLatin1StringView S_OVERRIDE                     { "override" };
 static constexpr QLatin1StringView S_PARENT_PROPERTY              { "ParentProperty" };
 static constexpr QLatin1StringView S_PRIVATE                      { "private" };
 static constexpr QLatin1StringView S_PRIVATE_CLASS                { "privateClass" };
@@ -128,6 +140,7 @@ static constexpr QLatin1StringView S_PROTECTED                    { "protected" 
 static constexpr QLatin1StringView S_PUBLIC                       { "public" };
 static constexpr QLatin1StringView S_QUALIFIED_CLASS_NAME         { "qualifiedClassName" };
 static constexpr QLatin1StringView S_READ                         { "read" };
+static constexpr QLatin1StringView S_VIRTUAL                      { "virtual" };
 
 static constexpr QLatin1StringView S_REGISTER_ENUM_CLASSES_UNSCOPED {
     "RegisterEnumClassesUnscoped"

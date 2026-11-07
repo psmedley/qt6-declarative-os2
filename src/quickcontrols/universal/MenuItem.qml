@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Templates as T
@@ -22,9 +23,8 @@ T.MenuItem {
 
     icon.width: 20
     icon.height: 20
-    icon.color: !enabled ? Universal.baseLowColor : Universal.baseHighColor
 
-    contentItem: IconLabel {
+    contentItem: MenuItemIconLabel {
         readonly property real arrowPadding: control.subMenu && control.arrow ? control.arrow.width + control.spacing : 0
         readonly property real indicatorPadding: control.checkable && control.indicator ? control.indicator.width + control.spacing : 0
         leftPadding: !control.mirrored ? indicatorPadding : arrowPadding
@@ -36,9 +36,11 @@ T.MenuItem {
         alignment: Qt.AlignLeft
 
         icon: control.icon
+        defaultIconColor: !control.enabled ? control.Universal.baseLowColor : control.Universal.baseHighColor
         text: control.text
         font: control.font
-        color: !control.enabled ? control.Universal.baseLowColor : control.Universal.baseHighColor
+        color: defaultIconColor
+        menuItem: control
     }
 
     arrow: ColorImage {

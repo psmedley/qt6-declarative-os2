@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickwindow.h"
 #include "qquickitem.h"
@@ -14,10 +15,14 @@ QQuickWindowAttached::QQuickWindowAttached(QObject* attachee)
     , m_window(nullptr)
 {
     m_attachee = qobject_cast<QQuickItem*>(attachee);
-    if (m_attachee && m_attachee->window()) // It might not be in a window yet
+    if (!m_attachee) {
+        qmlWarning(attachee)
+                << "Window.window only supports types derived from Item";
+        return;
+    }
+    if (m_attachee->window()) // It might not be in a window yet
         windowChange(m_attachee->window());
-    if (m_attachee)
-        connect(m_attachee, &QQuickItem::windowChanged, this, &QQuickWindowAttached::windowChange);
+    connect(m_attachee, &QQuickItem::windowChanged, this, &QQuickWindowAttached::windowChange);
 }
 
 QWindow::Visibility QQuickWindowAttached::visibility() const

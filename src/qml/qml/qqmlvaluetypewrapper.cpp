@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlvaluetypewrapper_p.h"
 
@@ -30,8 +31,6 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcBuiltinsBindingRemoval)
-
 DEFINE_OBJECT_VTABLE(QV4::QQmlValueTypeWrapper);
 
 namespace QV4 {
@@ -44,10 +43,7 @@ Heap::QQmlValueTypeWrapper *Heap::QQmlValueTypeWrapper::detached() const
 
 void Heap::QQmlValueTypeWrapper::destroy()
 {
-    if (m_gadgetPtr) {
-        metaType().destruct(m_gadgetPtr);
-        ::operator delete(m_gadgetPtr);
-    }
+    metaType().destroy(m_gadgetPtr);
     ReferenceObject::destroy();
 }
 
@@ -69,10 +65,7 @@ bool Heap::QQmlValueTypeWrapper::setVariant(const QVariant &variant)
         // possible, or return false if it is not a value type.
         if (QQmlMetaType::isValueType(variantReferenceType)) {
             const QMetaObject *mo = QQmlMetaType::metaObjectForValueType(variantReferenceType);
-            if (gadgetPtr()) {
-                metaType().destruct(gadgetPtr());
-                ::operator delete(gadgetPtr());
-            }
+            metaType().destroy(gadgetPtr());
             setGadgetPtr(nullptr);
             setMetaObject(mo);
             setMetaType(variantReferenceType);
@@ -90,8 +83,7 @@ bool Heap::QQmlValueTypeWrapper::setVariant(const QVariant &variant)
 void *Heap::QQmlValueTypeWrapper::storagePointer()
 {
     if (!gadgetPtr()) {
-        setGadgetPtr(::operator new(metaType().sizeOf()));
-        metaType().construct(gadgetPtr(), nullptr);
+        setGadgetPtr(metaType().create(nullptr));
     }
     return gadgetPtr();
 }
@@ -291,9 +283,9 @@ static void doStaticReadCall(
                     valueTypeWrapper->gadgetPtr()), QMetaObject::ReadProperty, index, args);
 }
 
-static ReturnedValue getGadgetProperty(ExecutionEngine *engine,
-                                       Heap::QQmlValueTypeWrapper *valueTypeWrapper,
-                                       QMetaType metaType, quint16 coreIndex, bool isFunction, bool isEnum)
+ReturnedValue QQmlValueTypeWrapper::getGadgetProperty(
+        ExecutionEngine *engine, Heap::QQmlValueTypeWrapper *valueTypeWrapper, QMetaType metaType,
+        quint16 coreIndex, bool isFunction, bool isEnum)
 {
     if (isFunction) {
         // calling a Q_INVOKABLE function of a value type
@@ -466,7 +458,9 @@ PropertyKey QQmlValueTypeWrapperOwnPropertyKeyIterator::next(const Object *o, Pr
         if (pd) {
             QQmlPropertyData data;
             data.load(p);
-            pd->value = getGadgetProperty(that->engine(), that->d(), data.propType(), data.coreIndex(), data.isFunction(), data.isEnum());
+            pd->value = QQmlValueTypeWrapper::getGadgetProperty(
+                    that->engine(), that->d(), data.propType(), data.coreIndex(), data.isFunction(),
+                    data.isEnum());
         }
         return propName->toPropertyKey();
     }
@@ -542,15 +536,33 @@ QMetaType QQmlValueTypeWrapper::type() const
 
 bool QQmlValueTypeWrapper::write(QObject *target, int propertyIndex) const
 {
+    Q_ALLOCA_INIT();
     bool destructGadgetOnExit = false;
-    Q_ALLOCA_DECLARE(void, gadget);
+    auto cleanup = qScopeGuard([&]() {
+        if (destructGadgetOnExit) {
+            d()->setDirty(true);
+            d()->metaType().destruct(d()->gadgetPtr());
+            d()->setGadgetPtr(nullptr);
+        }
+    });
+
+    Q_ALLOCA_DECLARE(void, rawPtr);
+
     if (d()->isReference()) {
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_GCC("-Walloca-larger-than="); // for size = alignment = 0
         if (!d()->gadgetPtr()) {
-            Q_ALLOCA_ASSIGN(void, gadget, d()->metaType().sizeOf());
-            d()->setGadgetPtr(gadget);
+            const size_t size = d()->metaType().sizeOf();
+            const size_t alignment = d()->metaType().alignOf();
+            size_t space = size + alignment - 1;
+            Q_ALLOCA_ASSIGN(void, rawPtr, space);
+            void *alignedPtr = std::align(alignment, size, rawPtr, space);
+            Q_ASSERT(alignedPtr);
+            d()->setGadgetPtr(alignedPtr);
             d()->metaType().construct(d()->gadgetPtr(), nullptr);
             destructGadgetOnExit = true;
         }
+        QT_WARNING_POP
         if (!readReferenceValue())
             return false;
     }
@@ -559,11 +571,6 @@ bool QQmlValueTypeWrapper::write(QObject *target, int propertyIndex) const
     int status = -1;
     void *a[] = { d()->gadgetPtr(), nullptr, &status, &flags };
     QMetaObject::metacall(target, QMetaObject::WriteProperty, propertyIndex, a);
-
-    if (destructGadgetOnExit) {
-        d()->metaType().destruct(d()->gadgetPtr());
-        d()->setGadgetPtr(nullptr);
-    }
     return true;
 }
 
@@ -644,68 +651,8 @@ ReturnedValue QQmlValueTypeWrapper::virtualResolveLookupGetter(const Object *obj
     lookup->qgadgetLookup.coreIndex = result.coreIndex();
     lookup->qgadgetLookup.isFunction = result.isFunction();
     lookup->qgadgetLookup.isEnum = result.isEnum();
-    lookup->getter = QQmlValueTypeWrapper::lookupGetter;
-    return lookup->getter(lookup, engine, *object);
-}
-
-ReturnedValue QQmlValueTypeWrapper::lookupGetter(Lookup *lookup, ExecutionEngine *engine, const Value &object)
-{
-    const auto revertLookup = [lookup, engine, &object]() {
-        lookup->qgadgetLookup.metaObject = quintptr(0);
-        lookup->getter = Lookup::getterGeneric;
-        return Lookup::getterGeneric(lookup, engine, object);
-    };
-
-    // we can safely cast to a QV4::Object here. If object is something else,
-    // the internal class won't match
-    Heap::Object *o = static_cast<Heap::Object *>(object.heapObject());
-    if (!o || o->internalClass != lookup->qgadgetLookup.ic)
-        return revertLookup();
-
-    Heap::QQmlValueTypeWrapper *valueTypeWrapper =
-            const_cast<Heap::QQmlValueTypeWrapper*>(static_cast<const Heap::QQmlValueTypeWrapper *>(o));
-    if (valueTypeWrapper->metaObject() != reinterpret_cast<const QMetaObject *>(lookup->qgadgetLookup.metaObject - 1))
-        return revertLookup();
-
-    if (valueTypeWrapper->isReference() && !valueTypeWrapper->readReference())
-        return Encode::undefined();
-
-    return getGadgetProperty(
-                engine, valueTypeWrapper, QMetaType(lookup->qgadgetLookup.metaType),
-                lookup->qgadgetLookup.coreIndex, lookup->qgadgetLookup.isFunction,
-                lookup->qgadgetLookup.isEnum);
-}
-
-bool QQmlValueTypeWrapper::lookupSetter(
-        Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
-{
-    if (&QQmlValueTypeWrapper::lookupSetter == &QV4::Lookup::setterFallback) {
-        // Certain compilers, e.g. MSVC, will "helpfully" deduplicate methods that are completely
-        // equal. As a result, the pointers are the same, which wreaks havoc on the logic that
-        // decides how to retrieve the property.
-        qFatal("Your C++ compiler is broken.");
-    }
-
-    // This setter marks the presence of a value type setter lookup.
-    // It falls back to the fallback lookup when run through the interpreter, but AOT-compiled
-    // code can get clever with it.
-    return QV4::Lookup::setterFallback(l, engine, object, value);
-}
-
-bool QQmlValueTypeWrapper::lookupSetterAsVariant(
-        Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
-{
-    if (&QQmlValueTypeWrapper::lookupSetterAsVariant == &QQmlValueTypeWrapper::lookupSetter) {
-        // Certain compilers, e.g. MSVC, will "helpfully" deduplicate methods that are completely
-        // equal. As a result, the pointers are the same, which wreaks havoc on the logic that
-        // decides how to retrieve the property.
-        qFatal("Your C++ compiler is broken.");
-    }
-
-    // This setter marks the presence of a value type setter lookup with QVariant conversion.
-    // It falls back to the fallback lookup when run through the interpreter, but AOT-compiled
-    // code can get clever with it.
-    return lookupSetter(l, engine, object, value);
+    lookup->call = Lookup::Call::GetterValueTypeProperty;
+    return lookup->getter(engine, *object);
 }
 
 bool QQmlValueTypeWrapper::virtualResolveLookupSetter(Object *object, ExecutionEngine *engine, Lookup *lookup,
@@ -816,7 +763,10 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
             return true;
         } else if (referenceObject) {
             if (Q_UNLIKELY(lcBuiltinsBindingRemoval().isInfoEnabled())) {
-                if (auto binding = QQmlPropertyPrivate::binding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()))) {
+                if (auto binding = QQmlPropertyPrivate::binding(
+                            referenceObject,
+                            QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()));
+                        binding && !binding->isSticky()) {
                     Q_ASSERT(binding->kind() == QQmlAbstractBinding::QmlBinding);
                     const auto qmlBinding = static_cast<const QQmlBinding*>(binding);
                     const auto stackFrame = v4->currentStackFrame;
@@ -828,7 +778,8 @@ bool QQmlValueTypeWrapper::virtualPut(Managed *m, PropertyKey id, const Value &v
                            qPrintable(stackFrame->source()), stackFrame->lineNumber());
                 }
             }
-            QQmlPropertyPrivate::removeBinding(referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()));
+            QQmlPropertyPrivate::removeBinding(
+                    referenceObject, QQmlPropertyIndex(referencePropertyIndex, pd.coreIndex()));
         }
     }
 

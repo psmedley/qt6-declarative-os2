@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Jolla Ltd, author: <gunnar.sletta@jollamobile.com>
 // Copyright (C) 2016 Robin Burchell <robin.burchell@viroteck.net>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGRHIVISUALIZER_P_H
 #define QSGRHIVISUALIZER_P_H
@@ -69,7 +70,7 @@ private:
     QShader m_vs;
     QShader m_fs;
 
-    void recordDrawCalls(const QVector<DrawCall> &drawCalls,
+    void recordDrawCalls(const QList<DrawCall> &drawCalls,
                          QRhiCommandBuffer *cb,
                          QRhiShaderResourceBindings *srb,
                          bool blendOneOne = false);
@@ -120,7 +121,7 @@ private:
     private:
         void gather(Node *n);
         RhiVisualizer *visualizer;
-        QVector<DrawCall> drawCalls;
+        QList<DrawCall> drawCalls;
         QRhiBuffer *vbuf = nullptr;
         QRhiBuffer *ibuf = nullptr;
         QRhiBuffer *ubuf = nullptr;
@@ -140,7 +141,7 @@ private:
         void gather(Batch *b);
         RhiVisualizer *visualizer;
         bool forceUintIndex;
-        QVector<DrawCall> drawCalls;
+        QList<DrawCall> drawCalls;
         QRhiBuffer *ubuf = nullptr;
         QRhiShaderResourceBindings *srb = nullptr;
     } m_batchVis;
@@ -154,7 +155,7 @@ private:
     private:
         void gather(QSGNode *node);
         RhiVisualizer *visualizer;
-        QVector<DrawCall> drawCalls;
+        QList<DrawCall> drawCalls;
         QRhiBuffer *vbuf = nullptr;
         QRhiBuffer *ibuf = nullptr;
         QRhiBuffer *ubuf = nullptr;
@@ -170,7 +171,7 @@ private:
     private:
         void gather(Node *n);
         RhiVisualizer *visualizer;
-        QVector<DrawCall> drawCalls;
+        QList<DrawCall> drawCalls;
         QRhiBuffer *vbuf = nullptr;
         QRhiBuffer *ibuf = nullptr;
         QRhiBuffer *ubuf = nullptr;

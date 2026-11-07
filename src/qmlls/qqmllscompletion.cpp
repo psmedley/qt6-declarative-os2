@@ -1,15 +1,16 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmllscompletion_p.h"
-
-using namespace QLspSpecification;
-using namespace QQmlJS::Dom;
-using namespace Qt::StringLiterals;
 
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(QQmlLSCompletionLog, "qt.languageserver.completions")
+
+using namespace QLspSpecification;
+using namespace QQmlJS::Dom;
+using namespace Qt::StringLiterals;
 
 /*!
 \class QQmlLSCompletion
@@ -55,7 +56,7 @@ CompletionItem QQmlLSCompletion::makeSnippet(QUtf8StringView qualifier, QUtf8Str
     } else {
         res.insertText = insertText.data();
     }
-    res.kind = int(CompletionItemKind::Snippet);
+    res.kind = CompletionItemKind::Snippet;
     res.insertTextMode = InsertTextMode::AdjustIndentation;
     return res;
 }
@@ -179,7 +180,7 @@ void QQmlLSCompletion::insideImportCompletionHelper(const DomItem &file,
     if (effectiveLength < 2) {
         CompletionItem comp;
         comp.label = "import";
-        comp.kind = int(CompletionItemKind::Keyword);
+        comp.kind = CompletionItemKind::Keyword;
         it = comp;
     }
     if (linePieces.isEmpty() || linePieces.first() != u"import")
@@ -192,7 +193,7 @@ void QQmlLSCompletion::insideImportCompletionHelper(const DomItem &file,
             // the cursor is after the module, possibly in a partial version token (or partial as)
             CompletionItem comp;
             comp.label = "as";
-            comp.kind = int(CompletionItemKind::Keyword);
+            comp.kind = CompletionItemKind::Keyword;
             it = comp;
             importCompletionType = ImportCompletionType::Version;
         }
@@ -215,7 +216,7 @@ void QQmlLSCompletion::insideImportCompletionHelper(const DomItem &file,
                     if (!modulesSeen.hasSeen(label)) {
                         CompletionItem comp;
                         comp.label = label.toUtf8();
-                        comp.kind = int(CompletionItemKind::Module);
+                        comp.kind = CompletionItemKind::Module;
                         it = comp;
                     }
                 }
@@ -228,7 +229,7 @@ void QQmlLSCompletion::insideImportCompletionHelper(const DomItem &file,
                      envPtr->moduleIndexMajorVersions(env, linePieces.at(1).toString())) {
                     CompletionItem comp;
                     comp.label = QString::number(majorV).toUtf8();
-                    comp.kind = int(CompletionItemKind::Constant);
+                    comp.kind = CompletionItemKind::Constant;
                     it = comp;
                 }
             } else {
@@ -243,7 +244,7 @@ void QQmlLSCompletion::insideImportCompletionHelper(const DomItem &file,
                     for (int minorV : mIndex->minorVersions()) {
                         CompletionItem comp;
                         comp.label = QString::number(minorV).toUtf8();
-                        comp.kind = int(CompletionItemKind::Constant);
+                        comp.kind = CompletionItemKind::Constant;
                         it = comp;
                     }
                 }
@@ -259,7 +260,7 @@ void QQmlLSCompletion::idsCompletions(const DomItem &component, BackInsertIterat
     for (const QString &k : component.field(Fields::ids).keys()) {
         CompletionItem comp;
         comp.label = k.toUtf8();
-        comp.kind = int(CompletionItemKind::Value);
+        comp.kind = CompletionItemKind::Value;
         it = comp;
     }
 }
@@ -317,7 +318,7 @@ void QQmlLSCompletion::suggestReachableTypes(const DomItem &el, LocalSymbolsType
 
         CompletionItem completion;
         completion.label = QStringView(type.first).sliced(requiredQualifiers.size()).toUtf8();
-        completion.kind = int(kind);
+        completion.kind = kind;
         it = completion;
     }
 }
@@ -332,7 +333,7 @@ void QQmlLSCompletion::jsIdentifierCompletion(const QQmlJSScope::ConstPtr &scope
             continue;
         }
         completion.label = name.toUtf8();
-        completion.kind = int(CompletionItemKind::Variable);
+        completion.kind = CompletionItemKind::Variable;
         QString detail = u"has type "_s;
         if (jsIdentifier.typeName) {
             if (jsIdentifier.isConst) {
@@ -360,7 +361,7 @@ void QQmlLSCompletion::methodCompletion(const QQmlJSScope::ConstPtr &scope,
         }
         CompletionItem completion;
         completion.label = name.toUtf8();
-        completion.kind = int(CompletionItemKind::Method);
+        completion.kind = CompletionItemKind::Method;
         it = completion;
         // TODO: QQmlLSUtils::reachableSymbols seems to be able to do documentation and detail
         // and co, it should also be done here if possible.
@@ -377,7 +378,7 @@ void QQmlLSCompletion::propertyCompletion(const QQmlJSScope::ConstPtr &scope,
         }
         CompletionItem completion;
         completion.label = name.toUtf8();
-        completion.kind = int(CompletionItemKind::Property);
+        completion.kind = CompletionItemKind::Property;
         QString detail{ u"has type "_s };
         if (!property.isWritable())
             detail.append(u"readonly "_s);
@@ -397,7 +398,7 @@ void QQmlLSCompletion::enumerationCompletion(const QQmlJSScope::ConstPtr &scope,
         }
         CompletionItem completion;
         completion.label = enumerator.name().toUtf8();
-        completion.kind = static_cast<int>(CompletionItemKind::Enum);
+        completion.kind = CompletionItemKind::Enum;
         it = completion;
     }
 }
@@ -408,7 +409,7 @@ void QQmlLSCompletion::enumerationValueCompletionHelper(const QStringList &enume
     for (const QString &enumeratorKey : enumeratorKeys) {
         CompletionItem completion;
         completion.label = enumeratorKey.toUtf8();
-        completion.kind = static_cast<int>(CompletionItemKind::EnumMember);
+        completion.kind = CompletionItemKind::EnumMember;
         it = completion;
     }
 }
@@ -542,7 +543,7 @@ void QQmlLSCompletion::suggestJSExpressionCompletion(const DomItem &scriptIdenti
         for (QUtf8StringView view : std::array<QUtf8StringView, 3>{ "null", "false", "true" }) {
             CompletionItem completion;
             completion.label = view.data();
-            completion.kind = int(CompletionItemKind::Value);
+            completion.kind = CompletionItemKind::Value;
             result = completion;
         }
         idsCompletions(scriptIdentifier.component(), result);
@@ -645,7 +646,7 @@ bool QQmlLSCompletion::cursorInFrontOfItem(const DomItem &parentForContext,
                                            const QQmlLSCompletionPosition &positionInfo)
 {
     auto fileLocations = FileLocations::treeOf(parentForContext)->info().fullRegion;
-    return positionInfo.offset() <= fileLocations.offset;
+    return positionInfo.offset() <= fileLocations.begin();
 }
 
 bool QQmlLSCompletion::cursorAfterColon(const DomItem &currentItem,
@@ -657,7 +658,7 @@ bool QQmlLSCompletion::cursorAfterColon(const DomItem &currentItem,
     if (region == location.regions.constEnd())
         return false;
 
-    if (region.value().isValid() && region.value().offset < positionInfo.offset()) {
+    if (region.value().isValid() && region.value().begin() < positionInfo.offset()) {
         return true;
     }
     return false;
@@ -695,7 +696,7 @@ void QQmlLSCompletion::insidePragmaCompletion(QQmlJS::Dom::DomItem currentItem,
         for (const auto &value : *values) {
             CompletionItem comp;
             comp.label = value.toUtf8();
-            comp.kind = static_cast<int>(CompletionItemKind::Value);
+            comp.kind = CompletionItemKind::Value;
             result = comp;
         }
         return;
@@ -707,7 +708,7 @@ void QQmlLSCompletion::insidePragmaCompletion(QQmlJS::Dom::DomItem currentItem,
         if (!pragma.second.isEmpty()) {
             comp.insertText = QString(pragma.first).append(u": ").toUtf8();
         }
-        comp.kind = static_cast<int>(CompletionItemKind::Value);
+        comp.kind = CompletionItemKind::Value;
         result = comp;
     }
 }
@@ -760,20 +761,46 @@ void QQmlLSCompletion::insideQmlObjectCompletion(const DomItem &parentForContext
     }
 
     if (betweenLocations(leftBrace, positionInfo, rightBrace)) {
-        // default/required property completion
-        for (QUtf8StringView view :
-             std::array<QUtf8StringView, 6>{ "", "readonly ", "default ", "default required ",
-                                             "required default ", "required " }) {
-            // readonly properties require an initializer
-            if (view != QUtf8StringView("readonly ")) {
+        // TODO(QTBUG-138020)
+
+        // property attributes completion
+        constexpr static std::array completions{ ""_L1,
+                                                 "default "_L1,
+                                                 "final "_L1,
+                                                 "virtual "_L1,
+                                                 "override "_L1,
+                                                 "required "_L1,
+                                                 "readonly "_L1,
+                                                 "default final "_L1,
+                                                 "default virtual "_L1,
+                                                 "default override "_L1,
+                                                 "default required "_L1,
+                                                 "final required "_L1,
+                                                 "final readonly "_L1,
+                                                 "virtual required "_L1,
+                                                 "virtual readonly "_L1,
+                                                 "override required "_L1,
+                                                 "override readonly "_L1,
+                                                 "default final required "_L1,
+                                                 "default virtual required "_L1,
+                                                 "default override required "_L1 };
+        for (QLatin1StringView completion : completions) {
+            // By default we should suggest both declarations: with and without an initializer
+            // However readonly properties are required to have an initializer,
+            // and required ones, on the contrary, should not have an initializer
+
+            if (!completion.contains(QLatin1StringView("readonly"))) {
                 result = makeSnippet(
-                        QByteArray(view.data()).append("property type name;"),
-                        QByteArray(view.data()).append("property ${1:type} ${0:name};"));
+                        QByteArray(completion.data()).append("property type name;"),
+                        QByteArray(completion.data()).append("property ${1:type} ${0:name};"));
             }
 
-            result = makeSnippet(
-                    QByteArray(view.data()).append("property type name: value;"),
-                    QByteArray(view.data()).append("property ${1:type} ${2:name}: ${0:value};"));
+            if (!completion.contains(QLatin1StringView("required"))) {
+                result = makeSnippet(
+                        QByteArray(completion.data()).append("property type name: value;"),
+                        QByteArray(completion.data())
+                                .append("property ${1:type} ${2:name}: ${0:value};"));
+            }
         }
 
         // signal
@@ -807,6 +834,7 @@ void QQmlLSCompletion::insideQmlObjectCompletion(const DomItem &parentForContext
     }
 }
 
+// TODO(QTBUG-138020)
 void QQmlLSCompletion::insidePropertyDefinitionCompletion(
         const DomItem &currentItem, const QQmlLSCompletionPosition &positionInfo,
         BackInsertIterator result) const
@@ -815,52 +843,55 @@ void QQmlLSCompletion::insidePropertyDefinitionCompletion(
     const QQmlJS::SourceLocation propertyKeyword = info.regions[PropertyKeywordRegion];
 
     // do completions for the keywords
-    if (positionInfo.offset() < propertyKeyword.offset + propertyKeyword.length) {
-        const QQmlJS::SourceLocation readonlyKeyword = info.regions[ReadonlyKeywordRegion];
-        const QQmlJS::SourceLocation defaultKeyword = info.regions[DefaultKeywordRegion];
-        const QQmlJS::SourceLocation requiredKeyword = info.regions[RequiredKeywordRegion];
-
-        bool completeReadonly = true;
-        bool completeRequired = true;
-        bool completeDefault = true;
-
-        // if there is already a readonly keyword before the cursor: do not auto complete it again
-        if (readonlyKeyword.isValid() && readonlyKeyword.offset < positionInfo.offset()) {
-            completeReadonly = false;
-            // also, required keywords do not like readonly keywords
-            completeRequired = false;
-        }
-
-        // same for required
-        if (requiredKeyword.isValid() && requiredKeyword.offset < positionInfo.offset()) {
-            completeRequired = false;
-            // also, required keywords do not like readonly keywords
-            completeReadonly = false;
-        }
-
-        // same for default
-        if (defaultKeyword.isValid() && defaultKeyword.offset < positionInfo.offset()) {
-            completeDefault = false;
-        }
-        auto addCompletionKeyword = [&result](QUtf8StringView view, bool complete) {
-            if (!complete)
-                return;
+    if (positionInfo.offset() < propertyKeyword.end()) {
+        auto addCompletionKeyword = [&result](QUtf8StringView view) {
             CompletionItem item;
             item.label = view.data();
-            item.kind = int(CompletionItemKind::Keyword);
+            item.kind = CompletionItemKind::Keyword;
             result = item;
         };
-        addCompletionKeyword(u8"readonly", completeReadonly);
-        addCompletionKeyword(u8"required", completeRequired);
-        addCompletionKeyword(u8"default", completeDefault);
-        addCompletionKeyword(u8"property", true);
+
+        const auto alreadyTyped = [&info,
+                                   &positionInfo](const FileLocationRegion &keywordRegion) -> bool {
+            const auto &keywordSLoc = info.regions[keywordRegion];
+            return keywordSLoc.isValid() && keywordSLoc.begin() < positionInfo.offset();
+        };
+
+        const bool alreadyTypedReadonlyOrRequired =
+                alreadyTyped(ReadonlyKeywordRegion) || alreadyTyped(RequiredKeywordRegion);
+        if (!alreadyTypedReadonlyOrRequired) {
+            // Suggestions for `readonly` and `required` are mutually exclusive.
+            // If one is already typed, we suggest neither.
+            // If neither is present, both are valid suggestions.
+
+            addCompletionKeyword(u8"readonly");
+            addCompletionKeyword(u8"required");
+        }
+
+        if (!alreadyTyped(DefaultKeywordRegion)) {
+            addCompletionKeyword(u8"default");
+        }
+
+        const bool alreadyTypedVirtualOrOverrideOrFinal = alreadyTyped(VirtualKeywordRegion)
+                || alreadyTyped(OverrideKeywordRegion) || alreadyTyped(FinalKeywordRegion);
+        if (!alreadyTypedVirtualOrOverrideOrFinal) {
+            // `virtual`, `override`, and `final` cannot be combined.
+            // If one is typed, suggest nothing.
+            // If none are typed, suggest all three.
+
+            addCompletionKeyword(u8"final");
+            addCompletionKeyword(u8"virtual");
+            addCompletionKeyword(u8"override");
+        }
+
+        addCompletionKeyword(u8"property");
 
         return;
     }
 
     const QQmlJS::SourceLocation propertyIdentifier = info.regions[IdentifierRegion];
     if (propertyKeyword.end() <= positionInfo.offset()
-        && positionInfo.offset() < propertyIdentifier.offset) {
+        && positionInfo.offset() < propertyIdentifier.begin()) {
         suggestReachableTypes(currentItem,
                               LocalSymbolsType::ObjectType | LocalSymbolsType::ValueType,
                               CompletionItemKind::Class, result);
@@ -939,7 +970,7 @@ void QQmlLSCompletion::insideQmlFileCompletion(const DomItem &currentItem,
             for (const QStringView &s : std::array<QStringView, 2>({ u"pragma", u"import" })) {
                 CompletionItem comp;
                 comp.label = s.toUtf8();
-                comp.kind = int(CompletionItemKind::Keyword);
+                comp.kind = CompletionItemKind::Keyword;
                 result = comp;
             }
         }
@@ -1011,14 +1042,14 @@ void QQmlLSCompletion::suggestContinueAndBreakStatementIfNeeded(const DomItem &i
         case DomType::ScriptDoWhileStatement: {
             CompletionItem continueKeyword;
             continueKeyword.label = "continue";
-            continueKeyword.kind = int(CompletionItemKind::Keyword);
+            continueKeyword.kind = CompletionItemKind::Keyword;
             result = continueKeyword;
 
             // do not add break twice
             if (!alreadyInSwitch && !alreadyInLabel) {
                 CompletionItem breakKeyword;
                 breakKeyword.label = "break";
-                breakKeyword.kind = int(CompletionItemKind::Keyword);
+                breakKeyword.kind = CompletionItemKind::Keyword;
                 result = breakKeyword;
             }
             // early exit: cannot suggest more completions
@@ -1032,7 +1063,7 @@ void QQmlLSCompletion::suggestContinueAndBreakStatementIfNeeded(const DomItem &i
 
             CompletionItem breakKeyword;
             breakKeyword.label = "break";
-            breakKeyword.kind = int(CompletionItemKind::Keyword);
+            breakKeyword.kind = CompletionItemKind::Keyword;
             result = breakKeyword;
             break;
         }
@@ -1044,7 +1075,7 @@ void QQmlLSCompletion::suggestContinueAndBreakStatementIfNeeded(const DomItem &i
 
             CompletionItem breakKeyword;
             breakKeyword.label = "break";
-            breakKeyword.kind = int(CompletionItemKind::Keyword);
+            breakKeyword.kind = CompletionItemKind::Keyword;
             result = breakKeyword;
             break;
         }
@@ -1117,10 +1148,10 @@ void QQmlLSCompletion::suggestJSStatementCompletion(const DomItem &itemAtPositio
             "try {\n\t$1\n} catch($2) {\n\t$3\n} finally {\n\t$0\n}");
 
     // one can always assume that JS code in QML is inside a function, so always propose `return`
-    for (auto &&view : { "return"_ba, "throw"_ba }) {
+    for (const QByteArray &view : { "return"_ba, "throw"_ba }) {
         CompletionItem item;
-        item.label = std::move(view);
-        item.kind = int(CompletionItemKind::Keyword);
+        item.label = view;
+        item.kind = CompletionItemKind::Keyword;
         result = item;
     }
 
@@ -1565,7 +1596,7 @@ static void collectLabels(const DomItem &context, QQmlLSCompletion::BackInsertIt
                 continue;
             CompletionItem item;
             item.label = label.toUtf8();
-            item.kind = int(CompletionItemKind::Value); // variable?
+            item.kind = CompletionItemKind::Value; // variable?
             // TODO: more stuff here?
             result = item;
         } else if (current.internalKind() == DomType::ScriptExpression) {
@@ -1723,7 +1754,7 @@ void QQmlLSCompletion::signalHandlerCompletion(const QQmlJSScope::ConstPtr &scop
 
         CompletionItem completion;
         completion.label = QQmlSignalNames::signalNameToHandlerName(name).toUtf8();
-        completion.kind = int(CompletionItemKind::Method);
+        completion.kind = CompletionItemKind::Method;
         result = completion;
     }
 }

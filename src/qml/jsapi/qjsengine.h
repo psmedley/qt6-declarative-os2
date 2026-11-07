@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QJSENGINE_H
 #define QJSENGINE_H
@@ -114,6 +115,10 @@ public:
     template <typename T>
     inline T fromVariant(const QVariant &value)
     {
+        // MSVC doesn't like the constexpr chains and complains about "unreachable code"
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_MSVC(4702)
+
         if constexpr (std::is_same_v<T, QVariant>)
             return value;
 
@@ -145,6 +150,18 @@ public:
             }
         }
 
+        if constexpr (std::is_same_v<T, double>) {
+            if (sourceType == QMetaType::fromType<int>())
+                return double(*static_cast<const int *>(value.constData()));
+        }
+
+        if constexpr (std::is_same_v<T, int>) {
+            if (sourceType == QMetaType::fromType<double>()) {
+                return QJSNumberCoercion::toInteger(
+                        *static_cast<const double *>(value.constData()));
+            }
+        }
+
         if constexpr (std::is_same_v<QObject, std::remove_const_t<std::remove_pointer_t<T>>>) {
             if (sourceType.flags() & QMetaType::PointerToQObject) {
                 return *static_cast<QObject *const *>(value.constData());
@@ -167,7 +184,7 @@ public:
                         *reinterpret_cast<const QJSPrimitiveValue *>(value.constData()));
         }
 
-        {
+        return [&] {
             T t{};
             if (value.metaType() == QMetaType::fromType<QString>()) {
                 if (convertString(value.toString(), targetType, &t))
@@ -178,7 +195,9 @@ public:
 
             QMetaType::convert(value.metaType(), value.constData(), targetType, &t);
             return t;
-        }
+        }();
+
+        QT_WARNING_POP
     }
 
     template<typename From, typename To>
@@ -260,7 +279,17 @@ public:
                 return from;
         }
 
-        {
+        if constexpr (std::is_same_v<To, double>) {
+            if constexpr (std::is_same_v<From, int>)
+                return double(from);
+        }
+
+        if constexpr (std::is_same_v<To, int>) {
+            if constexpr (std::is_same_v<From, double>)
+                return QJSNumberCoercion::toInteger(from);
+        }
+
+        return [&] {
             const QMetaType sourceType = QMetaType::fromType<From>();
             const QMetaType targetType = QMetaType::fromType<To>();
             To to{};
@@ -273,7 +302,7 @@ public:
 
             QMetaType::convert(sourceType, &from, targetType, &to);
             return to;
-        }
+        }();
     }
 
     void collectGarbage();

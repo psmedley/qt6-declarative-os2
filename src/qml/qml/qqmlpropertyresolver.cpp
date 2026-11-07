@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpropertyresolver_p.h"
 #include <private/qqmlcontextdata_p.h>
@@ -7,10 +8,11 @@
 
 QT_BEGIN_NAMESPACE
 
-const QQmlPropertyData *QQmlPropertyResolver::property(const QString &name, bool *notInRevision,
-                                                 RevisionCheck check) const
+const QQmlPropertyData *QQmlPropertyResolver::property(
+        const QString &name, bool *notInRevision, RevisionCheck check) const
 {
-    if (notInRevision) *notInRevision = false;
+    if (notInRevision)
+        *notInRevision = false;
 
     const QQmlPropertyData *d = cache->property(name, nullptr, nullptr);
 
@@ -19,34 +21,36 @@ const QQmlPropertyData *QQmlPropertyResolver::property(const QString &name, bool
         d = cache->overrideData(d);
 
     if (check != IgnoreRevision && d && !cache->isAllowedInRevision(d)) {
-        if (notInRevision) *notInRevision = true;
+        if (notInRevision)
+            *notInRevision = true;
         return nullptr;
-    } else {
-        return d;
     }
+
+    return d;
 }
 
-
-const QQmlPropertyData *QQmlPropertyResolver::signal(const QString &name, bool *notInRevision) const
+const QQmlPropertyData *QQmlPropertyResolver::signal(
+        const QString &name, bool *notInRevision, RevisionCheck check) const
 {
-    if (notInRevision) *notInRevision = false;
+    if (notInRevision)
+        *notInRevision = false;
 
     const QQmlPropertyData *d = cache->property(name, nullptr, nullptr);
-    if (notInRevision) *notInRevision = false;
 
-    while (d && !(d->isFunction()))
+    while (d && !d->isFunction())
         d = cache->overrideData(d);
 
-    if (d && !cache->isAllowedInRevision(d)) {
-        if (notInRevision) *notInRevision = true;
+    if (check != IgnoreRevision && d && !cache->isAllowedInRevision(d)) {
+        if (notInRevision)
+            *notInRevision = true;
         return nullptr;
-    } else if (d && d->isSignal()) {
-        return d;
     }
 
-    if (auto propName = QQmlSignalNames::changedSignalNameToPropertyName(name)) {
-        d = property(*propName, notInRevision);
-        if (d)
+    if (d && d->isSignal())
+        return d;
+
+    if (const auto propName = QQmlSignalNames::changedSignalNameToPropertyName(name)) {
+        if (d = property(*propName, notInRevision, check); d)
             return cache->signal(d->notifyIndex());
     }
 

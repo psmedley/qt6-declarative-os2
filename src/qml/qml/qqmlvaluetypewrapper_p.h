@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLVALUETYPEWRAPPER_P_H
 #define QQMLVALUETYPEWRAPPER_P_H
@@ -37,7 +38,7 @@ DECLARE_HEAP_OBJECT(QQmlValueTypeWrapper, ReferenceObject) {
         const void *data, QMetaType metaType, const QMetaObject *metaObject,
         Object *object, int property, Flags flags)
     {
-        ReferenceObject::init(object, property, flags);
+        ReferenceObject::init(object, property, flags | IsDirty);
         setMetaType(metaType);
         setMetaObject(metaObject);
         if (data)
@@ -99,6 +100,7 @@ struct Q_QML_EXPORT QQmlValueTypeWrapper : public ReferenceObject
 {
     V4_OBJECT2(QQmlValueTypeWrapper, ReferenceObject)
     V4_PROTOTYPE(valueTypeWrapperPrototype)
+    Q_MANAGED_TYPE(QMLValueTypeWrapper)
     V4_NEEDS_DESTROY
 
 public:
@@ -113,8 +115,8 @@ public:
 
     QVariant toVariant() const;
 
-    template<typename ValueType>
-    ValueType *cast()
+    template <typename ValueType>
+    ValueType *cast() const
     {
         if (QMetaType::fromType<ValueType>() != d()->metaType())
             return nullptr;
@@ -142,22 +144,19 @@ public:
     static ReturnedValue method_toString(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc);
     static ReturnedValue virtualResolveLookupGetter(const Object *object, ExecutionEngine *engine, Lookup *lookup);
     static bool virtualResolveLookupSetter(Object *object, ExecutionEngine *engine, Lookup *lookup, const Value &value);
-    static ReturnedValue lookupGetter(Lookup *lookup, ExecutionEngine *engine, const Value &object);
-    static bool lookupSetter(
-            QV4::Lookup *l, QV4::ExecutionEngine *engine, QV4::Value &object,
-            const QV4::Value &value);
-    static bool lookupSetterAsVariant(
-            QV4::Lookup *l, QV4::ExecutionEngine *engine, QV4::Value &object,
-            const QV4::Value &value);
 
     static void initProto(ExecutionEngine *v4);
     static int virtualMetacall(Object *object, QMetaObject::Call call, int index, void **a);
+
+    static ReturnedValue getGadgetProperty(
+            ExecutionEngine *engine, Heap::QQmlValueTypeWrapper *valueTypeWrapper,
+            QMetaType metaType, quint16 coreIndex, bool isFunction, bool isEnum);
 };
 
 }
 
 QT_END_NAMESPACE
 
-#endif // QV8VALUETYPEWRAPPER_P_H
+#endif // QQMLVALUETYPEWRAPPER_P_H
 
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickoverlay_p.h"
 #include "qquickpopuppositioner_p_p.h"
@@ -14,7 +15,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcPopupPositioner, "qt.quick.controls.popuppositioner")
+Q_STATIC_LOGGING_CATEGORY(lcPopupPositioner, "qt.quick.controls.popuppositioner")
 
 static const QQuickItemPrivate::ChangeTypes AncestorChangeTypes = QQuickItemPrivate::Geometry
                                                                   | QQuickItemPrivate::Parent
@@ -134,7 +135,7 @@ void QQuickPopupPositioner::reposition()
 
         // The overlay is assumed to fully cover the window's contents, although the overlay's geometry
         // might not always equal the window's geometry (for example, if the window's contents are rotated).
-        QQuickOverlay *overlay = QQuickOverlay::overlay(p->window);
+        QQuickOverlay *overlay = QQuickOverlay::overlay(p->window, p->parentItem);
         if (overlay) {
             qreal boundsWidth = overlay->width();
             qreal boundsHeight = overlay->height();
@@ -287,7 +288,6 @@ void QQuickPopupPositioner::reposition()
 void QQuickPopupPositioner::repositionPopupWindow()
 {
     auto *p = QQuickPopupPrivate::get(popup());
-    QQuickPopupItem *popupItem = static_cast<QQuickPopupItem *>(m_popup->popupItem());
 
     QPointF requestedPos(p->x, p->y);
     // Shift the window position a bit back, so that the top-left of the
@@ -302,6 +302,12 @@ void QQuickPopupPositioner::repositionPopupWindow()
         return;
     }
 
+    // Wayland does server side repositioning.
+    // All other platforms handle the repositioning on the client side.
+    if (QGuiApplication::platformName().startsWith(QLatin1String("wayland")))
+        return;
+
+    QQuickPopupItem *popupItem = static_cast<QQuickPopupItem *>(m_popup->popupItem());
     const QQuickItem *centerInParent = p->anchors ? p->getAnchors()->centerIn() : nullptr;
     const QQuickOverlay *centerInOverlay = qobject_cast<const QQuickOverlay *>(centerInParent);
     bool skipFittingStep = false;
@@ -320,6 +326,7 @@ void QQuickPopupPositioner::repositionPopupWindow()
     const QPointF globalCoords = centerInOverlay ? centerInOverlay->mapToGlobal(windowPos.x(), windowPos.y())
                                                  : p->parentItem->mapToGlobal(windowPos.x(), windowPos.y());
     QRectF rect = { globalCoords.x(), globalCoords.y(), popupItem->width(), popupItem->height() };
+
     if (!skipFittingStep) {
         const QScreen *screenAtPopupPosition = QGuiApplication::screenAt(globalCoords.toPoint());
         const QScreen *screen = screenAtPopupPosition ? screenAtPopupPosition : QGuiApplication::primaryScreen();

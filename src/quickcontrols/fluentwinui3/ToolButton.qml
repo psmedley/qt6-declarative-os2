@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
@@ -14,38 +15,20 @@ T.ToolButton {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    spacing: config.spacing || 0
+    spacing: __config.spacing || 0
 
-    topPadding: config.topPadding || 0
-    bottomPadding: config.bottomPadding || 0
-    leftPadding: config.leftPadding || 0
-    rightPadding: config.rightPadding || 0
+    topPadding: __config.topPadding || 0
+    bottomPadding: __config.bottomPadding || 0
+    leftPadding: __config.leftPadding || 0
+    rightPadding: __config.rightPadding || 0
 
-    topInset: -config.topInset || 0
-    bottomInset: -config.bottomInset || 0
-    leftInset: -config.leftInset || 0
-    rightInset: -config.rightInset || 0
+    topInset: -__config.topInset || 0
+    bottomInset: -__config.bottomInset || 0
+    leftInset: -__config.leftInset || 0
+    rightInset: -__config.rightInset || 0
 
-    icon.width: config.icon.width
-    icon.height: config.icon.height
-    icon.color: __buttonText
-
-    readonly property color __buttonText: {
-        if (control.down) {
-            return (control.checked || control.highlighted)
-                ? Application.styleHints.colorScheme == Qt.Light
-                    ? Qt.rgba(1, 1, 1, 0.7) : Qt.rgba(0, 0, 0, 0.5)
-                : (Application.styleHints.colorScheme === Qt.Light
-                    ? Qt.rgba(control.palette.buttonText.r, control.palette.buttonText.g, control.palette.buttonText.b, 0.62)
-                    : Qt.rgba(control.palette.buttonText.r, control.palette.buttonText.g, control.palette.buttonText.b, 0.7725))
-        } else if (control.checked || control.highlighted) {
-            return (Application.styleHints.colorScheme === Qt.Dark && !control.enabled)
-                ? Qt.rgba(1, 1, 1, 0.5302)
-                : (Application.styleHints.colorScheme === Qt.Dark ? "black" : "white")
-        } else {
-            return control.palette.buttonText
-        }
-    }
+    icon.width: __config.icon.width
+    icon.height: __config.icon.height
 
     readonly property string __currentState: [
         control.checked && "checked",
@@ -53,7 +36,7 @@ T.ToolButton {
         control.enabled && !control.down && control.hovered && "hovered",
         down && "pressed"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var config: Config.controls.toolbutton[__currentState] || {}
+    readonly property var __config: Config.controls.toolbutton[__currentState] || {}
 
     readonly property Item __focusFrameTarget: control
 
@@ -63,16 +46,52 @@ T.ToolButton {
         display: control.display
 
         icon: control.icon
+        defaultIconColor: {
+            if (Application.styleHints.accessibility.contrastPreference === Qt.HighContrast) {
+                if (!control.enabled)
+                    return control.palette.buttonText
+                else if (control.checked && (control.hovered || control.down))
+                    return control.palette.highlight
+                else if (!control.checked && !(control.down || control.hovered))
+                    return control.palette.buttonText
+                else
+                    return control.palette.button
+            }
+            if (control.down) {
+                return (control.checked || control.highlighted)
+                    ? Application.styleHints.colorScheme == Qt.Light
+                        ? Qt.rgba(1, 1, 1, 0.7) : Qt.rgba(0, 0, 0, 0.5)
+                    : (Application.styleHints.colorScheme === Qt.Light
+                        ? Qt.rgba(control.palette.buttonText.r, control.palette.buttonText.g, control.palette.buttonText.b, 0.62)
+                        : Qt.rgba(control.palette.buttonText.r, control.palette.buttonText.g, control.palette.buttonText.b, 0.7725))
+            } else if (control.checked || control.highlighted) {
+                return (Application.styleHints.colorScheme === Qt.Dark && !control.enabled)
+                    ? Qt.rgba(1, 1, 1, 0.5302)
+                    : (Application.styleHints.colorScheme === Qt.Dark ? "black" : "white")
+            } else {
+                return control.palette.buttonText
+            }
+        }
         text: control.text
         font: control.font
-        color: control.icon.color
+        color: defaultIconColor
     }
 
     background: ButtonBackground {
         control: control
-        implicitHeight: control.config.background.height
+        implicitHeight: control.__config.background.height
         implicitWidth: implicitHeight
-        radius: control.config.background.topOffset
+        radius: control.__config.background.topOffset
         subtle: !(control.checked || control.highlighted) || control.flat
+        highContrastBackgroundColorFunc: function() {
+            if (!control.enabled)
+                return "transparent"
+            else if (control.checked && control.hovered)
+                return control.palette.highlightedText
+            else if (control.checked || control.hovered)
+                return control.palette.highlight
+            else
+                return control.palette.button
+        }
     }
 }

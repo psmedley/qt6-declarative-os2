@@ -18,7 +18,6 @@ qt_internal_add_plugin(QDebugMessageServiceFactoryPlugin
         Qt::Core
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
-    OS2_SHORT_NAME qmldbgme
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_messages.pro:<TRUE>:

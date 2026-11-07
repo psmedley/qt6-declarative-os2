@@ -29,7 +29,9 @@ QT_BEGIN_NAMESPACE
 class QQuickShaderEffect;
 class QQuickShaderEffectSource;
 
-class QQuickMultiEffectPrivate : public QQuickItemPrivate
+class QQuickMultiEffectPrivate : public QQuickItemPrivate,
+                                 public QSafeQuickItemChangeListener<QQuickMultiEffectPrivate>
+
 {
     Q_DECLARE_PUBLIC(QQuickMultiEffect)
 
@@ -141,13 +143,15 @@ public:
     void updateProxyActiveCheck();
     void proxyOutputChanged();
 
+    void itemDestroyed(QQuickItem *item) final;
+
 private:
     bool m_initialized = false;
     QQuickItem *m_sourceItem = nullptr;
     QGfxSourceProxyME *m_shaderSource = nullptr;
     QQuickShaderEffect *m_shaderEffect = nullptr;
     QQuickShaderEffectSource *m_dummyShaderSource = nullptr;
-    QVector<QQuickShaderEffect *> m_blurEffects;
+    QList<QQuickShaderEffect *> m_blurEffects;
     bool m_autoPaddingEnabled = true;
     QRectF m_paddingRect;
     qreal m_brightness = 0.0;

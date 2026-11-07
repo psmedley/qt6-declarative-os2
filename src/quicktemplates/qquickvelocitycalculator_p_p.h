@@ -1,5 +1,6 @@
-// Copyright (C) 2021 The Qt Company Ltd.
+// Copyright (C) 2025 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKVELOCITYCALCULATOR_P_P_H
 #define QQUICKVELOCITYCALCULATOR_P_P_H
@@ -16,7 +17,6 @@
 //
 
 #include <QtCore/qpoint.h>
-#include <QtCore/qelapsedtimer.h>
 #include <QtCore/private/qglobal_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -24,9 +24,9 @@ QT_BEGIN_NAMESPACE
 class QQuickVelocityCalculator
 {
 public:
-    void startMeasuring(const QPointF &point1, qint64 timestamp = 0);
-    void stopMeasuring(const QPointF &m_point2, qint64 timestamp = 0);
-    void reset();
+    void startMeasuring(const QPointF &point1, qint64 timestamp);
+    void stopMeasuring(const QPointF &m_point2, qint64 timestamp);
+    inline void reset() { *this = {}; }
     QPointF velocity() const;
 
 private:
@@ -34,9 +34,6 @@ private:
     QPointF m_point2;
     qint64 m_point1Timestamp = 0;
     qint64 m_point2Timestamp = 0;
-    // When a timestamp isn't available, we must use a timer.
-    // When stopMeasuring() has been called, we store the elapsed time in point2timestamp.
-    QElapsedTimer m_timer;
 };
 
 QT_END_NAMESPACE

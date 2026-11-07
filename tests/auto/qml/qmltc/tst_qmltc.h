@@ -3,6 +3,7 @@
 
 #include <qtest.h>
 #include <private/qtqmlmodelsglobal_p.h>
+#include <private/qtquick-config_p.h> // For feature definitions
 
 using namespace Qt::StringLiterals;
 
@@ -27,8 +28,12 @@ private slots:
     void qtQuickIncludes();
     void enumerations();
     void methods();
+#if QT_CONFIG(quick_tableview)
     void properties();
+#if QT_CONFIG(quick_gridview)
     void ids();
+#endif
+#endif
     void importNamespace();
     void deferredProperties();
     void gradients(); // QTBUG-102560
@@ -100,7 +105,7 @@ private slots:
     void checkExportsAreCompiling();
     void checkExportsNoFileName();
 
-#if QT_CONFIG(qml_table_model)
+#if QT_CONFIG(qml_labs) && QT_CONFIG(qml_table_model)
     void qmlTableModel();
 #endif
     void urlToString();
@@ -110,4 +115,11 @@ private slots:
 
     void attachedComponentProperty();
     void attachedNamespacedProperty();
+
+    void newLineTranslation();
+
+    void nestedWithId();
+
+    void typedMethodCallOnIdLookup();
+    void ensureWarningCategoryOverridesSync();
 };

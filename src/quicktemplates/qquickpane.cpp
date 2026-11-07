@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpane_p.h"
 #include "qquickpane_p_p.h"
@@ -9,7 +10,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcPane, "qt.quick.controls.pane")
+Q_STATIC_LOGGING_CATEGORY(lcPane, "qt.quick.controls.pane")
 
 /*!
     \qmltype Pane
@@ -41,6 +42,7 @@ Q_LOGGING_CATEGORY(lcPane, "qt.quick.controls.pane")
     for use together with layouts.
 
     \image qtquickcontrols-pane.png
+           {Pane with styled background containing checkboxes}
 
     \snippet qtquickcontrols-pane.qml 1
 
@@ -176,6 +178,9 @@ qreal QQuickPanePrivate::getContentWidth() const
     if (!contentItem)
         return 0;
 
+    if (hasContentWidth)
+        return contentWidth;
+
     const qreal cw = contentItem->implicitWidth();
     if (!qFuzzyIsNull(cw))
         return cw;
@@ -201,6 +206,9 @@ qreal QQuickPanePrivate::getContentHeight() const
 {
     if (!contentItem)
         return 0;
+
+    if (hasContentHeight)
+        return contentHeight;
 
     const qreal ch = contentItem->implicitHeight();
     if (!qFuzzyIsNull(ch))
@@ -259,6 +267,12 @@ QQuickPane::QQuickPane(QQuickItem *parent)
 QQuickPane::~QQuickPane()
 {
     Q_D(QQuickPane);
+    if (d->contentItem) {
+        // It's possible for the focus frame to be removed as a child of our contentItem
+        // upon our destruction, so disconnect to avoid getting our slot getting called during this.
+        QObjectPrivate::disconnect(d->contentItem, &QQuickItem::childrenChanged,
+            d, &QQuickPanePrivate::contentChildrenChange);
+    }
     d->removeImplicitSizeListener(d->contentItem);
     d->removeImplicitSizeListener(d->firstChild);
 }
@@ -305,8 +319,8 @@ void QQuickPane::resetContentWidth()
     if (!d->hasContentWidth)
         return;
 
-    d->hasContentHeight = false;
-    d->updateContentWidth();
+    d->hasContentWidth = false;
+    d->updateImplicitContentWidth();
 }
 
 /*!
@@ -345,7 +359,7 @@ void QQuickPane::resetContentHeight()
         return;
 
     d->hasContentHeight = false;
-    d->updateContentHeight();
+    d->updateImplicitContentHeight();
 }
 
 /*!
@@ -421,6 +435,12 @@ void QQuickPane::contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize)
 {
     Q_UNUSED(newSize);
     Q_UNUSED(oldSize);
+
+    Q_D(QQuickPane);
+    if (d->hasContentWidth)
+        d->updateImplicitContentWidth();
+    if (d->hasContentHeight)
+        d->updateImplicitContentHeight();
 }
 
 #if QT_CONFIG(accessibility)

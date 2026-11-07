@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtCore>
-#include <QtTest>
+#include <QTest>
 #include <QtQml>
 
-#if defined(Q_OS_DOSLIKE)
+#if defined(Q_OS_WIN)
 # define SUFFIX QLatin1String(".dll")
 # define DEBUG_SUFFIX QLatin1String("d.dll")
 

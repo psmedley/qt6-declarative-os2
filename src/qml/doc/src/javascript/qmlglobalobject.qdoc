@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
 /*!
 \page qtqml-javascript-qmlglobalobject.html
+\meta {keywords} {qmltopic}
 \title QML Global Object
-\brief Description of the Qml Global Object
+\brief Description of the Qml Global Object.
 
 
 The QML JavaScript host environment implements the following host objects and functions.
@@ -22,7 +23,7 @@ additional imports:
 \li print() function: A QML function that prints output to the console.
 \li The \l{Console API}{console object}: Implements a subset of the
     \l{http://getfirebug.com/wiki/index.php/Console_API}{FireBug Console API}.
-\li \l{XMLHttpRequest}, DOMException: Implements a subset of the
+\li \l{The XMLHttpRequest JavaScript Object}{XMLHttpRequest}, DOMException: Implements a subset of the
     \l{http://www.w3.org/TR/XMLHttpRequest/}{W3C XMLHttpRequest specification}.
 \endlist
 

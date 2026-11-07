@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qml/qqmlprivate.h"
 #include "qv4engine_p.h"
@@ -27,6 +28,9 @@
 #include <QtCore/qcryptographichash.h>
 
 QT_BEGIN_NAMESPACE
+
+DEFINE_BOOL_CONFIG_OPTION(qv4FailOnInvalidAot, QV4_FAIL_ON_INVALID_AOT)
+DEFINE_BOOL_CONFIG_OPTION(qv4SkipAotValidation, QV4_SKIP_AOT_VALIDATION)
 
 namespace QV4 {
 
@@ -74,7 +78,7 @@ void ExecutableCompilationUnit::populate()
 {
     /* In general, we should use QV4::Scope whenever we allocate heap objects, and employ write barriers
        for member variables pointing to heap objects. However, ExecutableCompilationUnit is special, as it
-       is always part of the root set. So instead of using scopde allocations and write barriers, we use a
+       is always part of the root set. So instead of using scoped allocations and write barriers, we use a
        slightly different approach: We temporarily block the gc from running. Afterwards, at the end of the
        function we check whether the gc was already running, and mark the ExecutableCompilationUnit. This
        ensures that all the newly allocated objects of the compilation unit will be marked in turn.
@@ -112,13 +116,13 @@ void ExecutableCompilationUnit::populate()
             CompiledData::Lookup::Type type
                     = CompiledData::Lookup::Type(uint(compiledLookups[i].type()));
             if (type == CompiledData::Lookup::Type_Getter)
-                l->getter = QV4::Lookup::getterGeneric;
+                l->call = Lookup::Call::GetterGeneric;
             else if (type == CompiledData::Lookup::Type_Setter)
-                l->setter = QV4::Lookup::setterGeneric;
+                l->call = Lookup::Call::SetterGeneric;
             else if (type == CompiledData::Lookup::Type_GlobalGetter)
-                l->globalGetter = QV4::Lookup::globalGetterGeneric;
+                l->call = Lookup::Call::GlobalGetterGeneric;
             else if (type == CompiledData::Lookup::Type_QmlContextPropertyGetter)
-                l->qmlContextPropertyGetter = QQmlContextWrapper::resolveQmlContextPropertyLookupGetter;
+                l->call = Lookup::Call::ContextGetterGeneric;
             l->forCall = compiledLookups[i].mode() == CompiledData::Lookup::Mode_ForCall;
             l->nameIndex = compiledLookups[i].nameIndex();
         }
@@ -146,10 +150,31 @@ void ExecutableCompilationUnit::populate()
         }
     }
 
+    const auto validateCULookupSignatures = [&]() -> bool {
+        if (qv4SkipAotValidation())
+            return true;
+        if (!m_compilationUnit->aotCompiledFunctions)
+            return true; // Non-existent code can't be invalid
+
+        Q_ASSERT(data->version >= 0x4d); // Otherwise validateLookupSignatures is uninitialized
+        const CompiledData::LookupValidationFn v = m_compilationUnit->validateLookupSignatures;
+        bool valid = v && v(engine->qmlEngine(), m_compilationUnit.data());
+
+        if (!valid && qv4FailOnInvalidAot()) {
+            // The compile time and run time AOT lookup signatures don't match. A rebuild is needed.
+            qFatal("AOT lookup signatures validation failed for file %s. A rebuild is needed. %s",
+                   fileName().toUtf8().constData(), "[QV4_FAIL_ON_INVALID_AOT]");
+        }
+        return valid;
+    };
+
     runtimeFunctions.resize(data->functionTableSize);
-    static bool ignoreAotCompiledFunctions
+    static const bool staticIgnoreAotCompiledFunctions
             = qEnvironmentVariableIsSet("QV4_FORCE_INTERPRETER")
             || !(engine->diskCacheOptions() & ExecutionEngine::DiskCache::AotNative);
+
+    bool ignoreAotCompiledFunctions = staticIgnoreAotCompiledFunctions
+            || !validateCULookupSignatures();
 
     const QQmlPrivate::AOTCompiledFunction *aotFunction
             = ignoreAotCompiledFunctions ? nullptr : m_compilationUnit->aotCompiledFunctions;
@@ -263,6 +288,10 @@ void ExecutableCompilationUnit::clear()
     runtimeRegularExpressions = nullptr;
     free(runtimeClasses);
     runtimeClasses = nullptr;
+
+    static QQmlRefPointer<CompiledData::CompilationUnit> nullUnit
+            = QQml::makeRefPointer<CompiledData::CompilationUnit>();
+    m_compilationUnit = nullUnit;
 }
 
 void ExecutableCompilationUnit::markObjects(QV4::MarkStack *markStack) const
@@ -312,7 +341,7 @@ IdentifierHash ExecutableCompilationUnit::createNamedObjectsPerComponent(int com
         const CompiledData::Object *namedObject = objectAt(*namedObjectIndexPtr);
         namedObjectCache.add(runtimeStrings[namedObject->idNameIndex], namedObject->objectId());
     }
-    Q_ASSERT(!namedObjectCache.isEmpty());
+    Q_ASSERT(namedObjectCache.isValid());
     return *namedObjectsPerComponentCache.insert(componentObjectIndex, namedObjectCache);
 }
 
@@ -346,10 +375,8 @@ Heap::Module *ExecutableCompilationUnit::instantiate()
     if (isESModule())
         setModule(module->d());
 
-    const QStringList moduleRequests = m_compilationUnit->moduleRequests();
-    for (const QString &request: moduleRequests) {
-        const QUrl url(request);
-        const auto dependentModuleUnit = engine->loadModule(url, this);
+    for (uint i = 0, end = data->moduleRequestTableSize; i < end; ++i) {
+        const auto dependentModuleUnit = dependentModule(urlAt(data->moduleRequestTable()[i]));
         if (engine->hasException)
             return nullptr;
         if (dependentModuleUnit)
@@ -365,10 +392,9 @@ Heap::Module *ExecutableCompilationUnit::instantiate()
     }
     for (uint i = 0; i < importCount; ++i) {
         const CompiledData::ImportEntry &entry = data->importEntryTable()[i];
-        QUrl url = urlAt(entry.moduleRequest);
         importName = runtimeStrings[entry.importName];
 
-        if (const auto module = engine->loadModule(url, this)) {
+        if (const auto module = dependentModule(urlAt(entry.moduleRequest))) {
             const Value *valuePtr = module->resolveExport(importName);
             if (!valuePtr) {
                 QString referenceErrorMessage = QStringLiteral("Unable to resolve import reference ");
@@ -393,9 +419,9 @@ Heap::Module *ExecutableCompilationUnit::instantiate()
 
     for (uint i = 0; i < data->indirectExportEntryTableSize; ++i) {
         const CompiledData::ExportEntry &entry = data->indirectExportEntryTable()[i];
-        if (auto dependentModule = engine->loadModule(urlAt(entry.moduleRequest), this)) {
+        if (auto module = dependentModule(urlAt(entry.moduleRequest))) {
             ScopedString importName(scope, runtimeStrings[entry.importName]);
-            if (!dependentModule->resolveExport(importName)) {
+            if (!module->resolveExport(importName)) {
                 throwReferenceError(entry, importName->toQString());
                 return nullptr;
             }
@@ -406,14 +432,15 @@ Heap::Module *ExecutableCompilationUnit::instantiate()
 }
 
 const Value *ExecutableCompilationUnit::resolveExportRecursively(
-        QV4::String *exportName, QVector<ResolveSetEntry> *resolveSet)
+        QV4::String *exportName, QList<ResolveSetEntry> *resolveSet) const
 {
     if (!module())
         return nullptr;
 
-    for (const auto &entry: *resolveSet)
+    for (const auto &entry: std::as_const(*resolveSet)) {
         if (entry.module == this && entry.exportName->isEqualTo(exportName))
             return nullptr;
+    }
 
     (*resolveSet) << ResolveSetEntry(this, exportName);
 
@@ -440,10 +467,9 @@ const Value *ExecutableCompilationUnit::resolveExportRecursively(
 
     if (auto indirectExport = lookupNameInExportTable(
                 data->indirectExportEntryTable(), data->indirectExportEntryTableSize, exportName)) {
-        QUrl request = urlAt(indirectExport->moduleRequest);
-        if (auto dependentModule = engine->loadModule(request, this)) {
+        if (auto module = dependentModule(urlAt(indirectExport->moduleRequest))) {
             ScopedString importName(scope, runtimeStrings[indirectExport->importName]);
-            return dependentModule->resolveExportRecursively(importName, resolveSet);
+            return module->resolveExportRecursively(importName, resolveSet);
         }
         return nullptr;
     }
@@ -455,10 +481,9 @@ const Value *ExecutableCompilationUnit::resolveExportRecursively(
 
     for (uint i = 0; i < data->starExportEntryTableSize; ++i) {
         const CompiledData::ExportEntry &entry = data->starExportEntryTable()[i];
-        QUrl request = urlAt(entry.moduleRequest);
         const Value *resolution = nullptr;
-        if (auto dependentModule = engine->loadModule(request, this))
-            resolution = dependentModule->resolveExportRecursively(exportName, resolveSet);
+        if (auto module = dependentModule(urlAt(entry.moduleRequest)))
+            resolution = module->resolveExportRecursively(exportName, resolveSet);
 
         // ### handle ambiguous
         if (resolution) {
@@ -487,7 +512,7 @@ const CompiledData::ExportEntry *ExecutableCompilationUnit::lookupNameInExportTa
 }
 
 void ExecutableCompilationUnit::getExportedNamesRecursively(
-        QStringList *names, QVector<const ExecutableCompilationUnit*> *exportNameSet,
+        QStringList *names, QList<const ExecutableCompilationUnit*> *exportNameSet,
         bool includeDefaultExport) const
 {
     if (exportNameSet->contains(this))
@@ -517,8 +542,8 @@ void ExecutableCompilationUnit::getExportedNamesRecursively(
 
     for (uint i = 0; i < data->starExportEntryTableSize; ++i) {
         const CompiledData::ExportEntry &entry = data->starExportEntryTable()[i];
-        if (auto dependentModule = engine->loadModule(urlAt(entry.moduleRequest), this)) {
-            dependentModule->getExportedNamesRecursively(
+        if (auto module = dependentModule(urlAt(entry.moduleRequest))) {
+            module->getExportedNamesRecursively(
                     names, exportNameSet, /*includeDefaultExport*/false);
         }
     }
@@ -537,15 +562,15 @@ void ExecutableCompilationUnit::evaluateModuleRequests()
 {
     Q_ASSERT(engine);
 
-    const QStringList moduleRequests = m_compilationUnit->moduleRequests();
-    for (const QString &request: moduleRequests) {
-        auto dependentModule = engine->loadModule(QUrl(request), this);
+    const CompiledData::Unit *data = unitData();
+    for (uint i = 0, end = data->moduleRequestTableSize; i < end; ++i) {
+        auto module = dependentModule(urlAt(data->moduleRequestTable()[i]));
 
         if (engine->hasException)
             return;
 
-        Q_ASSERT(dependentModule);
-        dependentModule->evaluate();
+        Q_ASSERT(module);
+        module->evaluate();
         if (engine->hasException)
             return;
     }
@@ -619,6 +644,14 @@ Heap::Module *ExecutableCompilationUnit::module() const
 
 void ExecutableCompilationUnit::setModule(Heap::Module *module)
 {
+    // We don't necessarily hold any other references to ES modules. So, if the GC
+    // is running right now, we need to mark it. Otherwise it might collect it even
+    // though it's still reachable via the engine's list of compilation units.
+    QV4::WriteBarrier::markCustom(engine, [module](QV4::MarkStack *stack) {
+        if constexpr (QV4::WriteBarrier::isInsertionBarrier) {
+            module->mark(stack);
+        }
+    });
     m_valueOrModule = module;
 }
 

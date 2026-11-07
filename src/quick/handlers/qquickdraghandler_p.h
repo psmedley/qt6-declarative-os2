@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDRAGHANDLER_H
 #define QQUICKDRAGHANDLER_H
@@ -84,6 +85,7 @@ private:
     QQuickDragAxis m_xAxis = {this, u"x"_s};
     QQuickDragAxis m_yAxis = {this, u"y"_s};
     QQuickDragHandler::SnapMode m_snapMode = SnapAuto;
+    bool m_pressedInsideParent = false;
     bool m_pressedInsideTarget = false;
 
     friend class QQuickDragAxis;

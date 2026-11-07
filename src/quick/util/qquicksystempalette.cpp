@@ -1,9 +1,12 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicksystempalette_p.h"
 
+#include <QEvent>
 #include <QGuiApplication>
+#include <QStyleHints>
 
 #include <private/qobject_p.h>
 
@@ -47,7 +50,7 @@ QQuickSystemPalette::QQuickSystemPalette(QObject *parent)
 {
     Q_D(QQuickSystemPalette);
     d->group = QPalette::Active;
-    connect(qApp, SIGNAL(paletteChanged(QPalette)), this, SIGNAL(paletteChanged()));
+    qGuiApp->styleHints()->installEventFilter(this);
 }
 
 /*!
@@ -266,6 +269,16 @@ void QQuickSystemPalette::setColorGroup(QQuickSystemPalette::ColorGroup colorGro
     Q_D(QQuickSystemPalette);
     d->group = (QPalette::ColorGroup)colorGroup;
     emit paletteChanged();
+}
+
+bool QQuickSystemPalette::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == qGuiApp->styleHints()
+        && event->type() == QEvent::ApplicationPaletteChange) {
+        emit paletteChanged();
+        return false;
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 QT_END_NAMESPACE

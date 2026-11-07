@@ -1,7 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
 #include <QtQuick/qquickview.h>
 #include <qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -78,6 +78,8 @@ private slots:
     void test_attachedproperties();
     void test_attachedproperties_data();
     void test_attachedproperties_dynamic();
+    void test_hiddenItems_data();
+    void test_hiddenItems();
 
     void populateTransitions_row();
     void populateTransitions_row_data();
@@ -1026,10 +1028,10 @@ void tst_qquickpositioners::populateTransitions(const QString &positionerObjectN
         QTRY_COMPARE(window->rootObject()->property("populateTransitionsDone").toInt(), model.count());
         QTRY_COMPARE(window->rootObject()->property("addTransitionsDone").toInt(), 0);
 
-        QList<QPair<QString, QString> > targetData;
+        QList<std::pair<QString, QString> > targetData;
         QList<int> targetIndexes;
         for (int i=0; i<model.count(); i++) {
-            targetData << qMakePair(model.name(i), model.number(i));
+            targetData << std::make_pair(model.name(i), model.number(i));
             targetIndexes << i;
         }
         QList<QQuickItem *> targetItems = findItems<QQuickItem>(positioner, "wrapper", targetIndexes);
@@ -1114,11 +1116,11 @@ void tst_qquickpositioners::addTransitions(const QString &positionerObjectName)
     for (int i = 0; i < initialItemCount; i++)
         model.addItem("Original item" + QString::number(i), "");
 
-    QList<QPair<QString,QString> > expectedDisplacedValues = expectedDisplacedIndexes.getModelDataValues(model);
-    QList<QPair<QString, QString> > targetData;
+    QList<std::pair<QString,QString> > expectedDisplacedValues = expectedDisplacedIndexes.getModelDataValues(model);
+    QList<std::pair<QString, QString> > targetData;
     QList<int> targetIndexes;
     for (int i=0; i<model.count(); i++) {
-        targetData << qMakePair(model.name(i), model.number(i));
+        targetData << std::make_pair(model.name(i), model.number(i));
         targetIndexes << i;
     }
     QList<QQuickItem *> targetItems = findItems<QQuickItem>(positioner, "wrapper", targetIndexes);
@@ -1142,7 +1144,7 @@ void tst_qquickpositioners::addTransitions(const QString &positionerObjectName)
     targetData.clear();
     targetIndexes.clear();
     for (int i=insertionIndex; i<insertionIndex+insertionCount; i++) {
-        targetData << qMakePair(QString("New item %1").arg(i), QString(""));
+        targetData << std::make_pair(QString("New item %1").arg(i), QString(""));
         targetIndexes << i;
     }
     model.insertItems(insertionIndex, targetData);
@@ -1230,7 +1232,7 @@ void tst_qquickpositioners::moveTransitions(const QString &positionerObjectName)
     QVERIFY(QTest::qWaitForWindowExposed(window.data()));
     qApp->processEvents();
 
-    QList<QPair<QString,QString> > expectedDisplacedValues = expectedDisplacedIndexes.getModelDataValues(model);
+    QList<std::pair<QString,QString> > expectedDisplacedValues = expectedDisplacedIndexes.getModelDataValues(model);
 
     QQuickItem *positioner = window->rootObject()->findChild<QQuickItem*>(positionerObjectName);
     QVERIFY(positioner);
@@ -3751,14 +3753,24 @@ void tst_qquickpositioners::test_conflictinganchors()
 
 void tst_qquickpositioners::test_mirroring()
 {
-    QList<QString> qmlFiles;
-    qmlFiles << "horizontal.qml" << "horizontal-padding.qml"
-             << "gridtest.qml" << "gridtest-padding.qml"
-             << "flowtest.qml" << "flowtest-padding.qml";
-    QList<QString> objectNames;
-    objectNames << "one" << "two" << "three" << "four" << "five";
+    const QString qmlFiles[] = {
+        "horizontal.qml",
+        "horizontal-padding.qml",
+        "gridtest.qml",
+        "gridtest-padding.qml",
+        "flowtest.qml",
+        "flowtest-padding.qml"
+    };
 
-    for (const QString &qmlFile : std::as_const(qmlFiles)) {
+    const QString objectNames[] = {
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+    };
+
+    for (const QString &qmlFile : qmlFiles) {
         QScopedPointer<QQuickView> windowA(createView(testFile(qmlFile)));
         QQuickItem *rootA = qobject_cast<QQuickItem*>(windowA->rootObject());
 
@@ -3771,7 +3783,7 @@ void tst_qquickpositioners::test_mirroring()
         rootA->setProperty("testRightToLeft", true); // layoutDirection: Qt.RightToLeft
 
         // LTR != RTL
-        for (const QString &objectName : std::as_const(objectNames)) {
+        for (const QString &objectName : objectNames) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -3786,7 +3798,7 @@ void tst_qquickpositioners::test_mirroring()
         inheritProp.write(true);
 
         // RTL == mirror
-        for (const QString &objectName : std::as_const(objectNames)) {
+        for (const QString &objectName : objectNames) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -3807,7 +3819,7 @@ void tst_qquickpositioners::test_mirroring()
         rootB->setProperty("testRightToLeft", true); // layoutDirection: Qt.RightToLeft
 
         // LTR == RTL + mirror
-        for (const QString &objectName : std::as_const(objectNames)) {
+        for (const QString &objectName : objectNames) {
             // horizontal.qml and horizontal-padding.qml only have three items
             if (qmlFile.startsWith(QString("horizontal")) && objectName == QString("four"))
                 break;
@@ -3988,6 +4000,69 @@ void tst_qquickpositioners::test_attachedproperties_dynamic()
     QTRY_VERIFY(!rect1->property("firstItem").toBool());
     QTRY_VERIFY(rect1->property("lastItem").toBool());
 
+}
+
+void tst_qquickpositioners::test_hiddenItems_data()
+{
+    QTest::addColumn<QString>("positionerObjectName");
+
+    QTest::newRow("row") << "row";
+    QTest::newRow("column") << "column";
+    QTest::newRow("grid") << "grid";
+    QTest::newRow("flow") << "flow";
+}
+
+void tst_qquickpositioners::test_hiddenItems()
+{
+    QFETCH(QString, positionerObjectName);
+
+    QScopedPointer<QQuickView> window(createView(testFile("hiddenItems.qml")));
+    QVERIFY(window->rootObject());
+
+    const auto *positioner = window->findChild<QQuickBasePositioner *>(positionerObjectName);
+    QVERIFY(positioner);
+
+    auto *zeroWidthItem = positioner->childItems().at(0);
+    QVERIFY(zeroWidthItem);
+    const auto *zeroWidthItemPrivate = QQuickItemPrivate::get(zeroWidthItem);
+    // Items should always be visible; it's only their culled state that should change;
+    // see comment in QQuickBasePositioner::prePositioning.
+    QVERIFY(zeroWidthItem->isVisible());
+    QVERIFY(zeroWidthItemPrivate->culled);
+
+    auto *zeroHeightItem = positioner->childItems().at(1);
+    QVERIFY(zeroHeightItem);
+    const auto *zeroHeightItemPrivate = QQuickItemPrivate::get(zeroHeightItem);
+    QVERIFY(zeroHeightItem->isVisible());
+    QVERIFY(zeroHeightItemPrivate->culled);
+
+    // Give the zero-width item a non-zero implicitWidth; it should become visible.
+    zeroWidthItem->setImplicitWidth(20);
+    QVERIFY(QQuickTest::qIsPolishScheduled(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
+    QVERIFY(zeroWidthItem->isVisible());
+    QVERIFY(!zeroWidthItemPrivate->culled);
+
+    // Give it a zero implicitWidth again; it should be hidden.
+    zeroWidthItem->setImplicitWidth(0);
+    QVERIFY(QQuickTest::qIsPolishScheduled(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
+    QVERIFY(zeroWidthItem->isVisible());
+    QVERIFY(zeroWidthItemPrivate->culled);
+
+    // Give the zero-height item a non-zero implicitHeight; it should become visible.
+    zeroHeightItem->setImplicitHeight(20);
+    QVERIFY(QQuickTest::qIsPolishScheduled(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
+    QVERIFY(zeroHeightItem->isVisible());
+    QVERIFY(!zeroHeightItemPrivate->culled);
+
+    // Give it a zero implicitHeight again; it should be hidden.
+    zeroHeightItem->setImplicitHeight(0);
+    QVERIFY(QQuickTest::qIsPolishScheduled(positioner));
+    QVERIFY(QQuickTest::qWaitForPolish(positioner));
+    QVERIFY(zeroHeightItem->isVisible());
+    QVERIFY(zeroHeightItemPrivate->culled);
 }
 
 QQuickView *tst_qquickpositioners::createView(const QString &filename, bool wait)

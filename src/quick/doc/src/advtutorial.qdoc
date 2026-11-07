@@ -15,6 +15,7 @@ In this tutorial we write a game, \e {Same Game}, based on the Same Game applica
 included in the declarative \c examples directory, which looks like this:
 
 \image declarative-samegame.png
+       {SameGame with colored blocks, New Game button, and score display}
 
 We will cover concepts for producing a fully functioning application, including
 JavaScript integration, using QML  \l{State}{Qt Quick States} and \l{Behavior}{Behaviors} to
@@ -52,6 +53,7 @@ The first step is to create the basic QML items in your application.
 To begin with, we create our Same Game application with a main screen like this:
 
 \image declarative-adv-tutorial1.png
+       {Empty game canvas with New Game button and score placeholder}
 
 This is defined by the main application file, \c samegame.qml, which looks like this:
 
@@ -173,6 +175,7 @@ function, like this:
 So, when you click the New Game button, \c startNewGame() is called and generates a field of blocks, like this:
 
 \image declarative-adv-tutorial2.png
+       {Game canvas populated with a grid of blocks}
 
 Now, we have a screen of blocks, and we can begin to add the game mechanics.
 
@@ -253,6 +256,7 @@ Now we now have a working game! The blocks can be clicked, the player can score,
 Here is a screenshot of what has been accomplished so far:
 
 \image declarative-adv-tutorial3.png
+       {Working game with colored blocks partially cleared}
 
 This is what \c samegame.qml looks like now:
 
@@ -340,6 +344,7 @@ Now the game is beautifully animated, with subtle (or not-so-subtle) animations 
 player's actions. The end result is shown below, with a different set of images to demonstrate basic theming:
 
 \image declarative-adv-tutorial4.gif
+       {Game demonstrating smooth block animations}
 
 The theme change here is produced simply by replacing the block images. This can be done at runtime by changing the \l Image \c source property, so for a further challenge, you could add a button that toggles between themes with different images.
 
@@ -405,7 +410,7 @@ If the player enters a name, we send the data to the service using this code in 
 
 \snippet tutorials/samegame/samegame4/samegame.js 1
 
-The \l XMLHttpRequest in this code is the same as the \c XMLHttpRequest() as you'll find in standard browser JavaScript, and can be used in the same way to dynamically get XML
+The \l{The XMLHttpRequest JavaScript Object}{XMLHttpRequest} in this code is the same as the \c XMLHttpRequest() as you'll find in standard browser JavaScript, and can be used in the same way to dynamically get XML
 or QML from the web service to display the high scores. We don't worry about the response in this case - we just post the high
 score data to the web server. If it had returned a QML file (or a URL to a QML file) you could instantiate it in much the same
 way as you did with the blocks.
@@ -422,7 +427,7 @@ By following this tutorial you've seen how you can write a fully functional appl
 \li Build your application with \l {Qt Quick QML Types}{QML types}
 \li Add application logic \l{JavaScript Expressions in QML Documents}{with JavaScript code}
 \li Add animations with \l {Behavior}{Behaviors} and \l{Qt Quick States}{states}
-\li Store persistent application data using, for example, \l QtQuick.LocalStorage or \l XMLHttpRequest
+\li Store persistent application data using, for example, \l QtQuick.LocalStorage or \l{The XMLHttpRequest JavaScript Object}{XMLHttpRequest}
 \endlist
 
 There is so much more to learn about QML that we haven't been able to cover in this tutorial. Check out all the

@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKSTACKVIEW_P_H
 #define QQUICKSTACKVIEW_P_H
@@ -16,6 +17,7 @@
 //
 
 #include <QtCore/qdebug.h>
+#include <QtCore/qvariantmap.h>
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -25,6 +27,7 @@ class QQuickStackElement;
 class QQuickStackViewPrivate;
 class QQuickStackViewAttached;
 class QQuickStackViewAttachedPrivate;
+class QQmlComponent;
 
 /*!
     \internal
@@ -146,13 +149,13 @@ public:
     Q_INVOKABLE void replace(QQmlV4FunctionPtr args);
 
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItems(QList<QQuickStackViewArg> args,
-        Operation operation = Immediate);
+        Operation operation = PushTransition);
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(QQuickItem *item, const QVariantMap &properties = {},
-        Operation operation = Immediate);
+        Operation operation = PushTransition);
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(QQmlComponent *component, const QVariantMap &properties = {},
-        Operation operation = Immediate);
+        Operation operation = PushTransition);
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *pushItem(const QUrl &url, const QVariantMap &properties = {},
-        Operation operation = Immediate);
+        Operation operation = PushTransition);
 
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *popToItem(QQuickItem *item, Operation operation = PopTransition);
     Q_REVISION(6, 7) Q_INVOKABLE QQuickItem *popToIndex(int index, Operation operation = PopTransition);

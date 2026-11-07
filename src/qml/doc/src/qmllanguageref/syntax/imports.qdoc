@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
 /*!
 \page qtqml-syntax-imports.html
+\meta {keywords} {qmltopic}
 \title Import Statements
-\brief Description of import statements in QML
+\brief Description of import statements in QML.
+\keyword QML.import
 
 \section1 Syntax of an Import Statement
 
@@ -44,9 +46,9 @@ import <ModuleIdentifier> [<Version.Number>] [as <Qualifier>]
 \endlist
 
 An example of an unqualified module import is as follows:
-\code
+\qml
 import QtQuick
-\endcode
+\endqml
 
 This import allows the use of all of the types provided by the \c QtQuick
 module without needing to specify a qualifier.  For example, the client code to
@@ -63,16 +65,16 @@ Rectangle {
 \endqml
 
 An example of an unqualified import with version would be
-\code
+\qml
 import QtQuick 2.10
-\endcode
-In that case, any types defined in QtQuick 2.11 and higher or in any higher major
+\endqml
+In that case, any types defined in Qt Quick 2.11 and higher or in any higher major
 version, like 6.0, would not be available to the file.
 
 An example of a qualified module import is as follows:
-\code
+\qml
 import QtQuick as Quick
-\endcode
+\endqml
 
 This import allows multiple modules which provide conflicting type names to be
 imported at the same time, however since each usage of a type provided by a
@@ -155,7 +157,7 @@ referring to the correct type:
 
 \qml
 import QtQuick as CoreItems
-import "../textwidgets" as MyModule
+import TextWidgets as MyModule
 
 CoreItems.Rectangle {
     width: 100; height: 100
@@ -265,18 +267,28 @@ JavaScript resources, please see the in-depth documentation about
 \section1 QML Import Path
 
 When an \l{Identified Modules}{identified module} is imported,
-the QML engine searches the \e{import path} for a matching module.
+the QML engine searches the \e{import path} for a matching module to load
+QML files and QML Module plugins. Qt assumes that all files under the
+\e{import path} come from a trusted source.
 
 This import path, as returned by QQmlEngine::importPathList(), defines the
-default locations to be searched by the engine. By default, this list contains:
+default locations to be searched by the engine. By default, this list contains,
+in this order of precedence:
 
 \list
-\li The directory of the current file
-\li The location specified by QLibraryInfo::QmlImportsPath
-\li Paths specified by the \c QML_IMPORT_PATH environment variable
+\li Platform-specific bundle paths if applicable (for example on macOS or Android)
+\li The directory of the application binary
 \li The qrc:/qt-project.org/imports path inside the resources.
 \li The qrc:/qt/qml path inside the resources (since Qt 6.5).
+\li Paths specified by the \c QML2_IMPORT_PATH environment variable (deprecated)
+\li Paths specified by the \c QML_IMPORT_PATH environment variable
+\li The location specified by QLibraryInfo::QmlImportsPath
 \endlist
+
+If the \c{Qt::AA_PluginApplication} attribute is set on \l{QCoreApplication},
+then the application directory, any paths specified by environment variables,
+and any platform specific bundle paths outside the resource file system are
+omitted by default.
 
 Additional import paths can be added through QQmlEngine::addImportPath() or the
 \c QML_IMPORT_PATH environment variable. When running the
@@ -292,7 +304,7 @@ QQmlEngine::addImportPath() programatically.
 
 \note It is recommended that applications and libraries put their modules
 under "qrc:/qt/qml". This happens by default when the module is created
-with  \l{qt_add_qml_module}{qt_add_qml_module()} and \l{QTP0001} is
+with  \l{qt_add_qml_module()} and \l{QTP0001} is
 enabled.
 
 

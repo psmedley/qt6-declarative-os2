@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGRENDERLOOP_P_H
 #define QSGRENDERLOOP_P_H
@@ -104,6 +105,9 @@ WM_Obscure           = QEvent::User + 1,
 // Passed from the RL to RT when GUI has been locked, waiting for sync
 // (updatePaintNode())
 WM_RequestSync       = QEvent::User + 2,
+
+// Passed from the RL to the RT when a window is exposed
+WM_Exposed           = QEvent::User + 3,
 
 // Passed by the RL to the RT to free up maybe release SG and GL contexts
 // if no windows are rendering.

@@ -1,9 +1,11 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpropertycachecreator_p.h"
 
 #include <private/qqmlengine_p.h>
+#include <private/qqmlpropertyresolver_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -42,22 +44,21 @@ bool QQmlPropertyCacheCreatorBase::canCreateClassNameTypeByUrl(const QUrl &url)
 
 QByteArray QQmlPropertyCacheCreatorBase::createClassNameTypeByUrl(const QUrl &url)
 {
-    return processUrlForClassName(url, [](QStringView nameBase) {
+    return processUrlForClassName(url, [](QStringView nameBase) -> QByteArray {
         return nameBase.toUtf8() + QByteArray("_QMLTYPE_");
     }, []() {
         return QByteArray("ANON_QML_TYPE_");
     }) + QByteArray::number(classIndexCounter.fetchAndAddRelaxed(1));
 }
 
-QByteArray QQmlPropertyCacheCreatorBase::createClassNameForInlineComponent(
-    const QUrl &baseUrl, const QString &name)
+QByteArray QQmlPropertyCacheCreatorBase::createClassNameForInlineComponent(const QUrl &url)
 {
-    QByteArray baseName = processUrlForClassName(baseUrl, [](QStringView nameBase) {
+    QByteArray baseName = processUrlForClassName(url, [](QStringView nameBase) {
         return QByteArray(nameBase.toUtf8() + "_QMLTYPE_");
     }, []() {
         return QByteArray("ANON_QML_IC_");
     });
-    return baseName + name.toUtf8() + '_'
+    return baseName + url.fragment().toUtf8() + '_'
             + QByteArray::number(classIndexCounter.fetchAndAddRelaxed(1));
 }
 
@@ -137,8 +138,8 @@ void QQmlPendingGroupPropertyBindings::resolveMissingPropertyCaches(
 
         if (!pendingBinding.resolveInstantiatingProperty())
             continue;
-        auto cache = pendingBinding.instantiatingPropertyCache();
-        propertyCaches->set(groupPropertyObjectIndex, cache);
+        if (auto cache = pendingBinding.instantiatingPropertyCache())
+            propertyCaches->set(groupPropertyObjectIndex, cache);
     }
 }
 

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <qv4internalclass_p.h>
 #include <qv4string_p.h>
@@ -466,7 +467,19 @@ Heap::InternalClass *InternalClass::changeMember(
     t.lookup = newClass;
     Q_ASSERT(t.lookup);
 
-    return cleanInternalClass(newClass);
+    Heap::InternalClass *cleanedIC = cleanInternalClass(newClass);
+    // cleanInternalClass might have invalidated the index
+    if (newClass == cleanedIC)
+        return cleanedIC; // IC stayed as is, no index invalidation
+    // in that case, we refetch the entry if needed
+    if (entry) {
+        auto updatedEntry = cleanedIC->findEntry(identifier);
+        Q_ASSERT(updatedEntry); // cleanup must not remove the entry
+        entry->index = updatedEntry->index;
+        entry->setterIndex = updatedEntry->setterIndex;
+        // entry->attributes is still valid, doesn't depend on the IC
+    }
+    return cleanedIC;
 }
 
 Heap::InternalClass *InternalClass::changePrototypeImpl(Heap::Object *proto)
@@ -565,17 +578,10 @@ InternalClass *InternalClass::locked()
 
 void InternalClass::addMember(QV4::Object *object, PropertyKey id, PropertyAttributes data, InternalClassEntry *entry)
 {
-    Q_ASSERT(id.isStringOrSymbol());
-    if (!data.isEmpty())
-        data.resolve();
-    PropertyHash::Entry *e = object->internalClass()->findEntry(id);
-    if (e) {
-        changeMember(object, id, data, entry);
-        return;
-    }
-
-    Heap::InternalClass *newClass = object->internalClass()->addMemberImpl(id, data, entry);
-    object->setInternalClass(newClass);
+    Heap::InternalClass *oldClass = object->internalClass();
+    Heap::InternalClass *newClass = oldClass->addMember(id, data, entry);
+    if (newClass != oldClass)
+        object->setInternalClass(newClass);
 }
 
 Heap::InternalClass *InternalClass::addMember(PropertyKey identifier, PropertyAttributes data, InternalClassEntry *entry)

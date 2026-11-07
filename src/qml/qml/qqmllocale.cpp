@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmllocale_p.h"
 #include <private/qqmlcontext_p.h>
@@ -609,7 +610,7 @@ void QQmlLocaleValueType::toString(QQmlV4FunctionPtr args) const
     The Locale object provides a number of functions and properties
     providing data for the specified locale.
 
-    The Locale object may also be passed to the \l Date and \l Number toLocaleString()
+    The Locale object may also be passed to the \l{The Date JavaScript Object}{Date} and \l{The Number JavaScript Object}{Number} toLocaleString()
     and fromLocaleString() methods in order to convert to/from strings using
     the specified locale.
 
@@ -677,7 +678,8 @@ void QQmlLocaleValueType::toString(QQmlV4FunctionPtr args) const
     This product includes software developed by the University of
     California, Berkeley and its contributors.
 
-    \sa Date, Number
+    \endlegalese
+    \sa {The Date JavaScript Object}, {The Number JavaScript Object}
 */
 
 QV4::ReturnedValue QQmlLocale::locale(ExecutionEngine *engine, const QString &localeName)
@@ -740,8 +742,8 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     Holds a set of options for number-to-string and
     string-to-number conversions.
 
-    \sa Number::toLocaleString()
-    \sa Number::fromLocaleString()
+    \sa {string Number::toLocaleString(locale, format, precision)}
+    \sa {string Number::fromLocaleString(locale, number)}
 */
 
 /*!
@@ -781,7 +783,7 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     Returns the date time format used for the current locale.
     \a type specifies the FormatType to return.
 
-    \sa Date
+    \sa {The Date JavaScript Object}
 */
 
 /*!
@@ -790,7 +792,7 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     Returns the date format used for the current locale.
     \a type specifies the FormatType to return.
 
-    \sa Date
+    \sa {The Date JavaScript Object}
 */
 
 /*!
@@ -799,7 +801,7 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     Returns the time format used for the current locale.
     \a type specifies the FormatType to return.
 
-    \sa Date
+    \sa {The Date JavaScript Object}
 */
 
 /*!
@@ -938,6 +940,16 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
 */
 
 /*!
+    \qmlmethod string QtQml::Locale::createSeparatedList(list<string> list)
+    \since 6.10
+
+    Returns a string that represents a join of a given \a list of strings with a
+    separator defined by the locale.
+
+    \sa QLocale::createSeparatedList()
+*/
+
+/*!
     \qmlproperty Array<string> QtQml::Locale::uiLanguages
 
     Returns an ordered list of locale names for translation purposes in
@@ -979,7 +991,7 @@ ReturnedValue QQmlLocale::method_localeCompare(const QV4::FunctionObject *b, con
     \value Locale.CurrencySymbol        a currency symbol.
     \value Locale.CurrencyDisplayName   a user readable name of the currency.
 
-    \sa Number::toLocaleCurrencyString()
+    \sa {string Number::toLocaleCurrencyString(locale, symbol)}
 */
 
 /*!

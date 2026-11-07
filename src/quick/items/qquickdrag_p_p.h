@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKDRAG_P_P_H
 #define QQUICKDRAG_P_P_H
@@ -29,7 +30,8 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickDragAttachedPrivate : public QObjectPrivate, public QQuickItemChangeListener
+class Q_AUTOTEST_EXPORT QQuickDragAttachedPrivate : public QObjectPrivate,
+                                                    public QSafeQuickItemChangeListener<QQuickDragAttachedPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickDragAttached)
     QML_ANONYMOUS
@@ -47,6 +49,7 @@ public:
         , active(false)
         , listening(false)
         , inEvent(false)
+        , executingNativeDrag(false)
         , dragRestarted(false)
         , itemMoved(false)
         , eventQueued(false)
@@ -64,7 +67,7 @@ public:
     void deliverLeaveEvent();
     void deliverEvent(QQuickWindow *window, QEvent *event);
     void start(Qt::DropActions supportedActions);
-    Qt::DropAction startDrag(Qt::DropActions supportedActions);
+    Qt::DropAction startDrag(Qt::DropActions supportedActions, QPixmap pixmap = {});
     void setTarget(QQuickItem *item);
     QMimeData *createMimeData() const;
     void loadPixmap();
@@ -81,6 +84,7 @@ public:
     bool active : 1;
     bool listening : 1;
     bool inEvent : 1;
+    bool executingNativeDrag : 1;
     bool dragRestarted : 1;
     bool itemMoved : 1;
     bool eventQueued : 1;

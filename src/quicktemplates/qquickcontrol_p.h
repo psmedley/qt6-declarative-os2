@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKCONTROL_P_H
 #define QQUICKCONTROL_P_H
@@ -17,6 +18,9 @@
 
 #include <QtCore/qlocale.h>
 #include <QtGui/qpalette.h>
+#if QT_CONFIG(accessibility)
+#include <QtGui/qaccessible_base.h>
+#endif
 #include <QtQuick/qquickitem.h>
 #include <QtQuick/private/qquickpalette_p.h>
 #include <QtQuickTemplates2/private/qtquicktemplates2global_p.h>

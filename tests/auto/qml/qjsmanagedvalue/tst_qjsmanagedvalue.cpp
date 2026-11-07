@@ -13,7 +13,7 @@
 #include <QtCore/qvariant.h>
 #include <QtCore/qpoint.h>
 #include <QtCore/qdatastream.h>
-#include <QtCore/qsequentialiterable.h>
+#include <QtCore/qmetasequence.h>
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qwaitcondition.h>
 #include <QtCore/qthread.h>
@@ -526,8 +526,8 @@ void tst_QJSManagedValue::toVariant()
         QCOMPARE(object.type(), QJSManagedValue::Object);
 
         QVariant retained = object.toVariant();
-        QCOMPARE(retained.metaType(), QMetaType::fromType<QJSValue>());
-        QVERIFY(QJSManagedValue(retained.value<QJSValue>(), &eng).strictlyEquals(object));
+        QCOMPARE(retained.metaType(), QMetaType::fromType<QVariantMap>());
+        QCOMPARE(retained, mapIn);
 
         QVariantMap mapOut = retained.toMap();
         QCOMPARE(mapOut.size(), mapIn.size());
@@ -1660,7 +1660,7 @@ void tst_QJSManagedValue::jsvalueArrayToSequenceType()
         array.setProperty(3, QJSValue(std::move(testObject)));
         auto asVariant = QVariant::fromValue(array);
         QVERIFY(asVariant.canConvert<QVariantList>());
-        auto asIterable = asVariant.value<QSequentialIterable>();
+        auto asIterable = asVariant.value<QMetaSequence::Iterable>();
         for (auto it = asIterable.begin(); it != asIterable.end(); ++it) {
             Q_UNUSED(*it);
         }

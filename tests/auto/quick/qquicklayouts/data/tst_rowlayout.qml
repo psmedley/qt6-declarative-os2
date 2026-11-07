@@ -100,6 +100,14 @@ Item {
             }
         }
 
+        function test_defaultSizePolicyForLayout() {
+            var layout = layout_columnLayout_Component.createObject(container)
+            waitForRendering(layout)
+            compare(layout.Layout.fillWidth, true)
+            compare(layout.Layout.fillHeight, true)
+            layout.destroy()
+        }
+
         function test_warnAboutLayoutItemsWithAnchors()
         {
             var regex = new RegExp(".*: Detected anchors on an item that is managed by a layout. "
@@ -963,6 +971,12 @@ Item {
 
         function test_distribution(data)
         {
+            if (data.tag === "preferred_infinity"
+                && Qt.platform.os === "linux"
+                && LayoutSetup.linuxDistro === "rhel-10.0") {
+                expectFail("", "QTBUG-144177: Regression on RHEL 10.0")
+            }
+
             var layout = layout_rowLayout_Component.createObject(container)
             layout.spacing = 0
             buildLayout(layout, data.layout.items)

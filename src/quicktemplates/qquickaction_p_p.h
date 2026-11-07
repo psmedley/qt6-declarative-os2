@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKACTION_P_P_H
 #define QQUICKACTION_P_P_H
@@ -28,7 +29,8 @@ QT_BEGIN_NAMESPACE
 class QShortcutEvent;
 class QQuickActionGroup;
 
-class QQuickActionPrivate : public QObjectPrivate, public QQuickItemChangeListener
+class QQuickActionPrivate : public QObjectPrivate,
+                            public QSafeQuickItemChangeListener<QQuickActionPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickAction)
 
@@ -56,7 +58,7 @@ public:
 
     bool handleShortcutEvent(QObject *object, QShortcutEvent *event);
 
-    void trigger(QObject*, bool doToggle);
+    bool trigger(QObject*, bool doToggle);
 
 #if QT_CONFIG(shortcut)
     class ShortcutEntry

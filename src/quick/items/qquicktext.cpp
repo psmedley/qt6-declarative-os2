@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
 
 #include "qquicktext_p.h"
 #include "qquicktext_p_p.h"
@@ -34,8 +35,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcHoverTrace)
-Q_LOGGING_CATEGORY(lcText, "qt.quick.text")
+Q_STATIC_LOGGING_CATEGORY(lcText, "qt.quick.text")
 
 using namespace Qt::StringLiterals;
 
@@ -221,8 +221,6 @@ void QQuickTextPrivate::updateLayout()
     updateOnComponentComplete = false;
     layoutTextElided = false;
 
-    if (extra.isAllocated())
-        extra->visibleImgTags.clear();
     needToUpdateLayout = false;
 
     // Setup instance of QTextLayout for all cases other than richtext
@@ -246,6 +244,10 @@ void QQuickTextPrivate::updateLayout()
                 tmp.replace(QLatin1Char('\n'), QChar::LineSeparator);
                 layout.setText(tmp);
             }
+            // Detect direction from the layout text (already stripped of
+            // HTML markup for StyledText, identical to source for plain).
+            rightToLeftText = layout.text().isRightToLeft();
+            determineHorizontalAlignment();
             textHasChanged = false;
         }
     } else if (extra.isAllocated() && extra->lineHeightValid) {
@@ -313,7 +315,7 @@ QVariant QQuickText::loadResource(int type, const QUrl &source)
             if (job->isError()) {
                 qmlWarning(this) << job->error();
                 delete *it;
-                it = d->extra->pixmapsInProgress.erase(it);
+                d->extra->pixmapsInProgress.erase(it);
                 return QImage();
             }
             qCDebug(lcText) << "already downloading" << url;
@@ -341,7 +343,7 @@ void QQuickText::resourceRequestFinished()
 {
     Q_D(QQuickText);
     bool allDone = true;
-    for (auto it = d->extra->pixmapsInProgress.cbegin(); it != d->extra->pixmapsInProgress.cend();) {
+    for (auto it = d->extra->pixmapsInProgress.begin(); it != d->extra->pixmapsInProgress.end();) {
         auto *job = *it;
         if (job->isError()) {
             // get QTextDocument::loadResource() to call QQuickText::loadResource() again, to return the placeholder
@@ -472,6 +474,10 @@ void QQuickTextPrivate::updateSize()
         signalSizeChange(previousSize);
         lineCount = 1;
         emit q->lineCountChanged();
+        if (truncated) {
+            truncated = false;
+            emit q->truncatedChanged();
+        }
         updateType = UpdatePaintNode;
         q->update();
         return;
@@ -707,7 +713,7 @@ void QQuickTextPrivate::setupCustomLineGeometry(QTextLine &line, qreal &height, 
                             q->effectiveHAlign() != QQuickText::AlignLeft))
         textLine->setWidth(availableWidth());
     else
-        textLine->setWidth(INT_MAX);
+        textLine->setWidth(qreal(INT_MAX));
     if (lineHeight() != 1.0)
         textLine->setHeight((lineHeightMode() == QQuickText::FixedHeight) ? lineHeight() : line.height() * lineHeight());
 
@@ -716,11 +722,40 @@ void QQuickTextPrivate::setupCustomLineGeometry(QTextLine &line, qreal &height, 
     height += textLine->height();
 }
 
+// Position an inline image using cursorToX at pos and pos+1 to get both
+// edges of the inline object, then take the left edge.  This handles
+// both LTR and RTL text directions correctly.  The HMargin is added to
+// the X coordinate so the image is inset from the object boundary
+// (the object width already includes 2*HMargin).
+static void positionInlineImage(QQuickStyledTextImgTag *image, int textPos, const QTextLine &line)
+{
+    if (!image->size.isValid())
+        return; // Size unknown yet (remote image still loading)
+
+    const qreal x0 = line.cursorToX(textPos);
+    const qreal x1 = line.cursorToX(textPos + 1);
+    image->pos.setX(qMin(x0, x1) + QQuickStyledTextImgTag::HMargin);
+
+    qreal imgY;
+    switch (image->align) {
+    case QQuickStyledTextImgTag::Top:
+        imgY = 0;
+        break;
+    case QQuickStyledTextImgTag::Middle:
+        imgY = (line.height() - image->size.height()) / 2.0;
+        break;
+    default: // Bottom
+        imgY = line.height() - image->size.height();
+        break;
+    }
+    image->pos.setY(line.y() + imgY);
+}
+
 void QQuickTextPrivate::elideFormats(
-        const int start, const int length, int offset, QVector<QTextLayout::FormatRange> *elidedFormats)
+        const int start, const int length, int offset, QList<QTextLayout::FormatRange> *elidedFormats)
 {
     const int end = start + length;
-    const QVector<QTextLayout::FormatRange> formats = layout.formats();
+    const QList<QTextLayout::FormatRange> formats = layout.formats();
     for (int i = 0; i < formats.size(); ++i) {
         QTextLayout::FormatRange format = formats.at(i);
         const int formatLength = qMin(format.start + format.length, end) - qMax(format.start, start);
@@ -732,28 +767,14 @@ void QQuickTextPrivate::elideFormats(
     }
 }
 
-QString QQuickTextPrivate::elidedText(qreal lineWidth, const QTextLine &line, const QTextLine *nextLine) const
+QString QQuickTextPrivate::elidedText(qreal lineWidth, const QTextLine &line) const
 {
-    if (nextLine) {
-        return layout.engine()->elidedText(
-                Qt::TextElideMode(elideMode),
-                QFixed::fromReal(lineWidth),
-                0,
-                line.textStart(),
-                line.textLength() + nextLine->textLength());
-    } else {
-        QString elideText = layout.text().mid(line.textStart(), line.textLength());
-        if (!styledText) {
-            // QFontMetrics won't help eliding styled text.
-            elideText[elideText.size() - 1] = elideChar;
-            // Appending the elide character may push the line over the maximum width
-            // in which case the elided text will need to be elided.
-            QFontMetricsF metrics(layout.font());
-            if (metrics.horizontalAdvance(elideChar) + line.naturalTextWidth() >= lineWidth)
-                elideText = metrics.elidedText(elideText, Qt::TextElideMode(elideMode), lineWidth);
-        }
-        return elideText;
-    }
+    return layout.engine()->elidedText(
+            Qt::TextElideMode(elideMode),
+            QFixed::fromReal(lineWidth),
+            0,
+            line.textStart(),
+            line.textLength());
 }
 
 void QQuickTextPrivate::clearFormats()
@@ -808,8 +829,6 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
     }
 
     bool shouldUseDesignMetrics = renderType != QQuickText::NativeRendering;
-    if (extra.isAllocated())
-        extra->visibleImgTags.clear();
     layout.setCacheEnabled(true);
     QTextOption textOption = layout.textOption();
     if (textOption.alignment() != q->effectiveHAlign()
@@ -926,11 +945,9 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
                 visibleCount -= 1;
 
                 const QTextLine previousLine = layout.lineAt(visibleCount - 1);
-                elideText = layoutText.at(line.textStart() - 1) != QChar::LineSeparator
-                        ? elidedText(line.width(), previousLine, &line)
-                        : elidedText(line.width(), previousLine);
+                elideText = elidedText(line.width(), previousLine);
                 elideStart = previousLine.textStart();
-                // elideEnd isn't required for right eliding.
+                elideEnd = line.textStart() + line.textLength();
 
                 height = previousHeight;
                 break;
@@ -976,12 +993,9 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
                         if (eos != -1)  // There's an abbreviated string available
                             break;
 
-                        const QTextLine nextLine = layout.createLine();
-                        elideText = wrappedLine
-                                ? elidedText(line.width(), line, &nextLine)
-                                : elidedText(line.width(), line);
+                        elideText = elidedText(line.width(), line);
                         elideStart = line.textStart();
-                        // elideEnd isn't required for right eliding.
+                        elideEnd = elideStart + line.textLength();
                     } else {
                         br = unelidedRect;
                         height = naturalHeight;
@@ -1020,9 +1034,10 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
                         : layoutText.size();
                 if (eol < layoutText.size() && layoutText.at(eol) != QChar::LineSeparator)
                     line = layout.createLine();
-                for (; line.isValid() && unwrappedLineCount <= maxLineCount; ++unwrappedLineCount)
+                for (; line.isValid() && unwrappedLineCount < maxLineCount; ++unwrappedLineCount)
                     line = layout.createLine();
             }
+
             layout.endLayout();
 
             const qreal naturalWidth = layout.maximumWidth();
@@ -1212,7 +1227,7 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
         }
         QTextEngine *engine = layout.engine();
         if (engine && engine->hasFormats()) {
-            QVector<QTextLayout::FormatRange> formats;
+            QList<QTextLayout::FormatRange> formats;
             switch (elideMode) {
             case QQuickText::ElideRight:
                 elideFormats(elideStart, elideText.size() - 1, 0, &formats);
@@ -1260,6 +1275,17 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
         elideLayout.reset();
     }
 
+    // Position inline images on all visible lines.
+    // When eliding, the last visible line comes from the elide layout.
+    if (extra.isAllocated()) {
+        extra->visibleImgTags.clear();
+        const int mainLineCount = elide ? visibleCount - 1 : visibleCount;
+        for (int i = 0; i < mainLineCount; ++i)
+            positionInlineImages(layout.lineAt(i), layout.formats());
+        if (elideLayout)
+            positionInlineImages(elideLayout->lineAt(0), elideLayout->formats());
+    }
+
     QTextLine firstLine = visibleCount == 1 && elideLayout
             ? elideLayout->lineAt(0)
             : layout.lineAt(0);
@@ -1281,72 +1307,57 @@ QRectF QQuickTextPrivate::setupTextLayout(qreal *const baseline)
     return br;
 }
 
-void QQuickTextPrivate::setLineGeometry(QTextLine &line, qreal lineWidth, qreal &height)
+void QQuickTextPrivate::positionInlineImages(const QTextLine &line, const QList<QTextLayout::FormatRange> &formats)
 {
     Q_Q(QQuickText);
-    line.setLineWidth(lineWidth);
-
-    if (extra.isAllocated() && extra->imgTags.isEmpty()) {
-        line.setPosition(QPointF(line.position().x(), height));
-        height += (lineHeightMode() == QQuickText::FixedHeight) ? lineHeight() : line.height() * lineHeight();
+    if (!extra.isAllocated())
         return;
-    }
 
-    qreal textTop = 0;
-    qreal textHeight = line.height();
-    qreal totalLineHeight = textHeight;
+    const int lineStart = line.textStart();
+    const int lineEnd = lineStart + line.textLength();
 
-    QList<QQuickStyledTextImgTag *> imagesInLine;
+    for (const auto &range : formats) {
+        if (!range.format.isImageFormat())
+            continue;
+        if (range.start < lineStart || range.start >= lineEnd)
+            continue;
 
-    if (extra.isAllocated()) {
-        for (QQuickStyledTextImgTag *image : std::as_const(extra->imgTags)) {
-            if (image->position >= line.textStart() &&
-                image->position < line.textStart() + line.textLength()) {
+        const int imgIndex = range.format.objectIndex();
+        if (imgIndex < 0 || imgIndex >= extra->imgTags.size())
+            continue;
 
-                if (!image->pix) {
-                    const QQmlContext *context = qmlContext(q);
-                    const QUrl url = context->resolvedUrl(q->baseUrl()).resolved(image->url);
-                    image->pix.reset(new QQuickPixmap(context->engine(), url, QRect(), image->size * devicePixelRatio()));
+        QQuickStyledTextImgTag *image = extra->imgTags.at(imgIndex);
 
-                    if (image->pix->isLoading()) {
-                        image->pix->connectFinished(q, SLOT(imageDownloadFinished()));
-                    } else if (image->pix->isReady()) {
-                        if (!image->size.isValid()) {
-                            image->size = image->pix->implicitSize();
-                            // if the size of the image was not explicitly set, we need to
-                            // call updateLayout() once again.
-                            needToUpdateLayout = true;
-                        }
-                    } else if (image->pix->isError()) {
-                        qmlWarning(q) << image->pix->error();
-                    }
+        if (!image->pix) {
+            const QQmlContext *context = qmlContext(q);
+            const QUrl url = context->resolvedUrl(q->baseUrl()).resolved(image->url);
+            image->pix.reset(new QQuickPixmap(context->engine(), url, QRect(), image->size * effectiveDevicePixelRatio()));
+
+            if (image->pix->isLoading()) {
+                image->pix->connectFinished(q, SLOT(imageDownloadFinished()));
+            } else if (image->pix->isReady()) {
+                if (!image->size.isValid()) {
+                    image->size = image->pix->implicitSize();
+                    // if the size of the image was not explicitly set, we need to
+                    // call updateLayout() once again.
+                    needToUpdateLayout = true;
                 }
-
-                qreal ih = qreal(image->size.height());
-                if (image->align == QQuickStyledTextImgTag::Top)
-                    image->pos.setY(0);
-                else if (image->align == QQuickStyledTextImgTag::Middle)
-                    image->pos.setY((textHeight / 2.0) - (ih / 2.0));
-                else
-                    image->pos.setY(textHeight - ih);
-                imagesInLine << image;
-                textTop = qMax(textTop, qAbs(image->pos.y()));
+            } else if (image->pix->isError()) {
+                qmlWarning(q) << image->pix->error();
             }
         }
-    }
 
-    for (QQuickStyledTextImgTag *image : std::as_const(imagesInLine)) {
-        totalLineHeight = qMax(totalLineHeight, textTop + image->pos.y() + image->size.height());
-        const int leadX = line.cursorToX(image->position);
-        const int trailX = line.cursorToX(image->position, QTextLine::Trailing);
-        const bool rtl = trailX < leadX;
-        image->pos.setX(leadX + (rtl ? (-image->offset - image->size.width()) : image->offset));
-        image->pos.setY(image->pos.y() + height + textTop);
+        positionInlineImage(image, range.start, line);
         extra->visibleImgTags << image;
     }
+}
 
-    line.setPosition(QPointF(line.position().x(), height + textTop));
-    height += (lineHeightMode() == QQuickText::FixedHeight) ? lineHeight() : totalLineHeight * lineHeight();
+void QQuickTextPrivate::setLineGeometry(QTextLine &line, qreal lineWidth, qreal &height)
+{
+    line.setLineWidth(lineWidth);
+    line.setPosition(QPointF(line.position().x(), height));
+    height += (lineHeightMode() == QQuickText::FixedHeight) ? lineHeight()
+                                                            : line.height() * lineHeight();
 }
 
 /*!
@@ -1392,11 +1403,7 @@ void QQuickTextPrivate::updateDocumentText()
         extra->doc->setPlainText(text);
 #endif
     rightToLeftText = extra->doc->toPlainText().isRightToLeft();
-}
-
-qreal QQuickTextPrivate::devicePixelRatio() const
-{
-    return (window ? window->effectiveDevicePixelRatio() : qApp->devicePixelRatio());
+    determineHorizontalAlignment();
 }
 
 /*!
@@ -1448,7 +1455,8 @@ qreal QQuickTextPrivate::devicePixelRatio() const
       \endtabcontent
     \endif
 
-    \image declarative-text.png
+    \image declarative-text.png {Markdown styling to show Hello in bold
+           and World in italics}
 
     If height and width are not explicitly set, Text will try to determine how
     much room is needed and set it accordingly. Unless \l wrapMode is set, it
@@ -1458,10 +1466,18 @@ qreal QQuickTextPrivate::devicePixelRatio() const
     To fit a single line of plain text to a set width, you can use the \l elide
     property.
 
-    Note that the \l{Supported HTML Subset} is limited. Also, if the text
-    contains HTML img tags that load remote images, the text is reloaded.
+    \note The \l{Supported HTML Subset} is limited. It is not intended to be compliant with the
+    HTML standard but is provided as a convenience for applying styles to text labels. Also, if the
+    text contains HTML \c img tags that load remote images, the text will be reloaded.
 
     Text provides read-only text. For editable text, see \l TextEdit.
+
+    \warning By default, Text will detect the \l textFormat based on the contents in \l{text}.
+    If it determined to be either \c Text.StyledText or \c Text.MarkdownText, the Text component
+    will support rich text features such as changing colors, font styles and inline images. This
+    functionality includes loading images remotely over the network. Thus, when displaying
+    user-controlled, untrusted content, the \l textFormat should either be explicitly set to
+    \c Text.PlainText, or the contents should be stripped of unwanted tags.
 
     \sa {Qt Quick Examples - Text#Fonts}{Fonts example}
 */
@@ -1581,10 +1597,7 @@ QQuickText::~QQuickText()
 
     Sets the family name of the font.
 
-    The family name is case insensitive and may optionally include a foundry
-    name, for example "Helvetica [Cronyx]".
-    If the family is available from more than one foundry and the foundry isn't specified, an arbitrary foundry is chosen.
-    If the family isn't available a family will be set using the font matching algorithm.
+    \include qmltypereference.qdoc qml-font-family
 */
 
 /*!
@@ -1593,8 +1606,7 @@ QQuickText::~QQuickText()
 
     Sets the style name of the font.
 
-    The style name is case insensitive. If set, the font will be matched against style name instead
-    of the font properties \l font.weight, \l font.bold and \l font.italic.
+    \include qmltypereference.qdoc qml-font-style-name
 */
 
 /*!
@@ -1606,22 +1618,7 @@ QQuickText::~QQuickText()
 /*!
     \qmlproperty int QtQuick::Text::font.weight
 
-    The requested weight of the font. The weight requested must be an integer
-    between 1 and 1000, or one of the predefined values:
-
-    \value Font.Thin        100
-    \value Font.ExtraLight  200
-    \value Font.Light       300
-    \value Font.Normal      400 (default)
-    \value Font.Medium      500
-    \value Font.DemiBold    600
-    \value Font.Bold        700
-    \value Font.ExtraBold   800
-    \value Font.Black       900
-
-    \qml
-    Text { text: "Hello"; font.weight: Font.DemiBold }
-    \endqml
+    \include qmltypereference.qdoc qml-font-weight
 */
 
 /*!
@@ -1662,8 +1659,7 @@ QQuickText::~QQuickText()
 
     Sets the letter spacing for the font.
 
-    Letter spacing changes the default spacing between individual letters in the font.
-    A positive value increases the letter spacing by the corresponding pixels; a negative value decreases the spacing.
+    \include qmltypereference.qdoc qml-font-letter-spacing
 */
 
 /*!
@@ -1671,9 +1667,7 @@ QQuickText::~QQuickText()
 
     Sets the word spacing for the font.
 
-    Word spacing changes the default spacing between individual words.
-    A positive value increases the word spacing by a corresponding amount of pixels,
-    while a negative value decreases the inter-word spacing accordingly.
+    \include qmltypereference.qdoc qml-font-word-spacing
 */
 
 /*!
@@ -1681,122 +1675,37 @@ QQuickText::~QQuickText()
 
     Sets the capitalization for the text.
 
-    \value Font.MixedCase       the normal case: no capitalization change is applied
-    \value Font.AllUppercase    alters the text to be rendered in all uppercase type
-    \value Font.AllLowercase    alters the text to be rendered in all lowercase type
-    \value Font.SmallCaps       alters the text to be rendered in small-caps type
-    \value Font.Capitalize      alters the text to be rendered with the first character of
-                                each word as an uppercase character
-
-    \qml
-    Text { text: "Hello"; font.capitalization: Font.AllLowercase }
-    \endqml
+    \include qmltypereference.qdoc qml-font-capitalization
 */
 
 /*!
     \qmlproperty enumeration QtQuick::Text::font.hintingPreference
     \since 5.8
 
-    Sets the preferred hinting on the text. This is a hint to the underlying text rendering system
-    to use a certain level of hinting, and has varying support across platforms. See the table in
-    the documentation for QFont::HintingPreference for more details.
+    Sets the preferred hinting on the text.
 
-    \note This property only has an effect when used together with render type Text.NativeRendering.
-
-    \value Font.PreferDefaultHinting    Use the default hinting level for the target platform.
-    \value Font.PreferNoHinting         If possible, render text without hinting the outlines
-           of the glyphs. The text layout will be typographically accurate, using the same metrics
-           as are used, for example, when printing.
-    \value Font.PreferVerticalHinting   If possible, render text with no horizontal hinting,
-           but align glyphs to the pixel grid in the vertical direction. The text will appear
-           crisper on displays where the density is too low to give an accurate rendering
-           of the glyphs. But since the horizontal metrics of the glyphs are unhinted, the text's
-           layout will be scalable to higher density devices (such as printers) without impacting
-           details such as line breaks.
-    \value Font.PreferFullHinting       If possible, render text with hinting in both horizontal and
-           vertical directions. The text will be altered to optimize legibility on the target
-           device, but since the metrics will depend on the target size of the text, the positions
-           of glyphs, line breaks, and other typographical detail will not scale, meaning that a
-           text layout may look different on devices with different pixel densities.
-
-    \qml
-    Text { text: "Hello"; renderType: Text.NativeRendering; font.hintingPreference: Font.PreferVerticalHinting }
-    \endqml
+    \include qmltypereference.qdoc qml-font-hinting-preference
 */
 
 /*!
     \qmlproperty bool QtQuick::Text::font.kerning
     \since 5.10
 
-    Enables or disables the kerning OpenType feature when shaping the text. Disabling this may
-    improve performance when creating or changing the text, at the expense of some cosmetic
-    features. The default value is true.
-
-    \qml
-    Text { text: "OATS FLAVOUR WAY"; font.kerning: false }
-    \endqml
+    \include qmltypereference.qdoc qml-font-kerning
 */
 
 /*!
     \qmlproperty bool QtQuick::Text::font.preferShaping
     \since 5.10
 
-    Sometimes, a font will apply complex rules to a set of characters in order to
-    display them correctly. In some writing systems, such as Brahmic scripts, this is
-    required in order for the text to be legible, but in for example Latin script, it is merely
-    a cosmetic feature. Setting the \c preferShaping property to false will disable all
-    such features when they are not required, which will improve performance in most cases.
-
-    The default value is true.
-
-    \qml
-    Text { text: "Some text"; font.preferShaping: false }
-    \endqml
+    \include qmltypereference.qdoc qml-font-prefer-shaping
 */
 
 /*!
     \qmlproperty object QtQuick::Text::font.variableAxes
     \since 6.7
 
-//! [qml-font-variable-axes]
-    Applies floating point values to variable axes in variable fonts.
-
-    Variable fonts provide a way to store multiple variations (with different weights, widths
-    or styles) in the same font file. The variations are given as floating point values for
-    a pre-defined set of parameters, called "variable axes". Specific instances are typically
-    given names by the font designer, and, in Qt, these can be selected using setStyleName()
-    just like traditional sub-families.
-
-    In some cases, it is also useful to provide arbitrary values for the different axes. For
-    instance, if a font has a Regular and Bold sub-family, you may want a weight in-between these.
-    You could then manually request this by supplying a custom value for the "wght" axis in the
-    font.
-
-    \qml
-        Text {
-            text: "Foobar"
-            font.family: "MyVariableFont"
-            font.variableAxes: { "wght": (Font.Normal + Font.Bold) / 2.0 }
-        }
-    \endqml
-
-    If the "wght" axis is supported by the font and the given value is within its defined range,
-    a font corresponding to the weight 550.0 will be provided.
-
-    There are a few standard axes than many fonts provide, such as "wght" (weight), "wdth" (width),
-    "ital" (italic) and "opsz" (optical size). They each have indivdual ranges defined in the font
-    itself. For instance, "wght" may span from 100 to 900 (QFont::Thin to QFont::Black) whereas
-    "ital" can span from 0 to 1 (from not italic to fully italic).
-
-    A font may also choose to define custom axes; the only limitation is that the name has to
-    meet the requirements for a QFont::Tag (sequence of four latin-1 characters.)
-
-    By default, no variable axes are set.
-
-    \note On Windows, variable axes are not supported if the optional GDI font backend is in use.
-
-    \sa QFont::setVariableAxis()
-//! [qml-font-variable-axes]
+    \include qmltypereference.qdoc qml-font-variable-axes
 */
 
 
@@ -1804,113 +1713,21 @@ QQuickText::~QQuickText()
     \qmlproperty object QtQuick::Text::font.features
     \since 6.6
 
-//! [qml-font-features]
-    Applies integer values to specific OpenType features when shaping the text based on the contents
-    in \a features. This provides advanced access to the font shaping process, and can be used
-    to support font features that are otherwise not covered in the API.
-
-    The font features are represented by a map from four-letter tags to integer values. This integer
-    value passed along with the tag in most cases represents a boolean value: A zero value means the
-    feature is disabled, and a non-zero value means it is enabled. For certain font features,
-    however, it may have other interpretations. For example, when applied to the \c salt feature, the
-    value is an index that specifies the stylistic alternative to use.
-
-    For example, the \c frac font feature will convert diagonal fractions separated with a slash
-    (such as \c 1/2) with a different representation. Typically this will involve baking the full
-    fraction into a single character width (such as \c ½).
-
-    If a font supports the \c frac feature, then it can be enabled in the shaper as in the following
-    code:
-
-    \qml
-    Text {
-        text: "One divided by two is 1/2"
-        font.family: "MyFractionFont"
-        font.features: { "frac": 1 }
-    }
-    \endqml
-
-    Multiple features can be assigned values in the same mapping. For instance,
-    if you would like to also disable kerning for the font, you can explicitly
-    disable this as follows:
-
-    \qml
-    Text {
-        text: "One divided by two is 1/2"
-        font.family: "MyFractionFont"
-        font.features: { "frac": 1, "kern": 0 }
-    }
-    \endqml
-
-    You can also collect the font properties in an object:
-
-    \qml
-    Text {
-        text: "One divided by two is 1/2"
-        font: {
-            family: "MyFractionFont"
-            features: { "frac": 1, "kern": 0 }
-        }
-    }
-    \endqml
-
-    \note By default, Qt will enable and disable certain font features based on other font
-    properties. In particular, the \c kern feature will be enabled/disabled depending on the
-    \l font.kerning property of the QFont. In addition, all ligature features (\c liga, \c clig,
-    \c dlig, \c hlig) will be disabled if a \l font.letterSpacing is set, but only for writing
-    systems where the use of ligature is cosmetic. For writing systems where ligatures are required,
-    the features will remain in their default state. The values set using \c font.features will
-    override the default behavior. If, for instance, \c{"kern"} is set to 1, then kerning will
-    always be enabled, regardless of whether the \l font.kerning property is set to false. Similarly,
-    if it is set to \c 0, it will always be disabled.
-
-    \sa QFont::setFeature()
-//! [qml-font-features]
+    \include qmltypereference.qdoc qml-font-features
 */
 
 /*!
     \qmlproperty bool QtQuick::Text::font.contextFontMerging
     \since 6.8
 
-//! [qml-font-context-font-merging]
-    If the selected font does not contain a certain character, Qt automatically chooses a
-    similar-looking fallback font that contains the character. By default this is done on a
-    character-by-character basis.
-
-    This means that in certain uncommon cases, many different fonts may be used to represent one
-    string of text even if it's in the same script. Setting \c contextFontMerging to true will try
-    finding the fallback font that matches the largest subset of the input string instead. This
-    will be more expensive for strings where missing glyphs occur, but may give more consistent
-    results. By default, \c contextFontMerging is \c{false}.
-
-    \sa QFont::StyleStrategy
-//! [qml-font-context-font-merging]
+    \include qmltypereference.qdoc qml-font-context-font-merging
 */
 
 /*!
     \qmlproperty bool QtQuick::Text::font.preferTypoLineMetrics
     \since 6.8
 
-//! [qml-font-prefer-typo-line-metrics] For compatibility reasons, OpenType fonts contain two
-    competing sets of the vertical line metrics that provide the \l{QFontMetricsF::ascent()}{ascent},
-    \l{QFontMetricsF::descent()}{descent} and \l{QFontMetricsF::leading()}{leading} of the font. These
-    are often referred to as the
-    \l{https://learn.microsoft.com/en-us/typography/opentype/spec/os2#uswinascent}{win} (Windows)
-    metrics and the \l{https://learn.microsoft.com/en-us/typography/opentype/spec/os2#sta}{typo}
-    (typographical) metrics. While the specification recommends using the \c typo metrics for line
-    spacing, many applications prefer the \c win metrics unless the \c{USE_TYPO_METRICS} flag is set in
-    the \l{https://learn.microsoft.com/en-us/typography/opentype/spec/os2#fsselection}{fsSelection}
-    field of the font. For backwards-compatibility reasons, this is also the case for Qt applications.
-    This is not an issue for fonts that set the \c{USE_TYPO_METRICS} flag to indicate that the \c{typo}
-    metrics are valid, nor for fonts where the \c{win} metrics and \c{typo} metrics match up. However,
-    for certain fonts the \c{win} metrics may be larger than the preferable line spacing and the
-    \c{USE_TYPO_METRICS} flag may be unset by mistake. For such fonts, setting
-    \c{font.preferTypoLineMetrics} may give superior results.
-
-    By default, \c preferTypoLineMetrics is \c{false}.
-
-    \sa QFont::StyleStrategy
-//! [qml-font-prefer-typo-line-metrics]
+    \include qmltypereference.qdoc qml-font-prefer-typo-line-metrics
 */
 
 
@@ -2029,13 +1846,10 @@ void QQuickText::setText(const QString &n)
     d->styledText = d->format == StyledText || (d->format == AutoText && Qt::mightBeRichText(n));
     d->text = n;
     if (isComponentComplete()) {
-        if (d->richText) {
+        if (d->richText)
             d->updateDocumentText();
-        } else {
+        else
             d->clearFormats();
-            d->rightToLeftText = d->text.isRightToLeft();
-        }
-        d->determineHorizontalAlignment();
     }
     d->textHasChanged = true;
     d->implicitWidthValid = false;
@@ -2145,7 +1959,8 @@ void QQuickText::setLinkColor(const QColor &color)
     }
     \endqml
 
-    \image declarative-textstyle.png
+    \image declarative-textstyle.png {Four text styles: Normal, Raised,
+           Outline with red border, and Sunken}
 */
 QQuickText::TextStyle QQuickText::style() const
 {
@@ -2483,7 +2298,8 @@ void QQuickText::resetMaximumLineCount()
     \row
     \li
     \snippet qml/text/textFormats.qml 0
-    \li \image declarative-textformat.png
+    \li \image declarative-textformat.png {Multiple text format display
+               examples: AutoText, HTML, plain, and Markdown}
     \endtable
 
     \c Text.RichText supports a larger subset of HTML 4, as described on the
@@ -2496,6 +2312,12 @@ void QQuickText::resetMaximumLineCount()
     \li code blocks use the \l {QFontDatabase::FixedFont}{default monospace font} but without a surrounding highlight box
     \li block quotes are indented, but there is no vertical line alongside the quote
     \endlist
+
+    \warning When the text format is any other format than \c{Text.PlainText}, it will support
+    rich text features such as changing colors, font styles and inline images. This includes
+    loading images remotely over the network. Thus, when displaying user-controlled, untrusted
+    content, the \l textFormat should either be explicitly set to \c Text.PlainText, or the contents
+    should be stripped of unwanted tags.
 */
 QQuickText::TextFormat QQuickText::textFormat() const
 {
@@ -2519,10 +2341,8 @@ void QQuickText::setTextFormat(TextFormat format)
             d->updateDocumentText();
         } else {
             d->clearFormats();
-            d->rightToLeftText = d->text.isRightToLeft();
             d->textHasChanged = true;
         }
-        d->determineHorizontalAlignment();
     }
     d->updateLayout();
     setAcceptHoverEvents(d->richText || d->styledText);
@@ -2537,7 +2357,8 @@ void QQuickText::setTextFormat(TextFormat format)
     Set this property to elide parts of the text fit to the Text item's width.
     The text will only elide if an explicit width has been set.
 
-    This property cannot be used with rich text.
+    This property works with \c Text.PlainText and \c Text.StyledText formats,
+    but cannot be used with \c Text.RichText or \c Text.MarkdownText formats.
 
     Eliding can be:
 
@@ -2724,7 +2545,7 @@ void QQuickText::geometryChange(const QRectF &newGeometry, const QRectF &oldGeom
         goto geomChangeDone;
     }
 
-    if (widthMaximum && heightMaximum && !d->isLineLaidOutConnected() && !verticalPositionChanged)  // Size is sufficient and growing.
+    if (widthMaximum && heightMaximum && !d->isLineLaidOutConnected() && !verticalPositionChanged && !elide)  // Size is sufficient and growing.
         goto geomChangeDone;
 
     if (!(widthChanged || widthMaximum) && !d->isLineLaidOutConnected()) { // only height has changed
@@ -2747,7 +2568,7 @@ void QQuickText::geometryChange(const QRectF &newGeometry, const QRectF &oldGeom
                 }
             }
         }
-    } else if (!heightChanged && widthMaximum) {
+    } else if (!heightChanged && widthMaximum && !elide) {
         if (oldGeometry.width() > 0) {
             // no change to height, width is adequate and wasn't 0 before
             // (old width could also be negative if it was 0 and the margins
@@ -2808,18 +2629,22 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
     node->setTextStyle(QSGTextNode::TextStyle(d->style));
     node->setRenderType(QSGTextNode::RenderType(d->renderType));
     node->setRenderTypeQuality(d->renderTypeQuality());
-    node->clear();
+
+    QSGInternalTextNode::RecycleBin recycleBin;
+    node->recycle(&recycleBin);
     node->setMatrix(QMatrix4x4());
 
     node->setColor(QColor::fromRgba(d->color));
     node->setStyleColor(QColor::fromRgba(d->styleColor));
     node->setLinkColor(QColor::fromRgba(d->linkColor));
 
+    node->setDevicePixelRatio(d->effectiveDevicePixelRatio());
+
     if (d->richText) {
         node->setViewport(clipRect());
         const qreal dx = QQuickTextUtil::alignedX(d->layedOutTextRect.width(), d->availableWidth(), effectiveHAlign()) + leftPadding();
         d->ensureDoc();
-        node->addTextDocument(QPointF(dx, dy), d->extra->doc);
+        node->addTextDocument(QPointF(dx, dy), d->extra->doc, &recycleBin);
     } else if (d->layedOutTextRect.width() > 0) {
         if (flags().testFlag(ItemObservesViewport))
             node->setViewport(clipRect());
@@ -2830,15 +2655,21 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
         if (d->elideLayout)
             unelidedLineCount -= 1;
         if (unelidedLineCount > 0)
-            node->addTextLayout(QPointF(dx, dy), &d->layout, -1, -1,0, unelidedLineCount);
+            node->addTextLayout(QPointF(dx, dy), &d->layout, &recycleBin, -1, -1,0, unelidedLineCount);
 
         if (d->elideLayout)
-            node->addTextLayout(QPointF(dx, dy), d->elideLayout.get());
+            node->addTextLayout(QPointF(dx, dy), d->elideLayout.get(), &recycleBin);
 
         if (d->extra.isAllocated()) {
             for (QQuickStyledTextImgTag *img : std::as_const(d->extra->visibleImgTags)) {
-                if (img->pix && img->pix->isReady())
-                    node->addImage(QRectF(img->pos.x() + dx, img->pos.y() + dy, img->size.width(), img->size.height()), img->pix->image());
+                if (img->pix && img->pix->isReady()) {
+                    node->addImage(QRectF(img->pos.x() + dx,
+                                          img->pos.y() + dy,
+                                          img->size.width(),
+                                          img->size.height()),
+                                   img->pix->image(),
+                                   &recycleBin);
+                }
             }
         }
     }
@@ -2848,6 +2679,8 @@ QSGNode *QQuickText::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data
     // The font caches have now been initialized on the render thread, so they have to be
     // invalidated before we can use them from the main thread again.
     invalidateFontCaches();
+
+    node->discardUnusedNodes(&recycleBin);
 
     return node;
 }
@@ -3086,12 +2919,8 @@ void QQuickText::componentComplete()
 {
     Q_D(QQuickText);
     if (d->updateOnComponentComplete) {
-        if (d->richText) {
+        if (d->richText)
             d->updateDocumentText();
-        } else {
-            d->rightToLeftText = d->text.isRightToLeft();
-        }
-        d->determineHorizontalAlignment();
     }
     QQuickItem::componentComplete();
     if (d->updateOnComponentComplete)
@@ -3125,6 +2954,7 @@ QString QQuickTextPrivate::anchorAt(const QPointF &mousePos) const
     translatedMousePos.rx() -= q->leftPadding();
     translatedMousePos.ry() -= q->topPadding() + QQuickTextUtil::alignedY(layedOutTextRect.height() + lineHeightOffset(), availableHeight(), vAlign);
     if (styledText) {
+        translatedMousePos.rx() -= QQuickTextUtil::alignedX(lineWidth, availableWidth(), q->effectiveHAlign());
         QString link = anchorAt(&layout, translatedMousePos);
         if (link.isEmpty() && elideLayout)
             link = anchorAt(elideLayout.get(), translatedMousePos);
@@ -3190,9 +3020,10 @@ bool QQuickTextPrivate::isLinkHoveredConnected()
     IS_SIGNAL_CONNECTED(q, QQuickText, linkHovered, (const QString &));
 }
 
-static void getLinks_helper(const QTextLayout *layout, QVector<QQuickTextPrivate::LinkDesc> *links)
+static void getLinks_helper(const QTextLayout *layout, QList<QQuickTextPrivate::LinkDesc> *links)
 {
-    for (const QTextLayout::FormatRange &formatRange : layout->formats()) {
+    const auto formats = layout->formats();
+    for (const QTextLayout::FormatRange &formatRange : formats) {
         if (formatRange.format.isAnchor()) {
             const int start = formatRange.start;
             const int len = formatRange.length;
@@ -3214,9 +3045,9 @@ static void getLinks_helper(const QTextLayout *layout, QVector<QQuickTextPrivate
     }
 }
 
-QVector<QQuickTextPrivate::LinkDesc> QQuickTextPrivate::getLinks() const
+QList<QQuickTextPrivate::LinkDesc> QQuickTextPrivate::getLinks() const
 {
-    QVector<QQuickTextPrivate::LinkDesc> links;
+    QList<QQuickTextPrivate::LinkDesc> links;
     getLinks_helper(&layout, &links);
     return links;
 }
@@ -3404,7 +3235,7 @@ void QQuickText::setRenderType(QQuickText::RenderType renderType)
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #if QT_DEPRECATED_SINCE(5, 15)
 /*!
-    \qmlmethod QtQuick::Text::doLayout()
+    \qmlmethod void QtQuick::Text::doLayout()
     \deprecated
 
     Use \l forceLayout() instead.
@@ -3417,7 +3248,7 @@ void QQuickText::doLayout()
 #endif
 #endif
 /*!
-    \qmlmethod QtQuick::Text::forceLayout()
+    \qmlmethod void QtQuick::Text::forceLayout()
     \since 5.9
 
     Triggers a re-layout of the displayed text.
@@ -3429,7 +3260,7 @@ void QQuickText::forceLayout()
 }
 
 /*!
-    \qmlmethod QtQuick::Text::linkAt(real x, real y)
+    \qmlmethod string QtQuick::Text::linkAt(real x, real y)
     \since 5.3
 
     Returns the link string at point \a x, \a y in content coordinates,

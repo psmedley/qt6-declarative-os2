@@ -1,12 +1,16 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickdialog_p.h"
 #include "qquickdialog_p_p.h"
 #include "qquickdialogbuttonbox_p.h"
+#include "qquickdialogbuttonbox_p_p.h"
 #include "qquickabstractbutton_p.h"
 #include "qquickpopupitem_p_p.h"
 #include "qquickpopupwindow_p_p.h"
+#include <qpa/qplatformintegration.h>
+#include <private/qguiapplication_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -24,7 +28,8 @@ QT_BEGIN_NAMESPACE
     with the user. Similarly to \l ApplicationWindow and \l Page, Dialog is organized
     into three sections: \l header, \l {Popup::}{contentItem}, and \l footer.
 
-    \image qtquickcontrols-page-wireframe.png
+    \image qtquickcontrols-page-wireframe.webp
+           {Page wireframe with header, content area, and footer}
 
     The \l {Popup::}{padding} properties only affect the contentItem. Use the
     \l {Popup::}{spacing} property to affect the space between header,
@@ -166,11 +171,6 @@ void QQuickDialogPrivate::handleClick(QQuickAbstractButton *button)
     }
 }
 
-Qt::WindowFlags QQuickDialogPrivate::popupWindowType() const
-{
-    return Qt::Dialog;
-}
-
 QQuickDialog::QQuickDialog(QObject *parent)
     : QQuickDialog(*(new QQuickDialogPrivate), parent)
 {
@@ -222,15 +222,15 @@ QQuickDialog::~QQuickDialog()
 QString QQuickDialog::title() const
 {
     Q_D(const QQuickDialog);
-    return d->m_title;
+    return d->title;
 }
 
 void QQuickDialog::setTitle(const QString &title)
 {
     Q_D(QQuickDialog);
-    if (d->m_title == title)
+    if (d->title == title)
         return;
-    d->m_title = title;
+    d->title = title;
 
     if (d->popupWindow)
         d->popupWindow->setTitle(title);
@@ -555,6 +555,25 @@ void QQuickDialog::done(int result)
         emit rejected();
 
     close();
+}
+
+void QQuickDialog::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &data)
+{
+    QQuickPopup::itemChange(change, data);
+
+    if (change != QQuickItem::ItemVisibleHasChanged || !isComponentComplete() || !data.boolValue)
+        return;
+
+    Q_D(QQuickDialog);
+    if (d->buttonBox && QQuickItemPrivate::get(d->popupItem)->subFocusItem == nullptr) {
+        for (int i = 0; i < d->buttonBox->count(); ++i) {
+            QQuickItem *item = qobject_cast<QQuickItem *>(d->buttonBox->itemAt(i));
+            if (item && item->isEnabled()) {
+                d->buttonBox->setFocus(true, Qt::OtherFocusReason);
+                break;
+            }
+        }
+    }
 }
 
 #if QT_CONFIG(accessibility)

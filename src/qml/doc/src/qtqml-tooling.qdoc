@@ -3,12 +3,20 @@
 /*!
 \group qtqml-tooling
 \title Qt Qml Tooling
-\brief List of Qt Qml Tools and Utilities
+\brief List of Qt Qml Tools and Utilities.
 
 The Qt Qml module provides a range of tools and utilities that enhance
 the developer and designer experience and includes some internal tools
 used by Qt. The following sections offer a concise overview of these tools
 and utilities, along with links to additional information about each of them.
+
+\section1 Qt Quick Compiler
+
+The \l{Qt Quick Compiler} processes QML and JavaScript code at compile time to improve
+application performance. It consists of two main components: the QML type compiler
+which generates C++ classes from QML types, and the QML script compiler which compiles
+bindings and functions to efficient byte code and C++. This results in faster
+application startup and more efficient execution of QML code.
 
 \section1 Developer tools
 

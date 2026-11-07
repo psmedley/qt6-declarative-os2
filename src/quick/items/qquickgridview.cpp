@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickgridview_p.h"
 #include "qquickflickable_p_p.h"
@@ -184,6 +185,8 @@ public:
     void fixup(AxisData &data, qreal minExtent, qreal maxExtent) override;
     bool flick(QQuickItemViewPrivate::AxisData &data, qreal minExtent, qreal maxExtent, qreal vSize,
                QQuickTimeLineCallback::Callback fixupCallback, QEvent::Type eventType, qreal velocity) override;
+
+    QQuickItemViewAttached *getAttachedObject(const QObject *object) const override;
 
     QQuickGridView::Flow flow;
     qreal cellWidth;
@@ -569,7 +572,7 @@ void QQuickGridViewPrivate::removeItem(FxViewItem *item)
     } else
 #endif
     {
-        releaseItem(item, QQmlDelegateModel::NotReusable);
+        releaseItem(item, reusableFlag);
     }
 }
 
@@ -1115,6 +1118,12 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     }
 }
 
+QQuickItemViewAttached *QQuickGridViewPrivate::getAttachedObject(const QObject *object) const
+{
+    QObject *attachedObject = qmlAttachedPropertiesObject<QQuickGridView>(object);
+    return static_cast<QQuickItemViewAttached *>(attachedObject);
+}
+
 
 //----------------------------------------------------------------------------
 /*!
@@ -1144,6 +1153,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
 
     \div {class="float-right"}
     \inlineimage gridview-simple.png
+        {Grid of contacts with icons: Jim Williams, John Brown, Bill Smyth, Sam Wise}
     \enddiv
 
     This model can be referenced as \c ContactModel in other QML files. See \l{QML Modules}
@@ -1160,6 +1170,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
 
     \div {class="float-right"}
     \inlineimage gridview-highlight.png
+        {Contact grid with John Brown highlighted in blue}
     \enddiv
 
     The view will create a new delegate for each item in the model. Note that the delegate
@@ -1223,25 +1234,33 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
             \b GridViews with GridView.FlowLeftToRight flow
     \row
         \li \b (H) Left to right \b (V) Top to bottom
-            \image gridview-layout-lefttoright-ltr-ttb.png
+            \image gridview-layout-lefttoright-ltr-ttb.png {Grid with items
+                   0-11 flowing left to right, rows arranged top to bottom}
         \li \b (H) Right to left \b (V) Top to bottom
-            \image gridview-layout-lefttoright-rtl-ttb.png
+            \image gridview-layout-lefttoright-rtl-ttb.png {Grid with items
+                   0-11 flowing right to left, rows arranged top to bottom}
         \li \b (H) Left to right \b (V) Bottom to top
-            \image gridview-layout-lefttoright-ltr-btt.png
+            \image gridview-layout-lefttoright-ltr-btt.png {Grid with items
+                   0-11 flowing left to right, rows arranged bottom to top}
         \li \b (H) Right to left \b (V) Bottom to top
-            \image gridview-layout-lefttoright-rtl-btt.png
+            \image gridview-layout-lefttoright-rtl-btt.png {Grid with items
+                   0-11 flowing right to left, rows arranged bottom to top}
     \header
         \li {4, 1}
             \b GridViews with GridView.FlowTopToBottom flow
     \row
         \li \b (H) Left to right \b (V) Top to bottom
-            \image gridview-layout-toptobottom-ltr-ttb.png
+            \image gridview-layout-toptobottom-ltr-ttb.png {Grid with items
+                   0-11 flowing top to bottom, columns arranged left to right}
         \li \b (H) Right to left \b (V) Top to bottom
-            \image gridview-layout-toptobottom-rtl-ttb.png
+            \image gridview-layout-toptobottom-rtl-ttb.png {Grid with items
+                   0-11 flowing top to bottom, columns arranged right to left}
         \li \b (H) Left to right \b (V) Bottom to top
-            \image gridview-layout-toptobottom-ltr-btt.png
+            \image gridview-layout-toptobottom-ltr-btt.png {Grid with items
+                   0-11 flowing bottom to top, columns arranged left to right}
         \li \b (H) Right to left \b (V) Bottom to top
-            \image gridview-layout-toptobottom-rtl-btt.png
+            \image gridview-layout-toptobottom-rtl-btt.png {Grid with items
+                   0-11 flowing bottom to top, columns arranged right to left}
     \endtable
 
     \sa {QML Data Models}, ListView, PathView, {Qt Quick Examples - Views}
@@ -1347,6 +1366,13 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
 
     \note Delegates are instantiated as needed and may be destroyed at any time.
     State should \e never be stored in a delegate.
+*/
+
+/*!
+    \qmlproperty enumeration QtQuick::GridView::delegateModelAccess
+    \since 6.10
+
+    \include delegatemodelaccess.qdocinc
 */
 
 /*!
@@ -2232,7 +2258,7 @@ void QQuickGridView::initItem(int index, QObject *obj)
 }
 
 /*!
-    \qmlmethod QtQuick::GridView::moveCurrentIndexUp()
+    \qmlmethod void QtQuick::GridView::moveCurrentIndexUp()
 
     Move the currentIndex up one item in the view.
     The current index will wrap if keyNavigationWraps is true and it
@@ -2276,7 +2302,7 @@ void QQuickGridView::moveCurrentIndexUp()
 }
 
 /*!
-    \qmlmethod QtQuick::GridView::moveCurrentIndexDown()
+    \qmlmethod void QtQuick::GridView::moveCurrentIndexDown()
 
     Move the currentIndex down one item in the view.
     The current index will wrap if keyNavigationWraps is true and it
@@ -2319,7 +2345,7 @@ void QQuickGridView::moveCurrentIndexDown()
 }
 
 /*!
-    \qmlmethod QtQuick::GridView::moveCurrentIndexLeft()
+    \qmlmethod void QtQuick::GridView::moveCurrentIndexLeft()
 
     Move the currentIndex left one item in the view.
     The current index will wrap if keyNavigationWraps is true and it
@@ -2362,7 +2388,7 @@ void QQuickGridView::moveCurrentIndexLeft()
 
 
 /*!
-    \qmlmethod QtQuick::GridView::moveCurrentIndexRight()
+    \qmlmethod void QtQuick::GridView::moveCurrentIndexRight()
 
     Move the currentIndex right one item in the view.
     The current index will wrap if keyNavigationWraps is true and it
@@ -2637,7 +2663,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
 }
 
 /*!
-    \qmlmethod QtQuick::GridView::positionViewAtIndex(int index, PositionMode mode)
+    \qmlmethod void QtQuick::GridView::positionViewAtIndex(int index, PositionMode mode)
 
     Positions the view such that the \a index is at the position specified by
     \a mode:
@@ -2670,8 +2696,8 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
 */
 
 /*!
-    \qmlmethod QtQuick::GridView::positionViewAtBeginning()
-    \qmlmethod QtQuick::GridView::positionViewAtEnd()
+    \qmlmethod void QtQuick::GridView::positionViewAtBeginning()
+    \qmlmethod void QtQuick::GridView::positionViewAtEnd()
 
     Positions the view at the beginning or end, taking into account any header or footer.
 
@@ -2693,7 +2719,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
     \qmlmethod int QtQuick::GridView::indexAt(real x, real y)
 
     Returns the index of the visible item containing the point \a x, \a y in
-    \l {QQuickFlickable::contentItem}{content item} coordinates.  If there is
+    \l {QtQuick::Flickable::contentItem}{content item} coordinates.  If there is
     no item at the point specified, or the item is not visible -1 is returned.
 
     If the item is outside the visible area, -1 is returned, regardless of
@@ -2727,7 +2753,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
     \qmlmethod Item QtQuick::GridView::itemAt(real x, real y)
 
     Returns the visible item containing the point \a x, \a y in
-    \l {QQuickFlickable::contentItem}{content item} coordinates. If there
+    \l {QtQuick::Flickable::contentItem}{content item} coordinates. If there
     is no item at the point specified, or the item is not visible null is returned.
 
     If the item is outside the visible area, null is returned, regardless of
@@ -2753,7 +2779,7 @@ bool QQuickGridViewPrivate::needsRefillForAddedOrRemovedIndex(int modelIndex) co
 */
 
 /*!
-    \qmlmethod QtQuick::GridView::forceLayout()
+    \qmlmethod void QtQuick::GridView::forceLayout()
 
     Responding to changes in the model is usually batched to happen only once
     per frame. This means that inside script blocks it is possible for the

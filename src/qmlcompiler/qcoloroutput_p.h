@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QCOLOROUTPUT_H
 #define QCOLOROUTPUT_H
@@ -83,6 +84,9 @@ public:
     void writePrefixedMessage(const QString &message, QtMsgType type,
                               const QString &prefix = QString());
     QString colorify(QStringView message, int color = -1) const;
+
+    void flushBuffer();
+    void discardBuffer();
 
 private:
     QScopedPointer<QColorOutputPrivate> d;

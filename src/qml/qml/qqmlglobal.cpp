@@ -1,10 +1,12 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include <QtQml/private/qjsvalue_p.h>
 #include <QtQml/private/qqmlglobal_p.h>
 #include <QtQml/private/qqmlmetatype_p.h>
 #include <QtQml/private/qv4qobjectwrapper_p.h>
+#include <QtQml/private/qv4alloca_p.h>
 #include <QtQml/qqmlengine.h>
 
 #include <QtCore/private/qvariant_p.h>
@@ -13,6 +15,19 @@
 #include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
+
+static void printConversionWarning(QV4::ExecutionEngine *engine, const QString &propertyValue,
+                                   const QString &propertyType, const QString &propertyName) {
+    auto stackTrace = engine->stackTrace(1);
+    QString errorLocation;
+    if (!stackTrace.isEmpty()) {
+        const auto& stackTop = stackTrace[0];
+        errorLocation = QString::fromLatin1("%1:%2: ").arg(stackTop.source, QString::number(stackTop.line));
+    }
+    qWarning().noquote()
+        << QLatin1String("%4Could not convert %1 to %2 for property %3")
+                .arg(propertyValue, propertyType, propertyName, errorLocation);
+}
 
 // Pre-filter the metatype before poking QQmlMetaType::qmlType() and locking its mutex.
 static bool isConstructibleMetaType(const QMetaType metaType)
@@ -178,20 +193,30 @@ static void *createVariantData(QMetaType type, QVariant *variant)
 }
 
 static void callConstructor(
+        const QMetaObject *targetMetaObject, int i, void **args, int argc, void *target)
+{
+    Q_ALLOCA_INIT();
+    Q_ALLOCA_VAR(void *, p, (argc + 1) * sizeof(void *));
+    p[0] = target;
+    memcpy(p + 1, args, argc * sizeof(void *));
+    targetMetaObject->static_metacall(QMetaObject::ConstructInPlace, i, p);
+}
+
+static void callConstructor(
         const QMetaObject *targetMetaObject, int i, void *source, void *target)
 {
     void *p[] = { target, source };
     targetMetaObject->static_metacall(QMetaObject::ConstructInPlace, i, p);
 }
 
+
 template<typename Allocate>
 static void fromVerifiedType(
-        const QMetaObject *targetMetaObject, int ctorIndex, void *source, Allocate &&allocate)
+        const QMetaObject *targetMetaObject, int ctorIndex, void **args,
+        Allocate &&allocate)
 {
     const QMetaMethod ctor = targetMetaObject->constructor(ctorIndex);
-    Q_ASSERT_X(ctor.parameterCount() == 1, "fromVerifiedType",
-               "Value type constructor must take exactly one argument");
-    callConstructor(targetMetaObject, ctorIndex, source, allocate());
+    callConstructor(targetMetaObject, ctorIndex, args, ctor.parameterCount(), allocate());
 }
 
 
@@ -386,10 +411,8 @@ static void doWriteProperties(
             continue;
         }
 
-        qWarning().noquote()
-                << QLatin1String("Could not convert %1 to %2 for property %3")
-                   .arg(v4PropValue->toQStringNoThrow(), QString::fromUtf8(propertyType.name()),
-                        propertyName);
+        printConversionWarning(engine, v4PropValue->toQStringNoThrow(),
+                               QString::fromUtf8(propertyType.name()), propertyName);
     }
 }
 
@@ -441,10 +464,9 @@ static void doWriteProperties(
             continue;
         }
 
-        qWarning().noquote()
-            << QLatin1String("Could not convert %1 to %2 for property %3")
-                   .arg(property.toString(), QString::fromUtf8(propertyType.name()),
-                        QString::fromUtf8(metaProperty.name()));
+        printConversionWarning(engine, QDebug::toString(property),
+                               QString::fromUtf8(propertyType.name()),
+                               QString::fromUtf8(metaProperty.name()));
     }
 }
 
@@ -522,10 +544,9 @@ void doWriteProperties(
             continue;
         }
 
-        qWarning().noquote()
-            << QLatin1String("Could not convert %1 to %2 for property %3")
-                   .arg(property.toString(), QString::fromUtf8(propertyType.name()),
-                        QString::fromUtf8(metaProperty.name()));
+        printConversionWarning(engine, QDebug::toString(property),
+                               QString::fromUtf8(propertyType.name()),
+                               QString::fromUtf8(metaProperty.name()));
     }
 }
 
@@ -548,6 +569,9 @@ static QVariant byProperties(
 
     if (source.metaType() == QMetaType::fromType<QJSValue>()) {
         QJSValue val = source.value<QJSValue>();
+        // Generally, the GC might collect a Value at any point so that
+        // a `ScopedValue` should be used.
+        // In this case, the Value is tied to a `QJSValue` which is
         // persistent to the GC and thus fromReturnedValue is safe.
         return byProperties(
                 targetMetaObject, targetMetaType,
@@ -774,10 +798,10 @@ void *QQmlValueTypeProvider::heapCreateValueType(
 
 QVariant QQmlValueTypeProvider::constructValueType(
         QMetaType targetMetaType, const QMetaObject *targetMetaObject,
-        int ctorIndex, void *ctorArg)
+        int ctorIndex, void **args)
 {
     QVariant result;
-    fromVerifiedType(targetMetaObject, ctorIndex, ctorArg,
+    fromVerifiedType(targetMetaObject, ctorIndex, args,
                      [&]() { return createVariantData(targetMetaType, &result); });
     return result;
 }

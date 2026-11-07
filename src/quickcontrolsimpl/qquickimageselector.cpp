@@ -1,20 +1,25 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickimageselector_p.h"
 
+#include <private/qqmlproperty_p.h>
+
+#include <QtCore/qcache.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qfileinfo.h>
-#include <QtCore/qcache.h>
-#include <QtCore/qloggingcategory.h>
 #include <QtCore/qfileselector.h>
+#include <QtCore/qloggingcategory.h>
+
+#include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlfile.h>
-#include <QtQml/private/qqmlproperty_p.h>
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcQtQuickControlsImageSelector, "qt.quick.controls.imageselector")
+Q_STATIC_LOGGING_CATEGORY(lcQtQuickControlsImageSelector, "qt.quick.controls.imageselector")
 
 static const int DEFAULT_CACHE = 500;
 

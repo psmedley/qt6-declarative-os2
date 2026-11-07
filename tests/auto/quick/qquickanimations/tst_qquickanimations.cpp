@@ -22,6 +22,8 @@
 #include <QtTest/qtest.h>
 #include <QtTest/qsignalspy.h>
 
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
+
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
 
@@ -38,6 +40,8 @@ private slots:
     {
         QQmlEngine engine;  // ensure types are registered
         QQmlDataTest::initTestCase();
+        // 1 second is not quite enough, since many animations are 1 second long.
+        QTest::defaultTryTimeout.store(std::chrono::seconds(2));
     }
 
     void simpleProperty();
@@ -105,6 +109,7 @@ private slots:
     void restartNestedAnimationGroupWhenDirty();
     void targetsDeletedNotRemoved();
     void alwaysRunToEndSetFalseRestartBug();
+    void animationInstantiator();
 };
 
 #define QTIMED_COMPARE(lhs, rhs) do { \
@@ -1232,7 +1237,7 @@ void tst_qquickanimations::easingProperties()
 
         QVERIFY(animObject != nullptr);
         QCOMPARE(animObject->easing().type(), QEasingCurve::BezierSpline);
-        QVector<QPointF> points = animObject->easing().toCubicSpline();
+        QList<QPointF> points = animObject->easing().toCubicSpline();
         QCOMPARE(points.size(), 3);
         QCOMPARE(points.at(0), QPointF(0.5, 0.2));
         QCOMPARE(points.at(1), QPointF(0.13, 0.65));
@@ -1300,7 +1305,7 @@ void tst_qquickanimations::startStopSignals()
 
     root->setProperty("alwaysRunToEnd", true);
 
-    timer.restart();
+    timer.start();
     QMetaObject::invokeMethod(root, "start");
 
     QCOMPARE(root->property("startedCount").toInt(), 3);
@@ -1338,22 +1343,24 @@ void tst_qquickanimations::signalOrder()
     QVERIFY(root);
     QQuickAbstractAnimation *animation = root->findChild<QQuickAbstractAnimation*>(animationType);
 
-    const QVector<void (QQuickAbstractAnimation::*)()> signalsToConnect = {
-        &QQuickAbstractAnimation::started,
-        &QQuickAbstractAnimation::stopped,
-        &QQuickAbstractAnimation::finished
-    };
-    const QVector<const char*> expectedSignalOrder = {
+    QList<void (QQuickAbstractAnimation::*)()> signalsToConnect;
+    // CAVEAT: we do not initialize signalsToConnect with an initializer list: gcc-15 aggressively
+    //         optimizes pointer-to-members of dll-imported symbols.
+    //         https://gcc.gnu.org/bugzilla/show_bug.cgi?id=126628
+    signalsToConnect << &QQuickAbstractAnimation::started << &QQuickAbstractAnimation::stopped
+                     << &QQuickAbstractAnimation::finished;
+
+    const QList<const char*> expectedSignalOrder = {
         "started",
         "stopped",
         "finished"
     };
 
-    QVector<const char*> actualSignalOrder;
+    QList<const char*> actualSignalOrder;
 
     for (int i = 0; i < signalsToConnect.size(); ++i) {
         const char *str = expectedSignalOrder.at(i);
-        connect(animation, signalsToConnect.at(i) , [str, &actualSignalOrder] () {
+        connect(animation, signalsToConnect.at(i), this, [str, &actualSignalOrder] () {
             actualSignalOrder.append(str);
         });
     }
@@ -1851,8 +1858,7 @@ void tst_qquickanimations::fastFlickingBug()
 
 void tst_qquickanimations::opacityAnimationFromZero()
 {
-    if (QGuiApplication::platformName() == QLatin1String("minimal"))
-        QSKIP("Skipping due to grabWindow not functional on minimal platforms");
+    SKIP_IF_NO_WINDOW_GRAB;
 
     // not easy to verify this in threaded render loop
     // since it's difficult to capture the first frame when scene graph
@@ -2332,6 +2338,16 @@ void tst_qquickanimations::alwaysRunToEndSetFalseRestartBug()
     QCOMPARE(sequential.isRunning(), true);
     sequential.stop();
     QCOMPARE(sequential.isRunning(), false);
+}
+
+void tst_qquickanimations::animationInstantiator()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("animationInstantiator.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+    QTRY_VERIFY(o->property("v").toInt() > 10);
 }
 
 QTEST_MAIN(tst_qquickanimations)

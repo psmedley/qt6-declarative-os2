@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 #include "qquickmonthgrid_p.h"
 #include "qquickmonthmodel_p.h"
 
@@ -21,14 +22,16 @@ QT_BEGIN_NAMESPACE
     calculated for a given \l month and \l year, using the specified
     \l {Control::locale}{locale}.
 
-    \image qtquickcontrols-monthgrid.png
+    \image qtquickcontrols-monthgrid.webp
+           {Month grid displaying calendar days}
     \snippet qtquickcontrols-monthgrid.qml 1
 
     MonthGrid can be used as a standalone control, but it is most often
     used in conjunction with DayOfWeekRow and WeekNumberColumn. Regardless
     of the use case, positioning of the grid is left to the user.
 
-    \image qtquickcontrols-monthgrid-layout.png
+    \image qtquickcontrols-monthgrid-layout.webp
+           {Month grid in calendar layout}
     \snippet qtquickcontrols-monthgrid-layout.qml 1
 
     The visual appearance of MonthGrid can be changed by
@@ -45,7 +48,8 @@ QT_BEGIN_NAMESPACE
 
     \snippet qtquickcontrols-monthgrid-localization.qml 1
 
-    \sa DayOfWeekRow, WeekNumberColumn, CalendarModel
+    \sa DayOfWeekRow, WeekNumberColumn, CalendarModel,
+        {Qt Quick Controls - Event Calendar}
 */
 
 /*!
@@ -82,7 +86,7 @@ public:
     void resizeItems();
 
     QQuickItem *cellAt(const QPointF &pos) const;
-    QDate dateOf(QQuickItem *cell) const;
+    QDateTime dateOf(QQuickItem *cell) const;
 
     void updatePress(const QPointF &pos);
     void clearPress(bool clicked);
@@ -94,7 +98,10 @@ public:
 
     QString title;
     QVariant source;
-    QDate pressedDate;
+
+    // Only the date matters, but we have to store it as QDateTime for compatibility
+    // with Date: QTBUG-72208. See QQuickMonthModelPrivate::populate for more info.
+    QDateTime pressedDate;
     int pressTimer;
     QQuickItem *pressedItem;
     QQuickMonthModel *model;
@@ -127,11 +134,11 @@ QQuickItem *QQuickMonthGridPrivate::cellAt(const QPointF &pos) const
     return nullptr;
 }
 
-QDate QQuickMonthGridPrivate::dateOf(QQuickItem *cell) const
+QDateTime QQuickMonthGridPrivate::dateOf(QQuickItem *cell) const
 {
     if (contentItem)
         return model->dateAt(contentItem->childItems().indexOf(cell));
-    return QDate();
+    return {};
 }
 
 void QQuickMonthGridPrivate::updatePress(const QPointF &pos)
@@ -152,7 +159,7 @@ void QQuickMonthGridPrivate::clearPress(bool clicked)
         if (clicked)
             emit q->clicked(pressedDate);
     }
-    pressedDate = QDate();
+    pressedDate = {};
     pressedItem = nullptr;
 }
 
@@ -321,6 +328,8 @@ void QQuickMonthGrid::setTitle(const QString &title)
     The following snippet presents the default implementation of the item
     delegate. It can be used as a starting point for implementing custom
     delegates.
+
+    \include delegate-ownership.qdocinc {no-ownership} {MonthGrid}
 
     \snippet basic/MonthGrid.qml delegate
 */

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGSOFTWAREINTERNALRECTANGLENODE_H
 #define QSGSOFTWAREINTERNALRECTANGLENODE_H
@@ -39,6 +40,10 @@ public:
     void setTopRightRadius(qreal radius) override;
     void setBottomLeftRadius(qreal radius) override;
     void setBottomRightRadius(qreal radius) override;
+    void resetTopLeftRadius() override;
+    void resetTopRightRadius() override;
+    void resetBottomLeftRadius() override;
+    void resetBottomRightRadius() override;
     void setAntialiasing(bool antialiasing) override { Q_UNUSED(antialiasing); }
     void setAligned(bool aligned) override;
 
@@ -65,12 +70,15 @@ private:
     qreal m_bottomRightRadius;
     QPen m_pen;
     QBrush m_brush;
-    bool m_vertical;
-
-    bool m_cornerPixmapIsDirty;
     QPixmap m_cornerPixmap;
-
     qreal m_devicePixelRatio;
+
+    uint m_vertical : 1;
+    uint m_cornerPixmapIsDirty : 1;
+    uint m_isTopLeftRadiusSet : 1;
+    uint m_isTopRightRadiusSet : 1;
+    uint m_isBottomLeftRadiusSet : 1;
+    uint m_isBottomRightRadiusSet : 1;
 };
 
 QT_END_NAMESPACE

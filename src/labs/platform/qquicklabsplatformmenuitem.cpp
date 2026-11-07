@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquicklabsplatformmenuitem_p.h"
 #include "qquicklabsplatformmenu_p.h"
@@ -29,6 +30,7 @@ QT_BEGIN_NAMESPACE
     The MenuItem type provides a QML API for native platform menu items.
 
     \image qtlabsplatform-menu.png
+           {Native menu with Zoom In and Zoom Out items}
 
     A menu item consists of an \l icon, \l text, and \l shortcut.
 

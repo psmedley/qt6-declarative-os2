@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4JSCALL_H
 #define QV4JSCALL_H
 
@@ -37,10 +38,10 @@ QT_BEGIN_NAMESPACE
 namespace QV4 {
 
 template<typename Args>
-CallData *callDatafromJS(const Scope &scope, const Args *args, const FunctionObject *f = nullptr)
+CallData *callDatafromJS(const Scope &scope, const Args *args, const FunctionObject *f)
 {
     int size = int(offsetof(QV4::CallData, args)/sizeof(QV4::Value)) + args->argc;
-    CallData *ptr = reinterpret_cast<CallData *>(scope.alloc<Scope::Uninitialized>(size));
+    CallData *ptr = reinterpret_cast<CallData *>(scope.alloc(size));
     ptr->function = Encode::undefined();
     ptr->context = Encode::undefined();
     ptr->accumulator = Encode::undefined();
@@ -57,7 +58,7 @@ CallData *callDatafromJS(const Scope &scope, const Args *args, const FunctionObj
 struct JSCallArguments
 {
     JSCallArguments(const Scope &scope, int argc = 0)
-        : thisObject(scope.alloc()), args(scope.alloc(argc)), argc(argc)
+        : thisObject(scope.constructUndefined(1)), args(scope.constructUndefined (argc)), argc(argc)
     {
     }
 
@@ -108,67 +109,98 @@ ReturnedValue FunctionObject::call(const JSCallData &data) const
 void populateJSCallArguments(ExecutionEngine *v4, JSCallArguments &jsCall, int argc,
                              void **args, const QMetaType *types);
 
-template<typename Callable>
-ReturnedValue convertAndCall(
-        ExecutionEngine *engine, const Function::AOTCompiledFunction *aotFunction,
-        const Value *thisObject, const Value *argv, int argc, Callable call)
+inline QObject *cppThisObject(const Value *thisObject)
 {
-    const qsizetype numFunctionArguments = aotFunction->types.length() - 1;
-    Q_ALLOCA_VAR(void *, values, (numFunctionArguments + 1) * sizeof(void *));
-    Q_ALLOCA_VAR(QMetaType, types, (numFunctionArguments + 1) * sizeof(QMetaType));
+    if (!thisObject)
+        return nullptr;
+    if (const QV4::QObjectWrapper *wrapper = thisObject->as<QV4::QObjectWrapper>())
+        return wrapper->object();
+    return nullptr;
+}
 
-    for (qsizetype i = 0; i < numFunctionArguments; ++i) {
-        const QMetaType argumentType = aotFunction->types[i + 1];
-        types[i + 1] = argumentType;
+inline void defaultConstructReturnValue(QMetaType returnType, void *returnValue)
+{
+    if (returnType.flags() & QMetaType::NeedsConstruction)
+        returnType.construct(returnValue);
+}
+
+inline ReturnedValue defaultConvertReturnValue(
+        ExecutionEngine *engine, QMetaType returnType, void *returnValue)
+{
+    const ReturnedValue result = engine->metaTypeToJS(returnType, returnValue);
+    if (returnType.flags() & QMetaType::NeedsDestruction)
+        returnType.destruct(returnValue);
+    return result;
+}
+
+inline bool defaultConversionErrorHandler(QMetaType argumentType, void *argument, qsizetype i)
+{
+    Q_UNUSED(i);
+
+    // If we can't convert the argument, we need to default-construct it even if it
+    // doesn't formally need construction. For example:
+    // - An int doesn't need construction, but we still want it to be 0.
+    // - A QObject* should be nullptr by default, rather than some random value.
+    if (!(argumentType.flags() & QMetaType::NeedsConstruction))
+        argumentType.construct(argument);
+    return true;
+}
+
+template<typename Callable,
+         typename ConstructReturnValue = decltype(defaultConstructReturnValue),
+         typename ConvertReturnValue = decltype(defaultConvertReturnValue),
+         typename ConversionErrorHandler = decltype(defaultConversionErrorHandler)>
+ReturnedValue convertAndCall(
+        ExecutionEngine *engine, const QMetaType *types, int numTypes,
+        const Value *argv, int argc, Callable &&call,
+        ConstructReturnValue &&constructReturnValue = defaultConstructReturnValue,
+        ConvertReturnValue &&convertReturnValue = defaultConvertReturnValue,
+        ConversionErrorHandler &&errorHandler = defaultConversionErrorHandler)
+{
+    Q_ALLOCA_INIT();
+    Q_ALLOCA_VAR(void *, values, numTypes * sizeof(void *));
+
+    for (qsizetype i = 1; i < numTypes; ++i) {
+        const QMetaType argumentType = types[i];
         if (const qsizetype argumentSize = argumentType.sizeOf()) {
             Q_ALLOCA_VAR(void, argument, argumentSize);
-            if (argumentType.flags() & QMetaType::NeedsConstruction) {
+            const int argIndex = i - 1;
+            if (argumentType.flags() & QMetaType::NeedsConstruction)
                 argumentType.construct(argument);
-                if (i < argc)
-                    ExecutionEngine::metaTypeFromJS(argv[i], argumentType, argument);
-            } else if (i >= argc
-                        || !ExecutionEngine::metaTypeFromJS(argv[i], argumentType, argument)) {
-                // If we can't convert the argument, we need to default-construct it even if it
-                // doesn't formally need construction.
-                // E.g. an int doesn't need construction, but we still want it to be 0.
-                argumentType.construct(argument);
+
+            if (argIndex >= argc
+                    || !ExecutionEngine::metaTypeFromJS(argv[argIndex], argumentType, argument)) {
+                if (!errorHandler(argumentType, argument, argIndex)) {
+                    for (qsizetype j = 1; j < i; ++j) {
+                        if (types[j].flags() & QMetaType::NeedsDestruction)
+                            types[j].destruct(values[j]);
+                    }
+                    return Encode::undefined();
+                }
             }
 
-            values[i + 1] = argument;
+            values[i] = argument;
         } else {
-            values[i + 1] = nullptr;
+            values[i] = nullptr;
         }
     }
 
     Q_ALLOCA_DECLARE(void, returnValue);
-    types[0] = aotFunction->types[0];
     if (const qsizetype returnSize = types[0].sizeOf()) {
         Q_ALLOCA_ASSIGN(void, returnValue, returnSize);
+        constructReturnValue(types[0], returnValue);
         values[0] = returnValue;
-        if (types[0].flags() & QMetaType::NeedsConstruction)
-            types[0].construct(returnValue);
     } else {
         values[0] = nullptr;
     }
 
-    if (const QV4::QObjectWrapper *cppThisObject = thisObject
-                ? thisObject->as<QV4::QObjectWrapper>()
-                : nullptr) {
-        call(cppThisObject->object(), values, types, argc);
-    } else {
-        call(nullptr, values, types, argc);
-    }
+    call(values, types, argc);
 
-    ReturnedValue result;
-    if (values[0]) {
-        result = engine->metaTypeToJS(types[0], values[0]);
-        if (types[0].flags() & QMetaType::NeedsDestruction)
-            types[0].destruct(values[0]);
-    } else {
-        result = Encode::undefined();
-    }
+    const ReturnedValue result = values[0]
+            ? convertReturnValue(engine, types[0], returnValue)
+            : Encode::undefined();
 
-    for (qsizetype i = 1, end = numFunctionArguments + 1; i < end; ++i) {
+    for (qsizetype i = 1, end = numTypes; i < end; ++i) {
         if (types[i].flags() & QMetaType::NeedsDestruction)
             types[i].destruct(values[i]);
     }
@@ -303,7 +335,7 @@ inline ReturnedValue coerceListType(
     ScopedValue v(scope);
     for (qsizetype i = 0; i < length; ++i) {
         v =  array->get(i);
-        sequence->containerPutIndexed(i, v);
+        sequence->put(PropertyKey::fromArrayIndex(i), v);
     }
     return sequence->asReturnedValue();
 }
@@ -483,6 +515,7 @@ void coerceAndCall(
         ExecutionEngine *engine, const TypedFunction *typedFunction,
         void **argv, const QMetaType *types, int argc, Callable call)
 {
+    Q_ALLOCA_INIT();
     const qsizetype numFunctionArguments = typedFunction->parameterCount();
 
     Q_ALLOCA_DECLARE(void *, transformedArguments);

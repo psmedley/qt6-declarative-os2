@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickshapecurverenderer_p.h"
 #include "qquickshapecurverenderer_p_p.h"
@@ -26,40 +27,36 @@ Q_LOGGING_CATEGORY(lcShapeCurveRenderer, "qt.shape.curverenderer");
 
 namespace {
 
+/*! \internal
+    Choice of vertex shader to use for the wireframe node:
+    * \c SimpleWFT is for when vertices are already in logical coordinates
+    * \c StrokeWFT chooses the stroke shader, which moves vertices according to the stroke width uniform
+*/
+enum WireFrameType { SimpleWFT, StrokeWFT };
+
 class QQuickShapeWireFrameMaterialShader : public QSGMaterialShader
 {
 public:
-    QQuickShapeWireFrameMaterialShader(int viewCount)
+    QQuickShapeWireFrameMaterialShader(WireFrameType wft, int viewCount) : m_wftype(wft)
     {
-        setShaderFileName(VertexStage,
+        setShaderFileName(VertexStage, wft == StrokeWFT ?
+                          QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shapestroke_wireframe.vert.qsb") :
                           QStringLiteral(":/qt-project.org/shapes/shaders_ng/wireframe.vert.qsb"), viewCount);
         setShaderFileName(FragmentStage,
+                          wft == StrokeWFT ?
+                          QStringLiteral(":/qt-project.org/scenegraph/shaders_ng/shapestroke_wireframe.frag.qsb") :
                           QStringLiteral(":/qt-project.org/shapes/shaders_ng/wireframe.frag.qsb"), viewCount);
     }
 
-    bool updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *) override
-    {
-        bool changed = false;
-        QByteArray *buf = state.uniformData();
-        Q_ASSERT(buf->size() >= 64);
-        const int matrixCount = qMin(state.projectionMatrixCount(), newMaterial->viewCount());
+    bool updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *) override;
 
-        for (int viewIndex = 0; viewIndex < matrixCount; ++viewIndex) {
-            if (state.isMatrixDirty()) {
-                const QMatrix4x4 m = state.combinedMatrix(viewIndex);
-                memcpy(buf->data() + 64 * viewIndex, m.constData(), 64);
-                changed = true;
-            }
-        }
-
-        return changed;
-    }
+    WireFrameType m_wftype;
 };
 
 class QQuickShapeWireFrameMaterial : public QSGMaterial
 {
 public:
-    QQuickShapeWireFrameMaterial()
+    QQuickShapeWireFrameMaterial(WireFrameType wft) : m_wftype(wft)
     {
         setFlag(Blending, true);
     }
@@ -67,6 +64,21 @@ public:
     int compare(const QSGMaterial *other) const override
     {
         return (type() - other->type());
+    }
+
+    void setCosmeticStroke(bool c)
+    {
+        m_cosmeticStroke = c;
+    }
+
+    void setStrokeWidth(float width)
+    {
+        m_strokeWidth = width;
+    }
+
+    float strokeWidth()
+    {
+        return (m_cosmeticStroke ? -1.0 : 1.0) * qAbs(m_strokeWidth);
     }
 
 protected:
@@ -77,17 +89,53 @@ protected:
     }
     QSGMaterialShader *createShader(QSGRendererInterface::RenderMode) const override
     {
-        return new QQuickShapeWireFrameMaterialShader(viewCount());
+        return new QQuickShapeWireFrameMaterialShader(m_wftype, viewCount());
     }
 
+    WireFrameType m_wftype;
+    bool m_cosmeticStroke = false;
+    float m_strokeWidth = 1.0f;
 };
 
+bool QQuickShapeWireFrameMaterialShader::updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *)
+{
+    QByteArray *buf = state.uniformData();
+    Q_ASSERT(buf->size() >= 64);
+    const int matrixCount = qMin(state.projectionMatrixCount(), newMaterial->viewCount());
+    bool changed = false;
+    float localScale = /* newNode != nullptr ? newNode->localScale() : */ 1.0f;
+
+    for (int viewIndex = 0; viewIndex < matrixCount; ++viewIndex) {
+        if (state.isMatrixDirty()) {
+            QMatrix4x4 m = state.combinedMatrix(viewIndex);
+            if (m_wftype == StrokeWFT)
+                m.scale(localScale);
+            memcpy(buf->data() + 64 * viewIndex, m.constData(), 64);
+            changed = true;
+        }
+    }
+    // determinant is xscale * yscale, as long as Item.transform does not include shearing or rotation
+    const float matrixScale = qSqrt(qAbs(state.determinant())) * state.devicePixelRatio() * localScale;
+    memcpy(buf->data() + matrixCount * 64, &matrixScale, 4);
+    const float dpr = state.devicePixelRatio();
+    memcpy(buf->data() + matrixCount * 64 + 8, &dpr, 4);
+    const float opacity = 1.0; // don't fade the wireframe
+    memcpy(buf->data() + matrixCount * 64 + 4, &opacity, 4);
+    const float strokeWidth = static_cast<QQuickShapeWireFrameMaterial *>(newMaterial)->strokeWidth();
+    memcpy(buf->data() + matrixCount * 64 + 12, &strokeWidth, 4);
+    changed = true;
+    // shapestroke_wireframe.vert doesn't use the strokeColor and debug uniforms, so we don't bother setting them
+
+    return changed;
+}
+
+template <WireFrameType wftype>
 class QQuickShapeWireFrameNode : public QSGCurveAbstractNode
 {
 public:
     struct WireFrameVertex
     {
-        float x, y, u, v, w;
+        float x, y, u, v, w, nx, ny, sw;
     };
 
     QQuickShapeWireFrameNode()
@@ -103,9 +151,24 @@ public:
         Q_UNUSED(col);
     }
 
+    void setUseStandardDerivatives(bool useStandardDerivatives) override
+    {
+        Q_UNUSED(useStandardDerivatives);
+    }
+
+    void setCosmeticStroke(bool c)
+    {
+        m_material->setCosmeticStroke(c);
+    }
+
+    void setStrokeWidth(float width)
+    {
+        m_material->setStrokeWidth(width);
+    }
+
     void activateMaterial()
     {
-        m_material.reset(new QQuickShapeWireFrameMaterial);
+        m_material.reset(new QQuickShapeWireFrameMaterial(wftype));
         setMaterial(m_material.data());
     }
 
@@ -114,8 +177,9 @@ public:
         static QSGGeometry::Attribute data[] = {
             QSGGeometry::Attribute::createWithAttributeType(0, 2, QSGGeometry::FloatType, QSGGeometry::PositionAttribute),
             QSGGeometry::Attribute::createWithAttributeType(1, 3, QSGGeometry::FloatType, QSGGeometry::TexCoordAttribute),
+            QSGGeometry::Attribute::createWithAttributeType(2, 3, QSGGeometry::FloatType, QSGGeometry::TexCoordAttribute),
         };
-        static QSGGeometry::AttributeSet attrs = { 2, sizeof(WireFrameVertex), data };
+        static QSGGeometry::AttributeSet attrs = { 3, sizeof(WireFrameVertex), data };
         return attrs;
     }
 
@@ -151,13 +215,6 @@ void QQuickShapeCurveRenderer::beginSync(int totalCount, bool *countChanged)
     m_paths.resize(totalCount);
 }
 
-void QQuickShapeCurveRenderer::setPath(int index, const QQuickPath *path)
-{
-    constexpr QQuickShapePath::PathHints noHints;
-    const auto *shapePath = qobject_cast<const QQuickShapePath *>(path);
-    setPath(index, path->path(), shapePath ? shapePath->pathHints() : noHints);
-}
-
 void QQuickShapeCurveRenderer::setPath(int index, const QPainterPath &path, QQuickShapePath::PathHints pathHints)
 {
     auto &pathData = m_paths[index];
@@ -186,6 +243,13 @@ void QQuickShapeCurveRenderer::setStrokeWidth(int index, qreal w)
     } else {
         pathData.validPenWidth = false;
     }
+    pathData.m_dirty |= StrokeDirty;
+}
+
+void QQuickShapeCurveRenderer::setCosmeticStroke(int index, bool c)
+{
+    auto &pathData = m_paths[index];
+    pathData.pen.setCosmetic(c);
     pathData.m_dirty |= StrokeDirty;
 }
 
@@ -227,7 +291,7 @@ void QQuickShapeCurveRenderer::setCapStyle(int index, QQuickShapePath::CapStyle 
 void QQuickShapeCurveRenderer::setStrokeStyle(int index,
                                             QQuickShapePath::StrokeStyle strokeStyle,
                                             qreal dashOffset,
-                                            const QVector<qreal> &dashPattern)
+                                            const QList<qreal> &dashPattern)
 {
     auto &pathData = m_paths[index];
     pathData.pen.setStyle(Qt::PenStyle(strokeStyle));
@@ -238,41 +302,54 @@ void QQuickShapeCurveRenderer::setStrokeStyle(int index,
     pathData.m_dirty |= StrokeDirty;
 }
 
-void QQuickShapeCurveRenderer::setFillGradient(int index, QQuickShapeGradient *gradient)
+static QGradient::Type copyCurveGradient(const QQuickShapeGradient *gradient,
+                                         QSGGradientCache::GradientDesc *dst)
 {
-    PathData &pd(m_paths[index]);
-    const bool wasVisible = pd.isFillVisible();
-    pd.gradientType = QGradient::NoGradient;
-    if (QQuickShapeLinearGradient *g  = qobject_cast<QQuickShapeLinearGradient *>(gradient)) {
-        pd.gradientType = QGradient::LinearGradient;
-        pd.gradient.stops = gradient->gradientStops();
-        pd.gradient.spread = QGradient::Spread(gradient->spread());
-        pd.gradient.a = QPointF(g->x1(), g->y1());
-        pd.gradient.b = QPointF(g->x2(), g->y2());
-    } else if (QQuickShapeRadialGradient *g = qobject_cast<QQuickShapeRadialGradient *>(gradient)) {
-        pd.gradientType = QGradient::RadialGradient;
-        pd.gradient.a = QPointF(g->centerX(), g->centerY());
-        pd.gradient.b = QPointF(g->focalX(), g->focalY());
-        pd.gradient.v0 = g->centerRadius();
-        pd.gradient.v1 = g->focalRadius();
-    } else if (QQuickShapeConicalGradient *g = qobject_cast<QQuickShapeConicalGradient *>(gradient)) {
-        pd.gradientType = QGradient::ConicalGradient;
-        pd.gradient.a = QPointF(g->centerX(), g->centerY());
-        pd.gradient.v0 = g->angle();
+    QGradient::Type gradientType = QGradient::NoGradient;
+    if (const QQuickShapeLinearGradient *g  = qobject_cast<const QQuickShapeLinearGradient *>(gradient)) {
+        gradientType = QGradient::LinearGradient;
+        dst->a = QPointF(g->x1(), g->y1());
+        dst->b = QPointF(g->x2(), g->y2());
+    } else if (const QQuickShapeRadialGradient *g = qobject_cast<const QQuickShapeRadialGradient *>(gradient)) {
+        gradientType = QGradient::RadialGradient;
+        dst->a = QPointF(g->centerX(), g->centerY());
+        dst->b = QPointF(g->focalX(), g->focalY());
+        dst->v0 = g->centerRadius();
+        dst->v1 = g->focalRadius();
+    } else if (const QQuickShapeConicalGradient *g = qobject_cast<const QQuickShapeConicalGradient *>(gradient)) {
+        gradientType = QGradient::ConicalGradient;
+        dst->a = QPointF(g->centerX(), g->centerY());
+        dst->v0 = g->angle();
     } else if (gradient != nullptr) {
         static bool warned = false;
         if (!warned) {
             warned = true;
-            qCWarning(lcShapeCurveRenderer) << "Unsupported gradient fill";
+            qCWarning(lcShapeCurveRenderer) << "Unsupported gradient";
         }
     }
 
-    if (pd.gradientType != QGradient::NoGradient) {
-        pd.gradient.stops = gradient->gradientStops();
-        pd.gradient.spread = QGradient::Spread(gradient->spread());
+    if (gradientType != QGradient::NoGradient) {
+        dst->stops = gradient->gradientStops();
+        dst->spread = QGradient::Spread(gradient->spread());
     }
 
+    return gradientType;
+}
+
+void QQuickShapeCurveRenderer::setFillGradient(int index, QQuickShapeGradient *gradient)
+{
+    PathData &pd(m_paths[index]);
+    const bool wasVisible = pd.isFillVisible();
+    pd.gradientType = copyCurveGradient(gradient, &pd.gradient);
     pd.m_dirty |= (pd.isFillVisible() != wasVisible) ? FillDirty : UniformsDirty;
+}
+
+void QQuickShapeCurveRenderer::setStrokeGradient(int index, QQuickShapeGradient *gradient)
+{
+    PathData &pd(m_paths[index]);
+    const bool wasVisible = pd.isStrokeVisible();
+    pd.strokeGradientType = copyCurveGradient(gradient, &pd.strokeGradient);
+    pd.m_dirty |= (pd.isStrokeVisible() != wasVisible) ? StrokeDirty : UniformsDirty;
 }
 
 void QQuickShapeCurveRenderer::setFillTransform(int index, const QSGTransform &transform)
@@ -304,6 +381,9 @@ void QQuickShapeCurveRenderer::handleSceneChange(QQuickWindow *window)
                 QQuickItemPrivate::get(pathData.fillTextureProviderItem)->refWindow(window);
         }
     }
+
+    if (!window)
+        clearNodeReferences(); // Nodes are owned by the window, drop our pointers to them
 }
 
 void QQuickShapeCurveRenderer::setAsyncCallback(void (*callback)(void *), void *data)
@@ -326,10 +406,18 @@ void QQuickShapeCurveRenderer::endSync(bool async)
         }
 
         if (pathData.currentRunner) {
-            // Already performing async computing. New dirty flags will be handled in the next sync
-            // after the current computation is done and the item is updated
-            asyncThreadsRunning = true;
-            continue;
+            // We are in a new sync round before updateNode() has been called to commit the results
+            // of the previous sync and processing round
+            if (pathData.currentRunner->isAsync) {
+                // Already performing async processing. A new run of the runner will be started in
+                // updateNode() to take care of the new dirty flags
+                asyncThreadsRunning = true;
+                continue;
+            } else {
+                // Throw away outdated results and start a new processing
+                delete pathData.currentRunner;
+                pathData.currentRunner = nullptr;
+            }
         }
 
         pathData.currentRunner = new QQuickShapeCurveRunnable;
@@ -400,6 +488,12 @@ void QQuickShapeCurveRunnable::run()
     emit done(this);
 }
 
+static bool disableScreenSpaceDerivativeShader()
+{
+    static bool d = qEnvironmentVariableIntValue("QT_QUICKSHAPES_DISABLE_STANDARD_DERIVATIVES") != 0;
+    return d;
+}
+
 void QQuickShapeCurveRenderer::updateNode()
 {
     if (!m_rootNode)
@@ -418,8 +512,20 @@ void QQuickShapeCurveRenderer::updateNode()
                                              ? pathData.fillTextureProviderItem->textureProvider()
                                              : nullptr);
         }
-        for (auto &strokeNode : std::as_const(pathData.strokeNodes))
-            strokeNode->setColor(pathData.pen.color());
+        for (QSGCurveAbstractNode *pathNode : std::as_const(pathData.strokeNodes)) {
+            pathNode->setColor(pathData.pen.color());
+            if (pathNode->isDebugNode) {
+                auto *wfNode = static_cast<QQuickShapeWireFrameNode<StrokeWFT> *>(pathNode);
+                wfNode->setStrokeWidth(pathData.pen.widthF());
+                wfNode->setCosmeticStroke(pathData.pen.isCosmetic());
+            } else {
+                auto *strokeNode = static_cast<QSGCurveStrokeNode *>(pathNode);
+                strokeNode->setStrokeWidth(pathData.pen.widthF());
+                strokeNode->setCosmeticStroke(pathData.pen.isCosmetic());
+                strokeNode->setStrokeGradient(pathData.strokeGradient);
+                strokeNode->setGradientType(pathData.strokeGradientType);
+            }
+        }
     };
 
     NodeList toBeDeleted;
@@ -429,6 +535,13 @@ void QQuickShapeCurveRenderer::updateNode()
         toBeDeleted += pathData.strokeNodes;
     }
     m_removedPaths.clear();
+
+    const bool supportsDerivatives = m_item != nullptr
+                                     && m_item->window() != nullptr
+                                     && m_item->window()->rhi() != nullptr
+                                     && !disableScreenSpaceDerivativeShader()
+            ? m_item->window()->rhi()->isFeatureSupported(QRhi::ScreenSpaceDerivatives)
+            : false;
 
     for (int i = 0; i < m_paths.size(); i++) {
         PathData &pathData = m_paths[i];
@@ -449,6 +562,7 @@ void QQuickShapeCurveRenderer::updateNode()
             if (newData.m_dirty & FillDirty) {
                 pathData.fillPath = newData.fillPath;
                 for (auto *node : std::as_const(newData.fillNodes)) {
+                    node->setUseStandardDerivatives(supportsDerivatives);
                     if (nextNode)
                         m_rootNode->insertChildNodeBefore(node, nextNode);
                     else
@@ -459,6 +573,7 @@ void QQuickShapeCurveRenderer::updateNode()
             }
             if (newData.m_dirty & StrokeDirty) {
                 for (auto *node : std::as_const(newData.strokeNodes)) {
+                    node->setUseStandardDerivatives(supportsDerivatives);
                     if (nextNode)
                         m_rootNode->insertChildNodeBefore(node, nextNode);
                     else
@@ -468,7 +583,7 @@ void QQuickShapeCurveRenderer::updateNode()
                 pathData.strokeNodes = newData.strokeNodes;
             }
             if (newData.m_dirty & UniformsDirty)
-                updateUniforms(newData);
+                updateUniforms(pathData);
 
             // Ownership of new nodes have been transferred to root node
             newData.fillNodes.clear();
@@ -542,6 +657,7 @@ void QQuickShapeCurveRenderer::processPath(PathData *pathData)
                 pathData->strokeNodes = addTriangulatingStrokerNodes(strokePath, pen);
             else
                 pathData->strokeNodes = addCurveStrokeNodes(strokePath, pen);
+            dirtyFlags |= UniformsDirty;
         }
     }
 }
@@ -550,7 +666,7 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addFillNodes(const 
 {
     NodeList ret;
     std::unique_ptr<QSGCurveFillNode> node(new QSGCurveFillNode);
-    std::unique_ptr<QQuickShapeWireFrameNode> wfNode;
+    std::unique_ptr<QQuickShapeWireFrameNode<SimpleWFT>> wfNode;
 
     const qsizetype approxDataCount = 20 * path.elementCount();
     node->reserve(approxDataCount);
@@ -568,7 +684,7 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addFillNodes(const 
                                            node->appendTriangle(v, n, uvForPoint);
                                        });
     } else {
-        QVector<QQuickShapeWireFrameNode::WireFrameVertex> wfVertices;
+        QList<QQuickShapeWireFrameNode<SimpleWFT>::WireFrameVertex> wfVertices;
         wfVertices.reserve(approxDataCount);
         QSGCurveProcessor::processFill(path,
                                        path.fillRule(),
@@ -578,14 +694,14 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addFillNodes(const 
                                        {
                                            node->appendTriangle(v, n, uvForPoint);
 
-                                           wfVertices.append({v.at(0).x(), v.at(0).y(), 1.0f, 0.0f, 0.0f}); // 0
-                                           wfVertices.append({v.at(1).x(), v.at(1).y(), 0.0f, 1.0f, 0.0f}); // 1
-                                           wfVertices.append({v.at(2).x(), v.at(2).y(), 0.0f, 0.0f, 1.0f}); // 2
+                                           wfVertices.append({v.at(0).x(), v.at(0).y(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }); // 0
+                                           wfVertices.append({v.at(1).x(), v.at(1).y(), 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f }); // 1
+                                           wfVertices.append({v.at(2).x(), v.at(2).y(), 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f }); // 2
                                        });
 
-        wfNode.reset(new QQuickShapeWireFrameNode);
-        const QVector<quint32> indices = node->uncookedIndexes();
-        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode::attributes(),
+        wfNode.reset(new QQuickShapeWireFrameNode<SimpleWFT>);
+        const QList<quint32> indices = node->uncookedIndexes();
+        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode<SimpleWFT>::attributes(),
                                            wfVertices.size(),
                                            indices.size(),
                                            QSGGeometry::UnsignedIntType);
@@ -618,7 +734,7 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addTriangulatingStr
     NodeList ret;
     const QColor &color = pen.color();
 
-    QVector<QQuickShapeWireFrameNode::WireFrameVertex> wfVertices;
+    QList<QQuickShapeWireFrameNode<StrokeWFT>::WireFrameVertex> wfVertices;
 
     QTriangulatingStroker stroker;
     const auto painterPath = path.toPainterPath();
@@ -672,9 +788,9 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addTriangulatingStr
         node->appendTriangle(p1, p2, p3, uvForPoint);
 
 
-        wfVertices.append({p1.x(), p1.y(), 1.0f, 0.0f, 0.0f}); // 0
-        wfVertices.append({p2.x(), p2.y(), 0.0f, 0.1f, 0.0f}); // 1
-        wfVertices.append({p3.x(), p3.y(), 0.0f, 0.0f, 1.0f}); // 2
+        wfVertices.append({p1.x(), p1.y(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}); // 0
+        wfVertices.append({p2.x(), p2.y(), 0.0f, 0.1f, 0.0f, 0.0f, 0.0f, 1.0f}); // 1
+        wfVertices.append({p3.x(), p3.y(), 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f}); // 2
 
         if (!disableExtraTriangles) {
             // Add a triangle on the outer side of the line to get some more AA
@@ -682,9 +798,9 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addTriangulatingStr
             QVector2D op = findPointOtherSide(p1, p3, p2);
             node->appendTriangle(p1, op, p3, uvForPoint);
 
-            wfVertices.append({p1.x(), p1.y(), 1.0f, 0.0f, 0.0f});
-            wfVertices.append({op.x(), op.y(), 0.0f, 1.0f, 0.0f}); // replacing p2
-            wfVertices.append({p3.x(), p3.y(), 0.0f, 0.0f, 1.0f});
+            wfVertices.append({p1.x(), p1.y(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f});
+            wfVertices.append({op.x(), op.y(), 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}); // replacing p2
+            wfVertices.append({p3.x(), p3.y(), 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f});
         }
     };
 
@@ -698,7 +814,7 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addTriangulatingStr
         addStrokeTriangle(p[0], p[1], p[2]);
     }
 
-    QVector<quint32> indices = node->uncookedIndexes();
+    QList<quint32> indices = node->uncookedIndexes();
     if (indices.size() > 0) {
         node->setColor(color);
 
@@ -707,8 +823,8 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addTriangulatingStr
     }
     const bool wireFrame = debugVisualization() & DebugWireframe;
     if (wireFrame) {
-        QQuickShapeWireFrameNode *wfNode = new QQuickShapeWireFrameNode;
-        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode::attributes(),
+        QQuickShapeWireFrameNode<StrokeWFT> *wfNode = new QQuickShapeWireFrameNode<StrokeWFT>;
+        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode<StrokeWFT>::attributes(),
                                            wfVertices.size(),
                                            indices.size(),
                                            QSGGeometry::UnsignedIntType);
@@ -757,6 +873,11 @@ void QQuickShapeCurveRenderer::setDebugVisualization(int options)
     debugVisualizationFlags = options;
 }
 
+/*! \internal
+    Convert \a path to QSGCurveAbstractNodes with vertices ready to send to the GPU.
+    The given \a path is assumed to be a stroke centerline: it may be continuous or dashed.
+    Also create the wireframe node if enabled.
+*/
 QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addCurveStrokeNodes(const QQuadPath &path, const QPen &pen)
 {
     NodeList ret;
@@ -764,52 +885,59 @@ QQuickShapeCurveRenderer::NodeList QQuickShapeCurveRenderer::addCurveStrokeNodes
     const bool debug = debugVisualization() & DebugCurves;
     auto *node = new QSGCurveStrokeNode;
     node->setDebug(0.2f * debug);
-    QVector<QQuickShapeWireFrameNode::WireFrameVertex> wfVertices;
+    QList<QQuickShapeWireFrameNode<StrokeWFT>::WireFrameVertex> wfVertices;
 
     const float penWidth = pen.widthF();
 
     static const int subdivisions = qEnvironmentVariable("QT_QUICKSHAPES_STROKE_SUBDIVISIONS", QStringLiteral("3")).toInt();
 
+    const bool wireFrame = debugVisualization() & DebugWireframe;
     QSGCurveProcessor::processStroke(path,
                                      pen.miterLimit(),
-                                     penWidth,
+                                     penWidth, pen.isCosmetic(),
                                      pen.joinStyle(),
                                      pen.capStyle(),
-                                     [&wfVertices, &node](const std::array<QVector2D, 3> &s,
-                                                          const std::array<QVector2D, 3> &p,
-                                                          const std::array<QVector2D, 3> &n,
-                                                          bool isLine)
+                                     // addStrokeTriangleCallback (see qsgcurveprocessor_p.h):
+                                     [&wfVertices, &node, &wireFrame](const std::array<QVector2D, 3> &vtx,  // triangle corners
+                                                          const std::array<QVector2D, 3> &ctl,  // curve control points
+                                                          const std::array<QVector2D, 3> &n,    // normals
+                                                          const std::array<float, 3> &ex,   // extrusions
+                                                          QSGCurveStrokeNode::TriangleFlags flags)
                                     {
-                                         const QVector2D &p0 = s.at(0);
-                                         const QVector2D &p1 = s.at(1);
-                                         const QVector2D &p2 = s.at(2);
-                                         if (isLine)
-                                             node->appendTriangle(s, std::array<QVector2D, 2>{p.at(0), p.at(2)}, n);
-                                         else
-                                             node->appendTriangle(s, p, n);
+                                        const QVector2D &v0 = vtx.at(0);
+                                        const QVector2D &v1 = vtx.at(1);
+                                        const QVector2D &v2 = vtx.at(2);
+                                        if (flags.testFlag(QSGCurveStrokeNode::TriangleFlag::Line))
+                                            node->appendTriangle(vtx, std::array<QVector2D, 2>{ctl.at(0), ctl.at(2)}, n, ex);
+                                        else
+                                            node->appendTriangle(vtx, ctl, n, ex);
 
-                                         wfVertices.append({p0.x(), p0.y(), 1.0f, 0.0f, 0.0f});
-                                         wfVertices.append({p1.x(), p1.y(), 0.0f, 1.0f, 0.0f});
-                                         wfVertices.append({p2.x(), p2.y(), 0.0f, 0.0f, 1.0f});
+                                         if (Q_UNLIKELY(wireFrame)) {
+                                            wfVertices.append({v0.x(), v0.y(), 1.0f, 0.0f, 0.0f, n.at(0).x(), n.at(0).y(), ex.at(0)});
+                                            wfVertices.append({v1.x(), v1.y(), 0.0f, 1.0f, 0.0f, n.at(1).x(), n.at(1).y(), ex.at(1)});
+                                            wfVertices.append({v2.x(), v2.y(), 0.0f, 0.0f, 1.0f, n.at(2).x(), n.at(2).y(), ex.at(2)});
+                                         }
                                     },
                                     subdivisions);
 
-    auto indexCopy = node->uncookedIndexes(); // uncookedIndexes get delete on cooking
+    auto indexCopy = node->uncookedIndexes(); // uncookedIndexes get deleted on cooking
 
     node->setColor(pen.color());
     node->setStrokeWidth(penWidth);
+    node->setCosmeticStroke(pen.isCosmetic());
     node->cookGeometry();
     ret.append(node);
 
-    const bool wireFrame = debugVisualization() & DebugWireframe;
-    if (wireFrame) {
-        QQuickShapeWireFrameNode *wfNode = new QQuickShapeWireFrameNode;
+    if (Q_UNLIKELY(wireFrame)) {
+        QQuickShapeWireFrameNode<StrokeWFT> *wfNode = new QQuickShapeWireFrameNode<StrokeWFT>;
 
-        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode::attributes(),
+        QSGGeometry *wfg = new QSGGeometry(QQuickShapeWireFrameNode<StrokeWFT>::attributes(),
                                            wfVertices.size(),
                                            indexCopy.size(),
                                            QSGGeometry::UnsignedIntType);
         wfNode->setGeometry(wfg);
+        wfNode->setCosmeticStroke(pen.isCosmetic());
+        wfNode->setStrokeWidth(penWidth);
 
         wfg->setDrawingMode(QSGGeometry::DrawTriangles);
         memcpy(wfg->indexData(),

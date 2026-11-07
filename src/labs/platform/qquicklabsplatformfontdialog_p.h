@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMFONTDIALOG_P_H
 #define QQUICKLABSPLATFORMFONTDIALOG_P_H
@@ -19,12 +20,15 @@
 #include <QtGui/qfont.h>
 #include <QtQml/qqml.h>
 
+#if QT_DEPRECATED_SINCE(6, 9)
+
 QT_BEGIN_NAMESPACE
 
 class QQuickLabsPlatformFontDialog : public QQuickLabsPlatformDialog
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(FontDialog)
+    QML_ADDED_IN_VERSION(1, 0)
     QML_EXTENDED_NAMESPACE(QFontDialogOptions)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY fontChanged FINAL)
     Q_PROPERTY(QFont currentFont READ currentFont WRITE setCurrentFont NOTIFY currentFontChanged FINAL)
@@ -60,5 +64,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#endif // QT_DEPRECATED_SINCE(6, 9)
 
 #endif // QQUICKLABSPLATFORMFONTDIALOG_P_H

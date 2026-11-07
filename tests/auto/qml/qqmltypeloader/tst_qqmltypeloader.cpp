@@ -1,14 +1,19 @@
 // Copyright (C) 2016 Canonical Limited and/or its subsidiary(-ies).
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
-#include <QtTest/QtTest>
+#include <QtTest/QTest>
+#include <QtCore/QTimer>
+#include <QtCore/QRandomGenerator>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlfile.h>
+#include <QtQml/qqmlapplicationengine.h>
 #include <QtQml/qqmlnetworkaccessmanagerfactory.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
 #if QT_CONFIG(process)
 #include <QtCore/qprocess.h>
+#include <QtCore/qresource.h>
+#include <QtCore/qscopeguard.h>
 #endif
 #include <QtQml/private/qqmlcomponent_p.h>
 #include <QtQml/private/qqmlengine_p.h>
@@ -16,6 +21,8 @@
 #include <QtQml/private/qqmlirloader_p.h>
 #include <QtQml/private/qqmltypedata_p.h>
 #include <QtQml/private/qqmltypeloader_p.h>
+#include <QtQml/private/qqmldata_p.h>
+#include <QtQml/private/qqmlmetatype_p.h>
 #include <QtQuickTestUtils/private/testhttpserver_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
 #include <QQmlComponent>
@@ -52,7 +59,13 @@ private slots:
     void signalHandlersAreCompatible();
     void loadTypeOnShutdown();
     void floodTypeLoaderEventQueue();
-    void retainQmlTypeAcrossEngines();
+    void doNotRetainQmlTypeAcrossEngines();
+    void loadLocalTypesAfterRemoteFails();
+    void populateDirectoryCache();
+    void resourceRegistrationInvalidatesCache();
+    void removeFromCache();
+    void addImportPathDuringAsyncLoad();
+    void addImportPathFromStatusChanged();
 
 private:
     void checkSingleton(const QString & dataDirectory);
@@ -85,9 +98,19 @@ void tst_QQMLTypeLoader::testLoadComplete()
 void tst_QQMLTypeLoader::loadComponentSynchronously()
 {
     QQmlEngine engine;
+    const QUrl url = testFileUrl("load_synchronous.qml");
+#if QT_CONFIG(qml_type_loader_thread)
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
                              QLatin1String(".*nonprotocol::1:1: QtObject is not a type.*")));
-    QQmlComponent component(&engine, testFileUrl("load_synchronous.qml"));
+#else
+    QTest::ignoreMessage(
+            QtWarningMsg,
+            qPrintable(
+                    url.toString()
+                    + QLatin1String(":10: Error: Qt.createQmlObject(): Failed to force synchronous "
+                                    "loading of asynchronous URL 'nonprotocol:'")));
+#endif
+    QQmlComponent component(&engine, url);
     QScopedPointer<QObject> o(component.create());
     QVERIFY(o);
 }
@@ -95,14 +118,14 @@ void tst_QQMLTypeLoader::loadComponentSynchronously()
 void tst_QQMLTypeLoader::trimCache()
 {
     QQmlEngine engine;
-    QQmlTypeLoader &loader = QQmlEnginePrivate::get(&engine)->typeLoader;
-    QVector<QQmlTypeData *> releaseLater;
-    QVector<QV4::CompiledData::CompilationUnit *> releaseCompilationUnitLater;
+    QQmlTypeLoader *loader = QQmlTypeLoader::get(&engine);
+    QList<QQmlTypeData *> releaseLater;
+    QList<QV4::CompiledData::CompilationUnit *> releaseCompilationUnitLater;
     for (int i = 0; i < 256; ++i) {
         QUrl url = testFileUrl("trim_cache.qml");
         url.setQuery(QString::number(i));
 
-        QQmlTypeData *data = loader.getType(url).take();
+        QQmlTypeData *data = loader->getType(url).take();
 
         // Backup source code should be dropped right after loading, even without cache trimming.
         QVERIFY(!data->backupSourceCode().isValid());
@@ -128,9 +151,9 @@ void tst_QQMLTypeLoader::trimCache()
         QUrl url = testFileUrl("trim_cache.qml");
         url.setQuery(QString::number(i));
         if (i % 5 == 0)
-            QVERIFY(loader.isTypeLoaded(url));
+            QVERIFY(loader->isTypeLoaded(url));
         else if (i < 128)
-            QVERIFY(!loader.isTypeLoaded(url));
+            QVERIFY(!loader->isTypeLoaded(url));
         // The cache is free to keep the others.
     }
 
@@ -145,13 +168,13 @@ void tst_QQMLTypeLoader::trimCache2()
 {
     QScopedPointer<QQuickView> window(new QQuickView());
     window->setSource(testFileUrl("trim_cache2.qml"));
-    QQmlTypeLoader &loader = QQmlEnginePrivate::get(window->engine())->typeLoader;
+    QQmlTypeLoader *loader = QQmlTypeLoader::get(window->engine());
     // in theory if gc has already run this could be false
     // QCOMPARE(loader.isTypeLoaded(testFileUrl("MyComponent2.qml")), true);
     window->engine()->collectGarbage();
     QTest::qWait(1);    // force event loop
     window->engine()->trimComponentCache();
-    QCOMPARE(loader.isTypeLoaded(testFileUrl("MyComponent2.qml")), false);
+    QCOMPARE(loader->isTypeLoaded(testFileUrl("MyComponent2.qml")), false);
 }
 
 // test trimming the cache of an item that contains sub-items created via incubation
@@ -159,8 +182,8 @@ void tst_QQMLTypeLoader::trimCache3()
 {
     QScopedPointer<QQuickView> window(new QQuickView());
     window->setSource(testFileUrl("trim_cache3.qml"));
-    QQmlTypeLoader &loader = QQmlEnginePrivate::get(window->engine())->typeLoader;
-    QCOMPARE(loader.isTypeLoaded(testFileUrl("ComponentWithIncubator.qml")), true);
+    QQmlTypeLoader *loader = QQmlTypeLoader::get(window->engine());
+    QCOMPARE(loader->isTypeLoaded(testFileUrl("ComponentWithIncubator.qml")), true);
 
     QQmlProperty::write(window->rootObject(), "source", QString());
 
@@ -171,7 +194,7 @@ void tst_QQMLTypeLoader::trimCache3()
 
     window->engine()->trimComponentCache();
 
-    QCOMPARE(loader.isTypeLoaded(testFileUrl("ComponentWithIncubator.qml")), false);
+    QCOMPARE(loader->isTypeLoaded(testFileUrl("ComponentWithIncubator.qml")), false);
 }
 
 void tst_QQMLTypeLoader::checkSingleton(const QString &dataDirectory)
@@ -385,7 +408,8 @@ public:
     QNetworkAccessManager *create(QObject *parent) override
     {
         NetworkAccessManager *manager = new NetworkAccessManager(parent);
-        QObject::connect(manager, &NetworkAccessManager::loaded, [this](const QString &filename) {
+        QObject::connect(manager, &NetworkAccessManager::loaded,
+                         manager, [this](const QString &filename) {
             loadedFiles.append(filename);
         });
         return manager;
@@ -454,6 +478,10 @@ void tst_QQMLTypeLoader::importAndDestroy()
                     .isValid()) {
         // busy wait for type to be registered
         QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+#if !QT_CONFIG(qml_type_loader_thread)
+        // The loading takes place on the main thread. Nudge it along by processing events.
+        QCoreApplication::processEvents();
+#endif
     }
 
     // Now the type loader thread is likely waiting for the main thread to process the
@@ -514,7 +542,7 @@ void tst_QQMLTypeLoader::redirect()
     QQmlEngine engine;
     engine.setNetworkAccessManagerFactory(&factory);
     QQmlComponent component(&engine);
-    component.loadUrl(server.urlString("/Load.qml"), QQmlComponent::Asynchronous);
+    component.loadUrl(server.url("/Load.qml"), QQmlComponent::Asynchronous);
     QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
 
     QScopedPointer<QObject> object {component.create()};
@@ -536,7 +564,10 @@ void tst_QQMLTypeLoader::qmlSingletonWithinModule()
 
 static void checkCleanCacheLoad(const QString &testCase)
 {
-#if QT_CONFIG(process)
+    // QProcess is restricted on Android 8+ (exec from outside nativeLibraryDir is blocked).
+    // See QTBUG-133037. In practice unreachable on Android: the test suite is not built
+    // there (QT_FEATURE_private_tests=OFF).
+#if QT_CONFIG(process) && !defined(Q_OS_ANDROID) && !defined(Q_OS_OHOS) && !defined(Q_OS_HARMONY)
     const char *skipKey = "QT_TST_QQMLTYPELOADER_SKIP_MISMATCH";
     if (qEnvironmentVariableIsSet(skipKey))
         return;
@@ -561,9 +592,6 @@ static void checkCleanCacheLoad(const QString &testCase)
 
 void tst_QQMLTypeLoader::multiSingletonModule()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("Android seems to have problems with QProcess");
-#endif
     qmlClearTypeRegistrations();
     QQmlEngine engine;
     engine.addImportPath(testFile("imports"));
@@ -596,9 +624,6 @@ void tst_QQMLTypeLoader::multiSingletonModuleNoWarning()
 
 void tst_QQMLTypeLoader::implicitComponentModule()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("Android seems to have problems with QProcess");
-#endif
     QQmlEngine engine;
     QQmlComponent component(&engine, testFileUrl("implicitcomponent.qml"));
     QCOMPARE(component.status(), QQmlComponent::Ready);
@@ -610,8 +635,8 @@ void tst_QQMLTypeLoader::implicitComponentModule()
 
 void tst_QQMLTypeLoader::customDiskCachePath()
 {
-#ifdef Q_OS_ANDROID
-    QSKIP("Android seems to have problems with QProcess");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_OHOS) || defined(Q_OS_HARMONY)
+    QSKIP("Cannot launch external process on this platform");
 #endif
 
 #if QT_CONFIG(process)
@@ -682,7 +707,7 @@ void tst_QQMLTypeLoader::compositeSingletonCycle()
     QQmlEngine engine;
     QQmlComponent component(&engine);
     engine.addImportPath(server.baseUrl().toString());
-    component.loadUrl(server.urlString("Com/Orga/Handlers/Handler.qml"), QQmlComponent::Asynchronous);
+    component.loadUrl(server.url("Com/Orga/Handlers/Handler.qml"), QQmlComponent::Asynchronous);
     QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
 
     QScopedPointer<QObject> object {component.create()};
@@ -704,7 +729,8 @@ void tst_QQMLTypeLoader::circularDependency()
     QQmlEngine engine;
     QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cyclic dependency detected between (.*) and (.*)"));
     QQmlComponent component(&engine, testFileUrl("CircularDependency.qml"));
-    QCOMPARE(component.status(), QQmlComponent::Null);
+    QCOMPARE(component.status(), QQmlComponent::Error);
+    QVERIFY(component.errorString().contains(QLatin1String("Cyclic dependency detected")));
 }
 
 void tst_QQMLTypeLoader::declarativeCppAndQmlDir()
@@ -721,8 +747,8 @@ static void getCompilationUnitAndRuntimeInfo(QQmlRefPointer<QV4::ExecutableCompi
                                              QList<int> &runtimeFunctionIndices, const QUrl &url,
                                              QQmlEngine *engine)
 {
-    QQmlTypeLoader &loader = QQmlEnginePrivate::get(engine)->typeLoader;
-    auto typeData = loader.getType(url);
+    QQmlTypeLoader *loader = QQmlTypeLoader::get(engine);
+    auto typeData = loader->getType(url);
     QVERIFY(typeData);
     QVERIFY(!typeData->backupSourceCode().isValid());
 
@@ -779,8 +805,8 @@ void tst_QQMLTypeLoader::signalHandlersAreCompatible()
     // make sure that units really come from different places (the machinery
     // could in theory be smart enough to figure the qmlcachegen cached
     // version), fairly questionable check but better than nothing
-#ifdef Q_OS_ANDROID
-    QSKIP("qrc and file system is the same thing on Android");
+#if defined(Q_OS_ANDROID) || defined(Q_OS_HARMONY)
+    QSKIP("Test data is embedded as qrc resources on this platform");
 #endif
     QVERIFY(unitFromCachegen->url() != unitFromTypeCompiler->url());
 }
@@ -805,7 +831,11 @@ void tst_QQMLTypeLoader::loadTypeOnShutdown()
         });
 
         QObject::connect(good, &QQmlComponent::destroyed, good, [&]() { dead1 = true; });
+#if QT_CONFIG(qml_type_loader_thread)
         QVERIFY(good->isLoading());
+#else
+        QVERIFY(good->isReady());
+#endif
 
         auto bad = new QQmlComponent(
                 &engine, testFileUrl("doesNotExist.qml"),
@@ -821,7 +851,11 @@ void tst_QQMLTypeLoader::loadTypeOnShutdown()
         });
 
         QObject::connect(bad, &QQmlComponent::destroyed, bad, [&]() { dead2 = true; });
+#if QT_CONFIG(qml_type_loader_thread)
         QVERIFY(bad->isLoading());
+#else
+        QVERIFY(bad->isError());
+#endif
     }
 
     QVERIFY(dead1);
@@ -844,7 +878,7 @@ void tst_QQMLTypeLoader::floodTypeLoaderEventQueue()
     }
 }
 
-void tst_QQMLTypeLoader::retainQmlTypeAcrossEngines()
+void tst_QQMLTypeLoader::doNotRetainQmlTypeAcrossEngines()
 {
     QQmlEngine engine1;
     QQmlComponent component1(&engine1, testFileUrl("B.qml"));
@@ -860,17 +894,17 @@ void tst_QQMLTypeLoader::retainQmlTypeAcrossEngines()
 
     QQmlComponentPrivate *p1 = QQmlComponentPrivate::get(&component1);
     QVERIFY(p1);
-    const auto cu1 = p1->compilationUnit;
+    const auto cu1 = p1->compilationUnit();
     QVERIFY(cu1);
 
     QQmlComponentPrivate *p2 = QQmlComponentPrivate::get(&component2);
     QVERIFY(p2);
-    const auto cu2 = p2->compilationUnit;
+    const auto cu2 = p2->compilationUnit();
     QVERIFY(cu2);
 
     QQmlComponentPrivate *p3 = QQmlComponentPrivate::get(&component3);
     QVERIFY(p3);
-    const auto cu3 = p3->compilationUnit;
+    const auto cu3 = p3->compilationUnit();
     QVERIFY(cu3);
 
     // The _executable_ CUs are all different
@@ -882,7 +916,8 @@ void tst_QQMLTypeLoader::retainQmlTypeAcrossEngines()
     const auto base2 = cu2->baseCompilationUnit();
     const auto base3 = cu3->baseCompilationUnit();
 
-    QCOMPARE(base1, base2);
+    // Each engine has its own base CU, too
+    QVERIFY(base1 != base2);
     QVERIFY(base1 != base3);
     QVERIFY(base2 != base3);
 
@@ -896,8 +931,188 @@ void tst_QQMLTypeLoader::retainQmlTypeAcrossEngines()
 
     QVERIFY(mo1 != mo3);
 
-    // The base classes are all the same.
-    QCOMPARE(mo1->superClass(), mo3->superClass());
+    // The base classes are also different.
+    QVERIFY(mo1->superClass() != mo3->superClass());
+}
+
+class SingletonTypeExample : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int someProperty READ someProperty WRITE setSomeProperty NOTIFY somePropertyChanged)
+
+public:
+    explicit SingletonTypeExample(QObject* parent = nullptr) : QObject(parent) {}
+
+    Q_INVOKABLE int doSomething()
+    {
+        setSomeProperty(5);
+        return m_someProperty;
+    }
+
+    int someProperty() const { return m_someProperty; }
+    void setSomeProperty(int val) {
+        if (m_someProperty != val) {
+            m_someProperty = val;
+            emit somePropertyChanged(val);
+        }
+    }
+
+signals:
+    void somePropertyChanged(int newValue);
+
+private:
+    int m_someProperty = 0;
+};
+
+class HttpUrlInterceptor : public QQmlAbstractUrlInterceptor
+{
+public:
+    QUrl intercept(const QUrl &path, DataType type) override
+    {
+        QUrl result = path;
+        if (path.scheme() == "http" && type == QmldirFile)
+            result.setFragment("qmldir");
+        return result;
+    }
+};
+
+void tst_QQMLTypeLoader::loadLocalTypesAfterRemoteFails()
+{
+    std::unique_ptr<SingletonTypeExample> example = std::make_unique<SingletonTypeExample>();
+    qmlRegisterSingletonInstance("Qt.example.qobjectSingleton", 1, 0, "MyApi", example.get());
+
+    HttpUrlInterceptor interceptor;
+    QQmlEngine engine;
+    engine.addUrlInterceptor(&interceptor);
+    engine.addImportPath(QString("http:/127.0.0.1/"));
+
+    QQmlComponent component(&engine, testFileUrl("qobjectSingletonUser.qml"));
+    QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> object(component.create());
+    QCOMPARE(object->property("someValue").toInt(), 5);
+    QCOMPARE(object->property("doneSomething").toInt(), 5);
+}
+
+void tst_QQMLTypeLoader::populateDirectoryCache()
+{
+    QQmlEngine engine;
+    QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(&engine);
+
+    // Deliberately confuse it with a double slash
+    QVERIFY(typeLoader->directoryExists(dataDirectory() + "//"));
+
+    // One slash used to be required.
+    QVERIFY(typeLoader->fileExists(dataDirectory() + '/', "doesExist.qml"));
+}
+
+void tst_QQMLTypeLoader::resourceRegistrationInvalidatesCache()
+{
+    // The type loader's directory cache assumes the file system underneath it does not change.
+    // That holds for the local file system but NOT for the qrc file system: a module registers
+    // its own resources lazily as it loads, so a ":/..." path that is absent when first probed
+    // can appear moments later. If the cache is not invalidated when resources are (un)registered,
+    // a negative result cached during the gap is returned forever, and the just-registered file
+    // is wrongly considered missing. This is a real correctness problem, independent of any
+    // performance optimization.
+
+    const QString rcc = QFINDTESTDATA("lazyresource.rcc");
+    QVERIFY2(!rcc.isEmpty(), "lazyresource.rcc was not built");
+
+    const QString dir = QStringLiteral(":/qt_test_lazy_resource");
+    const QString file = QStringLiteral("Probe.qml");
+    const QString path = dir + u'/' + file;
+
+    // Make sure we start from a clean slate (e.g. if a previous run left it registered).
+    QResource::unregisterResource(rcc);
+    QVERIFY(!QFileInfo::exists(path));
+
+    QQmlEngine engine;
+    QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(&engine);
+
+    // Probe while the resource is absent. This caches a negative entry for the directory.
+    QVERIFY(!typeLoader->fileExists(dir, file));
+    QVERIFY(typeLoader->cleanFilePath(path).isEmpty());
+
+    // The resource appears (as it would when a module's plugin registers its qrc mid-load).
+    QVERIFY(QResource::registerResource(rcc));
+    auto unregister = qScopeGuard([&] { QResource::unregisterResource(rcc); });
+    QVERIFY(QFileInfo::exists(path)); // sanity: it really is there now
+
+    // A register can only turn "missing" into "present": the type loader must not keep serving
+    // the stale "absent" answer it cached above.
+    QVERIFY(typeLoader->fileExists(dir, file));
+    QCOMPARE(typeLoader->cleanFilePath(path), path);
+
+    // Symmetrically, once the resource is unregistered again, the cached "present" answer must
+    // not stick: an unregister can turn "present" back into "missing".
+    QVERIFY(QResource::unregisterResource(rcc));
+    unregister.dismiss();
+    QVERIFY(!QFileInfo::exists(path));
+    QVERIFY(!typeLoader->fileExists(dir, file));
+    QVERIFY(typeLoader->cleanFilePath(path).isEmpty());
+}
+
+void tst_QQMLTypeLoader::removeFromCache()
+{
+    QQmlEngine engine;
+
+    const QUrl url = testFileUrl("Simple.qml");
+
+    QQmlComponent component(&engine, url);
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(obj);
+
+    QQmlData *ddata = QQmlData::get(obj.data());
+    QVERIFY(ddata);
+    QVERIFY(ddata->compilationUnit);
+
+    QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(&engine);
+
+    QVERIFY(typeLoader->isTypeLoaded(url));
+    typeLoader->removeFromCache(url);
+    QVERIFY(!typeLoader->isTypeLoaded(url));
+}
+
+// Regression test for QTBUG-146210: calling addImportPath() while an async
+// QQmlComponent is loading must not prevent the component from becoming Ready.
+void tst_QQMLTypeLoader::addImportPathDuringAsyncLoad()
+{
+    QQmlEngine engine;
+    QQmlComponent comp(&engine, testFileUrl("A.qml"), QQmlComponent::Asynchronous);
+    QCOMPARE(comp.status(), QQmlComponent::Loading);
+
+    // Calling addImportPath() while loading must not stall the async load.
+    engine.addImportPath(QDir::tempPath());
+
+    QTRY_COMPARE(comp.status(), QQmlComponent::Ready);
+}
+
+void tst_QQMLTypeLoader::addImportPathFromStatusChanged()
+{
+    QQmlEngine engine;
+    const QStringList originalPaths = engine.importPathList();
+    const QString extraPath = QLatin1String("qrc:/extra_import_path");
+    QVERIFY(!originalPaths.contains(extraPath));
+
+    QQmlComponent comp(&engine, testFileUrl("A.qml"), QQmlComponent::Asynchronous);
+    QCOMPARE(comp.status(), QQmlComponent::Loading);
+
+    // Call addImportPath() from within the statusChanged callback.
+    // This exercises the drain loop: the completion callback itself triggers
+    // a new configuration change which drains again (a no-op at that point).
+    bool callbackInvoked = false;
+    QObject::connect(&comp, &QQmlComponent::statusChanged, &engine, [&](QQmlComponent::Status status) {
+        if (status == QQmlComponent::Ready) {
+            engine.addImportPath(extraPath);
+            callbackInvoked = true;
+        }
+    });
+
+    QTRY_VERIFY(callbackInvoked);
+    QCOMPARE(comp.status(), QQmlComponent::Ready);
+    QVERIFY(engine.importPathList().contains(extraPath));
 }
 
 QTEST_MAIN(tst_QQMLTypeLoader)

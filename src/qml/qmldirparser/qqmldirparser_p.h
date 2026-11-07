@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDIRPARSER_P_H
 #define QQMLDIRPARSER_P_H
@@ -36,6 +37,7 @@ public:
     void setError(const QQmlJS::DiagnosticMessage &);
     QList<QQmlJS::DiagnosticMessage> errors(const QString &uri) const;
 
+    bool hasTypeNamespace() const { return !_typeNamespace.isEmpty(); }
     QString typeNamespace() const { return _typeNamespace; }
     void setTypeNamespace(const QString &s) { _typeNamespace = s; }
 
@@ -117,10 +119,11 @@ public:
         QTypeRevision version;     // invalid version is latest version, unless Flag::Auto
         Flags flags;
 
-        friend bool operator==(const Import &a, const Import &b)
+        friend bool comparesEqual(const Import &a, const Import &b) noexcept
         {
             return a.module == b.module && a.version == b.version && a.flags == b.flags;
         }
+        Q_DECLARE_EQUALITY_COMPARABLE(Import)
     };
 
     QMultiHash<QString,Component> components() const { return _components; }
@@ -145,6 +148,7 @@ public:
 private:
     bool maybeAddComponent(const QString &typeName, const QString &fileName, const QString &version, QHash<QString,Component> &hash, int lineNumber = -1, bool multi = true);
     void reportError(quint16 line, quint16 column, const QString &message);
+    QString scanQuotedWord(const QChar *&ch, quint16 lineNumber, quint16 columnNumber);
     void insertComponentOrScript(
             const QString &name, const QString &fileName, QTypeRevision version);
 

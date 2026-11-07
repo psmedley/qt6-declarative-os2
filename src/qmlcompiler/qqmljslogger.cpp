@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include <QtCore/qcompilerdetection.h>
 // GCC 11 thinks diagMsg.fixSuggestion.fixes.d.ptr is somehow uninitialized in
@@ -24,46 +25,201 @@ QT_BEGIN_NAMESPACE
 
 using namespace Qt::StringLiterals;
 
-const QQmlSA::LoggerWarningId qmlRequired{ "required" };
-const QQmlSA::LoggerWarningId qmlAliasCycle{ "alias-cycle" };
-const QQmlSA::LoggerWarningId qmlUnresolvedAlias{ "unresolved-alias" };
-const QQmlSA::LoggerWarningId qmlImport{ "import" };
-const QQmlSA::LoggerWarningId qmlRecursionDepthErrors{ "recursion-depth-errors" };
-const QQmlSA::LoggerWarningId qmlWith{ "with" };
-const QQmlSA::LoggerWarningId qmlInheritanceCycle{ "inheritance-cycle" };
-const QQmlSA::LoggerWarningId qmlDeprecated{ "deprecated" };
-const QQmlSA::LoggerWarningId qmlSignalParameters{ "signal-handler-parameters" };
-const QQmlSA::LoggerWarningId qmlMissingType{ "missing-type" };
-const QQmlSA::LoggerWarningId qmlUnresolvedType{ "unresolved-type" };
-const QQmlSA::LoggerWarningId qmlRestrictedType{ "restricted-type" };
-const QQmlSA::LoggerWarningId qmlPrefixedImportType{ "prefixed-import-type" };
-const QQmlSA::LoggerWarningId qmlIncompatibleType{ "incompatible-type" };
-const QQmlSA::LoggerWarningId qmlMissingProperty{ "missing-property" };
-const QQmlSA::LoggerWarningId qmlNonListProperty{ "non-list-property" };
-const QQmlSA::LoggerWarningId qmlReadOnlyProperty{ "read-only-property" };
-const QQmlSA::LoggerWarningId qmlDuplicatePropertyBinding{ "duplicate-property-binding" };
-const QQmlSA::LoggerWarningId qmlDuplicatedName{ "duplicated-name" };
-const QQmlSA::LoggerWarningId qmlDeferredPropertyId{ "deferred-property-id" };
-const QQmlSA::LoggerWarningId qmlUnqualified{ "unqualified" };
-const QQmlSA::LoggerWarningId qmlUnusedImports{ "unused-imports" };
-const QQmlSA::LoggerWarningId qmlMultilineStrings{ "multiline-strings" };
-const QQmlSA::LoggerWarningId qmlSyntax{ "syntax" };
-const QQmlSA::LoggerWarningId qmlSyntaxIdQuotation{ "syntax.id-quotation" };
-const QQmlSA::LoggerWarningId qmlSyntaxDuplicateIds{ "syntax.duplicate-ids" };
-const QQmlSA::LoggerWarningId qmlCompiler{ "compiler" };
-const QQmlSA::LoggerWarningId qmlAttachedPropertyReuse{ "attached-property-reuse" };
-const QQmlSA::LoggerWarningId qmlPlugin{ "plugin" };
-const QQmlSA::LoggerWarningId qmlVarUsedBeforeDeclaration{ "var-used-before-declaration" };
-const QQmlSA::LoggerWarningId qmlInvalidLintDirective{ "invalid-lint-directive" };
-const QQmlSA::LoggerWarningId qmlUseProperFunction{ "use-proper-function" };
-const QQmlSA::LoggerWarningId qmlAccessSingleton{ "access-singleton-via-object" };
-const QQmlSA::LoggerWarningId qmlTopLevelComponent{ "top-level-component" };
-const QQmlSA::LoggerWarningId qmlUncreatableType{ "uncreatable-type" };
-const QQmlSA::LoggerWarningId qmlMissingEnumEntry{ "missing-enum-entry" };
+/*
+Note: users are in full control of the severity level of a category. It is not possible to
+have a single category and use it as a warning in one context, and as an info message in
+another context.
+For that use case, create two distinct categories instead, and give them appropriate default
+warning levels.
+ */
+
+/* The X macro provides (in order):
+   category, name, setting, description, severity, essentiality
+ - category is the C++ variable name of the category
+ - name is the user visible category name, i.e. what what qmllint put in bewteen "[" and "]"
+ - setting name is the name that is used in the qmllint.ini file to configure the category
+ - description is a _short_ description of the category's use
+ - severity is the default warning level of the category (can be overriden by the user though)
+ - essentiality marks essential categories that are required for the proper function of qmllint and can't be disabled by the user
+ */
+
+// don't forget to forward-declare your logging category ID in qqmljsloggingutils.h!
+#define QMLLINT_BUILTIN_CATEGORIES                                                                 \
+    X(qmlAccessSingleton, "access-singleton-via-object", "AccessSingletonViaObject",               \
+      "Warn if a singleton is accessed via an object", Warning, NonEssential)                      \
+    X(qmlAliasCycle, "alias-cycle", "AliasCycle", "Warn about alias cycles", Warning, NonEssential)\
+    X(qmlAssignmentInCondition, "assignment-in-condition", "AssignmentInCondition",                \
+      "Warn about using assignment in conditions.", Warning, NonEssential)                         \
+    X(qmlAttachedPropertyReuse, "attached-property-reuse", "AttachedPropertyReuse",                \
+      "Warn if attached types from parent components aren't reused. This is handled by the "       \
+      "QtQuick lint plugin. Use Quick.AttachedPropertyReuse instead.",                             \
+      Disable, NonEssential)                                                                       \
+    X(qmlBlockScopeVarDeclaration, "block-scope-var-declaration", "BlockScopeVarDeclaration",      \
+      "Warn if a variable is declared with var inside a block scope", Warning, NonEssential)       \
+    X(qmlComma, "comma", "Comma", "Warn about using comma expressions.", Warning, NonEssential)    \
+    X(qmlCompiler, "compiler", "CompilerWarnings", "Warn about compiler issues", Disable,          \
+      NonEssential)                                                                                \
+    X(qmlComponentChildrenCount, "component-children-count", "ComponentChildrenCount",             \
+      "Warn about Components that don't have exactly one child", Warning, NonEssential)            \
+    X(qmlConfusingExpressionStatement, "confusing-expression-statement",                           \
+      "ConfusingExpressionStatement",                                                              \
+      "Warn about expression statement that has no obvious effect.", Warning, NonEssential)        \
+    X(qmlConfusingMinuses, "confusing-minuses", "ConfusingMinuses",                                \
+      "Warn about confusing minuses.", Warning, NonEssential)                                      \
+    X(qmlConfusingPluses, "confusing-pluses", "ConfusingPluses",                                   \
+      "Warn about confusing pluses.", Warning, NonEssential)                                       \
+    X(qmlContextProperties, "context-properties", "ContextProperties",                             \
+      "Warn about using context properties.", Warning, NonEssential)                               \
+    X(qmlDeferredPropertyId, "deferred-property-id", "DeferredPropertyId",                         \
+      "Warn about making deferred properties immediate by giving them an id.", Disable,            \
+      NonEssential)                                                                                \
+    X(qmlEnumsAreNotTypes, "enums-are-not-types", "EnumsAreNotTypes",                              \
+      "Warn about the use of enumerations as types.", Warning, NonEssential)                       \
+    X(qmlEqualityTypeCoercion, "equality-type-coercion", "EqualityTypeCoercion",                   \
+      "Warn about coercions due to usages of '==' and '!='", Warning, NonEssential)                \
+    X(qmlDeprecated, "deprecated", "Deprecated", "Warn about deprecated properties and types",     \
+      Warning, NonEssential)                                                                       \
+    X(qmlDuplicateEnumEntries, "duplicate-enum-entries", "DuplicateEnumEntries",                   \
+      "Warn about duplicate enum entries", Warning, NonEssential)                                  \
+    X(qmlDuplicateImport, "duplicate-import", "DuplicateImport", "Warn about duplicate imports",   \
+      Warning, NonEssential)                                                                       \
+    X(qmlDuplicateInlineComponent, "duplicate-inline-component", "DuplicateInlineComponent",       \
+      "Warn about duplicate inline components", Warning, NonEssential)                             \
+    X(qmlDuplicatePropertyBinding, "duplicate-property-binding", "DuplicatePropertyBinding",       \
+      "Warn about duplicate property bindings", Warning, NonEssential)                             \
+    X(qmlDuplicatedName, "duplicated-name", "DuplicatedName",                                      \
+      "Warn about duplicated property/signal names", Warning, NonEssential)                        \
+    X(qmlEnumEntryMatchesEnum, "enum-entry-matches-enum", "EnumEntryMatchesEnum",                  \
+      "Warn about enum entries named the same as the enum itself", Warning, NonEssential)          \
+    X(qmlEnumKeyCase, "enum-key-case", "EnumKeyCase", "Warn about lowercase enum keys", Warning,   \
+      NonEssential)                                                                                \
+    X(qmlEval, "eval", "Eval", "Warn about uses of eval()", Warning, NonEssential)                 \
+    X(qmlFunctionUsedBeforeDeclaration, "function-used-before-declaration",                        \
+      "FunctionUsedBeforeDeclaration", "Warn if a function is used before declaration",            \
+      Disable, NonEssential)                                                                       \
+    X(qmlIdShadowsMember, "id-shadows-member", "IdShadowsMember",                                  \
+      "Warn about ids potentially shadowing members", Warning, NonEssential)                       \
+    X(qmlImport, "import", "ImportFailure", "Warn about failing imports and deprecated qmltypes",  \
+      Warning, NonEssential)                                                                       \
+    X(qmlImportFileSelector, "import-file-selector", "ImportFileSelector",                         \
+        "Warn about encountered file selectors during import", Disable, NonEssential)              \
+    X(qmlIncompatibleType, "incompatible-type", "IncompatibleType",                                \
+      "Warn about incompatible types", Warning, NonEssential)                                      \
+    X(qmlInheritanceCycle, "inheritance-cycle", "InheritanceCycle",                                \
+      "Warn about inheritance cycles", Warning, NonEssential)                                      \
+    X(qmlInlineComponentEnums, "inline-component-enums", "InlineComponentEnums",                   \
+      "Warn about enum declarations inside inline components", Warning, NonEssential)              \
+    X(qmlInvalidLintDirective, "invalid-lint-directive", "InvalidLintDirective",                   \
+      "Warn if an invalid qmllint comment is found", Warning, NonEssential)                        \
+    X(qmlLiteralConstructor, "literal-constructor", "LiteralConstructor",                          \
+      "Warn about using literal constructors, like Boolean or String for example.", Warning,       \
+      NonEssential)                                                                                \
+    X(qmlMissingEnumEntry, "missing-enum-entry", "MissingEnumEntry",                               \
+      "Warn about using missing enum values.", Warning, NonEssential)                              \
+    X(qmlMissingProperty, "missing-property", "MissingProperty", "Warn about missing properties",  \
+      Warning, NonEssential)                                                                       \
+    X(qmlMissingType, "missing-type", "MissingType", "Warn about missing types", Warning,          \
+      NonEssential)                                                                                \
+    X(qmlMultilineStrings, "multiline-strings", "MultilineStrings",                                \
+      "Warn about multiline strings", Info, NonEssential)                                          \
+    X(qmlNonListProperty, "non-list-property", "NonListProperty",                                  \
+      "Warn about non-list properties", Warning, NonEssential)                                     \
+    X(qmlNonRootEnums, "non-root-enum", "NonRootEnum",                                             \
+      "Warn about enums defined outside the root component", Warning, NonEssential)                \
+    X(qmlPropertyOverride, "property-override", "PropertyOverride",                                \
+      "Warn about wrongly overriding properties from a base class", Warning, NonEssential)         \
+    X(qmlUnterminatedCase, "unterminated-case", "UnterminatedCase", "Warn about non-empty case "   \
+      "blocks that are not terminated by control flow or by a fallthrough comment", Warning,       \
+      NonEssential)                                                                                \
+    X(qmlPreferNonVarProperties, "prefer-non-var-properties", "PreferNonVarProperties",            \
+      "Warn about var properties that could use a more specific type", Warning, NonEssential)      \
+    X(qmlPrefixedImportType, "prefixed-import-type", "PrefixedImportType",                         \
+      "Warn about prefixed import types", Warning, NonEssential)                                   \
+    X(qmlReadOnlyProperty, "read-only-property", "ReadOnlyProperty",                               \
+      "Warn about writing to read-only properties", Warning, NonEssential)                         \
+    X(qmlRecursionDepthErrors, "recursion-depth-errors", "", "", Warning, NonEssential)            \
+    X(qmlRedundantOptionalChaining, "redundant-optional-chaining", "RedundantOptionalChaining",    \
+      "Warn about optional chaining on non-voidable and non-nullable base", Warning, NonEssential) \
+    X(qmlRenamedType, "renamed-type", "RenamedType",                                               \
+      "Warn when renamed types refer to themselves using their unrenamed name", Warning,           \
+      NonEssential)                                                                                \
+    X(qmlRequired, "required", "RequiredProperty", "Warn about required properties", Warning,      \
+      NonEssential)                                                                                \
+    X(qmlShadow, "shadow", "Shadow", "Warn about shadowing attributes from a base class", Disable, \
+      NonEssential)                                                                                \
+    X(qmlSignalParameters, "signal-handler-parameters", "BadSignalHandlerParameters",              \
+      "Warn about bad signal handler parameters", Warning, NonEssential)                           \
+    X(qmlStalePropertyRead, "stale-property-read", "StalePropertyRead",                            \
+      "Warn about bindings reading non-constant and non-notifiable properties", Warning,           \
+      NonEssential)                                                                                \
+    X(qmlSyntax, "syntax", "Syntax", "Syntax errors", Warning, Essential)                          \
+    X(qmlSyntaxDuplicateIds, "syntax.duplicate-ids", "", "ID duplication", Error, NonEssential)    \
+    X(qmlSyntaxIdQuotation, "syntax.id-quotation", "", "ID quotation", Warning, NonEssential)      \
+    X(qmlTypeInstantiatedRecursively, "type-instantiated-recursively",                             \
+      "TypeInstantiatedRecursively", "Warn when types are instantiated recursively", Warning,      \
+      NonEssential)                                                                                \
+    X(qmlTopLevelComponent, "top-level-component", "TopLevelComponent",                            \
+      "Warn if a top level Component is encountered", Warning, NonEssential)                       \
+    X(qmlUncreatableType, "uncreatable-type", "UncreatableType",                                   \
+      "Warn if uncreatable types are created", Warning, NonEssential)                              \
+    X(qmlUnintentionalEmptyBlock, "unintentional-empty-block", "UnintentionalEmptyBlock",          \
+      "Warn about bindings that contain only an empty block", Warning, NonEssential)               \
+    X(qmlUnqualified, "unqualified", "UnqualifiedAccess",                                          \
+      "Warn about unqualified identifiers and how to fix them", Warning, NonEssential)             \
+    X(qmlUnreachableCode, "unreachable-code", "UnreachableCode", "Warn about unreachable code.",   \
+      Warning, NonEssential)                                                                       \
+    X(qmlUnresolvedAlias, "unresolved-alias", "UnresolvedAlias", "Warn about unresolved aliases",  \
+      Warning, NonEssential)                                                                       \
+    X(qmlUnresolvedType, "unresolved-type", "UnresolvedType", "Warn about unresolved types",       \
+      Warning, NonEssential)                                                                       \
+    X(qmlUnusedImports, "unused-imports", "UnusedImports", "Warn about unused imports", Info,      \
+      NonEssential)                                                                                \
+    X(qmlUseProperFunction, "use-proper-function", "UseProperFunction",                            \
+      "Warn if var is used for storing functions", Disable, NonEssential)                          \
+    X(qmlVarUsedBeforeDeclaration, "var-used-before-declaration", "VarUsedBeforeDeclaration",      \
+      "Warn if a variable is used before declaration", Warning, NonEssential)                      \
+    X(qmlVoid, "void", "Void", "Warn about void expressions.", Disable, NonEssential)              \
+    X(qmlWith, "with", "WithStatement",                                                            \
+      "Warn about with statements as they can cause NonEssential "                                 \
+      "positives when checking for unqualified access",  Warning, NonEssential)                    \
+
+#define X(category, name, setting, description, severity, essential) \
+    const QQmlSA::LoggerWarningId category{ name };
+QMLLINT_BUILTIN_CATEGORIES
+#undef X
+
+
+#define X(category, name, setting, description, severity, essential) ++i;
+constexpr size_t numCategories = [] { size_t i = 0; QMLLINT_BUILTIN_CATEGORIES return i; }();
+#undef X
+
+constexpr bool isUnique(const std::array<std::string_view, numCategories>& fields) {
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        for (std::size_t j = i + 1; j < fields.size(); ++j) {
+            if (!fields[i].empty() && fields[i] == fields[j]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+#define X(category, name, setting, description, severity, essential) std::string_view(name),
+static_assert(isUnique(std::array{ QMLLINT_BUILTIN_CATEGORIES }), "Duplicate names found!");
+#undef X
+
+#define X(category, name, setting, description, severity, essential) std::string_view(setting),
+static_assert(isUnique(std::array{ QMLLINT_BUILTIN_CATEGORIES }), "Duplicate settings found!");
+#undef X
+
+#define X(category, name, setting, description, severity, essential) std::string_view(description),
+static_assert(isUnique(std::array{ QMLLINT_BUILTIN_CATEGORIES }), "Duplicate description found!");
+#undef X
+
 
 QQmlJSLogger::QQmlJSLogger()
 {
-    static const QList<QQmlJS::LoggerCategory> cats = defaultCategories();
+    static const QList<QQmlJS::LoggerCategory> cats = builtinCategories();
 
     for (const QQmlJS::LoggerCategory &category : cats)
         registerCategory(category);
@@ -75,118 +231,13 @@ QQmlJSLogger::QQmlJSLogger()
     m_output.insertMapping(QtDebugMsg, QColorOutput::GreenForeground); // None?
 }
 
-const QList<QQmlJS::LoggerCategory> &QQmlJSLogger::defaultCategories()
+const QList<QQmlJS::LoggerCategory> &QQmlJSLogger::builtinCategories()
 {
     static const QList<QQmlJS::LoggerCategory> cats = {
-        QQmlJS::LoggerCategory{ qmlRequired.name().toString(), QStringLiteral("RequiredProperty"),
-                                QStringLiteral("Warn about required properties"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlAliasCycle.name().toString(),
-                                QStringLiteral("PropertyAliasCycles"),
-                                QStringLiteral("Warn about alias cycles"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlUnresolvedAlias.name().toString(),
-                                QStringLiteral("PropertyAliasCycles"),
-                                QStringLiteral("Warn about unresolved aliases"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlImport.name().toString(), QStringLiteral("ImportFailure"),
-                QStringLiteral("Warn about failing imports and deprecated qmltypes"),
-                QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlRecursionDepthErrors.name().toString(), QStringLiteral("ImportFailure"),
-                QStringLiteral("Warn about failing imports and deprecated qmltypes"), QtWarningMsg,
-                false, true },
-        QQmlJS::LoggerCategory{ qmlWith.name().toString(), QStringLiteral("WithStatement"),
-                                QStringLiteral("Warn about with statements as they can cause false "
-                                               "positives when checking for unqualified access"),
-                                QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlInheritanceCycle.name().toString(),
-                                QStringLiteral("InheritanceCycle"),
-                                QStringLiteral("Warn about inheritance cycles"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlDeprecated.name().toString(), QStringLiteral("Deprecated"),
-                                QStringLiteral("Warn about deprecated properties and types"),
-                                QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlSignalParameters.name().toString(), QStringLiteral("BadSignalHandlerParameters"),
-                QStringLiteral("Warn about bad signal handler parameters"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlMissingType.name().toString(), QStringLiteral("MissingType"),
-                                QStringLiteral("Warn about missing types"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlUnresolvedType.name().toString(),
-                                QStringLiteral("UnresolvedType"),
-                                QStringLiteral("Warn about unresolved types"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlRestrictedType.name().toString(),
-                                QStringLiteral("RestrictedType"),
-                                QStringLiteral("Warn about restricted types"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlPrefixedImportType.name().toString(),
-                                QStringLiteral("PrefixedImportType"),
-                                QStringLiteral("Warn about prefixed import types"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlIncompatibleType.name().toString(),
-                                QStringLiteral("IncompatibleType"),
-                                QStringLiteral("Warn about missing types"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlMissingProperty.name().toString(),
-                                QStringLiteral("MissingProperty"),
-                                QStringLiteral("Warn about missing properties"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlNonListProperty.name().toString(),
-                                QStringLiteral("NonListProperty"),
-                                QStringLiteral("Warn about non-list properties"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlReadOnlyProperty.name().toString(), QStringLiteral("ReadOnlyProperty"),
-                QStringLiteral("Warn about writing to read-only properties"), QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlDuplicatePropertyBinding.name().toString(),
-                                QStringLiteral("DuplicatePropertyBinding"),
-                                QStringLiteral("Warn about duplicate property bindings"),
-                                QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlDuplicatedName.name().toString(), QStringLiteral("DuplicatedName"),
-                QStringLiteral("Warn about duplicated property/signal names"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlDeferredPropertyId.name().toString(), QStringLiteral("DeferredPropertyId"),
-                QStringLiteral(
-                        "Warn about making deferred properties immediate by giving them an id."),
-                QtInfoMsg, true, true },
-        QQmlJS::LoggerCategory{
-                qmlUnqualified.name().toString(), QStringLiteral("UnqualifiedAccess"),
-                QStringLiteral("Warn about unqualified identifiers and how to fix them"),
-                QtWarningMsg },
-        QQmlJS::LoggerCategory{ qmlUnusedImports.name().toString(), QStringLiteral("UnusedImports"),
-                                QStringLiteral("Warn about unused imports"), QtInfoMsg },
-        QQmlJS::LoggerCategory{ qmlMultilineStrings.name().toString(),
-                                QStringLiteral("MultilineStrings"),
-                                QStringLiteral("Warn about multiline strings"), QtInfoMsg },
-        QQmlJS::LoggerCategory{ qmlSyntax.name().toString(), QString(),
-                                QStringLiteral("Syntax errors"), QtWarningMsg, false, true },
-        QQmlJS::LoggerCategory{ qmlSyntaxIdQuotation.name().toString(), QString(),
-                                QStringLiteral("ID quotation"), QtWarningMsg, false, true },
-        QQmlJS::LoggerCategory{ qmlSyntaxDuplicateIds.name().toString(), QString(),
-                                QStringLiteral("ID duplication"), QtCriticalMsg, false, true },
-        QQmlJS::LoggerCategory{ qmlCompiler.name().toString(), QStringLiteral("CompilerWarnings"),
-                                QStringLiteral("Warn about compiler issues"), QtWarningMsg, true },
-        QQmlJS::LoggerCategory{
-                qmlAttachedPropertyReuse.name().toString(), QStringLiteral("AttachedPropertyReuse"),
-                QStringLiteral("Warn if attached types from parent components "
-                               "aren't reused. This is handled by the QtQuick "
-                               "lint plugin. Use Quick.AttachedPropertyReuse instead."),
-                QtCriticalMsg, true },
-        QQmlJS::LoggerCategory{ qmlPlugin.name().toString(), QStringLiteral("LintPluginWarnings"),
-                                QStringLiteral("Warn if a qmllint plugin finds an issue"),
-                                QtWarningMsg, true },
-        QQmlJS::LoggerCategory{ qmlVarUsedBeforeDeclaration.name().toString(),
-                                QStringLiteral("VarUsedBeforeDeclaration"),
-                                QStringLiteral("Warn if a variable is used before declaration"),
-                                QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlInvalidLintDirective.name().toString(), QStringLiteral("InvalidLintDirective"),
-                QStringLiteral("Warn if an invalid qmllint comment is found"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlUseProperFunction.name().toString(), QStringLiteral("UseProperFunction"),
-                QStringLiteral("Warn if var is used for storing functions"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlAccessSingleton.name().toString(), QStringLiteral("AccessSingletonViaObject"),
-                QStringLiteral("Warn if a singleton is accessed via an object"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlTopLevelComponent.name().toString(), QStringLiteral("TopLevelComponent"),
-                QStringLiteral("Fail when a top level Component are encountered"), QtWarningMsg },
-        QQmlJS::LoggerCategory{
-                qmlUncreatableType.name().toString(), QStringLiteral("UncreatableType"),
-                QStringLiteral("Warn if uncreatable types are created"), QtWarningMsg }
+#define X(category, name, setting, description, severity, essential) \
+    QQmlJS::LoggerCategory{ name##_L1, setting##_L1, description##_L1, QQmlJS::WarningSeverity::severity, QQmlJS::LoggerCategory::essential },
+        QMLLINT_BUILTIN_CATEGORIES
+#undef X
     };
 
     return cats;
@@ -194,9 +245,9 @@ const QList<QQmlJS::LoggerCategory> &QQmlJSLogger::defaultCategories()
 
 bool QQmlJSFixSuggestion::operator==(const QQmlJSFixSuggestion &other) const
 {
-    return m_location == other.m_location && m_fixDescription == other.m_fixDescription
-            && m_replacement == other.m_replacement && m_filename == other.m_filename
-            && m_hint == other.m_hint && m_autoApplicable == other.m_autoApplicable;
+    return m_location == other.m_location && m_description == other.m_description
+            && m_documentEdits == other.m_documentEdits && m_filename == other.m_filename
+            && m_autoApplicable == other.m_autoApplicable;
 }
 
 bool QQmlJSFixSuggestion::operator!=(const QQmlJSFixSuggestion &other) const
@@ -216,8 +267,7 @@ void QQmlJSLogger::registerCategory(const QQmlJS::LoggerCategory &category)
         return;
     }
 
-    m_categoryLevels[category.name()] = category.level();
-    m_categoryIgnored[category.name()] = category.isIgnored();
+    m_categorySeverities[category.name()] = category.severity();
     m_categories.insert(category.name(), category);
 }
 
@@ -231,68 +281,74 @@ static bool isMsgTypeLess(QtMsgType a, QtMsgType b)
     return level[a] < level[b];
 }
 
-void QQmlJSLogger::log(const QString &message, QQmlJS::LoggerWarningId id,
-                       const QQmlJS::SourceLocation &srcLocation, QtMsgType type, bool showContext,
-                       bool showFileName, const std::optional<QQmlJSFixSuggestion> &suggestion,
-                       const QString overrideFileName)
+void QQmlJSLogger::log(Message &&diagMsg, bool showContext, bool showFileName)
 {
-    Q_ASSERT(m_categoryLevels.contains(id.name().toString()));
+    Q_ASSERT(m_categorySeverities.contains(diagMsg.id.toString()));
 
-    if (isCategoryIgnored(id))
+    if (categorySeverity(diagMsg.id) == QQmlJS::WarningSeverity::Disable || isDisabled())
         return;
 
     // Note: assume \a type is the type we should prefer for logging
 
-    if (srcLocation.isValid()
-        && m_ignoredWarnings[srcLocation.startLine].contains(id.name().toString()))
+    if (diagMsg.loc.isValid()
+        && m_ignoredWarnings[diagMsg.lineForDisabling()].contains(diagMsg.id.toString())) {
         return;
+    }
 
     QString prefix;
+    if (!m_filePath.isEmpty() && showFileName)
+        prefix = m_filePath + QStringLiteral(":");
 
-    if ((!overrideFileName.isEmpty() || !m_filePath.isEmpty()) && showFileName)
-        prefix =
-                (!overrideFileName.isEmpty() ? overrideFileName : m_filePath) + QStringLiteral(":");
-
-    if (srcLocation.isValid())
-        prefix += QStringLiteral("%1:%2:").arg(srcLocation.startLine).arg(srcLocation.startColumn);
-
-    if (!prefix.isEmpty())
-        prefix.append(QLatin1Char(' '));
+    if (diagMsg.loc.isValid())
+        prefix += QStringLiteral("%1:%2: ").arg(diagMsg.loc.startLine).arg(diagMsg.loc.startColumn);
+    else if (!prefix.isEmpty())
+        prefix += QStringLiteral(": "); // produce double colon for Qt Creator's issues pane
 
     // Note: we do the clamping to [Info, Critical] range since our logger only
     // supports 3 categories
-    type = std::clamp(type, QtInfoMsg, QtCriticalMsg, isMsgTypeLess);
+    diagMsg.type = std::clamp(diagMsg.type, QtInfoMsg, QtCriticalMsg, isMsgTypeLess);
 
     // Note: since we clamped our \a type, the output message is not printed
     // exactly like it was requested, bear with us
-    m_output.writePrefixedMessage(u"%1%2 [%3]"_s.arg(prefix, message, id.name().toString()), type);
+    m_output.writePrefixedMessage(
+            u"%1%2 [%3]"_s.arg(prefix, diagMsg.message, diagMsg.id.toString()), diagMsg.type);
 
-    Message diagMsg;
-    diagMsg.message = message;
-    diagMsg.id = id.name();
-    diagMsg.loc = srcLocation;
-    diagMsg.type = type;
-    diagMsg.fixSuggestion = suggestion;
+    if (diagMsg.loc.length > 0 && !m_code.isEmpty() && showContext)
+        printContext(diagMsg.loc);
 
-    switch (type) {
-    case QtWarningMsg: m_warnings.push_back(diagMsg); break;
-    case QtCriticalMsg: m_errors.push_back(diagMsg); break;
-    case QtInfoMsg: m_infos.push_back(diagMsg); break;
-    default: break;
+    if (diagMsg.fixSuggestion.has_value())
+        printFix(diagMsg.fixSuggestion.value());
+
+    if (m_inTransaction) {
+        m_pendingMessages.push_back(std::move(diagMsg));
+    } else {
+        countMessage(diagMsg);
+        m_currentFunctionMessages.push_back(std::move(diagMsg));
     }
 
-    if (srcLocation.length > 0 && !m_code.isEmpty() && showContext)
-        printContext(overrideFileName, srcLocation);
-
-    if (suggestion.has_value())
-        printFix(suggestion.value());
+    if (!m_inTransaction && !m_manualFlush)
+        m_output.flushBuffer();
 }
 
-void QQmlJSLogger::processMessages(const QList<QQmlJS::DiagnosticMessage> &messages,
+void QQmlJSLogger::countMessage(const Message &message)
+{
+    switch (message.type) {
+    case QtWarningMsg:
+        ++m_numWarnings;
+        break;
+    case QtCriticalMsg:
+        ++m_numErrors;
+        break;
+    default:
+        break;
+    }
+}
+
+void QQmlJSLogger::processMessages(QSpan<const QQmlJS::DiagnosticMessage> messages,
                                    QQmlJS::LoggerWarningId id,
                                    const QQmlJS::SourceLocation &sourceLocation)
 {
-    if (messages.isEmpty() || isCategoryIgnored(id))
+    if (messages.isEmpty() || categorySeverity(id) == QQmlJS::WarningSeverity::Disable || isDisabled())
         return;
 
     m_output.write(QStringLiteral("---\n"));
@@ -305,17 +361,65 @@ void QQmlJSLogger::processMessages(const QList<QQmlJS::DiagnosticMessage> &messa
     m_output.write(QStringLiteral("---\n\n"));
 }
 
-void QQmlJSLogger::printContext(const QString &overrideFileName,
-                                const QQmlJS::SourceLocation &location)
+void QQmlJSLogger::finalizeFunction()
+{
+    Q_ASSERT(!m_inTransaction);
+    m_archivedMessages.append(std::exchange(m_currentFunctionMessages, {}));
+    m_hasCompileError = false;
+}
+
+/*!
+    \internal
+    Starts a transaction for a compile pass. This buffers all messages until the
+    transaction completes. If you commit the transaction, the messages are printed
+    and added to the list of committed messages. If you roll it back, the logger
+    reverts to the state before the start of the transaction.
+
+    This is useful for compile passes that potentially have to be repeated, such
+    as the type propagator. We don't want to see the same messages logged multiple
+    times.
+ */
+void QQmlJSLogger::startTransaction()
+{
+    Q_ASSERT(!m_inTransaction);
+    m_inTransaction = true;
+}
+
+/*!
+    \internal
+    Commit the current transaction. Print all pending messages, and add them to
+    the list of committed messages. Then, clear the transaction flag.
+ */
+void QQmlJSLogger::commit()
+{
+    Q_ASSERT(m_inTransaction);
+    for (const Message &message : std::as_const(m_pendingMessages))
+        countMessage(message);
+
+    m_currentFunctionMessages.append(std::exchange(m_pendingMessages, {}));
+    m_hasCompileError = m_hasCompileError || std::exchange(m_hasPendingCompileError, false);
+    if (!m_manualFlush)
+        m_output.flushBuffer();
+    m_inTransaction = false;
+}
+
+/*!
+    \internal
+    Roll back the current transaction and revert the logger to the state before
+    it was started.
+ */
+void QQmlJSLogger::rollback()
+{
+    Q_ASSERT(m_inTransaction);
+    m_pendingMessages.clear();
+    m_hasPendingCompileError = false;
+    m_output.discardBuffer();
+    m_inTransaction = false;
+}
+
+void QQmlJSLogger::printContext(const QQmlJS::SourceLocation &location)
 {
     QString code = m_code;
-
-    if (!overrideFileName.isEmpty() && overrideFileName != m_filePath) {
-        QFile file(overrideFileName);
-        const bool success = file.open(QFile::ReadOnly);
-        Q_ASSERT(success);
-        code = QString::fromUtf8(file.readAll());
-    }
 
     IssueLocationWithContext issueLocationWithContext { code, location };
     if (const QStringView beforeText = issueLocationWithContext.beforeText(); !beforeText.isEmpty())
@@ -344,7 +448,7 @@ void QQmlJSLogger::printFix(const QQmlJSFixSuggestion &fixItem)
     const QString currentFileAbsPath = m_filePath;
     QString code = m_code;
     QString currentFile;
-    m_output.writePrefixedMessage(fixItem.fixDescription(), QtInfoMsg);
+    m_output.writePrefixedMessage(fixItem.description(), QtInfoMsg);
 
     if (!fixItem.location().isValid())
         return;
@@ -362,42 +466,69 @@ void QQmlJSLogger::printFix(const QQmlJSFixSuggestion &fixItem)
         currentFile = filename;
     }
 
-    IssueLocationWithContext issueLocationWithContext { code, fixItem.location() };
+    const auto &documentEdits = fixItem.documentEdits();
+    if (!documentEdits.empty()) {
+        m_output.write(documentEdits.size() == 1 ? "Suggested change:\n"_L1
+                                                 : "Suggested changes:\n"_L1);
+        for (const auto &documentEdit: documentEdits) {
+            if (!documentEdit.m_location.isValid())
+                continue;
 
-    if (const QStringView beforeText = issueLocationWithContext.beforeText();
-        !beforeText.isEmpty()) {
-        m_output.write(beforeText);
+            IssueLocationWithContext issueLocationWithContext { code, documentEdit.m_location };
+
+            if (const QStringView beforeText = issueLocationWithContext.beforeText();
+                !beforeText.isEmpty()) {
+                m_output.write(beforeText);
+            }
+
+            // The replacement string can be empty if we're only pointing something out to the user
+            const QString replacement = documentEdit.m_replacement;
+            QStringView replacementString = replacement.isEmpty()
+                    ? issueLocationWithContext.issueText()
+                    : replacement;
+
+            // But if there's nothing to change it cannot be auto-applied
+            Q_ASSERT(!replacement.isEmpty() || !fixItem.isAutoApplicable());
+
+            if (!replacementString.isEmpty())
+                m_output.write(replacementString, QtDebugMsg);
+            m_output.write(issueLocationWithContext.afterText().toString() + u'\n');
+
+            int tabCount = issueLocationWithContext.beforeText().count(u'\t');
+
+            // Do not draw location indicator for multiline replacement strings
+            if (!replacementString.contains(u'\n')) {
+                m_output.write(u" "_s.repeated(
+                                       issueLocationWithContext.beforeText().size() - tabCount)
+                               + u"\t"_s.repeated(tabCount)
+                               + u"^"_s.repeated(replacement.size()) + u'\n');
+            }
+        }
     }
-
-    // The replacement string can be empty if we're only pointing something out to the user
-    const QString replacement = fixItem.replacement();
-    QStringView replacementString = replacement.isEmpty()
-            ? issueLocationWithContext.issueText()
-            : replacement;
-
-    // But if there's nothing to change it cannot be auto-applied
-    Q_ASSERT(!replacement.isEmpty() || !fixItem.isAutoApplicable());
-
-    m_output.write(replacementString, QtDebugMsg);
-    m_output.write(issueLocationWithContext.afterText().toString() + u'\n');
-
-    int tabCount = issueLocationWithContext.beforeText().count(u'\t');
-
-    // Do not draw location indicator for multiline replacement strings
-    if (replacementString.contains(u'\n'))
-        return;
-
-    m_output.write(u" "_s.repeated(
-                           issueLocationWithContext.beforeText().size() - tabCount)
-                   + u"\t"_s.repeated(tabCount)
-                   + u"^"_s.repeated(replacement.size()) + u'\n');
 }
 
-QQmlJSFixSuggestion::QQmlJSFixSuggestion(const QString &fixDescription,
+QQmlJSFixSuggestion::QQmlJSFixSuggestion(const QString &description,
                                          const QQmlJS::SourceLocation &location,
-                                         const QString &replacement)
-    : m_location{ location }, m_fixDescription{ fixDescription }, m_replacement{ replacement }
+                                         const QQmlJSDocumentEdit &documentEdit)
+    : QQmlJSFixSuggestion(description, location, QList{ documentEdit })
 {
+}
+
+QQmlJSFixSuggestion::QQmlJSFixSuggestion(const QString &description,
+                                         const QQmlJS::SourceLocation &location,
+                                         const QList<QQmlJSDocumentEdit> &documentEdits)
+    : m_description{ description }, m_location{ location }, m_documentEdits(documentEdits)
+{
+}
+
+void QQmlJSFixSuggestion::addDocumentEdit(const QQmlJSDocumentEdit &documentEdit)
+{
+    m_documentEdits.append(documentEdit);
+}
+
+void QQmlJSFixSuggestion::setDocumentEdits(const QList<QQmlJSDocumentEdit> &documentEdits)
+{
+    m_documentEdits = documentEdits;
 }
 
 QT_END_NAMESPACE

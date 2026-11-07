@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickgraphicsconfiguration_p.h"
 #include <QCoreApplication>
@@ -728,7 +729,7 @@ bool QQuickGraphicsConfiguration::isAutomaticPipelineCacheEnabled() const
 
     \since 6.5
 
-    \sa pipelineCacheLoadFile(), setPipelineCacheSaveFile()
+    \sa pipelineCacheLoadFile(), pipelineCacheSaveFile()
  */
 void QQuickGraphicsConfiguration::setPipelineCacheSaveFile(const QString &filename)
 {
@@ -785,6 +786,10 @@ QString QQuickGraphicsConfiguration::pipelineCacheSaveFile() const
     3D 11, where the "pipeline cache" is used only to store the results of
     runtime HLSL->DXBC compilation and is therefore device and vendor
     independent.
+
+    \warning The serialized pipeline cache data is assumed to be trusted
+    content. Application developers are advised to never pass in data from
+    untrusted sources.
 
     \since 6.5
 

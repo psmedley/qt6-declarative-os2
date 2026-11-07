@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qsgsoftwarethreadedrenderloop_p.h"
 #include "qsgsoftwarecontext_p.h"
@@ -28,6 +29,10 @@
 #include <qtquick_tracepoints_p.h>
 
 QT_BEGIN_NAMESPACE
+
+// Used to debug the renderloop logic. Primarily useful for platform integrators
+// and when investigating the render loop logic.
+Q_STATIC_LOGGING_CATEGORY(QSG_RASTER_LOG_RENDERLOOP,          "qt.scenegraph.renderloop")
 
 class QSGSoftwareWindowEvent : public QEvent
 {
@@ -473,7 +478,7 @@ void QSGSoftwareRenderThread::syncAndRender()
             qCDebug(QSG_RASTER_LOG_RENDERLOOP, "RT - blocking for %d ms", blockTime);
             msleep(blockTime);
         }
-        renderThrottleTimer.restart();
+        renderThrottleTimer.start();
 
         wd->fireFrameSwapped();
     } else {

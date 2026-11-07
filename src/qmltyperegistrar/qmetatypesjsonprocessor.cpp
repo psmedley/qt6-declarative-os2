@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qmetatypesjsonprocessor_p.h"
 
@@ -11,6 +12,7 @@
 
 #include <QtCore/qcborarray.h>
 #include <QtCore/qcbormap.h>
+#include <QtCore/qdir.h>
 #include <QtCore/qfile.h>
 #include <QtCore/qjsondocument.h>
 #include <QtCore/qqueue.h>
@@ -56,6 +58,9 @@ QList<QAnyStringView> MetaTypesJsonProcessor::namespaces(const MetaType &classDe
 bool MetaTypesJsonProcessor::processTypes(const QStringList &files)
 {
     for (const QString &source: files) {
+        if (m_seenMetaTypesFiles.hasSeen(QDir::cleanPath(source)))
+            continue;
+
         QCborValue metaObjects;
         {
             QFile f(source);
@@ -129,6 +134,9 @@ bool MetaTypesJsonProcessor::processForeignTypes(const QStringList &foreignTypes
     bool success = true;
 
     for (const QString &types : foreignTypesFiles) {
+        if (m_seenMetaTypesFiles.hasSeen(QDir::cleanPath(types)))
+            continue;
+
         if (!processForeignTypes(types))
             success = false;
     }
@@ -302,9 +310,53 @@ static bool qualifiedClassNameLessThan(const MetaType &a, const MetaType &b)
     return a.qualifiedClassName() < b.qualifiedClassName();
 }
 
+enum RemoveResult : bool { Removed, NotFound };
+static RemoveResult removeFromSortedMetaTypeList(QList<MetaType> &typeList, const MetaType &toBeRemoved)
+{
+    const auto remove = std::equal_range(
+            typeList.constBegin(), typeList.constEnd(), toBeRemoved,
+            qualifiedClassNameLessThan);
+    if (remove.first == remove.second)
+        return NotFound; // type used in two non-opaque usages; e.g. Base + Extension
+    for (auto it = remove.first; it != remove.second; ++it) {
+        if (*it == toBeRemoved) {
+            typeList.erase(it);
+            return Removed;
+        }
+    }
+    return NotFound;
+}
+
+// inserts toBeAdded if it's not in the list
+static void insertIntoSortedMetaTypeList(QList<MetaType> &typeList, const MetaType &toBeAdded)
+{
+    const auto [lower, upper] = std::equal_range(
+            typeList.constBegin(), typeList.constEnd(), toBeAdded,
+            qualifiedClassNameLessThan);
+    if (lower == upper)
+        typeList.insert(lower, toBeAdded);
+}
+
+static bool sortedMetaTypeListContains(const QList<MetaType> &typeList, const MetaType &type)
+{
+    const auto [first, last] = std::equal_range(
+            typeList.constBegin(), typeList.constEnd(), type, qualifiedClassNameLessThan);
+    for (auto it = first; it != last; ++it) {
+        if (*it == type)
+            return true;
+    }
+    return false;
+}
+
 enum class TypeRelation
 {
     Base, Property, Argument, Return, Enum, Attached, SequenceValue, Extension
+};
+
+// Whether the type whose related types are currently being processed is itself opaque.
+enum class ContextOpacity
+{
+    FullyRegistered, Opaque
 };
 
 static QLatin1StringView typeRelationString(TypeRelation relation)
@@ -393,7 +445,8 @@ void MetaTypesJsonProcessor::addRelatedTypes()
 
     const auto addReference
             = [&](const MetaType &type, QSet<QAnyStringView> *processedRelatedNames,
-                  FoundType::Origin origin) {
+                  FoundType::Origin origin, TypeRelation relation,
+                  ContextOpacity contextOpacity = ContextOpacity::FullyRegistered) {
         if (type.isEmpty())
             return;
         QAnyStringView qualifiedName = type.qualifiedClassName();
@@ -401,42 +454,74 @@ void MetaTypesJsonProcessor::addRelatedTypes()
         const qsizetype size = processedRelatedNames->size();
         processedRelatedNames->insert(qualifiedName);
 
-        if (processedRelatedNames->size() == size)
-            return;
+        if (processedRelatedNames->size() == size) {
+            // a type might change from opaque to non-opaque
 
-        typeQueue.enqueue(type);
+            // Remove from opaque types - might happen if the type is used as both a property
+            // and e.g. as a base type
+            switch (relation) {
+            case TypeRelation::Property:
+            case TypeRelation::Return:
+            case TypeRelation::Argument:
+                // still only opaque, we can return
+                return;
+            case TypeRelation::Base:
+                // A base type only stays opaque if the type it is a base of is opaque, too.
+                // Otherwise it has to be properly registered and we fall through to the regular
+                // handling below.
+                if (contextOpacity == ContextOpacity::Opaque)
+                    return;
+                break;
+            default:
+                break;
+            }
+            if (removeFromSortedMetaTypeList(m_opaqueTypes, type) == NotFound)
+                return; // type used in two non-opaque usages; e.g. Base + Extension
+        } else {
+            typeQueue.enqueue(type);
+        }
 
         if (origin == FoundType::OwnTypes)
             return;
 
+        switch (relation) {
+        case TypeRelation::Property:
+        case TypeRelation::Return:
+        case TypeRelation::Argument:
+            insertIntoSortedMetaTypeList(m_opaqueTypes, type);
+            return;
+        case TypeRelation::Base:
+            // Only the bases of opaque types are themselves opaque. The bases of regular types
+            // are registered normally, just like any other related type.
+            if (contextOpacity == ContextOpacity::Opaque) {
+                insertIntoSortedMetaTypeList(m_opaqueTypes, type);
+                return;
+            }
+            break;
+        default:
+            break;
+        }
+
         // Add to own types since we need it for our registrations.
-        const auto insert = std::lower_bound(
-                m_types.constBegin(), m_types.constEnd(), type,
-                qualifiedClassNameLessThan);
-        m_types.insert(insert, type);
+        insertIntoSortedMetaTypeList(m_types, type);
 
         // We only add types to m_types of which we know we can reach them via the existing
         // m_includes. We do not add to m_includes, because any further headers may not be
         // #include'able.
 
         // Remove from the foreign types to avoid the ODR warning.
-        const auto remove = std::equal_range(
-                m_foreignTypes.constBegin(), m_foreignTypes.constEnd(), type,
-                qualifiedClassNameLessThan);
-        for (auto it = remove.first; it != remove.second; ++it) {
-            if (*it == type) {
-                m_foreignTypes.erase(it);
-                break;
-            }
-        }
+        removeFromSortedMetaTypeList(m_foreignTypes, type);
     };
 
     const auto addInterface
-            = [&](QAnyStringView typeName, const QList<QAnyStringView> &namespaces) {
+            = [&](QAnyStringView typeName, const QList<QAnyStringView> &namespaces,
+                  TypeRelation relation, ContextOpacity contextOpacity = ContextOpacity::FullyRegistered) {
         if (const FoundType other = QmlTypesClassDescription::findType(
                     m_types, m_foreignTypes, typeName, namespaces)) {
             if (!other.native.isEmpty()) {
-                addReference(other.native, &processedRelatedNativeNames, other.nativeOrigin);
+                addReference(
+                        other.native, &processedRelatedNativeNames, other.nativeOrigin, relation,
+                        contextOpacity);
                 return true;
             }
         } else {
@@ -450,12 +535,17 @@ void MetaTypesJsonProcessor::addRelatedTypes()
     };
 
     const auto doAddReferences = [&](QAnyStringView typeName,
-                                     const QList<QAnyStringView> &namespaces) {
+                                     const QList<QAnyStringView> &namespaces,
+                                     TypeRelation relation,
+                                     ContextOpacity contextOpacity = ContextOpacity::FullyRegistered) {
         if (const FoundType other = QmlTypesClassDescription::findType(
                     m_types, m_foreignTypes, typeName, namespaces)) {
-            addReference(other.native, &processedRelatedNativeNames, other.nativeOrigin);
             addReference(
-                    other.javaScript, &processedRelatedJavaScriptNames, other.javaScriptOrigin);
+                    other.native, &processedRelatedNativeNames, other.nativeOrigin, relation,
+                    contextOpacity);
+            addReference(
+                    other.javaScript, &processedRelatedJavaScriptNames, other.javaScriptOrigin,
+                    relation, contextOpacity);
             return true;
         }
 
@@ -464,7 +554,7 @@ void MetaTypesJsonProcessor::addRelatedTypes()
 
     const auto addType = [&](const MetaType &context, QAnyStringView typeName,
                              const QList<QAnyStringView> &namespaces, TypeRelation relation) {
-        if (doAddReferences(typeName, namespaces))
+        if (doAddReferences(typeName, namespaces, relation))
             return true;
 
         // If it's an enum, add the surrounding type.
@@ -479,10 +569,12 @@ void MetaTypesJsonProcessor::addRelatedTypes()
                     if (enumerator.name != enumName && enumerator.alias != enumName)
                         continue;
 
-                    addReference(other.native, &processedRelatedNativeNames, other.nativeOrigin);
+                    addReference(
+                            other.native, &processedRelatedNativeNames, other.nativeOrigin,
+                            relation);
                     addReference(
                             other.javaScript, &processedRelatedJavaScriptNames,
-                            other.javaScriptOrigin);
+                            other.javaScriptOrigin, relation);
                     return true;
                 }
             }
@@ -498,8 +590,20 @@ void MetaTypesJsonProcessor::addRelatedTypes()
         // we'll get to it again when we process it as foreign type. In that case we'll look at the
         // special cases for sequences and extensions.
         if (!unresolvedForeignNames.contains(typeName) && !isPrimitive(typeName)) {
-            warning(context) << typeName << "is used as" << typeRelationString(relation)
-                             << "type but cannot be found.";
+            // Also, if the type is used as a property/method argument, we want to still make it
+            // known to tooling as an opaque type, and don't warn about it
+            switch (relation) {
+            case TypeRelation::Property:
+            case TypeRelation::Return:
+            case TypeRelation::Argument: {
+                MetaType type = MetaType::createOpaqueType(typeName);
+                insertIntoSortedMetaTypeList(m_opaqueTypes, type);
+                break;
+            }
+            default:
+                warning(context) << typeName << "is used as" << typeRelationString(relation)
+                                 << "type but cannot be found.";
+            }
         }
 
         processedRelatedNativeNames.insert(typeName);
@@ -509,9 +613,10 @@ void MetaTypesJsonProcessor::addRelatedTypes()
 
 
 
-    const auto addSupers = [&](const MetaType &context, const QList<QAnyStringView> &namespaces) {
+    const auto addSupers = [&](const MetaType &context, const QList<QAnyStringView> &namespaces,
+                               ContextOpacity contextOpacity) {
         for (const Interface &iface : context.ifaces())
-            addInterface(interfaceName(iface), namespaces);
+            addInterface(interfaceName(iface), namespaces, TypeRelation::Base, contextOpacity);
 
         // We don't warn about missing bases for value types. They don't have to be registered.
         bool warnAboutSupers = context.kind() != MetaType::Kind::Gadget;
@@ -523,7 +628,7 @@ void MetaTypesJsonProcessor::addRelatedTypes()
                 continue;
 
             QAnyStringView typeName = superObject.name;
-            if (doAddReferences(typeName, namespaces))
+            if (doAddReferences(typeName, namespaces, TypeRelation::Base, contextOpacity))
                 warnAboutSupers = false;
             else
                 missingSupers.append(typeName);
@@ -539,6 +644,35 @@ void MetaTypesJsonProcessor::addRelatedTypes()
 
             processedRelatedNativeNames.insert(typeName);
             processedRelatedJavaScriptNames.insert(typeName);
+        }
+    };
+
+    const auto addProperties = [&](const MetaType &context,
+                                   const QList<QAnyStringView> &namespaces) {
+        for (const Property &property : context.properties()) {
+            ResolvedTypeAlias resolved(property.type, m_usingDeclarations);
+            if (!resolved.type.isEmpty())
+                addType(context, resolved.type, namespaces, TypeRelation::Property);
+        }
+    };
+
+    const auto addMethods = [&](const MetaType &context,
+                                const QList<QAnyStringView> &namespaces) {
+        for (const Method::Container &methods
+             : {context.methods(), context.constructors(), context.sigs() }) {
+            for (const Method &methodObject : methods) {
+                if (methodObject.access != Access::Public)
+                    continue;
+                for (const Argument &argument : std::as_const(methodObject.arguments)) {
+                    ResolvedTypeAlias resolved(argument.type, m_usingDeclarations);
+                    if (!resolved.type.isEmpty())
+                        addType(context, resolved.type, namespaces,  TypeRelation::Argument);
+                }
+
+                ResolvedTypeAlias resolved(methodObject.returnType, m_usingDeclarations);
+                if (!resolved.type.isEmpty())
+                    addType(context, resolved.type, namespaces,  TypeRelation::Return);
+            }
         }
     };
 
@@ -576,6 +710,9 @@ void MetaTypesJsonProcessor::addRelatedTypes()
 
         const MetaType classDef = typeQueue.dequeue();
         const QList<QAnyStringView> namespaces = MetaTypesJsonProcessor::namespaces(classDef);
+        const ContextOpacity classDefOpacity = sortedMetaTypeListContains(m_opaqueTypes, classDef)
+                ? ContextOpacity::Opaque
+                : ContextOpacity::FullyRegistered;
 
         for (const ClassInfo &obj : classDef.classInfos()) {
             if (addRelation(classDef, obj, namespaces))
@@ -592,7 +729,9 @@ void MetaTypesJsonProcessor::addRelatedTypes()
                 const MetaType other = found.select(classDef, "Foreign");
                 const QList<QAnyStringView> otherNamespaces
                         = MetaTypesJsonProcessor::namespaces(other);
-                addSupers(other, otherNamespaces);
+                addSupers(other, otherNamespaces, classDefOpacity);
+                addProperties(other, otherNamespaces);
+                addMethods(other, otherNamespaces);
                 addEnums(other, otherNamespaces);
 
                 for (const ClassInfo &obj : other.classInfos()) {
@@ -612,12 +751,14 @@ void MetaTypesJsonProcessor::addRelatedTypes()
                     << "is declared as foreign type, but cannot be found.";
         }
 
-        addSupers(classDef, namespaces);
+        addSupers(classDef, namespaces, classDefOpacity);
+        addProperties(classDef, namespaces);
+        addMethods(classDef, namespaces);
         addEnums(classDef, namespaces);
     }
 }
 
-void MetaTypesJsonProcessor::sortTypes(QVector<MetaType> &types)
+void MetaTypesJsonProcessor::sortTypes(QList<MetaType> &types)
 {
     std::sort(types.begin(), types.end(), qualifiedClassNameLessThan);
 }
@@ -638,7 +779,7 @@ QString MetaTypesJsonProcessor::resolvedInclude(QAnyStringView include)
 
 void MetaTypesJsonProcessor::processTypes(const QCborMap &types)
 {
-    const QString include = resolvedInclude(toStringView(types, S_INPUT_FILE));
+    const QString include = resolvedInclude(types[S_INPUT_FILE].toStringView());
     const QCborArray classes = types[S_CLASSES].toArray();
     for (const QCborValue &cls : classes) {
         const MetaType classDef(cls.toMap(), include);
@@ -680,7 +821,7 @@ void MetaTypesJsonProcessor::processTypes(const QCborMap &types)
 
 void MetaTypesJsonProcessor::processForeignTypes(const QCborMap &types)
 {
-    const QString include = resolvedInclude(toStringView(types, S_INPUT_FILE));
+    const QString include = resolvedInclude(types[S_INPUT_FILE].toStringView());
     const QCborArray classes = types[S_CLASSES].toArray();
     for (const QCborValue &cls : classes) {
         const MetaType classDef(cls.toMap(), include);
@@ -707,7 +848,7 @@ static QTypeRevision getRevision(const QCborMap &cbor)
 
 static Access getAccess(const QCborMap &cbor)
 {
-    const QAnyStringView access = toStringView(cbor, S_ACCESS);
+    const QAnyStringView access = cbor[S_ACCESS].toStringView();
     if (access == S_PUBLIC)
         return Access::Public;
     if (access == S_PROTECTED)
@@ -716,14 +857,14 @@ static Access getAccess(const QCborMap &cbor)
 }
 
 BaseType::BaseType(const QCborMap &cbor)
-    : name(toStringView(cbor, S_NAME))
+    : name(cbor[S_NAME].toStringView())
     , access(getAccess(cbor))
 {
 }
 
 ClassInfo::ClassInfo(const QCborMap &cbor)
-    : name(toStringView(cbor, S_NAME))
-    , value(toStringView(cbor, S_VALUE))
+    : name(cbor[S_NAME].toStringView())
+    , value(cbor[S_VALUE].toStringView())
 {
 }
 
@@ -732,46 +873,51 @@ Interface::Interface(const QCborValue &cbor)
     if (cbor.isArray()) {
         QCborArray needlessWrapping = cbor.toArray();
         className = needlessWrapping.size() > 0
-                ? toStringView(needlessWrapping[0].toMap(), S_CLASS_NAME)
+                ? needlessWrapping[0].toMap()[S_CLASS_NAME].toStringView()
                 : QAnyStringView();
     } else {
-        className = toStringView(cbor.toMap(), S_CLASS_NAME);
+        className = cbor.toMap()[S_CLASS_NAME].toStringView();
     }
 }
 
 Property::Property(const QCborMap &cbor)
-    : name(toStringView(cbor, S_NAME))
-    , type(toStringView(cbor, S_TYPE))
-    , member(toStringView(cbor, S_MEMBER))
-    , read(toStringView(cbor, S_READ))
-    , write(toStringView(cbor, S_WRITE))
-    , reset(toStringView(cbor, S_RESET))
-    , notify(toStringView(cbor, S_NOTIFY))
-    , bindable(toStringView(cbor, S_BINDABLE))
-    , privateClass(toStringView(cbor, S_PRIVATE_CLASS))
+    : name(cbor[S_NAME].toStringView())
+    , type(cbor[S_TYPE].toStringView())
+    , member(cbor[S_MEMBER].toStringView())
+    , read(cbor[S_READ].toStringView())
+    , write(cbor[S_WRITE].toStringView())
+    , reset(cbor[S_RESET].toStringView())
+    , notify(cbor[S_NOTIFY].toStringView())
+    , bindable(cbor[S_BINDABLE].toStringView())
+    , privateClass(cbor[S_PRIVATE_CLASS].toStringView())
     , index(cbor[S_INDEX].toInteger(-1))
+    , lineNumber(cbor[S_LINENUMBER].toInteger(0))
     , revision(getRevision(cbor))
     , isFinal(cbor[S_FINAL].toBool())
+    , isVirtual(cbor[S_VIRTUAL].toBool())
+    , isOverride(cbor[S_OVERRIDE].toBool())
     , isConstant(cbor[S_CONSTANT].toBool())
     , isRequired(cbor[S_REQUIRED].toBool())
 {
 }
 
 Argument::Argument(const QCborMap &cbor)
-    : name(toStringView(cbor, S_NAME))
-    , type(toStringView(cbor, S_TYPE))
+    : name(cbor[S_NAME].toStringView())
+    , type(cbor[S_TYPE].toStringView())
 {
 }
 
 Method::Method(const QCborMap &cbor, bool isConstructor)
-    : name(toStringView(cbor, S_NAME))
-    , returnType(toStringView(cbor, S_RETURN_TYPE))
+    : name(cbor[S_NAME].toStringView())
+    , returnType(cbor[S_RETURN_TYPE].toStringView())
     , index(cbor[S_INDEX].toInteger(InvalidIndex))
+    , lineNumber(cbor[S_LINENUMBER].toInteger(0))
     , revision(getRevision(cbor))
     , access(getAccess(cbor))
     , isCloned(cbor[S_IS_CLONED].toBool())
     , isJavaScriptFunction(cbor[S_IS_JAVASCRIPT_FUNCTION].toBool())
     , isConstructor(isConstructor || cbor[S_IS_CONSTRUCTOR].toBool())
+    , isConst(cbor[S_IS_CONST].toBool())
 {
     const QCborArray args = cbor[S_ARGUMENTS].toArray();
     for (const QCborValue &argument : args)
@@ -787,24 +933,25 @@ Method::Method(const QCborMap &cbor, bool isConstructor)
 }
 
 Enum::Enum(const QCborMap &cbor)
-    : name(toStringView(cbor, S_NAME))
-    , alias(toStringView(cbor, S_ALIAS))
-    , type(toStringView(cbor, S_TYPE))
+    : name(cbor[S_NAME].toStringView())
+    , alias(cbor[S_ALIAS].toStringView())
+    , type(cbor[S_TYPE].toStringView())
+    , lineNumber(cbor[S_LINENUMBER].toInteger(0))
     , isFlag(cbor[S_IS_FLAG].toBool())
     , isClass(cbor[S_IS_CLASS].toBool())
 {
     const QCborArray vals = cbor[S_VALUES].toArray();
     for (const QCborValue &value : vals)
-        values.emplace_back(toStringView(value));
+        values.emplace_back(value.toStringView());
 }
 
 MetaTypePrivate::MetaTypePrivate(const QCborMap &cbor, const QString &inputFile)
     : cbor(cbor)
     , inputFile(inputFile)
 {
-    className = toStringView(cbor, S_CLASS_NAME);
+    className = cbor[S_CLASS_NAME].toStringView();
     lineNumber = cbor[S_LINENUMBER].toInteger(0);
-    qualifiedClassName = toStringView(cbor, S_QUALIFIED_CLASS_NAME);
+    qualifiedClassName = cbor[S_QUALIFIED_CLASS_NAME].toStringView();
 
     const QCborArray cborSuperClasses = cbor[S_SUPER_CLASSES].toArray();
     for (const QCborValue &superClass : cborSuperClasses)
@@ -850,5 +997,21 @@ MetaTypePrivate::MetaTypePrivate(const QCborMap &cbor, const QString &inputFile)
 MetaType::MetaType(const QCborMap &cbor, const QString &inputFile)
     : d(s_pool.emplace_back(std::make_unique<MetaTypePrivate>(cbor, inputFile)).get())
 {}
+
+/* metatype for a type about which we don't know anything
+   Caller is expected to track duplicates, as we otherwise end up with two opaque types
+   of the same name
+ */
+MetaType MetaType::createOpaqueType(QAnyStringView typeName)
+{
+    auto priv = s_pool.emplace_back(std::make_unique<MetaTypePrivate>()).get();
+    priv->className = typeName;
+    priv->qualifiedClassName = typeName;
+    priv->kind = MetaType::Kind::Gadget;
+
+    MetaType type;
+    type.d = priv;
+    return type;
+}
 
 QT_END_NAMESPACE

@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickmultipointtoucharea_p.h"
 #include <QtQuick/qquickwindow.h>
@@ -29,7 +30,8 @@ DEFINE_BOOL_CONFIG_OPTION(qmlMptaVisualTouchDebugging, QML_VISUAL_TOUCH_DEBUGGIN
     The TouchPoint type contains information about a touch point, such as the current
     position, pressure, and area.
 
-    \image touchpoint-metrics.png
+    \image touchpoint-metrics.png {Tablet showing touch points with
+           metrics: bounding box, rotation, and ellipse diameters}
 */
 
 /*!
@@ -279,7 +281,7 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
 */
 
 /*!
-    \qmlmethod QtQuick::GestureEvent::grab()
+    \qmlmethod void QtQuick::GestureEvent::grab()
 
     Acquires an exclusive grab of the mouse and all the \l touchPoints, and
     calls \l {QQuickItem::setKeepTouchGrab()}{setKeepTouchGrab()} and
@@ -660,8 +662,8 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event, RemapEventPoints 
             for (const QEventPoint &p : std::as_const(touchPoints)) {
                 if (p.state() == QEventPoint::State::Released)
                     continue;
-                const QPointF &currentPos = p.scenePosition();
-                const QPointF &startPos = p.scenePressPosition();
+                const QPointF currentPos = mapFromScene(p.scenePosition());
+                const QPointF startPos = mapFromScene(p.scenePressPosition());
                 if (qAbs(currentPos.x() - startPos.x()) > dragThreshold)
                     offerGrab = true;
                 else if (qAbs(currentPos.y() - startPos.y()) > dragThreshold)
@@ -765,7 +767,7 @@ void QQuickMultiPointTouchArea::setTouchEventsEnabled(bool enable)
     // Resolve function for enabling touch events from the (cocoa) platform plugin.
     typedef void (*RegisterTouchWindowFunction)(QWindow *, bool);
     RegisterTouchWindowFunction registerTouchWindow = reinterpret_cast<RegisterTouchWindowFunction>(
-        QGuiApplication::platformNativeInterface()->nativeResourceFunctionForIntegration("registertouchwindow"));
+        QFunctionPointer(QGuiApplication::platformNativeInterface()->nativeResourceFunctionForIntegration("registertouchwindow")));
     if (!registerTouchWindow)
         return; // Not necessarily an error, Qt might be using a different platform plugin.
 
@@ -800,8 +802,14 @@ void QQuickMultiPointTouchArea::updateTouchPoint(QQuickTouchPoint *dtp, const QE
     QRectF area(QPointF(), p->ellipseDiameters());
     area.moveCenter(p->position());
     dtp->setArea(area);
-    dtp->setStartX(p->pressPosition().x());
-    dtp->setStartY(p->pressPosition().y());
+
+    if (p->state() == QEventPoint::State::Pressed) {
+        // Note that QEventPoint::startPosition() is not stored in it's own
+        // member variable, but derived from QEventPoint::globalPosition().
+        // It will therefore be wrong if the MPTA is transformed.
+        dtp->setStartX(p->position().x());
+        dtp->setStartY(p->position().y());
+    }
     dtp->setPreviousX(p->lastPosition().x());
     dtp->setPreviousY(p->lastPosition().y());
     dtp->setSceneX(p->scenePosition().x());

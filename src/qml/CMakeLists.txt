@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 include(Qt6QmlBuildInternals.cmake)
-
+include(Qt6QmlProperties.cmake)
 #####################################################################
 ## Qml Module:
 #####################################################################
@@ -31,6 +31,7 @@ qt_internal_add_qml_module(Qml
     NO_PLUGIN
     SOURCES
         ../3rdparty/masm/assembler/ARM64Assembler.h
+        ../3rdparty/masm/assembler/ARMv7Assembler.cpp
         ../3rdparty/masm/assembler/ARMv7Assembler.cpp ../3rdparty/masm/assembler/ARMv7Assembler.h
         ../3rdparty/masm/assembler/AbstractMacroAssembler.h
         ../3rdparty/masm/assembler/AssemblerBuffer.h
@@ -47,7 +48,6 @@ qt_internal_add_qml_module(Qml
         ../3rdparty/masm/assembler/MacroAssemblerX86Common.h
         ../3rdparty/masm/assembler/MacroAssemblerX86_64.h
         ../3rdparty/masm/assembler/X86Assembler.h
-        ../3rdparty/masm/assembler/ARMv7Assembler.cpp
         ../3rdparty/masm/disassembler/ARM64/A64DOpcode.cpp ../3rdparty/masm/disassembler/ARM64/A64DOpcode.h
         ../3rdparty/masm/disassembler/ARM64Disassembler.cpp
         ../3rdparty/masm/disassembler/ARMv7/ARMv7DOpcode.cpp ../3rdparty/masm/disassembler/ARMv7/ARMv7DOpcode.h
@@ -113,7 +113,7 @@ qt_internal_add_qml_module(Qml
         common/qqmljsmemorypool_p.h
         common/qqmljssourcelocation_p.h
         common/qqmlsignalnames_p.h common/qqmlsignalnames.cpp
-        common/qqmltranslation.cpp common/qqmltranslation_p.h
+        common/qqmltranslation_p.h
         common/qv4alloca_p.h
         common/qv4calldata_p.h
         common/qv4compileddata.cpp common/qv4compileddata_p.h
@@ -139,7 +139,7 @@ qt_internal_add_qml_module(Qml
         inlinecomponentutils_p.h
         jsapi/qjsengine.cpp jsapi/qjsengine.h jsapi/qjsengine_p.h
         jsapi/qjslist.cpp jsapi/qjslist.h
-        jsapi/qjsmanagedvalue.cpp jsapi/qjsmanagedvalue.h
+        jsapi/qjsmanagedvalue.cpp jsapi/qjsmanagedvalue.h jsapi/qjsmanagedvalue_p.h
         jsapi/qjsprimitivevalue.cpp jsapi/qjsprimitivevalue.h
         jsapi/qjsvalue.cpp jsapi/qjsvalue.h jsapi/qjsvalue_p.h
         jsapi/qjsvalueiterator.cpp jsapi/qjsvalueiterator.h jsapi/qjsvalueiterator_p.h
@@ -220,6 +220,7 @@ qt_internal_add_qml_module(Qml
         jsruntime/qv4typedarray.cpp jsruntime/qv4typedarray_p.h
         jsruntime/qv4urlobject.cpp jsruntime/qv4urlobject_p.h
         jsruntime/qv4value.cpp jsruntime/qv4value_p.h
+        jsruntime/qv4variantassociationobject.cpp jsruntime/qv4variantassociationobject_p.h
         jsruntime/qv4variantobject.cpp jsruntime/qv4variantobject_p.h
         jsruntime/qv4vme_moth.cpp jsruntime/qv4vme_moth_p.h
         jsruntime/qv4vtable_p.h
@@ -238,7 +239,6 @@ qt_internal_add_qml_module(Qml
         qml/ftw/qbipointer_p.h
         qml/ftw/qdoubleendedlist_p.h
         qml/ftw/qfieldlist_p.h
-        qml/ftw/qfinitestack_p.h
         qml/ftw/qhashedstring.cpp qml/ftw/qhashedstring_p.h
         qml/ftw/qintrusivelist.cpp qml/ftw/qintrusivelist_p.h
         qml/ftw/qlazilyallocated_p.h
@@ -247,7 +247,7 @@ qt_internal_add_qml_module(Qml
         qml/ftw/qprimefornumbits_p.h
         qml/ftw/qqmlnullablevalue_p.h
         qml/ftw/qqmlrefcount_p.h
-        qml/ftw/qqmlthread.cpp qml/ftw/qqmlthread_p.h
+        qml/ftw/qqmlthread_p.h
         qml/ftw/qrecursionwatcher_p.h
         qml/ftw/qrecyclepool_p.h
         qml/ftw/qstringhash_p.h
@@ -265,7 +265,7 @@ qt_internal_add_qml_module(Qml
         qml/qqmlcontext.cpp qml/qqmlcontext.h qml/qqmlcontext_p.h
         qml/qqmlcontextdata.cpp qml/qqmlcontextdata_p.h
         qml/qqmlcustomparser.cpp qml/qqmlcustomparser_p.h
-        qml/qqmldata_p.h
+        qml/qqmldata.cpp qml/qqmldata_p.h
         qml/qqmldatablob.cpp qml/qqmldatablob_p.h
         qml/qqmldelayedcallqueue.cpp qml/qqmldelayedcallqueue_p.h
         qml/qqmldirdata.cpp qml/qqmldirdata_p.h
@@ -296,6 +296,9 @@ qt_internal_add_qml_module(Qml
         qml/qqmlmoduleregistration.cpp qml/qqmlmoduleregistration.h
         qml/qqmlnetworkaccessmanagerfactory.cpp qml/qqmlnetworkaccessmanagerfactory.h
         qml/qqmlnotifier.cpp qml/qqmlnotifier_p.h
+        qml/qqmlnotifierendpoint_p.h
+        qml/qqmlnotifyingblob.cpp qml/qqmlnotifyingblob_p.h
+        qml/qqmlnotifylist_p.h
         qml/qqmlobjectcreator.cpp qml/qqmlobjectcreator_p.h
         qml/qqmlobjectorgadget.cpp qml/qqmlobjectorgadget_p.h
         qml/qqmlopenmetaobject.cpp qml/qqmlopenmetaobject_p.h
@@ -305,6 +308,7 @@ qt_internal_add_qml_module(Qml
         qml/qqmlprivate.h
         qml/qqmlproperty.cpp qml/qqmlproperty.h qml/qqmlproperty_p.h
         qml/qqmlpropertybinding.cpp qml/qqmlpropertybinding_p.h
+        qml/qqmlpropertybindingbase_p.h
         qml/qqmlpropertycache.cpp qml/qqmlpropertycache_p.h
         qml/qqmlpropertycachecreator.cpp qml/qqmlpropertycachecreator_p.h
         qml/qqmlpropertycachemethodarguments_p.h
@@ -328,6 +332,7 @@ qt_internal_add_qml_module(Qml
         qml/qqmltypecompiler.cpp qml/qqmltypecompiler_p.h
         qml/qqmltypedata.cpp qml/qqmltypedata_p.h
         qml/qqmltypeloader.cpp qml/qqmltypeloader_p.h
+        qml/qqmltypeloaderdata.cpp qml/qqmltypeloaderdata_p.h
         qml/qqmltypeloaderqmldircontent.cpp qml/qqmltypeloaderqmldircontent_p.h
         qml/qqmltypeloaderthread.cpp qml/qqmltypeloaderthread_p.h
         qml/qqmltypemodule.cpp qml/qqmltypemodule_p.h
@@ -345,6 +350,7 @@ qt_internal_add_qml_module(Qml
         qtqmlcompilerglobal.h qtqmlcompilerglobal_p.h
         qtqmlglobal.h qtqmlglobal_p.h
         util/qqmlpropertymap.cpp util/qqmlpropertymap.h
+        util/qqmlpropertyutils_p.h
 
         qmltc/qqmltcobjectcreationhelper_p.h
         qmltc/qqmltcobjectcreationhelper.cpp
@@ -385,7 +391,6 @@ qt_internal_add_qml_module(Qml
         ENABLE_JIT_CONSTANT_BLINDING=0
         ENABLE_LLINT=0
         JS_EXPORT_PRIVATE= # special case
-        QT_NO_FOREACH
         QT_NO_INTEGER_EVENT_COORDINATES
         QT_NO_URL_CAST_FROM_STRING
         WTFInvokeCrashHook=qmlWTFInvokeCrashHook
@@ -426,7 +431,6 @@ qt_internal_add_qml_module(Qml
         Qt::CorePrivate
     EXTRA_CMAKE_FILES
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}qmldirTemplate.cmake.in"
-        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}qt.conf.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlCopyFiles.cmake"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlPluginTemplate.cpp.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlFindQmlscInternal.cmake"
@@ -434,10 +438,15 @@ qt_internal_add_qml_module(Qml
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlModuleDirMappingTemplate.qrc.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmltcFileMappingTemplate.qrc.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlPublicCMakeHelpers.cmake"
+        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}UpdateQmllsIni.cmake"
+        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}WriteQtConfPart.cmake"
+        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlProperties.cmake"
+        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmllintEmptyJsonTemplate.json"
         ${extra_cmake_files}
     EXTRA_CMAKE_INCLUDES
         "${INSTALL_CMAKE_NAMESPACE}QmlFindQmlscInternal.cmake"
         "${INSTALL_CMAKE_NAMESPACE}QmlPublicCMakeHelpers.cmake"
+        "${INSTALL_CMAKE_NAMESPACE}QmlProperties.cmake"
         ${extra_cmake_includes}
     POLICIES
         QTP0001
@@ -518,8 +527,7 @@ set_source_files_properties(compat/removed_api.cpp
 #    ""
 #)
 
-qt_declarative_write_tag_header(Qml)
-set(_qt_qlalr_flags "--no-debug" "--qt")
+set(_qt_qlalr_flags "--no-debug" "--qt" "--exit-on-warn")
 qt_process_qlalr(Qml "${CMAKE_CURRENT_SOURCE_DIR}/parser/qqmljs.g" "${_qt_qlalr_flags}")
 qt_declarative_generate_reg_exp_jit_tables(Qml)
 # special case end
@@ -529,6 +537,16 @@ qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_network
         qml/qqmltypeloadernetworkreplyproxy.cpp qml/qqmltypeloadernetworkreplyproxy_p.h
     PUBLIC_LIBRARIES
         Qt::Network
+)
+
+qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_type_loader_thread
+    SOURCES
+        qml/ftw/qqmlthread_impl.cpp
+)
+
+qt_internal_extend_target(Qml CONDITION NOT QT_FEATURE_qml_type_loader_thread
+    SOURCES
+        qml/ftw/qqmlthread_stub.cpp
 )
 
 qt_internal_extend_target(Qml CONDITION MSVC AND (TEST_architecture_arch STREQUAL "i386")
@@ -610,6 +628,25 @@ qt_internal_extend_target(Qml CONDITION GCC AND QT_COMPILER_VERSION_MAJOR STREQU
         -fno-strict-aliasing
 )
 
+if(ANDROID)
+    string(JOIN "" application_type_condition
+        "$<STREQUAL:$<TARGET_PROPERTY:_qt_android_target_type>,APPLICATION>"
+    )
+else()
+    string(JOIN "" application_type_condition
+        "$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>"
+    )
+endif()
+
+string(JOIN "" qt_qml_debug_definition
+    "$<$<AND:"
+            "${application_type_condition},"
+            "$<BOOL:$<TARGET_PROPERTY:QT_ENABLE_QML_DEBUG>>"
+        ">:"
+        "QT_QML_DEBUG"
+    ">"
+)
+
 qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_debug
     SOURCES
         debugger/qqmlabstractprofileradapter.cpp debugger/qqmlabstractprofileradapter_p.h
@@ -628,7 +665,11 @@ qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_debug
         jsruntime/qv4profiling.cpp
 )
 
-qt_internal_extend_target(Qml CONDITION (UNIX OR OS2)
+if(QT_FEATURE_qml_debug)
+    target_compile_definitions(Qml INTERFACE "${qt_qml_debug_definition}")
+endif()
+
+qt_internal_extend_target(Qml CONDITION UNIX
     SOURCES
         jsruntime/qv4compilationunitmapper_unix.cpp
         jsruntime/qv4functiontable_unix.cpp
@@ -722,11 +763,6 @@ qt_internal_extend_target(Qml CONDITION UNIX AND NOT INTEGRITY
         ../3rdparty/masm/wtf/OSAllocatorPosix.cpp
 )
 
-qt_internal_extend_target(Qml CONDITION OS2
-    SOURCES
-        ../3rdparty/masm/wtf/OSAllocatorOS2.cpp
-)
-
 qt_internal_extend_target(Qml CONDITION DEFINES___contains___WTF_USE_UDIS86=1
     SOURCES
         ../3rdparty/masm/disassembler/udis86/udis86.c
@@ -751,11 +787,167 @@ qt_internal_add_docs(Qml
     doc/qtqml.qdocconf
 )
 
-# include snippet projects for developer shared builds
-# static builds fail with
-#   CMake Error: AUTOMOC for target qt_target_qml_sources_example_resources_3:
-#   The "moc" executable does not exist
-if(QT_FEATURE_private_tests AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.19" AND QT_BUILD_SHARED_LIBS)
+target_sources(Qml
+    PRIVATE
+        doc/src/advanced-topics.qdoc
+        doc/src/qtqml.qdoc
+        doc/src/qmldiskcache.qdoc
+        doc/src/includes/qqmlcomponent.qdocinc
+        doc/src/qmltypereference.qdoc
+        doc/src/qtqml-qtquick-compiler-tech.qdoc
+        doc/src/cppintegration/integrating-with-js-values-from-cpp.qdoc
+        doc/src/cppintegration/extending-tutorial.qdoc
+        doc/src/cppintegration/exposecppstate.qdoc
+        doc/src/cppintegration/interactqmlfromcpp.qdoc
+        doc/src/cppintegration/extending-tutorial-advanced.qdoc
+        doc/src/cppintegration/topic.qdoc
+        doc/src/cppintegration/definetypes.qdoc
+        doc/src/cppintegration/contextproperties.qdoc
+        doc/src/cppintegration/exposecppattributes.qdoc
+        doc/src/cppintegration/data.qdoc
+        doc/src/cppintegration/macros.qdoc
+        doc/src/debugging.qdoc
+        doc/src/profiling.qdoc
+        doc/src/prototyping-debugging-profiling.qdoc
+        doc/src/qmllint/import.qdoc
+        doc/src/qmllint/enum-key-case.qdoc
+        doc/src/qmllint/warn-assignment-in-condition.qdoc
+        doc/src/qmllint/duplicate-enum-entries.qdoc
+        doc/src/qmllint/unresolved-alias.qdoc
+        doc/src/qmllint/missing-property.qdoc
+        doc/src/qmllint/unused-imports.qdoc
+        doc/src/qmllint/alias-cycle.qdoc
+        doc/src/qmllint/unterminated-case.qdoc
+        doc/src/qmllint/syntax.duplicate-ids.qdoc
+        doc/src/qmllint/uncreatable-type.qdoc
+        doc/src/qmllint/confusing-pluses.qdoc
+        doc/src/qmllint/recursion-depth-errors.qdoc
+        doc/src/qmllint/quick/attached-property-type.qdoc
+        doc/src/qmllint/access-singleton-via-object.qdoc
+        doc/src/qmllint/comma.qdoc
+        doc/src/qmllint/non-list-property.qdoc
+        doc/src/qmllint/syntax.qdoc
+        doc/src/qmllint/qtqml-qmllint-warnings-and-errors.qdoc
+        doc/src/qmllint/read-only-property.qdoc
+        doc/src/qmllint/duplicate-property-binding.qdoc
+        doc/src/qmllint/syntax.id-quotation.qdoc
+        doc/src/qmllint/enum-entry-matches-enum.qdoc
+        doc/src/qmllint/missing-type.qdoc
+        doc/src/qmllint/use-proper-function.qdoc
+        doc/src/qmllint/duplicated-name.qdoc
+        doc/src/qmllint/literal-constructor.qdoc
+        doc/src/qmllint/top-level-component.qdoc
+        doc/src/qmllint/confusing-minuses.qdoc
+        doc/src/qmllint/missing-enum-entry.qdoc
+        doc/src/qmllint/with.qdoc
+        doc/src/qmllint/non-root-enum.qdoc
+        doc/src/qmllint/prefixed-import-type.qdoc
+        doc/src/qmllint/incompatible-type.qdoc
+        doc/src/qmllint/unqualified.qdoc
+        doc/src/qmllint/signal-handler-parameters.qdoc
+        doc/src/qmllint/void.qdoc
+        doc/src/qmllint/duplicate-inline-components.qdoc
+        doc/src/qmllint/inline-component-enums.qdoc
+        doc/src/qmllint/required.qdoc
+        doc/src/qmllint/var-used-before-declaration.qdoc
+        doc/src/qmllint/inheritance-cycle.qdoc
+        doc/src/qmllint/deprecated.qdoc
+        doc/src/qmllint/multiline-strings.qdoc
+        doc/src/qmllint/unresolved-type.qdoc
+        doc/src/qmllint/duplicate-import.qdoc
+        doc/src/qmllint/redundantOptionalChaining.qdoc
+        doc/src/qmllint/invalid-lint-directive.qdoc
+        doc/src/qmllint/restricted-type.qdoc
+        doc/src/qmllint/attached-property-reuse.qdoc
+        doc/src/qmllint/compiler.qdoc
+        doc/src/qmllint/deferred-property-id.qdoc
+        doc/src/external-resources.qdoc
+        doc/src/qmllanguageref/modules/cmake-module-integration.qdoc
+        doc/src/qmllanguageref/modules/cppplugins.qdoc
+        doc/src/qmllanguageref/modules/identifiedmodules.qdoc
+        doc/src/qmllanguageref/modules/legacymodules.qdoc
+        doc/src/qmllanguageref/modules/qmldir.qdoc
+        doc/src/qmllanguageref/modules/topic.qdoc
+        doc/src/qmllanguageref/documents/scope.qdoc
+        doc/src/qmllanguageref/documents/structure.qdoc
+        doc/src/qmllanguageref/documents/topic.qdoc
+        doc/src/qmllanguageref/documents/definetypes.qdoc
+        doc/src/qmllanguageref/documents/networktransparency.qdoc
+        doc/src/qmllanguageref/syntax/directoryimports.qdoc
+        doc/src/qmllanguageref/syntax/overridesemantics.qdoc
+        doc/src/qmllanguageref/syntax/signals.qdoc
+        doc/src/qmllanguageref/syntax/basics.qdoc
+        doc/src/qmllanguageref/syntax/propertybinding.qdoc
+        doc/src/qmllanguageref/syntax/imports.qdoc
+        doc/src/qmllanguageref/syntax/objectattributes.qdoc
+        doc/src/qmllanguageref/typesystem/attachedtypes.qdoc
+        doc/src/qmllanguageref/typesystem/basictypes.qdoc
+        doc/src/qmllanguageref/typesystem/enumerations.qdoc
+        doc/src/qmllanguageref/typesystem/namespaces.qdoc
+        doc/src/qmllanguageref/typesystem/objecttypes.qdoc
+        doc/src/qmllanguageref/typesystem/references.qdoc
+        doc/src/qmllanguageref/typesystem/sequencetypes.qdoc
+        doc/src/qmllanguageref/typesystem/topic.qdoc
+        doc/src/qmllanguageref/typesystem/valuetypes.qdoc
+        doc/src/qmllanguageref/qml-language.qdoc
+        doc/src/qmllanguageref/qmlreference.qdoc
+        doc/src/cmake/cmake-integration.qdoc
+        doc/src/cmake/cmake-policies.qdoc
+        doc/src/cmake/cmake-properties.qdoc
+        doc/src/cmake/cmake-variables.qdoc
+        doc/src/cmake/policy/qtp0001.qdoc
+        doc/src/cmake/policy/qtp0004.qdoc
+        doc/src/cmake/policy/qtp0005.qdoc
+        doc/src/cmake/qt_add_qml_module.qdoc
+        doc/src/cmake/qt_add_qml_plugin.qdoc
+        doc/src/cmake/qt_deploy_qml_imports.qdoc
+        doc/src/cmake/qt_generate_deploy_qml_app_script.qdoc
+        doc/src/cmake/qt_generate_foreign_qml_types.qdoc
+        doc/src/cmake/qt_import_qml_plugins.qdoc
+        doc/src/cmake/qt_query_qml_module.qdoc
+        doc/src/cmake/qt_target_compile_qml_to_cpp.qdoc
+        doc/src/cmake/qt_target_qml_sources.qdoc
+        doc/src/qt6-changes.qdoc
+        doc/src/qtqml-writing-a-module.qdoc
+        doc/src/qtqml-tooling.qdoc
+        doc/src/javascript/functionlist.qdoc
+        doc/src/javascript/resources.qdoc
+        doc/src/javascript/dynamicobjectcreation.qdoc
+        doc/src/javascript/finetuning.qdoc
+        doc/src/javascript/imports.qdoc
+        doc/src/javascript/number.qdoc
+        doc/src/javascript/hostenvironment.qdoc
+        doc/src/javascript/xmlhttprequest.qdoc
+        doc/src/javascript/topic.qdoc
+        doc/src/javascript/memory.qdoc
+        doc/src/javascript/date.qdoc
+        doc/src/javascript/qmlglobalobject.qdoc
+        doc/src/javascript/expressions.qdoc
+        doc/src/javascript/qtjavascript.qdoc
+        doc/src/qmlsingletons.qdoc
+        doc/src/qt6-modernize-qml-modules.qdoc
+        doc/src/cppclasses/topic.qdoc
+        doc/src/qtqml-cpp.qdoc
+        doc/src/qt6-port-to-qt-add-qml-module.qdoc
+        doc/src/qtqml-toc.qdoc
+        doc/src/deployment.qdoc
+        doc/src/qml.qdoc
+        doc/src/tools/qtqml-tooling-qmlls.qdoc
+        doc/src/tools/qtqml-tooling-qmlpreview.qdoc
+        doc/src/tools/qtqml-tooling-qmlcontextpropertydump.qdoc
+        doc/src/tools/qtquickcompiler/qtqml-qml-type-compiler.qdoc
+        doc/src/tools/qtquickcompiler/qtqml-qml-script-compiler.qdoc
+        doc/src/tools/qtquickcompiler/qtqml-tool-qmlcachegen.qdoc
+        doc/src/tools/qtqml-tooling-qmlimportscanner.qdoc
+        doc/src/tools/qtqml-tooling-qmlprofiler.qdoc
+        doc/src/tools/qtqml-tooling-qml.qdoc
+        doc/src/tools/qtqml-tooling-qmltyperegistrar.qdoc
+        doc/src/tools/qtqml-tooling-qmlformat.qdoc
+        doc/src/tools/qtqml-tooling-qmllint.qdoc
+        doc/snippets/qml/qtbinding/resources/example.qdoc
+)
+
+if(QT_FEATURE_doc_snippets)
     add_subdirectory(doc/snippets/cmake/qt_target_qml_sources)
     qt_autogen_tools(qt_target_qml_sources_example ENABLE_AUTOGEN_TOOLS moc)
     qt_autogen_tools(qt_target_qml_sources_exampleplugin ENABLE_AUTOGEN_TOOLS moc)

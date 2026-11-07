@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 #####################################################################
-## qtquickcontrols2fluentwinui3styleplugin Plugin:
+## QuickControls2FluentWinUI3 Module:
 #####################################################################
 
 set(qml_files
@@ -15,6 +15,7 @@ set(qml_files
     "DelayButton.qml"
     "Dialog.qml"
     "DialogButtonBox.qml"
+    "DoubleSpinBox.qml"
     "Frame.qml"
     "GroupBox.qml"
     "ItemDelegate.qml"
@@ -30,6 +31,7 @@ set(qml_files
     "RadioDelegate.qml"
     "RangeSlider.qml"
     "RoundButton.qml"
+    "SearchField.qml"
     "Slider.qml"
     "SpinBox.qml"
     "SwipeDelegate.qml"
@@ -52,13 +54,21 @@ set_source_files_properties(Config.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+set_source_files_properties(SearchField.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.10"
+)
+
+set_source_files_properties(DoubleSpinBox.qml PROPERTIES
+    QT_QML_SOURCE_VERSIONS "6.11"
+)
+
 file(GLOB light_theme_resources RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "light/images/*.png")
 file(GLOB dark_theme_resources RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "dark/images/*.png")
 file(GLOB icons_theme_resources RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "icons/*.png")
 
 add_subdirectory(impl)
 
-qt_internal_add_qml_module(qtquickcontrols2fluentwinui3styleplugin
+qt_internal_add_qml_module(QuickControls2FluentWinUI3
     URI "QtQuick.Controls.FluentWinUI3"
     VERSION "${PROJECT_VERSION}"
     PAST_MAJOR_VERSIONS 2
@@ -69,9 +79,7 @@ qt_internal_add_qml_module(qtquickcontrols2fluentwinui3styleplugin
     NO_PLUGIN_OPTIONAL
     NO_GENERATE_PLUGIN_SOURCE
     SOURCES
-        qtquickcontrols2fluentwinui3styleplugin.cpp
         qquickfluentwinui3theme_p.h qquickfluentwinui3theme.cpp
-        qquickfluentwinui3focusframe_p.h qquickfluentwinui3focusframe.cpp
     QML_FILES
         ${qml_files}
     RESOURCES
@@ -87,9 +95,22 @@ qt_internal_add_qml_module(qtquickcontrols2fluentwinui3styleplugin
         Qt::QmlPrivate
         Qt::QuickControls2FluentWinUI3StyleImpl
         Qt::QuickControls2ImplPrivate
-        Qt::QuickControls2Private
-        Qt::QuickPrivate
         Qt::QuickTemplates2Private
+        Qt::QuickControls2FusionPrivate
+)
+
+target_sources(qtquickcontrols2fluentwinui3styleplugin
+    PRIVATE
+        qtquickcontrols2fluentwinui3styleplugin.cpp
+)
+
+qt_internal_extend_target(qtquickcontrols2fluentwinui3styleplugin
+    LIBRARIES
+        Qt::QuickPrivate
+        Qt::QuickControls2Private
+        Qt::QuickTemplates2Private
+        Qt::QuickControls2FluentWinUI3Private
+        Qt::QuickControls2FluentWinUI3StyleImplPrivate
 )
 
 _qt_internal_add_qml_static_plugin_dependency(qtquickcontrols2fluentwinui3styleplugin

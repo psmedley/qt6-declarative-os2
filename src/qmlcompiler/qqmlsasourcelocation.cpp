@@ -1,8 +1,11 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #include "qqmlsasourcelocation.h"
 #include "qqmlsasourcelocation_p.h"
+
+#include <private/qqmljssourcelocation_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,7 +70,7 @@ bool QQmlSA::SourceLocation::isValid() const
  */
 quint32 QQmlSA::SourceLocation::begin() const
 {
-    return QQmlSA::SourceLocationPrivate::sourceLocation(*this).begin();
+    return offset();
 }
 
 /*!
@@ -75,7 +78,7 @@ quint32 QQmlSA::SourceLocation::begin() const
  */
 quint32 QQmlSA::SourceLocation::end() const
 {
-    return QQmlSA::SourceLocationPrivate::sourceLocation(*this).end();
+    return offset() + length();
 }
 
 /*!
@@ -164,6 +167,15 @@ bool QQmlSA::SourceLocation::operatorEqualsImpl(const SourceLocation &lhs,
 {
     return QQmlSA::SourceLocationPrivate::sourceLocation(lhs)
             == QQmlSA::SourceLocationPrivate::sourceLocation(rhs);
+}
+
+/*!
+    \since 6.12
+    Returns the source location of the origin of any QML document.
+ */
+SourceLocation SourceLocation::documentOrigin()
+{
+    return QQmlSA::SourceLocationPrivate::createQQmlSASourceLocation(QQmlJS::s_documentOrigin);
 }
 
 } // namespace QQmlSA

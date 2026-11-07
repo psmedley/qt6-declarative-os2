@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickwindow.h"
 #include "qquickwindow_p.h"
@@ -7,13 +8,16 @@
 #include "qquickitem.h"
 #include "qquickitem_p.h"
 #include "qquickevents_p_p.h"
-#include "qquickgraphicsdevice_p.h"
+#include "qquickmousearea_p.h"
 #include "qquickwindowcontainer_p.h"
+#include "qquicksafearea_p.h"
 
 #include <QtQuick/private/qsgrenderer_p.h>
 #include <QtQuick/private/qsgplaintexture_p.h>
 #include <QtQuick/private/qquickpointerhandler_p.h>
 #include <QtQuick/private/qquickpointerhandler_p_p.h>
+#include <QtQuick/private/qquicktaphandler_p.h>
+#include <QtQuick/private/qsgnode_p.h>
 #include <private/qsgrenderloop_p.h>
 #include <private/qsgrhisupport_p.h>
 #include <private/qquickrendercontrol_p.h>
@@ -55,18 +59,14 @@
 
 #include <rhi/qrhi.h>
 
+#include <algorithm>
 #include <utility>
 #include <mutex>
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcHoverTrace)
-Q_DECLARE_LOGGING_CATEGORY(lcMouse)
-Q_DECLARE_LOGGING_CATEGORY(lcTouch)
-Q_DECLARE_LOGGING_CATEGORY(lcPtr)
-Q_LOGGING_CATEGORY(lcDirty, "qt.quick.dirty")
+Q_STATIC_LOGGING_CATEGORY(lcDirty, "qt.quick.dirty")
 Q_LOGGING_CATEGORY(lcQuickWindow, "qt.quick.window")
-Q_LOGGING_CATEGORY(lcTransient, "qt.quick.window.transient")
 
 bool QQuickWindowPrivate::defaultAlphaBuffer = false;
 
@@ -279,7 +279,7 @@ static bool transformDirtyOnItemOrAncestor(const QQuickItem *item)
 */
 struct PolishLoopDetector
 {
-    PolishLoopDetector(const QVector<QQuickItem*> &itemsToPolish)
+    PolishLoopDetector(const QList<QQuickItem*> &itemsToPolish)
         : itemsToPolish(itemsToPolish)
     {
     }
@@ -324,7 +324,7 @@ struct PolishLoopDetector
         }
         return false;
     }
-    const QVector<QQuickItem*> &itemsToPolish;      // Just a ref to the one in polishItems()
+    const QList<QQuickItem*> &itemsToPolish;      // Just a ref to the one in polishItems()
     int numPolishLoopsInSequence = 0;
 };
 
@@ -406,6 +406,7 @@ void QQuickWindow::physicalDpiChanged()
     if (d->contentItem)
         updatePixelRatioHelper(d->contentItem, newPixelRatio);
     d->forcePolish();
+    emit devicePixelRatioChanged();
 }
 
 void QQuickWindow::handleFontDatabaseChanged()
@@ -493,7 +494,7 @@ void QQuickWindowPrivate::invalidateFontData(QQuickItem *item)
     if (textItem != nullptr)
         textItem->invalidate();
 
-    QList<QQuickItem *> children = item->childItems();
+    const QList<QQuickItem *> children = item->childItems();
     for (QQuickItem *child : children)
         invalidateFontData(child);
 }
@@ -545,6 +546,7 @@ void QQuickWindowPrivate::syncSceneGraph()
     if (pendingFontUpdate) {
         QFont::cleanup();
         invalidateFontData(contentItem);
+        context->invalidateGlyphCaches();
     }
 
     if (Q_UNLIKELY(!renderer)) {
@@ -572,7 +574,7 @@ void QQuickWindowPrivate::syncSceneGraph()
     renderer->setVisualizationMode(visualizationMode);
 
     if (pendingFontUpdate) {
-        context->invalidateGlyphCaches();
+        context->flushGlyphCaches();
         pendingFontUpdate = false;
     }
 
@@ -728,6 +730,19 @@ QQuickWindowPrivate::QQuickWindowPrivate()
 
 QQuickWindowPrivate::~QQuickWindowPrivate()
 {
+#ifdef QT_BUILD_INTERNAL
+    qCDebug(lcQuickWindow, "lifetime total, in all windows: constructed %d QQuickItems, %d ExtraData (%d%%)",
+            QQuickItemPrivate::item_counter, QQuickItemPrivate::itemExtra_counter,
+            QQuickItemPrivate::itemExtra_counter * 100 / QQuickItemPrivate::item_counter);
+    qCDebug(lcQuickWindow, "event-handling items fully within parent bounds: %d (%d%%)",
+            QQuickItemPrivate::eventHandlingChildrenWithinBounds_counter,
+            QQuickItemPrivate::eventHandlingChildrenWithinBounds_counter * 100 / QQuickItemPrivate::item_counter);
+    qCDebug(lcQuickWindow, "transform accessor calls: itemToParent %lld itemToWindow %lld windowToItem %lld; skipped due to effectiveClipping: %lld",
+            QQuickItemPrivate::itemToParentTransform_counter,
+            QQuickItemPrivate::itemToWindowTransform_counter,
+            QQuickItemPrivate::windowToItemTransform_counter,
+            QQuickItemPrivate::effectiveClippingSkips_counter);
+#endif
     inDestructor = true;
     redirect.rt.reset(rhi);
     if (QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>())
@@ -757,7 +772,8 @@ void QQuickWindowPrivate::updateChildrenPalettes(const QPalette &parentPalette)
 {
     Q_Q(QQuickWindow);
     if (auto root = q->contentItem()) {
-        for (auto &&child: root->childItems()) {
+        const auto children = root->childItems();
+        for (auto *child : children) {
             QQuickItemPrivate::get(child)->inheritPalette(parentPalette);
         }
     }
@@ -820,14 +836,16 @@ void QQuickWindowPrivate::init(QQuickWindow *c, QQuickRenderControl *control)
 
     animationController.reset(new QQuickAnimatorController(q));
 
-    QObject::connect(context, &QSGRenderContext::initialized, q, &QQuickWindow::sceneGraphInitialized, Qt::DirectConnection);
-    QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::sceneGraphInvalidated, Qt::DirectConnection);
-    QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::cleanupSceneGraph, Qt::DirectConnection);
+    connections = {
+        QObject::connect(context, &QSGRenderContext::initialized, q, &QQuickWindow::sceneGraphInitialized, Qt::DirectConnection),
+        QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::sceneGraphInvalidated, Qt::DirectConnection),
+        QObject::connect(context, &QSGRenderContext::invalidated, q, &QQuickWindow::cleanupSceneGraph, Qt::DirectConnection),
 
-    QObject::connect(q, &QQuickWindow::focusObjectChanged, q, &QQuickWindow::activeFocusItemChanged);
-    QObject::connect(q, &QQuickWindow::screenChanged, q, &QQuickWindow::handleScreenChanged);
-    QObject::connect(qApp, &QGuiApplication::applicationStateChanged, q, &QQuickWindow::handleApplicationStateChanged);
-    QObject::connect(q, &QQuickWindow::frameSwapped, q, &QQuickWindow::runJobsAfterSwap, Qt::DirectConnection);
+        QObject::connect(q, &QQuickWindow::focusObjectChanged, q, &QQuickWindow::activeFocusItemChanged),
+        QObject::connect(q, &QQuickWindow::screenChanged, q, &QQuickWindow::handleScreenChanged),
+        QObject::connect(qApp, &QGuiApplication::applicationStateChanged, q, &QQuickWindow::handleApplicationStateChanged),
+        QObject::connect(q, &QQuickWindow::frameSwapped, q, &QQuickWindow::runJobsAfterSwap, Qt::DirectConnection),
+    };
 
     if (QQmlInspectorService *service = QQmlDebugConnector::service<QQmlInspectorService>())
         service->addWindow(q);
@@ -863,7 +881,7 @@ QQmlListProperty<QObject> QQuickWindowPrivate::data()
     return ret;
 }
 
-void QQuickWindowPrivate::dirtyItem(QQuickItem *item)
+void QQuickWindowPrivate::dirtyItem(QQuickItem *item, bool maySkipUpdate)
 {
     Q_Q(QQuickWindow);
 
@@ -871,7 +889,10 @@ void QQuickWindowPrivate::dirtyItem(QQuickItem *item)
     if (itemPriv->dirtyAttributes & QQuickItemPrivate::ChildrenStackingChanged)
         needsChildWindowStackingOrderUpdate = true;
 
-    q->maybeUpdate();
+    if (!maySkipUpdate
+        || (itemPriv->effectiveVisible || item->isTextureProvider()
+            || (itemPriv->extra.isAllocated() && itemPriv->extra->effectRefCount > 0)))
+        q->maybeUpdate();
 }
 
 /*!
@@ -1131,6 +1152,37 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
 */
 
 /*!
+    \qmlmethod void Window::startSystemMove()
+    \since 6.8
+
+    \brief Starts a system-specific move operation.
+
+    Starts an interactive move operation on the window using platform support.
+    The window follows the mouse cursor until the mouse button is released.
+
+    Use this method instead of \c setPosition, because it allows the window manager
+    to handle snapping, tiling, and related animations. On Wayland, \c setPosition
+    is not supported, so this is the only way the application can influence the
+    window’s position.
+*/
+
+/*!
+    \qmlmethod void Window::startSystemResize(Qt::Edges edges)
+    \since 6.8
+
+    \brief Starts a system-specific resize operation.
+
+    Starts an interactive resize operation on the window using platform support.
+    The specified edge follows the mouse cursor while dragging.
+
+    Use this method instead of \c setGeometry, because it allows the window manager
+    to handle snapping and resize animations when resizing to screen edges.
+
+    \a edges must be a single edge or a combination of two adjacent edges (a corner).
+    Other values are not allowed.
+*/
+
+/*!
     Constructs a window for displaying a QML scene with parent window \a parent.
 */
 QQuickWindow::QQuickWindow(QWindow *parent)
@@ -1188,6 +1240,11 @@ QQuickWindow::~QQuickWindow()
         d->windowManager->windowDestroyed(this);
     }
 
+    disconnect(this, &QQuickWindow::focusObjectChanged, this, &QQuickWindow::activeFocusItemChanged);
+    disconnect(this, &QQuickWindow::screenChanged, this, &QQuickWindow::handleScreenChanged);
+    disconnect(qApp, &QGuiApplication::applicationStateChanged, this, &QQuickWindow::handleApplicationStateChanged);
+    disconnect(this, &QQuickWindow::frameSwapped, this, &QQuickWindow::runJobsAfterSwap);
+
     delete d->incubationController; d->incubationController = nullptr;
     QQuickRootItem *root = d->contentItem;
     d->contentItem = nullptr;
@@ -1211,6 +1268,9 @@ QQuickWindow::~QQuickWindow()
     // have their destructors loaded while they the library is still
     // loaded into memory.
     QQuickPixmap::purgeCache();
+
+    for (QMetaObject::Connection &connection : d->connections)
+        disconnect(connection);
 }
 
 #if QT_CONFIG(quick_shadereffect)
@@ -1429,7 +1489,7 @@ bool QQuickWindow::event(QEvent *event)
             return false;
         {
             const bool wasAccepted = event->isAccepted();
-            QBoolBlocker windowEventDispatchGuard(d->windowEventDispatch, true);
+            QScopedValueRollback windowEventDispatchGuard(d->windowEventDispatch, true);
             qCDebug(lcPtr) << "dispatching to window functions in case of override" << event;
             QWindow::event(event);
             if (event->isAccepted() && !wasAccepted)
@@ -1491,7 +1551,7 @@ bool QQuickWindow::event(QEvent *event)
                             foundAgent = true;
                         }
                     }
-                    for (auto pgda : epd->passiveGrabbersContext) {
+                    for (const auto &pgda : std::as_const(epd->passiveGrabbersContext)) {
                         if (auto ptda = qobject_cast<QQuickDeliveryAgent *>(pgda.data())) {
                             insert(ptda, pt);
                             qCDebug(lcPtr) << pe->type() << "point" << pt.id() << pt.state()
@@ -1551,7 +1611,43 @@ bool QQuickWindow::event(QEvent *event)
         // or fix QTBUG-90851 so that the event always has points?
         bool ret = (da && da->event(event));
 
+        // The default QWindow mousePressEvent/mouseMoveEvent/mouseReleaseEvent handlers
+        // dispatched to above always ignore() the event, and Quick's own handlers don't
+        // reliably accept() the whole event either (e.g. QQuickDragHandler only does so
+        // incidentally). So isAccepted() may not reflect whether a point actually got
+        // grabbed. Fix that up before clearGrabbers() discards the grab state, so external
+        // code that still checks QEvent::isAccepted() (e.g. QWindowPrivate::forwardToPopup)
+        // gets a meaningful answer.
+        // Tablet events are excluded: QGuiApplicationPrivate::processTabletEvent() gives
+        // isAccepted() an unrelated meaning for them (whether to synthesize a compatibility
+        // QMouseEvent for items/handlers that only understand mouse events), and accepting
+        // here purely because a point got grabbed would suppress that synthesis (see the
+        // dedicated tablet handling below, which accepts tablet events on its own terms).
+        if (pe->isPointerEvent() && !QQuickDeliveryAgentPrivate::isTabletEvent(pe) && d->isPopup()
+            && std::any_of(std::cbegin(pe->points()), std::cend(pe->points()), [pe](auto &p){ return pe->exclusiveGrabber(p);}))
+            pe->accept();
+
         d->deliveryAgentPrivate()->clearGrabbers(pe);
+
+        if (pe->type() == QEvent::MouseButtonPress || pe->type() == QEvent::MouseButtonRelease) {
+            // Ensure that we synthesize a context menu event as QWindow::event does, if necessary.
+            // We only send the context menu event if the pointer event wasn't accepted (ret == false).
+            d->maybeSynthesizeContextMenuEvent(static_cast<QMouseEvent *>(pe));
+        }
+
+#if QT_CONFIG(tabletevent)
+        // QGuiApplication::processTabletEvent() uses forwardToPopup() to send
+        // tablet events to popup windows so they can handle them or block
+        // further delivery. Prevent fall-through to any window behind a popup
+        // by accepting any tablet event that landed outside the popup's bounds.
+        // QTabletEvent.accepted is false by default (unlike mouse events), so
+        // we need to stop delivery by accepting explicitly.
+        if (type() == Qt::Popup && QQuickDeliveryAgentPrivate::isTabletEvent(pe) &&
+             !QRect(QPoint(), size()).contains(pe->points().first().scenePosition().toPoint())) {
+            pe->accept();
+            return true;
+        }
+#endif
 
         if (ret)
             return true;
@@ -1611,6 +1707,9 @@ bool QQuickWindow::event(QEvent *event)
     case QEvent::DevicePixelRatioChange:
         physicalDpiChanged();
         break;
+    case QEvent::SafeAreaMarginsChange:
+        QQuickSafeArea::updateSafeAreasRecursively(d->contentItem);
+        break;
     case QEvent::ChildWindowAdded: {
         auto *childEvent = static_cast<QChildWindowEvent*>(event);
         auto *childWindow = childEvent->child();
@@ -1641,6 +1740,53 @@ bool QQuickWindow::event(QEvent *event)
         return true;
     else
         return QWindow::event(event);
+}
+
+void QQuickWindowPrivate::maybeSynthesizeContextMenuEvent(QMouseEvent *event)
+{
+    // See comment in QQuickWindow::event; we need to follow that pattern here,
+    // otherwise the context menu event will be sent before the press (since
+    // QQuickWindow::mousePressEvent returns early if windowEventDispatch is true).
+    // If we don't do this, the incorrect order will cause the menu to
+    // immediately close when the press is delivered.
+    // Also, don't send QContextMenuEvent if a menu has already been opened while
+    // handling a QMouseEvent in which the right button was pressed or released.
+    if (windowEventDispatch || !rmbContextMenuEventEnabled)
+        return;
+
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+    /*
+        If this is a press event and the EventPoint already has a grab, it may be
+        that a TapHandler.onTapped() or MouseArea.onClicked() function
+        intends to show a context menu. Menus were often added that way; so if
+        we can detect that it's likely, then don't synthesize a QContextMenuEvent,
+        in case it could be redundant, even though we can't tell in advance
+        whether the TapHandler or MouseArea will open a menu or do something else.
+        However, we are only checking for MouseArea and TapHandler; it's also
+        possible (but hopefully much less likely) that a user adds a custom
+        QQuickItem subclass to handle mouse events to open a context menu.
+        If a bug gets written about that, we can ask them to try out the
+        ContextMenu attached property instead, or handle the QContextMenuEvent
+        in their subclass. Anyway, let's expect applications to be adjusted for
+        Qt 7 or before, so that we can get rid of this second-guessing hack.
+    */
+    const auto &firstPoint = event->points().first();
+    auto hasRightButtonTapHandler = [](const auto &passiveGrabbers) {
+        return std::find_if(passiveGrabbers.constBegin(), passiveGrabbers.constEnd(),
+            [](const auto grabber) {
+                auto *tapHandler = qmlobject_cast<QQuickTapHandler *>(grabber);
+                return tapHandler && tapHandler->acceptedButtons().testFlag(Qt::RightButton); })
+            != passiveGrabbers.constEnd();
+    };
+    if (event->type() == QEvent::MouseButtonPress && event->button() == Qt::RightButton &&
+        (qmlobject_cast<QQuickMouseArea *>(event->exclusiveGrabber(firstPoint))
+         || hasRightButtonTapHandler(event->passiveGrabbers(firstPoint)))) {
+        qCDebug(lcPtr) << "skipping QContextMenuEvent synthesis due to grabber(s)" << event;
+        return;
+    }
+#endif
+
+    QWindowPrivate::maybeSynthesizeContextMenuEvent(event);
 }
 
 void QQuickWindowPrivate::updateChildWindowStackingOrder(QQuickItem *item)
@@ -1767,7 +1913,7 @@ void QQuickWindowPrivate::updateCursor(const QPointF &scenePos, QQuickItem *root
     Q_Q(QQuickWindow);
     if (!rootItem)
         rootItem = contentItem;
-    auto cursorItemAndHandler = findCursorItemAndHandler(rootItem, scenePos);
+    auto cursorItemAndHandler = findCursorItemAndHandler(rootItem, scenePos, scenePos);
     if (cursorItem != cursorItemAndHandler.first || cursorHandler != cursorItemAndHandler.second ||
         (cursorItemAndHandler.second && QQuickPointerHandlerPrivate::get(cursorItemAndHandler.second)->cursorDirty)) {
         QWindow *renderWindow = QQuickRenderControl::renderWindowFor(q);
@@ -1778,22 +1924,25 @@ void QQuickWindowPrivate::updateCursor(const QPointF &scenePos, QQuickItem *root
             QQuickPointerHandlerPrivate::get(cursorItemAndHandler.second)->cursorDirty = false;
         if (cursorItem) {
             const auto cursor = QQuickItemPrivate::get(cursorItem)->effectiveCursor(cursorHandler);
-            qCDebug(lcHoverTrace) << "setting cursor" << cursor << "from" << cursorHandler << "or" << cursorItem;
+            qCDebug(lcHoverCursor) << "setting cursor" << cursor << "from" << cursorHandler << "or" << cursorItem;
             window->setCursor(cursor);
         } else {
-            qCDebug(lcHoverTrace) << "unsetting cursor";
+            qCDebug(lcHoverCursor) << "unsetting cursor";
             window->unsetCursor();
         }
     }
 }
 
-QPair<QQuickItem*, QQuickPointerHandler*> QQuickWindowPrivate::findCursorItemAndHandler(QQuickItem *item, const QPointF &scenePos) const
+std::pair<QQuickItem*, QQuickPointerHandler*> QQuickWindowPrivate::findCursorItemAndHandler(QQuickItem *item,
+        const QPointF &localPos, const QPointF &scenePos) const
 {
     QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);
-    if (itemPrivate->flags & QQuickItem::ItemClipsChildrenToShape) {
-        QPointF p = item->mapFromScene(scenePos);
-        if (!item->contains(p))
-            return {nullptr, nullptr};
+    if (itemPrivate->effectivelyClipsEventHandlingChildren() &&
+        !itemPrivate->eventHandlingBounds().contains(localPos)) {
+#ifdef QT_BUILD_INTERNAL
+        ++QQuickItemPrivate::effectiveClippingSkips_counter;
+#endif
+        return {nullptr, nullptr};
     }
 
     if (itemPrivate->subtreeCursorEnabled) {
@@ -1802,19 +1951,23 @@ QPair<QQuickItem*, QQuickPointerHandler*> QQuickWindowPrivate::findCursorItemAnd
             QQuickItem *child = children.at(ii);
             if (!child->isVisible() || !child->isEnabled() || QQuickItemPrivate::get(child)->culled)
                 continue;
-            auto ret = findCursorItemAndHandler(child, scenePos);
+
+            const QQuickItemPrivate *childPrivate = QQuickItemPrivate::get(child);
+            QTransform childToParent;
+            childPrivate->itemToParentTransform(&childToParent);
+            const QPointF childLocalPos = childToParent.inverted().map(localPos);
+            auto ret = findCursorItemAndHandler(child, childLocalPos, scenePos);
             if (ret.first)
                 return ret;
         }
         if (itemPrivate->hasCursorHandler) {
             if (auto handler = itemPrivate->effectiveCursorHandler()) {
-                if (handler->parentContains(scenePos))
+                if (handler->parentContains(localPos, scenePos))
                     return {item, handler};
             }
         }
         if (itemPrivate->hasCursor) {
-            QPointF p = item->mapFromScene(scenePos);
-            if (item->contains(p))
+            if (item->contains(localPos))
                 return {item, nullptr};
         }
     }
@@ -1843,7 +1996,7 @@ void QQuickWindowPrivate::setFocusToTarget(FocusTarget target, Qt::FocusReason r
         if (newFocusItem) {
             const auto *itemPriv = QQuickItemPrivate::get(newFocusItem);
             if (itemPriv->subFocusItem && itemPriv->flags & QQuickItem::ItemIsFocusScope)
-                clearFocusInScope(newFocusItem, itemPriv->subFocusItem, reason);
+                deliveryAgentPrivate()->clearFocusInScope(newFocusItem, itemPriv->subFocusItem, reason);
         }
         break;
     }
@@ -1945,7 +2098,8 @@ void QQuickWindowPrivate::rhiCreationFailureMessage(const QString &backendName,
 
 void QQuickWindowPrivate::cleanupNodes()
 {
-    qDeleteAll(std::exchange(cleanupNodeList, {}));
+    qDeleteAll(cleanupNodeList);
+    cleanupNodeList.clear();
 }
 
 void QQuickWindowPrivate::cleanupNodesOnShutdown(QQuickItem *item)
@@ -1988,7 +2142,7 @@ void QQuickWindowPrivate::cleanupNodesOnShutdown()
     Q_Q(QQuickWindow);
     cleanupNodes();
     cleanupNodesOnShutdown(contentItem);
-    for (QSet<QQuickItem *>::const_iterator it = parentlessItems.begin(), cend = parentlessItems.end(); it != cend; ++it)
+    for (QSet<QQuickItem *>::const_iterator it = parentlessItems.cbegin(), cend = parentlessItems.cend(); it != cend; ++it)
         cleanupNodesOnShutdown(*it);
     animationController->windowNodesDestroyed();
     q->cleanupSceneGraph();
@@ -2274,15 +2428,26 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
                      itemPriv->paintNode->parent() == nullptr ||
                      itemPriv->paintNode->parent() == itemPriv->childContainerNode());
 
-            if (itemPriv->paintNode && itemPriv->paintNode->parent() == nullptr) {
-                QSGNode *before = qquickitem_before_paintNode(itemPriv);
-                if (before && before->parent()) {
-                    Q_ASSERT(before->parent() == itemPriv->childContainerNode());
-                    itemPriv->childContainerNode()->insertChildNodeAfter(itemPriv->paintNode, before);
-                } else {
-                    itemPriv->childContainerNode()->prependChildNode(itemPriv->paintNode);
+            if (itemPriv->paintNode) {
+                if (itemPriv->paintNode->parent() == nullptr) {
+                    QSGNode *before = qquickitem_before_paintNode(itemPriv);
+                    if (before && before->parent()) {
+                        Q_ASSERT(before->parent() == itemPriv->childContainerNode());
+                        itemPriv->childContainerNode()->insertChildNodeAfter(itemPriv->paintNode, before);
+                    } else {
+                        itemPriv->childContainerNode()->prependChildNode(itemPriv->paintNode);
+                    }
+                }
+
+                // Ensure paint node subtree has same mutability group as item, but only if
+                // the mutability group has been explicitly set (avoiding this extra pass for
+                // the majority of items which never touch this property)
+                if (itemPriv->extra.isAllocated() && itemPriv->extra->mutabilityGroupSet) {
+                    QSGNodePrivate::setMutabilityGroupOfSubtree(itemPriv->paintNode,
+                                                                itemPriv->extra->mutabilityGroup);
                 }
             }
+
         } else if (itemPriv->paintNode) {
             delete itemPriv->paintNode;
             itemPriv->paintNode = nullptr;
@@ -2490,7 +2655,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
     This signal is emitted when the window receives the event \a close from
     the windowing system.
 
-    On \macOs, Qt will create a menu item \c Quit if there is no menu item
+    On \macos, Qt will create a menu item \c Quit if there is no menu item
     whose text is "quit" or "exit". This menu item calls the \c QCoreApplication::quit
     signal, not the \c QQuickWindow::closing() signal.
 
@@ -3540,7 +3705,8 @@ void QQuickWindow::endExternalCommands()
     Window { x: 100; y: 100; width: 100; height: 100 }
     \endqml
 
-    \image screen-and-window-dimensions.jpg
+    \image screen-and-window-dimensions.jpg {Diagram showing Window.x,
+           Window.y positions and Screen available dimensions}
  */
 
 /*!
@@ -3592,8 +3758,10 @@ void QQuickWindow::endExternalCommands()
     visibility property you will always get the actual state, never
     \c AutomaticVisibility.
 
-    When a window is not visible, its visibility is \c Hidden, and setting
-    visibility to \l {QWindow::}{Hidden} is the same as setting \l visible to \c false.
+    When a window is not \l visible, its visibility is \c Hidden.
+    Setting visibility to \l {QWindow::}{Hidden} is the same as setting \l visible to \c false.
+
+    The default value is \l {QWindow::}{Hidden}
 
     \snippet qml/windowVisibility.qml entire
 
@@ -3659,13 +3827,14 @@ void QQuickWindow::endExternalCommands()
  */
 
 /*!
-    \qmlproperty variant Window::screen
+    \qmlproperty Screen Window::screen
 
     The screen with which the window is associated.
 
     If specified before showing a window, will result in the window being shown
     on that screen, unless an explicit window position has been set. The value
-    must be an element from the Qt.application.screens array.
+    must be an element from the \l{Application::screens}{Application.screens}
+    array.
 
     \note To ensure that the window is associated with the desired screen when
     the underlying native window is created, make sure this property is set as
@@ -3677,7 +3846,7 @@ void QQuickWindow::endExternalCommands()
 
     \since 5.9
 
-    \sa QWindow::setScreen(), QWindow::screen(), QScreen, {QtQml::Qt::application}{Qt.application}
+    \sa QWindow::setScreen(), QWindow::screen(), QScreen, {QtQuick::Application}{Application}
  */
 
 /*!
@@ -3778,14 +3947,14 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::requestActivate()
+    \qmlmethod void QtQuick::Window::requestActivate()
     \since 5.1
 
     Requests the window to be activated, i.e. receive keyboard focus.
  */
 
 /*!
-    \qmlmethod QtQuick::Window::alert(int msec)
+    \qmlmethod void QtQuick::Window::alert(int msec)
     \since 5.1
 
     Causes an alert to be shown for \a msec milliseconds. If \a msec is \c 0
@@ -3797,7 +3966,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::close()
+    \qmlmethod void QtQuick::Window::close()
 
     Closes the window.
 
@@ -3810,7 +3979,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::raise()
+    \qmlmethod void QtQuick::Window::raise()
 
     Raises the window in the windowing system.
 
@@ -3818,7 +3987,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::lower()
+    \qmlmethod void QtQuick::Window::lower()
 
     Lowers the window in the windowing system.
 
@@ -3826,7 +3995,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::show()
+    \qmlmethod void QtQuick::Window::show()
 
     Shows the window.
 
@@ -3837,7 +4006,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::hide()
+    \qmlmethod void QtQuick::Window::hide()
 
     Hides the window.
 
@@ -3847,7 +4016,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::showMinimized()
+    \qmlmethod void QtQuick::Window::showMinimized()
 
     Shows the window as minimized.
 
@@ -3855,7 +4024,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::showMaximized()
+    \qmlmethod void QtQuick::Window::showMaximized()
 
     Shows the window as maximized.
 
@@ -3863,7 +4032,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::showFullScreen()
+    \qmlmethod void QtQuick::Window::showFullScreen()
 
     Shows the window as fullscreen.
 
@@ -3871,7 +4040,7 @@ void QQuickWindow::endExternalCommands()
 */
 
 /*!
-    \qmlmethod QtQuick::Window::showNormal()
+    \qmlmethod void QtQuick::Window::showNormal()
 
     Shows the window as normal, i.e. neither maximized, minimized, nor fullscreen.
 
@@ -3975,6 +4144,25 @@ void QQuickWindow::runJobsAfterSwap()
     Q_D(QQuickWindow);
     d->runAndClearJobs(&d->afterSwapJobs);
 }
+
+/*!
+    \fn void QQuickWindow::devicePixelRatioChanged()
+    \since 6.11
+    This signal is emitted when the effective device pixel ratio has
+    been changed.
+    \sa effectiveDevicePixelRatio()
+ */
+
+/*!
+    \qmlsignal QtQuick::Window::devicePixelRatioChanged()
+ */
+
+/*!
+    \property QQuickWindow::devicePixelRatio
+    \since 6.11
+
+    Returns the ratio between physical pixels and device-independent pixels for the window. This value is dependent on the screen the window is on, and may change when the window is moved.
+ */
 
 /*!
     Returns the device pixel ratio for this window.

@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLTYPEDATA_P_H
 #define QQMLTYPEDATA_P_H
@@ -15,56 +16,50 @@
 // We mean it.
 //
 
+#include <private/qqmlnotifyingblob_p.h>
+#include <private/qqmlsourcecoordinate_p.h>
 #include <private/qqmltypeloader_p.h>
 #include <private/qv4executablecompilationunit_p.h>
 
+#include <QtCore/qtyperevision.h>
+
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQmlTypeData : public QQmlTypeLoader::Blob
+Q_DECLARE_LOGGING_CATEGORY(lcCycle)
+
+class Q_AUTOTEST_EXPORT QQmlTypeData : public QQmlNotifyingBlob
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlTypeData)
 public:
+
     struct TypeReference
     {
-        TypeReference() : version(QTypeRevision::zero()), needsCreation(true) {}
-
-        QV4::CompiledData::Location location;
-        QQmlType type;
-        QTypeRevision version;
-        QQmlRefPointer<QQmlTypeData> typeData;
-        bool selfReference = false;
         QString prefix; // used by CompositeSingleton types
+        QQmlType type;
+        QQmlRefPointer<QQmlTypeData> typeData;
+        QV4::CompiledData::Location location;
+        QTypeRevision version = QTypeRevision::zero();
+        bool selfReference = false;
+        bool needsCreation = true;
+
         QString qualifiedName() const;
-        bool needsCreation;
     };
 
     struct ScriptReference
     {
-        QV4::CompiledData::Location location;
         QString qualifier;
         QQmlRefPointer<QQmlScriptBlob> script;
+        QV4::CompiledData::Location location;
     };
 
 private:
     friend class QQmlTypeLoader;
 
-    QQmlTypeData(const QUrl &, QQmlTypeLoader *);
-    template<typename Container>
-    void setCompileUnit(const Container &container);
-
 public:
+    QQmlTypeData(const QUrl &, QQmlTypeLoader *);
     ~QQmlTypeData() override;
 
     QV4::CompiledData::CompilationUnit *compilationUnit() const;
-
-    // Used by QQmlComponent to get notifications
-    struct TypeDataCallback {
-        virtual ~TypeDataCallback();
-        virtual void typeDataProgress(QQmlTypeData *, qreal) {}
-        virtual void typeDataReady(QQmlTypeData *) {}
-    };
-    void registerCallback(TypeDataCallback *);
-    void unregisterCallback(TypeDataCallback *);
 
     QQmlType qmlType(const QString &inlineComponentName = QString()) const;
     QByteArray typeClassName() const { return m_typeClassName; }
@@ -72,11 +67,10 @@ public:
 
 protected:
     void done() override;
-    void completed() override;
+
     void dataReceived(const SourceCodeData &) override;
     void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit) override;
     void allDependenciesDone() override;
-    void downloadProgressChanged(qreal) override;
 
     QString stringAt(int index) const override;
 
@@ -88,7 +82,7 @@ private:
     bool loadFromSource();
     void restoreIR(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit);
     void continueLoadFromIR();
-    void resolveTypes();
+    bool resolveTypes();
     QQmlError buildTypeResolutionCaches(
             QQmlRefPointer<QQmlTypeNameCache> *typeNameCache,
             QV4::CompiledData::ResolvedTypeReferenceMap *resolvedTypeCache
@@ -134,10 +128,29 @@ private:
 
     CompilationUnitPtr m_compiledData;
 
-    QList<TypeDataCallback *> m_callbacks;
-
     bool m_implicitImportLoaded;
     bool loadImplicitImport();
+    bool checkScripts();
+    bool checkDependencies();
+
+    template<typename Reference>
+    void createError(const Reference &ref, const QString &message, QList<QQmlError> errors)
+    {
+        QQmlError error;
+        error.setUrl(url());
+        error.setLine(qmlConvertSourceCoordinate<quint32, int>(ref.location.line()));
+        error.setColumn(qmlConvertSourceCoordinate<quint32, int>(ref.location.column()));
+        error.setDescription(message);
+        errors.prepend(std::move(error));
+        setError(errors);
+    }
+
+    void createError(const TypeReference &type, const QString &message);
+    void createError(const ScriptReference &script, const QString &message);
+
+    bool checkCompositeSingletons();
+    void createQQmlType();
+    bool rebuildFromSource();
 };
 
 QT_END_NAMESPACE

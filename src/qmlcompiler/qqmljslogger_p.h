@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLJSLOGGER_P_H
 #define QQMLJSLOGGER_P_H
@@ -71,22 +72,40 @@ private:
     QStringView m_afterText;
 };
 
+struct Q_QMLCOMPILER_EXPORT QQmlJSDocumentEdit
+{
+    Q_DECLARE_EQUALITY_COMPARABLE(QQmlJSDocumentEdit)
+
+    QString m_filename;
+    QQmlJS::SourceLocation m_location;
+    QString m_replacement;
+
+    friend bool comparesEqual(const QQmlJSDocumentEdit &self,
+                              const QQmlJSDocumentEdit &other) noexcept
+    {
+        return self.m_filename == other.m_filename && self.m_location == other.m_location
+                && self.m_replacement == other.m_replacement;
+    }
+};
+
 class Q_QMLCOMPILER_EXPORT QQmlJSFixSuggestion
 {
 public:
     QQmlJSFixSuggestion() = default;
-    QQmlJSFixSuggestion(const QString &fixDescription, const QQmlJS::SourceLocation &location,
-                        const QString &replacement = QString());
+    QQmlJSFixSuggestion(const QString &description, const QQmlJS::SourceLocation &location,
+                        const QQmlJSDocumentEdit &);
+    QQmlJSFixSuggestion(const QString &description, const QQmlJS::SourceLocation &location,
+                        const QList<QQmlJSDocumentEdit> & = {});
 
-    QString fixDescription() const { return m_fixDescription; }
+    QString description() const { return m_description; }
     QQmlJS::SourceLocation location() const { return m_location; }
-    QString replacement() const { return m_replacement; }
+
+    void addDocumentEdit(const QQmlJSDocumentEdit &documentEdit);
+    void setDocumentEdits(const QList<QQmlJSDocumentEdit> &documentEdits);
+    QList<QQmlJSDocumentEdit> documentEdits() const { return m_documentEdits; }
 
     void setFilename(const QString &filename) { m_filename = filename; }
     QString filename() const { return m_filename; }
-
-    void setHint(const QString &hint) { m_hint = hint; }
-    QString hint() const { return m_hint; }
 
     void setAutoApplicable(bool autoApply = true) { m_autoApplicable = autoApply; }
     bool isAutoApplicable() const { return m_autoApplicable; }
@@ -95,20 +114,25 @@ public:
     bool operator!=(const QQmlJSFixSuggestion &) const;
 
 private:
-    QQmlJS::SourceLocation m_location;
-    QString m_fixDescription;
-    QString m_replacement;
+    QString m_description;
     QString m_filename;
-    QString m_hint;
+    QQmlJS::SourceLocation m_location;
+    QList<QQmlJSDocumentEdit> m_documentEdits;
     bool m_autoApplicable = false;
 };
 
 struct Message : public QQmlJS::DiagnosticMessage
 {
+    enum class CompilationStatus { Normal, Skip, Error };
+
     // This doesn't need to be an owning-reference since the string is expected to outlive any
     // Message object by virtue of coming from a LoggerWarningId.
     QAnyStringView id;
     std::optional<QQmlJSFixSuggestion> fixSuggestion;
+    CompilationStatus compilationStatus = CompilationStatus::Normal;
+    std::optional<quint32> customLineForDisabling = std::nullopt;
+
+    quint32 lineForDisabling() const { return customLineForDisabling.value_or(loc.startLine); }
 };
 
 class Q_QMLCOMPILER_EXPORT QQmlJSLogger
@@ -116,47 +140,43 @@ class Q_QMLCOMPILER_EXPORT QQmlJSLogger
     Q_DISABLE_COPY_MOVE(QQmlJSLogger)
 public:
     QList<QQmlJS::LoggerCategory> categories() const;
-    static const QList<QQmlJS::LoggerCategory> &defaultCategories();
+    static const QList<QQmlJS::LoggerCategory> &builtinCategories();
 
     void registerCategory(const QQmlJS::LoggerCategory &category);
 
     QQmlJSLogger();
     ~QQmlJSLogger() = default;
 
-    bool hasWarnings() const { return !m_warnings.isEmpty(); }
-    bool hasErrors() const { return !m_errors.isEmpty(); }
+    bool hasWarnings() const { return m_numWarnings > 0; }
+    bool hasErrors() const { return m_numErrors > 0; }
 
-    const QList<Message> &infos() const { return m_infos; }
-    const QList<Message> &warnings() const { return m_warnings; }
-    const QList<Message> &errors() const { return m_errors; }
+    qsizetype numWarnings() const { return m_numWarnings; }
+    qsizetype numErrors() const { return m_numErrors; }
 
-    QtMsgType categoryLevel(QQmlJS::LoggerWarningId id) const
+    template<typename F>
+    void iterateCurrentFunctionMessages(F &&f) const
     {
-        return m_categoryLevels[id.name().toString()];
-    }
-    void setCategoryLevel(QQmlJS::LoggerWarningId id, QtMsgType level)
-    {
-        m_categoryLevels[id.name().toString()] = level;
-        m_categoryChanged[id.name().toString()] = true;
+        for (const Message &msg : m_currentFunctionMessages)
+            f(msg);
     }
 
-    bool isCategoryIgnored(QQmlJS::LoggerWarningId id) const
+    template<typename F>
+    void iterateAllMessages(F &&f) const
     {
-        return m_categoryIgnored[id.name().toString()];
-    }
-    void setCategoryIgnored(QQmlJS::LoggerWarningId id, bool error)
-    {
-        m_categoryIgnored[id.name().toString()] = error;
-        m_categoryChanged[id.name().toString()] = true;
+        for (const Message &msg : m_archivedMessages)
+            f(msg);
+
+        for (const Message &msg : m_currentFunctionMessages)
+            f(msg);
     }
 
-    bool isCategoryFatal(QQmlJS::LoggerWarningId id) const
+    QQmlJS::WarningSeverity categorySeverity(QQmlJS::LoggerWarningId id) const
     {
-        return m_categoryFatal[id.name().toString()];
+        return m_categorySeverities[id.name().toString()];
     }
-    void setCategoryFatal(QQmlJS::LoggerWarningId id, bool error)
+    void setCategorySeverity(QQmlJS::LoggerWarningId id, QQmlJS::WarningSeverity severity)
     {
-        m_categoryFatal[id.name().toString()] = error;
+        m_categorySeverities[id.name().toString()] = severity;
         m_categoryChanged[id.name().toString()] = true;
     }
 
@@ -165,23 +185,86 @@ public:
         return m_categoryChanged[id.name().toString()];
     }
 
+    QQmlJS::WarningSeverity compileErrorSeverity() const { return m_compileErrorSeverity; }
+    void setCompileErrorSeverity(QQmlJS::WarningSeverity severity) { m_compileErrorSeverity = severity; }
+
+    QString compileErrorPrefix() const { return m_compileErrorPrefix; }
+    void setCompileErrorPrefix(const QString &prefix) { m_compileErrorPrefix = prefix; }
+
+    QString compileSkipPrefix() const { return m_compileSkipPrefix; }
+    void setCompileSkipPrefix(const QString &prefix) { m_compileSkipPrefix = prefix; }
+
     /*! \internal
 
         Logs \a message with severity deduced from \a category. Prefer using
         this function in most cases.
 
-        \sa setCategoryLevel
+        \sa setCategorySeverity
     */
     void log(const QString &message, QQmlJS::LoggerWarningId id,
              const QQmlJS::SourceLocation &srcLocation, bool showContext = true,
              bool showFileName = true, const std::optional<QQmlJSFixSuggestion> &suggestion = {},
-             const QString overrideFileName = QString())
+             std::optional<quint32> customLineForDisabling = std::nullopt)
     {
-        log(message, id, srcLocation, m_categoryLevels[id.name().toString()], showContext,
-            showFileName, suggestion, overrideFileName);
+        const auto &severityForCategory = m_categorySeverities[id.name().toString()];
+        if (severityForCategory == QQmlJS::WarningSeverity::Disable)
+            return;
+
+        log(Message {
+                QQmlJS::DiagnosticMessage {
+                    message,
+                    QtMsgType(severityForCategory),
+                    srcLocation,
+                },
+                id.name(),
+                suggestion,
+                Message::CompilationStatus::Normal,
+                customLineForDisabling
+            }, showContext, showFileName);
     }
 
-    void processMessages(const QList<QQmlJS::DiagnosticMessage> &messages,
+    void logCompileError(const QString &message, const QQmlJS::SourceLocation &srcLocation)
+    {
+        if (m_compileErrorSeverity == QQmlJS::WarningSeverity::Disable)
+            return;
+
+        if (m_inTransaction)
+            m_hasPendingCompileError = true;
+        else
+            m_hasCompileError = true;
+
+        log(Message {
+                QQmlJS::DiagnosticMessage {
+                    m_compileErrorPrefix + message,
+                    QtMsgType(m_compileErrorSeverity), // OK, as the severity can't be Disable
+                    srcLocation
+                },
+                qmlCompiler.name(),
+                {},  // fixSuggestion
+                Message::CompilationStatus::Error
+            });
+
+    }
+
+    void logCompileSkip(const QString &message, const QQmlJS::SourceLocation &srcLocation)
+    {
+        if (m_compileSkipSeverity == QQmlJS::WarningSeverity::Disable)
+            return;
+
+        m_hasCompileSkip = true;
+        log(Message {
+                QQmlJS::DiagnosticMessage {
+                        m_compileSkipPrefix + message,
+                        QtMsgType(m_compileSkipSeverity), // OK, as the severity can't be Disable
+                        srcLocation
+                },
+                qmlCompiler.name(),
+                {},  // fixSuggestion
+                Message::CompilationStatus::Skip
+        });
+    }
+
+    void processMessages(QSpan<const QQmlJS::DiagnosticMessage> messages,
                          const QQmlJS::LoggerWarningId id,
                          const QQmlJS::SourceLocation &sourceLocation = QQmlJS::SourceLocation{});
 
@@ -193,44 +276,106 @@ public:
     void setSilent(bool silent) { m_output.setSilent(silent); }
     bool isSilent() const { return m_output.isSilent(); }
 
+    void setManualFlush(bool manualFlush) { m_manualFlush = manualFlush; }
+    bool hasManualFlush() const { return m_manualFlush; }
+    void manualFlush() { m_output.flushBuffer(); }
+
+    /*!
+    \internal
+    The logger is disabled when warnings are not relevant, for example when the import visitor runs
+    on a dependency of a linted file. In that case, the warnings should not be created, and
+    expensive QQmlJSUtils::didYouMean call can be saved.
+
+    setSilent() has a different behavior: a silent logger can still be used to process messages as
+    JSON, for example, while a disabled logger won't contain any message.
+    */
+    void setIsDisabled(bool isDisabled) { m_isDisabled = isDisabled; }
+    bool isDisabled() const { return m_isDisabled; }
+
     void setCode(const QString &code) { m_code = code; }
     QString code() const { return m_code; }
 
     void setFilePath(const QString &filePath) { m_filePath =  filePath; }
     QString filePath() const { return m_filePath; }
 
+    bool currentFunctionHasCompileError() const
+    {
+        return m_hasCompileError || m_hasPendingCompileError;
+    }
+
+    bool currentFunctionWasSkipped() const
+    {
+        return m_hasCompileSkip;
+    }
+
+    bool currentFunctionHasErrorOrSkip() const
+    {
+        return currentFunctionHasCompileError() || currentFunctionWasSkipped();
+    }
+
+    QString currentFunctionCompileErrorMessage() const
+    {
+        for (const Message &message : m_currentFunctionMessages) {
+            if (message.compilationStatus == Message::CompilationStatus::Error)
+                return message.message;
+        }
+
+        return QString();
+    }
+
+    QString currentFunctionCompileSkipMessage() const
+    {
+        for (const Message &message : m_currentFunctionMessages) {
+            if (message.compilationStatus == Message::CompilationStatus::Skip)
+                return message.message;
+        }
+
+        return QString();
+    }
+
+    void startTransaction();
+    void commit();
+    void rollback();
+
+    void finalizeFunction();
+
 private:
     QMap<QString, QQmlJS::LoggerCategory> m_categories;
 
-    void printContext(const QString &overrideFileName, const QQmlJS::SourceLocation &location);
+    void printContext(const QQmlJS::SourceLocation &location);
     void printFix(const QQmlJSFixSuggestion &fix);
 
-    void log(const QString &message, QQmlJS::LoggerWarningId id,
-             const QQmlJS::SourceLocation &srcLocation, QtMsgType type, bool showContext,
-             bool showFileName, const std::optional<QQmlJSFixSuggestion> &suggestion,
-             const QString overrideFileName);
+    void log(Message &&diagMsg, bool showContext = false, bool showFileName = true);
+
+    void countMessage(const Message &message);
 
     QString m_filePath;
     QString m_code;
 
     QColorOutput m_output;
 
-    QHash<QString, QtMsgType> m_categoryLevels;
-    QHash<QString, bool> m_categoryIgnored;
-
-    // If true, triggers qFatal on documents with "pragma Strict"
-    // TODO: Works only for qmlCompiler category so far.
-    QHash<QString, bool> m_categoryFatal;
-
+    QHash<QString, QQmlJS::WarningSeverity> m_categorySeverities;
     QHash<QString, bool> m_categoryChanged;
 
-    QList<Message> m_infos;
-    QList<Message> m_warnings;
-    QList<Message> m_errors;
+    QList<Message> m_pendingMessages;
+    QList<Message> m_currentFunctionMessages;
+    QList<Message> m_archivedMessages;
     QHash<uint32_t, QSet<QString>> m_ignoredWarnings;
 
-    // the compiler needs private log() function at the moment
-    friend class QQmlJSAotCompiler;
+    QString m_compileErrorPrefix;
+    QString m_compileSkipPrefix;
+
+    qsizetype m_numWarnings = 0;
+    qsizetype m_numErrors = 0;
+    bool m_inTransaction = false;
+    bool m_hasCompileError = false;
+    bool m_hasPendingCompileError = false;
+    bool m_hasCompileSkip = false;
+    bool m_isDisabled = false;
+    bool m_manualFlush = false;
+
+    QQmlJS::WarningSeverity m_compileErrorSeverity = QQmlJS::WarningSeverity::Warning;
+    QQmlJS::WarningSeverity m_compileSkipSeverity = QQmlJS::WarningSeverity::Info;
 };
 
 QT_END_NAMESPACE

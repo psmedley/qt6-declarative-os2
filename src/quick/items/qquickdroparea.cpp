@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:interprocess-communication
 
 #include "qquickdroparea_p.h"
 #include "qquickdrag_p.h"
@@ -309,7 +310,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 
     The position of the drag event can be obtained from the \l x and \l y
     properties, and the \l keys property identifies the drag keys of the event
-    \l {drag.source}{source}.
+    \l {DropArea::drag.source}{source}.
 
     The existence of specific drag types can be determined using the \l hasColor,
     \l hasHtml, \l hasText, and \l hasUrls properties.
@@ -335,7 +336,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 */
 
 /*!
-    \qmlproperty QtObject QtQuick::DragEvent::drag.source
+    \qmlproperty QtObject QtQuick::DragEvent::source
 
     This property holds the source of a drag event.
 */
@@ -350,7 +351,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 /*!
     \qmlproperty enumeration QtQuick::DragEvent::action
 
-    This property holds the action that the \l {drag.source}{source} is to perform on an accepted drop.
+    This property holds the action that the \l {DropArea::drag.source}{source} is to perform on an accepted drop.
 
     The drop action may be one of:
 
@@ -384,8 +385,8 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 */
 
 /*!
-    \qmlmethod QtQuick::DragEvent::accept()
-    \qmlmethod QtQuick::DragEvent::accept(enumeration action)
+    \qmlmethod void QtQuick::DragEvent::accept()
+    \qmlmethod void QtQuick::DragEvent::accept(enumeration action)
 
     Accepts the drag event.
 
@@ -393,7 +394,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
 */
 
 /*!
-    \qmlmethod QtQuick::DragEvent::acceptProposedAction()
+    \qmlmethod void QtQuick::DragEvent::acceptProposedAction()
     \since 5.2
 
     Accepts the drag event with the \l proposedAction.

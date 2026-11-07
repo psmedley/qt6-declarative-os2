@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
 
 #include "qquicktextedit_p.h"
 #include "qquicktextedit_p_p.h"
@@ -10,6 +11,7 @@
 #include "qquicktextnodeengine_p.h"
 
 #include <QtCore/qmath.h>
+#include <QtCore/qvarlengtharray.h>
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qevent.h>
 #include <QtGui/qpainter.h>
@@ -34,8 +36,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcVP)
-Q_LOGGING_CATEGORY(lcTextEdit, "qt.quick.textedit")
+Q_STATIC_LOGGING_CATEGORY(lcTextEdit, "qt.quick.textedit")
 
 using namespace Qt::StringLiterals;
 
@@ -63,7 +64,8 @@ TextEdit {
 }
     \endqml
 
-    \image declarative-textedit.gif
+    \image declarative-textedit.gif {"Hello World!" text editing
+           demonstration}
 
     Setting \l {Item::focus}{focus} to \c true enables the TextEdit item to receive keyboard focus.
 
@@ -187,9 +189,7 @@ QString QQuickTextEdit::text() const
 
     Sets the family name of the font.
 
-    The family name is case insensitive and may optionally include a foundry name, e.g. "Helvetica [Cronyx]".
-    If the family is available from more than one foundry and the foundry isn't specified, an arbitrary foundry is chosen.
-    If the family isn't available a family will be set using the font matching algorithm.
+    \include qmltypereference.qdoc qml-font-family
 */
 
 /*!
@@ -212,22 +212,7 @@ QString QQuickTextEdit::text() const
 /*!
     \qmlproperty int QtQuick::TextEdit::font.weight
 
-    The requested weight of the font. The weight requested must be an integer
-    between 1 and 1000, or one of the predefined values:
-
-    \value Font.Thin        100
-    \value Font.ExtraLight  200
-    \value Font.Light       300
-    \value Font.Normal      400 (default)
-    \value Font.Medium      500
-    \value Font.DemiBold    600
-    \value Font.Bold        700
-    \value Font.ExtraBold   800
-    \value Font.Black       900
-
-    \qml
-    TextEdit { text: "Hello"; font.weight: Font.DemiBold }
-    \endqml
+    \include qmltypereference.qdoc qml-font-weight
 */
 
 /*!
@@ -269,8 +254,7 @@ QString QQuickTextEdit::text() const
 
     Sets the letter spacing for the font.
 
-    Letter spacing changes the default spacing between individual letters in the font.
-    A positive value increases the letter spacing by the corresponding pixels; a negative value decreases the spacing.
+    \include qmltypereference.qdoc qml-font-letter-spacing
 */
 
 /*!
@@ -278,9 +262,7 @@ QString QQuickTextEdit::text() const
 
     Sets the word spacing for the font.
 
-    Word spacing changes the default spacing between individual words.
-    A positive value increases the word spacing by a corresponding amount of pixels,
-    while a negative value decreases the inter-word spacing accordingly.
+    \include qmltypereference.qdoc qml-font-word-spacing
 */
 
 /*!
@@ -304,89 +286,51 @@ QString QQuickTextEdit::text() const
     \qmlproperty enumeration QtQuick::TextEdit::font.hintingPreference
     \since 5.8
 
-    Sets the preferred hinting on the text. This is a hint to the underlying text rendering system
-    to use a certain level of hinting, and has varying support across platforms. See the table in
-    the documentation for QFont::HintingPreference for more details.
+    Sets the preferred hinting on the text.
 
-    \note This property only has an effect when used together with render type TextEdit.NativeRendering.
-
-    \value Font.PreferDefaultHinting    Use the default hinting level for the target platform.
-    \value Font.PreferNoHinting         If possible, render text without hinting the outlines
-           of the glyphs. The text layout will be typographically accurate, using the same metrics
-           as are used e.g. when printing.
-    \value Font.PreferVerticalHinting   If possible, render text with no horizontal hinting,
-           but align glyphs to the pixel grid in the vertical direction. The text will appear
-           crisper on displays where the density is too low to give an accurate rendering
-           of the glyphs. But since the horizontal metrics of the glyphs are unhinted, the text's
-           layout will be scalable to higher density devices (such as printers) without impacting
-           details such as line breaks.
-    \value Font.PreferFullHinting       If possible, render text with hinting in both horizontal and
-           vertical directions. The text will be altered to optimize legibility on the target
-           device, but since the metrics will depend on the target size of the text, the positions
-           of glyphs, line breaks, and other typographical detail will not scale, meaning that a
-           text layout may look different on devices with different pixel densities.
-
-    \qml
-    TextEdit { text: "Hello"; renderType: TextEdit.NativeRendering; font.hintingPreference: Font.PreferVerticalHinting }
-    \endqml
+    \include qmltypereference.qdoc qml-font-hinting-preference
 */
 
 /*!
     \qmlproperty bool QtQuick::TextEdit::font.kerning
     \since 5.10
 
-    Enables or disables the kerning OpenType feature when shaping the text. Disabling this may
-    improve performance when creating or changing the text, at the expense of some cosmetic
-    features. The default value is true.
-
-    \qml
-    TextEdit { text: "OATS FLAVOUR WAY"; kerning: font.false }
-    \endqml
+    \include qmltypereference.qdoc qml-font-kerning
 */
 
 /*!
     \qmlproperty bool QtQuick::TextEdit::font.preferShaping
     \since 5.10
 
-    Sometimes, a font will apply complex rules to a set of characters in order to
-    display them correctly. In some writing systems, such as Brahmic scripts, this is
-    required in order for the text to be legible, but in e.g. Latin script, it is merely
-    a cosmetic feature. Setting the \c preferShaping property to false will disable all
-    such features when they are not required, which will improve performance in most cases.
-
-    The default value is true.
-
-    \qml
-    TextEdit { text: "Some text"; font.preferShaping: false }
-    \endqml
+    \include qmltypereference.qdoc qml-font-prefer-shaping
 */
 
 /*!
     \qmlproperty object QtQuick::TextEdit::font.variableAxes
     \since 6.7
 
-    \include qquicktext.cpp qml-font-variable-axes
+    \include qmltypereference.qdoc qml-font-variable-axes
 */
 
 /*!
     \qmlproperty object QtQuick::TextEdit::font.features
     \since 6.6
 
-    \include qquicktext.cpp qml-font-features
+    \include qmltypereference.qdoc qml-font-features
 */
 
 /*!
     \qmlproperty bool QtQuick::TextEdit::font.contextFontMerging
     \since 6.8
 
-    \include qquicktext.cpp qml-font-context-font-merging
+    \include qmltypereference.qdoc qml-font-context-font-merging
 */
 
 /*!
     \qmlproperty bool QtQuick::TextEdit::font.preferTypoLineMetrics
     \since 6.8
 
-    \include qquicktext.cpp qml-font-prefer-typo-line-metrics
+    \include qmltypereference.qdoc qml-font-prefer-typo-line-metrics
 */
 
 /*!
@@ -505,7 +449,8 @@ QString QQuickTextEdit::preeditText() const
     \row
     \li
     \snippet qml/text/textEditFormats.qml 0
-    \li \image declarative-textformat.png
+    \li \image declarative-textformat.png {Multiple text format display
+               examples: AutoText, HTML, plain, and Markdown}
     \endtable
 
     With \c TextEdit.MarkdownText, checkboxes that result from using the
@@ -877,6 +822,7 @@ void QQuickTextEdit::setHAlign(HAlignment align)
         d->updateDefaultTextOption();
         updateSize();
         updateWholeDocument();
+        moveCursorDelegate();
     }
 }
 
@@ -887,6 +833,8 @@ void QQuickTextEdit::resetHAlign()
     if (d->determineHorizontalAlignment() && isComponentComplete()) {
         d->updateDefaultTextOption();
         updateSize();
+        updateWholeDocument();
+        moveCursorDelegate();
     }
 }
 
@@ -1131,6 +1079,7 @@ void QQuickTextEdit::setVAlign(QQuickTextEdit::VAlignment alignment)
     d->vAlign = alignment;
     d->updateDefaultTextOption();
     updateSize();
+    updateWholeDocument();
     moveCursorDelegate();
     emit verticalAlignmentChanged(d->vAlign);
 }
@@ -1335,7 +1284,7 @@ QQuickTextSelection *QQuickTextEdit::cursorSelection() const
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode)
+    \qmlmethod void QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode)
 
     Moves the cursor to \a position and updates the selection according to the optional \a mode
     parameter. (To only move the cursor, set the \l cursorPosition property.)
@@ -1762,6 +1711,12 @@ void QQuickTextEdit::componentComplete()
         else
 #endif
             d->control->setPlainText(d->text);
+    } else if (!d->document->isEmpty()) {
+        // Content was loaded into the document (e.g. via textDocument.source) while
+        // we were not yet componentComplete: at that point text() could not recompute
+        // and no binding/handler was connected to observe the change. Notify now.
+        d->textCached = false;
+        emit textChanged();
     }
 
     if (d->dirty) {
@@ -1975,12 +1930,12 @@ QRectF QQuickTextEdit::cursorRectangle() const
 bool QQuickTextEdit::event(QEvent *event)
 {
     Q_D(QQuickTextEdit);
-    if (event->type() == QEvent::ShortcutOverride) {
+    bool state = QQuickImplicitSizeItem::event(event);
+    if (event->type() == QEvent::ShortcutOverride && !event->isAccepted()) {
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
-        if (event->isAccepted())
-            return true;
+        state = true;
     }
-    return QQuickImplicitSizeItem::event(event);
+    return state;
 }
 
 /*!
@@ -2034,7 +1989,7 @@ void QQuickTextEdit::keyReleaseEvent(QKeyEvent *event)
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::deselect()
+    \qmlmethod void QtQuick::TextEdit::deselect()
 
     Removes active text selection.
 */
@@ -2047,7 +2002,7 @@ void QQuickTextEdit::deselect()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::selectAll()
+    \qmlmethod void QtQuick::TextEdit::selectAll()
 
     Causes all text to be selected.
 */
@@ -2058,7 +2013,7 @@ void QQuickTextEdit::selectAll()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::selectWord()
+    \qmlmethod void QtQuick::TextEdit::selectWord()
 
     Causes the word closest to the current cursor position to be selected.
 */
@@ -2071,7 +2026,7 @@ void QQuickTextEdit::selectWord()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::select(int start, int end)
+    \qmlmethod void QtQuick::TextEdit::select(int start, int end)
 
     Causes the text from \a start to \a end to be selected.
 
@@ -2089,10 +2044,8 @@ void QQuickTextEdit::select(int start, int end)
     if (start < 0 || end < 0 || start >= d->document->characterCount() || end >= d->document->characterCount())
         return;
     QTextCursor cursor = d->control->textCursor();
-    cursor.beginEditBlock();
     cursor.setPosition(start, QTextCursor::MoveAnchor);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
-    cursor.endEditBlock();
     d->control->setTextCursor(cursor);
 
     // QTBUG-11100
@@ -2103,9 +2056,9 @@ void QQuickTextEdit::select(int start, int end)
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::isRightToLeft(int start, int end)
+    \qmlmethod bool QtQuick::TextEdit::isRightToLeft(int start, int end)
 
-    Returns true if the natural reading direction of the editor text
+    Returns \c true if the natural reading direction of the editor text
     found between positions \a start and \a end is right to left.
 */
 bool QQuickTextEdit::isRightToLeft(int start, int end)
@@ -2120,7 +2073,7 @@ bool QQuickTextEdit::isRightToLeft(int start, int end)
 
 #if QT_CONFIG(clipboard)
 /*!
-    \qmlmethod QtQuick::TextEdit::cut()
+    \qmlmethod void QtQuick::TextEdit::cut()
 
     Moves the currently selected text to the system clipboard.
 */
@@ -2131,7 +2084,7 @@ void QQuickTextEdit::cut()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::copy()
+    \qmlmethod void QtQuick::TextEdit::copy()
 
     Copies the currently selected text to the system clipboard.
 */
@@ -2142,7 +2095,7 @@ void QQuickTextEdit::copy()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::paste()
+    \qmlmethod void QtQuick::TextEdit::paste()
 
     Replaces the currently selected text by the contents of the system clipboard.
 */
@@ -2155,7 +2108,7 @@ void QQuickTextEdit::paste()
 
 
 /*!
-    \qmlmethod QtQuick::TextEdit::undo()
+    \qmlmethod void QtQuick::TextEdit::undo()
 
     Undoes the last operation if undo is \l {canUndo}{available}. Deselects any
     current selection, and updates the selection start to the current cursor
@@ -2169,7 +2122,7 @@ void QQuickTextEdit::undo()
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::redo()
+    \qmlmethod void QtQuick::TextEdit::redo()
 
     Redoes the last operation if redo is \l {canRedo}{available}.
 */
@@ -2458,12 +2411,13 @@ void QQuickTextEdit::setDocument(QTextDocument *doc)
     q_textChanged();
 }
 
-inline void resetEngine(QQuickTextNodeEngine *engine, const QColor& textColor, const QColor& selectedTextColor, const QColor& selectionColor)
+inline void resetEngine(QQuickTextNodeEngine *engine, const QColor& textColor, const QColor& selectedTextColor, const QColor& selectionColor, qreal dpr)
 {
     *engine = QQuickTextNodeEngine();
     engine->setTextColor(textColor);
     engine->setSelectedTextColor(selectedTextColor);
     engine->setSelectionColor(selectionColor);
+    engine->setDevicePixelRatio(dpr);
 }
 
 QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData)
@@ -2500,8 +2454,11 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
     while (nodeIterator != d->textNodeMap.end() && !nodeIterator->dirty())
         ++nodeIterator;
 
+    const auto dpr = d->effectiveDevicePixelRatio();
     QQuickTextNodeEngine engine;
+    engine.setDevicePixelRatio(dpr);
     QQuickTextNodeEngine frameDecorationsEngine;
+    frameDecorationsEngine.setDevicePixelRatio(dpr);
 
     if (!oldNode || nodeIterator < d->textNodeMap.end() || d->textNodeMap.isEmpty()) {
 
@@ -2537,7 +2494,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
 
         // FIXME: the text decorations could probably be handled separately (only updated for affected textFrames)
         rootNode->resetFrameDecorations(d->createTextNode());
-        resetEngine(&frameDecorationsEngine, d->color, d->selectedTextColor, d->selectionColor);
+        resetEngine(&frameDecorationsEngine, d->color, d->selectedTextColor, d->selectionColor, dpr);
 
         QSGInternalTextNode *node = nullptr;
 
@@ -2569,7 +2526,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                           << "to" << positionToRectangle(textFrame->lastPosition()).bottomRight();
             frames.append(textFrame->childFrames());
             frameDecorationsEngine.addFrameDecorations(d->document, textFrame);
-            resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor);
+            resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor, dpr);
 
             if (textFrame->firstPosition() > textFrame->lastPosition()
                     && textFrame->frameFormat().position() != QTextFrameFormat::InFlow) {
@@ -2594,7 +2551,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                 nodeStart = pos;
             } else {
                 // Having nodes spanning across frame boundaries will break the current bookkeeping mechanism. We need to prevent that.
-                QList<int> frameBoundaries;
+                QVarLengthArray<int, 8> frameBoundaries;
                 frameBoundaries.reserve(frames.size());
                 for (QTextFrame *frame : std::as_const(frames))
                     frameBoundaries.append(frame->firstPosition());
@@ -2683,7 +2640,9 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
 
                     if ((it.atEnd()) || block.next().position() >= firstCleanNode.startPos())
                         break; // last node that needed replacing or last block of the frame
-                    QList<int>::const_iterator lowerBound = std::lower_bound(frameBoundaries.constBegin(), frameBoundaries.constEnd(), block.next().position());
+                    const auto lowerBound =
+                            std::lower_bound(frameBoundaries.constBegin(),
+                                             frameBoundaries.constEnd(), block.next().position());
                     if (node && (currentNodeSize > nodeBreakingSize || lowerBound == frameBoundaries.constEnd() || *lowerBound > nodeStart)) {
                         currentNodeSize = 0;
                         d->containsUnscalableGlyphs = d->containsUnscalableGlyphs
@@ -2692,7 +2651,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                             d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
                         if (!createdNodeInView)
                             node = d->createTextNode();
-                        resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor);
+                        resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor, dpr);
                         nodeStart = block.next().position();
                     }
                     ++it;
@@ -2705,7 +2664,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                     d->addCurrentTextNodeToRoot(&engine, rootNode, node, nodeIterator, nodeStart);
             }
         }
-        frameDecorationsEngine.addToSceneGraph(rootNode->frameDecorationsNode, QQuickText::Normal, QColor());
+        frameDecorationsEngine.addToSceneGraph(rootNode->frameDecorationsNode, nullptr, QQuickText::Normal, QColor());
         // Now prepend the frame decorations since we want them rendered first, with the text nodes and cursor in front.
         rootNode->prependChildNode(rootNode->frameDecorationsNode);
 
@@ -2913,6 +2872,8 @@ void QQuickTextEdit::q_textChanged()
     }
 
     emit textChanged();
+    if (d->control->isBeingEdited())
+        emit textEdited();
 }
 
 void QQuickTextEdit::markDirtyNodesForRange(int start, int end, int charDelta)
@@ -3204,6 +3165,7 @@ void QQuickTextEdit::q_updateAlignment()
         d->updateDefaultTextOption();
         d->xoff = qMax(qreal(0), QQuickTextUtil::alignedX(d->document->size().width(), width(), effectiveHAlign()));
         moveCursorDelegate();
+        updateWholeDocument();
     }
 }
 
@@ -3310,6 +3272,21 @@ void QQuickTextEdit::focusOutEvent(QFocusEvent *event)
     QQuickImplicitSizeItem::focusOutEvent(event);
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
+bool QQuickTextEditPrivate::handleContextMenuEvent(QContextMenuEvent *event)
+#else
+bool QQuickTextEdit::contextMenuEvent(QContextMenuEvent *event)
+#endif
+{
+    Q_Q(QQuickTextEdit);
+    QContextMenuEvent mapped(event->reason(),
+        q->mapToScene(q->cursorRectangle().center()).toPoint(), event->globalPos(),
+        event->modifiers());
+    const bool eventProcessed = QQuickItemPrivate::handleContextMenuEvent(&mapped);
+    event->setAccepted(mapped.isAccepted());
+    return eventProcessed;
+}
+
 void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
 {
     Q_Q(QQuickTextEdit);
@@ -3342,7 +3319,7 @@ void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
 
 void QQuickTextEditPrivate::addCurrentTextNodeToRoot(QQuickTextNodeEngine *engine, QSGTransformNode *root, QSGInternalTextNode *node, TextNodeIterator &it, int startPos)
 {
-    engine->addToSceneGraph(node, QQuickText::Normal, QColor());
+    engine->addToSceneGraph(node, nullptr, QQuickText::Normal, QColor());
     it = textNodeMap.insert(it, TextNode(startPos, node));
     ++it;
     root->appendChildNode(node);
@@ -3431,7 +3408,7 @@ QString QQuickTextEdit::getFormattedText(int start, int end) const
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::insert(int position, string text)
+    \qmlmethod void QtQuick::TextEdit::insert(int position, string text)
 
     Inserts \a text into the TextEdit at \a position.
 */
@@ -3545,6 +3522,15 @@ void QQuickTextEditPrivate::updateMouseCursorShape()
     \sa linkHovered, linkAt()
 */
 
+/*!
+    \qmlsignal QtQuick::TextEdit::textEdited()
+    \since 6.9
+
+    This signal is emitted whenever the text is edited. Unlike \l{TextEdit::text}{textChanged()},
+    this signal is not emitted when the text is changed programmatically, for example,
+    by changing the value of the \l text property or by calling \l clear().
+*/
+
 QString QQuickTextEdit::hoveredLink() const
 {
     Q_D(const QQuickTextEdit);
@@ -3625,7 +3611,7 @@ void QQuickTextEdit::append(const QString &text)
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::linkAt(real x, real y)
+    \qmlmethod string QtQuick::TextEdit::linkAt(real x, real y)
     \since 5.3
 
     Returns the link string at point \a x, \a y in content coordinates,
@@ -3791,7 +3777,7 @@ void QQuickTextEdit::setTabStopDistance(qreal distance)
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::clear()
+    \qmlmethod void QtQuick::TextEdit::clear()
     \since 5.7
 
     Clears the contents of the text edit

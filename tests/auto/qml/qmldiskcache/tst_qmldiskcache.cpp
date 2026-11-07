@@ -16,7 +16,79 @@
 #include <QThread>
 #include <QCryptographicHash>
 #include <QStandardPaths>
+#include <QTimeZone>
 #include <QDirIterator>
+
+// C++ type that provides attached properties.  Used by
+// compositeAttachedPropertyChecksum to reproduce the real-world
+// scenario where a composite QML type extending this C++ type is
+// referenced as an attached-property type.
+class TestAttachedProperties : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int value READ value WRITE setValue NOTIFY valueChanged)
+public:
+    explicit TestAttachedProperties(QObject *parent = nullptr) : QObject(parent) {}
+    int value() const { return m_value; }
+    void setValue(int v)
+    {
+        if (m_value != v) {
+            m_value = v;
+            emit valueChanged();
+        }
+    }
+signals:
+    void valueChanged();
+private:
+    int m_value = 0;
+};
+
+class TestAttachable : public QObject
+{
+    Q_OBJECT
+    QML_ATTACHED(TestAttachedProperties)
+public:
+    explicit TestAttachable(QObject *parent = nullptr) : QObject(parent) {}
+    static TestAttachedProperties *qmlAttachedProperties(QObject *obj)
+    {
+        return new TestAttachedProperties(obj);
+    }
+};
+
+class TestAttachableB : public QObject
+{
+    Q_OBJECT
+    QML_ATTACHED(TestAttachedProperties)
+public:
+    explicit TestAttachableB(QObject *parent = nullptr) : QObject(parent) {}
+    static TestAttachedProperties *qmlAttachedProperties(QObject *obj)
+    {
+        return new TestAttachedProperties(obj);
+    }
+};
+
+class TestAttachableC : public QObject
+{
+    Q_OBJECT
+    QML_ATTACHED(TestAttachedProperties)
+public:
+    explicit TestAttachableC(QObject *parent = nullptr) : QObject(parent) {}
+    static TestAttachedProperties *qmlAttachedProperties(QObject *obj)
+    {
+        return new TestAttachedProperties(obj);
+    }
+};
+
+static QByteArray fileChecksum(const QString &fileName)
+{
+    QFile f(fileName);
+    if (!f.open(QIODevice::ReadOnly))
+        return QByteArray();
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    if (!hash.addData(&f))
+        return QByteArray();
+    return hash.result();
+}
 
 class tst_qmldiskcache: public QObject
 {
@@ -31,21 +103,31 @@ private slots:
     void registerImportForImplicitComponent();
     void basicVersionChecks();
     void recompileAfterChange();
+    void recompileAfterContentChangeWithSameTimeStamp();
     void recompileAfterDirectoryChange();
     void fileSelectors();
     void localAliases();
     void aliasToAlias();
+    void deepAliasThroughGroupedAliasFromCache();
+    void listPropertyReplaceIfNotDefaultFromCache();
     void cacheResources();
     void stableOrderOfDependentCompositeTypes();
     void singletonDependency();
     void cppRegisteredSingletonDependency();
     void cacheModuleScripts();
     void reuseStaticMappings();
+    void noCacheFileForStaticData();
     void invalidateSaveLoadCache();
     void duplicateIdsInInlineComponents();
 
     void inlineComponentDoesNotCauseConstantInvalidation_data();
     void inlineComponentDoesNotCauseConstantInvalidation();
+    void selfReferencingSignalParameter();
+    void compositeAttachedPropertyChecksum();
+    void compositeAttachedCycleDirectAB();
+    void compositeAttachedCycleIndirectABC();
+
+    void selfReferenceDoesNotInvalidateCache();
 
 private:
     QDir m_qmlCacheDirectory;
@@ -204,15 +286,17 @@ struct TestCompiler
         const QString path = fileName.isEmpty() ? testFilePath : tempDir.path() + "/" + fileName;
 
         auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
-        return unit->loadFromDisk(QUrl::fromLocalFile(path),
-                                  QFileInfo(path).lastModified(), &lastErrorString);
+        return unit->loadFromDisk(QUrl::fromLocalFile(path), QFileInfo(path).lastModified(),
+                                  [&path]() { return fileChecksum(path); }, &lastErrorString);
     }
 
     quintptr unitData()
     {
         auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
         return unit->loadFromDisk(QUrl::fromLocalFile(testFilePath),
-                                  QFileInfo(testFilePath).lastModified(), &lastErrorString)
+                                  QFileInfo(testFilePath).lastModified(),
+                                  [this]() { return fileChecksum(testFilePath); },
+                                  &lastErrorString)
                 ? quintptr(unit->unitData())
                 : 0;
     }
@@ -281,11 +365,8 @@ void tst_qmldiskcache::loadLocalAsFallback()
         QV4::CompiledData::Unit unit = {};
         memcpy(unit.magic, QV4::CompiledData::magic_str, sizeof(unit.magic));
         unit.version = QV4_DATA_STRUCTURE_VERSION;
-        unit.qtVersion = QT_VERSION;
         unit.sourceTimeStamp = testCompiler.mappedFile.fileTime(QFile::FileModificationTime).toMSecsSinceEpoch();
         unit.unitSize = ~0U;    // make the size a silly number
-        // write something to the library hash that should cause it not to be loaded
-        memset(unit.libraryVersionHash, 'z', sizeof(unit.libraryVersionHash));
         memset(unit.md5Checksum, 0, sizeof(unit.md5Checksum));
 
         // leave the other fields unset, since they don't matter
@@ -294,8 +375,10 @@ void tst_qmldiskcache::loadLocalAsFallback()
     }
 
     auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
-    bool loaded = unit->loadFromDisk(QUrl::fromLocalFile(testCompiler.testFilePath),
-                                     QFileInfo(testCompiler.testFilePath).lastModified(),
+    const QString &sourcePath = testCompiler.testFilePath;
+    bool loaded = unit->loadFromDisk(QUrl::fromLocalFile(sourcePath),
+                                     QFileInfo(sourcePath).lastModified(),
+                                     [&sourcePath]() { return fileChecksum(sourcePath); },
                                      &testCompiler.lastErrorString);
     QVERIFY2(loaded, qPrintable(testCompiler.lastErrorString));
     QCOMPARE(unit->qmlData->nObjects, 1u);
@@ -385,24 +468,16 @@ void tst_qmldiskcache::registerImportForImplicitComponent()
         QVERIFY2(testUnit, qPrintable(testCompiler.lastErrorString));
 
         const QV4::CompiledData::QmlUnit *qmlUnit = testUnit->qmlUnit();
-        QCOMPARE(quint32(qmlUnit->nImports), quint32(2));
+        // Implicit component wrapping no longer creates a synthetic Component object
+        // in the CU — it is handled at runtime via virtual property caches.
+        QCOMPARE(quint32(qmlUnit->nImports), quint32(1));
         QCOMPARE(testUnit->stringAtInternal(qmlUnit->importAt(0)->uriIndex), QStringLiteral("QtQuick"));
 
-        QQmlType componentType = QQmlMetaType::qmlType(
-                    &QQmlComponent::staticMetaObject, QStringLiteral("QML"),
-                    QTypeRevision::fromVersion(1, 0));
-
-        QCOMPARE(testUnit->stringAtInternal(qmlUnit->importAt(1)->uriIndex), QString(componentType.module()));
-        QCOMPARE(testUnit->stringAtInternal(qmlUnit->importAt(1)->qualifierIndex), QStringLiteral("QML"));
-
-        QCOMPARE(quint32(qmlUnit->nObjects), quint32(3));
+        QCOMPARE(quint32(qmlUnit->nObjects), quint32(2));
 
         const QV4::CompiledData::Object *obj = qmlUnit->objectAt(0);
         QCOMPARE(quint32(obj->nBindings), quint32(1));
         QCOMPARE(obj->bindingTable()->type(), QV4::CompiledData::Binding::Type_Object);
-
-        const QV4::CompiledData::Object *implicitComponent = qmlUnit->objectAt(obj->bindingTable()->value.objectIndex);
-        QCOMPARE(testUnit->stringAtInternal(implicitComponent->inheritedTypeNameIndex), QStringLiteral("QML.") + componentType.elementName());
     }
 }
 
@@ -422,20 +497,6 @@ void tst_qmldiskcache::basicVersionChecks()
         testCompiler.clearCache();
         QVERIFY2(testCompiler.compile(contents), qPrintable(testCompiler.lastErrorString));
         QVERIFY2(testCompiler.verify(), qPrintable(testCompiler.lastErrorString));
-    }
-
-    {
-        testCompiler.clearCache();
-        QVERIFY2(testCompiler.compile(contents), qPrintable(testCompiler.lastErrorString));
-
-        const QString qtVersionFile = QStringLiteral("qtversion.qml");
-        QVERIFY(testCompiler.tweakHeader([](QV4::CompiledData::Unit *header) {
-            header->qtVersion = 0;
-        }, qtVersionFile));
-
-        QVERIFY(!testCompiler.verify(qtVersionFile));
-        QCOMPARE(testCompiler.lastErrorString, QString::fromUtf8("Qt version mismatch. Found 0 expected %1").arg(QT_VERSION, 0, 16));
-        testCompiler.clearCache(qtVersionFile);
     }
 
     {
@@ -532,6 +593,59 @@ void tst_qmldiskcache::recompileAfterChange()
         QScopedPointer<TypeVersion2> obj(qobject_cast<TypeVersion2*>(component.create()));
         QVERIFY(!obj.isNull());
         QVERIFY(QFileInfo(testCompiler.cacheFilePath).lastModified() > initialCacheTimeStamp);
+    }
+}
+
+void tst_qmldiskcache::recompileAfterContentChangeWithSameTimeStamp()
+{
+    // QTBUG-147384: in reproducible-build/OTA environments the source file's modification time
+    // may be pinned to a fixed value (e.g. SOURCE_DATE_EPOCH). A content change that keeps the
+    // same time stamp must still invalidate the cache. Cache files generated at run time are
+    // validated by content hashing, so this works regardless of the time stamp.
+
+    QQmlEngine engine;
+
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    // A fixed time stamp shared by both versions of the file.
+    const QDateTime fixedTime = QDateTime(QDate(2000, 1, 1), QTime(0, 0), QTimeZone::UTC);
+
+    const QByteArray v1 = QByteArrayLiteral("import QtQml\n"
+                                            "QtObject { property int value: 1 }");
+    const QByteArray v2 = QByteArrayLiteral("import QtQml\n"
+                                            "QtObject { property int value: 2 }");
+
+    const auto pinTimeStamp = [&]() {
+        QFile f(testCompiler.testFilePath);
+        QVERIFY(f.open(QIODevice::ReadWrite));
+        QVERIFY(f.setFileTime(fixedTime, QFile::FileModificationTime));
+    };
+
+    testCompiler.clearCache();
+    QVERIFY2(testCompiler.compile(v1), qPrintable(testCompiler.lastErrorString));
+    pinTimeStamp();
+    QCOMPARE(QFileInfo(testCompiler.testFilePath).lastModified(), fixedTime);
+
+    {
+        engine.clearComponentCache();
+        CleanlyLoadingComponent component(&engine, testCompiler.testFilePath);
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+        QCOMPARE(obj->property("value").toInt(), 1);
+    }
+
+    // Replace the content but restore the exact same modification time.
+    QVERIFY2(testCompiler.writeTestFile(v2), qPrintable(testCompiler.lastErrorString));
+    pinTimeStamp();
+    QCOMPARE(QFileInfo(testCompiler.testFilePath).lastModified(), fixedTime);
+
+    {
+        engine.clearComponentCache();
+        CleanlyLoadingComponent component(&engine, testCompiler.testFilePath);
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+        QCOMPARE(obj->property("value").toInt(), 2);
     }
 }
 
@@ -724,6 +838,94 @@ void tst_qmldiskcache::aliasToAlias()
     }
 }
 
+void tst_qmldiskcache::deepAliasThroughGroupedAliasFromCache()
+{
+    // A deep alias whose intermediate segment is another alias that carries a grouped binding.
+    // The grouped binding's object has no property cache, so when the unit is reloaded from the
+    // disk cache the compilation-unit deep-alias resolver dereferenced a null cache and crashed.
+    // The alias target is declared before the deep alias here, so this exercises only the deep-alias
+    // resolution, not the out-of-order alias-to-alias resolution.
+    QQmlEngine engine;
+
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    const QByteArray contents = QByteArrayLiteral("import QtQml\n"
+                                                  "QtObject {\n"
+                                                  "    id: root\n"
+                                                  "    property alias foo: fooId\n"
+                                                  "    property alias bar: root.foo.objectName\n"
+                                                  "    foo {}\n"
+                                                  "    property QtObject o: QtObject {\n"
+                                                  "        id: fooId\n"
+                                                  "        objectName: \"hello\"\n"
+                                                  "    }\n"
+                                                  "}");
+
+    {
+        testCompiler.clearCache();
+        QVERIFY2(testCompiler.compile(contents), qPrintable(testCompiler.lastErrorString));
+        QVERIFY2(testCompiler.verify(), qPrintable(testCompiler.lastErrorString));
+    }
+
+    // Force a reload from the disk cache, which goes through the compilation-unit alias resolver.
+    engine.clearComponentCache();
+
+    {
+        CleanlyLoadingComponent component(&engine, testCompiler.testFilePath);
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+        QCOMPARE(obj->property("bar").toString(), QStringLiteral("hello"));
+    }
+}
+
+void tst_qmldiskcache::listPropertyReplaceIfNotDefaultFromCache()
+{
+    // ReplaceIfNotDefault appends to the default list property and replaces any other list
+    // property. When the unit is reloaded from the disk cache, the behavior is read back from the
+    // unit's flags. ListPropertyAssignReplace is the combination of both replace bits, so a plain
+    // bitwise-and test misreported a ReplaceIfNotDefault unit as Replace and cleared the default
+    // list on the cached path.
+    QQmlEngine engine;
+
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    const QByteArray contents
+            = QByteArrayLiteral("pragma ListPropertyAssignBehavior: ReplaceIfNotDefault\n"
+                                "import QtQml\n"
+                                "QtObject {\n"
+                                "    component WithDefault: QtObject {\n"
+                                "        default property list<QtObject> defaultList\n"
+                                "    }\n"
+                                "    component MyChild: WithDefault {\n"
+                                "        QtObject {}\n"
+                                "    }\n"
+                                "    property MyChild child: MyChild {\n"
+                                "        QtObject {}\n"
+                                "    }\n"
+                                "    property int count: child.defaultList.length\n"
+                                "}");
+
+    {
+        testCompiler.clearCache();
+        QVERIFY2(testCompiler.compile(contents), qPrintable(testCompiler.lastErrorString));
+        QVERIFY2(testCompiler.verify(), qPrintable(testCompiler.lastErrorString));
+    }
+
+    // Force a reload from the disk cache. The list-assign behavior is read from the unit flags.
+    engine.clearComponentCache();
+
+    {
+        CleanlyLoadingComponent component(&engine, testCompiler.testFilePath);
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY2(!obj.isNull(), qPrintable(component.errorString()));
+        // The child's own default element plus the one added by the instance: both are appended,
+        // because the default list keeps its append behavior under ReplaceIfNotDefault.
+        QCOMPARE(obj->property("count").toInt(), 2);
+    }
+}
+
 static QSet<QString> entrySet(const QDir &dir)
 {
     const auto &list = dir.entryList(QDir::Files | QDir::NoDotAndDotDot);
@@ -762,10 +964,10 @@ void tst_qmldiskcache::cacheResources()
 
         cacheFileTimeStamp = QFileInfo(cacheFile.fileName()).lastModified();
 
-        QDateTime referenceTimeStamp = QFileInfo(":/test.qml").lastModified();
-        if (!referenceTimeStamp.isValid())
-            referenceTimeStamp = QFileInfo(QCoreApplication::applicationFilePath()).lastModified();
-        QCOMPARE(qint64(unit.sourceTimeStamp), referenceTimeStamp.toMSecsSinceEpoch());
+        // A cache file generated at run time is validated by content hashing, not by time stamp.
+        QCOMPARE(qint64(unit.sourceTimeStamp), qint64(-1));
+        QCOMPARE(QByteArray(unit.sourceChecksum, sizeof(unit.sourceChecksum)),
+                 fileChecksum(QStringLiteral(":/test.qml")));
     }
 
     waitForFileSystem();
@@ -1014,7 +1216,7 @@ void tst_qmldiskcache::cacheModuleScripts()
 
         auto componentPrivate = QQmlComponentPrivate::get(&component);
         QVERIFY(componentPrivate);
-        auto compilationUnit = componentPrivate->compilationUnit->dependentScriptsPtr()
+        auto compilationUnit = componentPrivate->compilationUnit()->dependentScriptsPtr()
                                        ->first()->compilationUnit();
         QVERIFY(compilationUnit);
         auto unitData = compilationUnit->unitData();
@@ -1093,6 +1295,32 @@ static QString writeTempFile(
     return f.fileName();
 };
 
+void tst_qmldiskcache::noCacheFileForStaticData()
+{
+    QQmlEngine engine;
+
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    const QByteArray contents = "import QtQml; QtObject { objectName: 'foobar' }";
+
+    // Control: compiling a file from disk does produce a cache file.
+    QVERIFY2(testCompiler.compile(contents), qPrintable(testCompiler.lastErrorString));
+    QVERIFY(QFile::exists(testCompiler.cacheFilePath));
+
+    // The same source passed as static data must not. We would never read such a cache file
+    // back, and the mapping we'd install for it is never released.
+    const QString staticFilePath = testCompiler.tempDir.path() + QStringLiteral("/static.qml");
+    const QString staticCacheFilePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(staticFilePath));
+    Q_ASSERT(!QFile::exists(staticCacheFilePath));
+
+    QQmlComponent component(&engine);
+    component.setData(contents, QUrl::fromLocalFile(staticFilePath));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QVERIFY(!QFile::exists(staticCacheFilePath));
+}
+
 void tst_qmldiskcache::invalidateSaveLoadCache()
 {
     qmlRegisterType<AParent>("Base", 1, 0, "Parent");
@@ -1139,7 +1367,9 @@ void tst_qmldiskcache::invalidateSaveLoadCache()
 
     QString errorString;
     auto oldUnit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
-    QVERIFY2(oldUnit->loadFromDisk(url, QFileInfo(fileName).lastModified(), &errorString), qPrintable(errorString));
+    const auto sourceChecksum = [&fileName]() { return fileChecksum(fileName); };
+    QVERIFY2(oldUnit->loadFromDisk(url, QFileInfo(fileName).lastModified(), sourceChecksum,
+                                   &errorString), qPrintable(errorString));
 
     // Produce a checksum mismatch.
     e->clearComponentCache();
@@ -1182,7 +1412,8 @@ void tst_qmldiskcache::invalidateSaveLoadCache()
     // So, now we should be able to load a freshly written CU.
 
     auto unit = QQml::makeRefPointer<QV4::CompiledData::CompilationUnit>();
-    QVERIFY2(unit->loadFromDisk(url, QFileInfo(fileName).lastModified(), &errorString), qPrintable(errorString));
+    QVERIFY2(unit->loadFromDisk(url, QFileInfo(fileName).lastModified(), sourceChecksum,
+                                &errorString), qPrintable(errorString));
 
     QVERIFY(unit->unitData() != oldUnit->unitData());
 }
@@ -1350,7 +1581,7 @@ void tst_qmldiskcache::inlineComponentDoesNotCauseConstantInvalidation()
     testCompiler.reset();
     QVERIFY(testCompiler.writeTestFile(code));
 
-    QVERIFY(testCompiler.loadTestFile());
+    QVERIFY2(testCompiler.loadTestFile(), qPrintable(testCompiler.lastErrorString));
 
     const quintptr data1 = testCompiler.unitData();
     QVERIFY(data1 != 0);
@@ -1379,6 +1610,277 @@ void tst_qmldiskcache::inlineComponentDoesNotCauseConstantInvalidation()
     const quintptr data2 = testCompiler.unitData();
     QVERIFY(data2);
     QVERIFY(data1 != data2);
+}
+
+void tst_qmldiskcache::selfReferencingSignalParameter()
+{
+    QQmlEngine engine;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    // Write a QML file that uses itself as a signal parameter type
+    const QString testFilePath = tempDir.path() + "/SelfReference.qml";
+    {
+        QFile f(testFilePath);
+        QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(f.errorString()));
+        f.write(QByteArrayLiteral("import QtQml\n"
+                                   "QtObject {\n"
+                                   "    property SelfReference self\n"
+                                   "    signal blah(selfParam: SelfReference)\n"
+                                   "    function returnSelf() : SelfReference { return this; }\n"
+                                   "}"));
+    }
+
+    const QString mainFilePath = tempDir.path() + "/main.qml";
+    {
+        QFile f(mainFilePath);
+        QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(f.errorString()));
+        f.write(QByteArrayLiteral("import QtQml\nSelfReference {}"));
+    }
+
+    // First load: compiles and creates cache
+    {
+        CleanlyLoadingComponent component(&engine, QUrl::fromLocalFile(mainFilePath));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+
+    const QString cacheFilePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(testFilePath));
+    QVERIFY(QFile::exists(cacheFilePath));
+    QDateTime initialCacheTimeStamp = QFileInfo(cacheFilePath).lastModified();
+
+    engine.clearComponentCache();
+    waitForFileSystem();
+
+    // Second load: should use the cache without invalidation
+    {
+        CleanlyLoadingComponent component(&engine, QUrl::fromLocalFile(mainFilePath));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+
+    {
+        QVERIFY(QFile::exists(cacheFilePath));
+        QDateTime newCacheTimeStamp = QFileInfo(cacheFilePath).lastModified();
+        QCOMPARE(newCacheTimeStamp, initialCacheTimeStamp);
+    }
+}
+
+void tst_qmldiskcache::compositeAttachedPropertyChecksum()
+{
+    // Verifies that using attached properties via a composite type
+    // derived from an attaching C++ type produces a valid dependency
+    // checksum so the .qmlc cache is not needlessly invalidated:
+    //
+    //   1. TestAttachable is a C++ type with QML_ATTACHED.
+    //   2. CompositeAttachable.qml extends TestAttachable (composite type).
+    //   3. test.qml uses "CompositeAttachable.value: 42" (attached property).
+    //
+    // Previously, the composite type's ResolvedTypeReference had no
+    // compilation unit (needsCreation was false), causing addToHash()
+    // to fail and the dependency checksum to be all-zeros. On reload,
+    // verifyChecksum() would fail and the cache would be rewritten
+    // every time.
+
+    qmlRegisterType<TestAttachable>("TestModule", 1, 0, "TestAttachable");
+
+    QQmlEngine engine;
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    const QString compositeFilePath =
+            testCompiler.tempDir.path() + "/CompositeAttachable.qml";
+
+    {
+        QFile f(compositeFilePath);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\nTestAttachable {}\n");
+    }
+
+    const QByteArray mainContents =
+            "import QtQml 2.0\n"
+            "QtObject {\n"
+            "    CompositeAttachable.value: 42\n"
+            "}\n";
+
+    testCompiler.clearCache();
+    QVERIFY2(testCompiler.writeTestFile(mainContents),
+             qPrintable(testCompiler.lastErrorString));
+
+    // First load: compiles from source and creates .qmlc cache.
+    QVERIFY2(testCompiler.loadTestFile(),
+             qPrintable(testCompiler.lastErrorString));
+
+    // Second load: must use the cached .qmlc without rewriting it.
+    // This fails without the fix because the dependency checksum
+    // would mismatch (empty vs all-zeros).
+    const QDateTime cacheModified =
+            QFileInfo(testCompiler.cacheFilePath).lastModified();
+
+    QVERIFY2(testCompiler.loadTestFile(),
+             qPrintable(testCompiler.lastErrorString));
+
+    QCOMPARE(QFileInfo(testCompiler.cacheFilePath).lastModified(),
+             cacheModified);
+}
+
+void tst_qmldiskcache::compositeAttachedCycleDirectAB()
+{
+    // Direct cycle: two composite types, each derived from a different
+    // attaching C++ base, each using the other's attached properties.
+    //
+    //   CompositeA.qml extends TestAttachable  and uses "CompositeB.value: 1"
+    //   CompositeB.qml extends TestAttachableB and uses "CompositeA.value: 2"
+    //
+    // The type loader must detect the circular dependency (A waits on B,
+    // B waits on A) and report an error.
+
+    qmlRegisterType<TestAttachable>("TestModule", 1, 0, "TestAttachable");
+    qmlRegisterType<TestAttachableB>("TestModule", 1, 0, "TestAttachableB");
+
+    QQmlEngine engine;
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    {
+        QFile f(testCompiler.tempDir.path() + "/CompositeA.qml");
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\n"
+                "TestAttachable {\n"
+                "    CompositeB.value: 1\n"
+                "}\n");
+    }
+    {
+        QFile f(testCompiler.tempDir.path() + "/CompositeB.qml");
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\n"
+                "TestAttachableB {\n"
+                "    CompositeA.value: 2\n"
+                "}\n");
+    }
+
+    // Load CompositeA — it depends on CompositeB and vice versa.
+    CleanlyLoadingComponent component(
+            &engine, testCompiler.tempDir.path() + "/CompositeA.qml");
+    QVERIFY(component.isError());
+    QVERIFY2(component.errorString().contains(QLatin1String("Cyclic dependency")),
+             qPrintable(component.errorString()));
+}
+
+void tst_qmldiskcache::compositeAttachedCycleIndirectABC()
+{
+    // Indirect cycle through an intermediate type:
+    //
+    //   CompositeA.qml extends TestAttachable  and uses "CompositeB.value: 1"
+    //   CompositeB.qml extends TestAttachableB and uses "CompositeC.value: 2"
+    //   CompositeC.qml extends TestAttachableC and uses "CompositeA.value: 3"
+    //
+    // The type loader currently only detects direct A↔B cycles in
+    // addDependency(). Indirect cycles (A→B→C→A) are not detected
+    // and cause all three types to wait on each other indefinitely.
+    // This test verifies that the cycle is detected; until the type
+    // loader gains transitive cycle detection this test is expected
+    // to fail.
+
+    QSKIP("Type loader does not detect indirect dependency cycles yet (only direct A<->B).");
+
+    qmlRegisterType<TestAttachable>("TestModule", 1, 0, "TestAttachable");
+    qmlRegisterType<TestAttachableB>("TestModule", 1, 0, "TestAttachableB");
+    qmlRegisterType<TestAttachableC>("TestModule", 1, 0, "TestAttachableC");
+
+    QQmlEngine engine;
+    TestCompiler testCompiler(&engine);
+    QVERIFY(testCompiler.tempDir.isValid());
+
+    {
+        QFile f(testCompiler.tempDir.path() + "/CompositeA.qml");
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\n"
+                "TestAttachable {\n"
+                "    CompositeB.value: 1\n"
+                "}\n");
+    }
+    {
+        QFile f(testCompiler.tempDir.path() + "/CompositeB.qml");
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\n"
+                "TestAttachableB {\n"
+                "    CompositeC.value: 2\n"
+                "}\n");
+    }
+    {
+        QFile f(testCompiler.tempDir.path() + "/CompositeC.qml");
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("import TestModule 1.0\n"
+                "TestAttachableC {\n"
+                "    CompositeA.value: 3\n"
+                "}\n");
+    }
+
+    // Load CompositeA — it depends on B, B on C, C on A.
+    CleanlyLoadingComponent component(
+            &engine, testCompiler.tempDir.path() + "/CompositeA.qml");
+    QVERIFY(component.isError());
+    QVERIFY2(component.errorString().contains(QLatin1String("Cyclic dependency")),
+             qPrintable(component.errorString()));
+}
+
+// Verify that a self-referencing QML type (a type with a property of its own
+// type) can successfully reuse its disk cache. A self-reference produces a
+// ResolvedTypeReference with neither a valid QQmlType nor a compilationUnit,
+// which causes the dependency hash computation to fail and stores an all-zero
+// dependencyMD5Checksum. On reload the hash computation fails again, returning
+// an empty QByteArray that doesn't match the 16-byte all-zero field, so the
+// cache is always rejected and regenerated.
+void tst_qmldiskcache::selfReferenceDoesNotInvalidateCache()
+{
+    QQmlEngine engine;
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString testFilePath = tempDir.path() + "/SelfRef.qml";
+    {
+        QFile f(testFilePath);
+        QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(f.errorString()));
+        f.write(QByteArrayLiteral("import QtQml 2.0\n"
+                                  "QtObject {\n"
+                                  "    property SelfRef child: null\n"
+                                  "}"));
+    }
+
+    // First load: compiles from source and writes .qmlc
+    {
+        CleanlyLoadingComponent component(&engine, QUrl::fromLocalFile(testFilePath));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+
+    const QString cacheFilePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(testFilePath));
+    QVERIFY(QFile::exists(cacheFilePath));
+    QDateTime initialCacheTimeStamp = QFileInfo(cacheFilePath).lastModified();
+    engine.clearComponentCache();
+    waitForFileSystem();
+
+    // Second load: should reuse the cached .qmlc without regenerating it.
+    {
+        CleanlyLoadingComponent component(&engine, QUrl::fromLocalFile(testFilePath));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> obj(component.create());
+        QVERIFY(!obj.isNull());
+    }
+
+    {
+        QVERIFY(QFile::exists(cacheFilePath));
+        QDateTime newCacheTimeStamp = QFileInfo(cacheFilePath).lastModified();
+        QCOMPARE(newCacheTimeStamp, initialCacheTimeStamp);
+    }
 }
 
 QTEST_MAIN(tst_qmldiskcache)

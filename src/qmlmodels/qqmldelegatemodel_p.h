@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDATAMODEL_P_H
 #define QQMLDATAMODEL_P_H
@@ -39,7 +40,7 @@ class Q_QMLMODELS_EXPORT QQmlDelegateModel : public QQmlInstanceModel, public QQ
     Q_OBJECT
     Q_DECLARE_PRIVATE(QQmlDelegateModel)
 
-    Q_PROPERTY(QVariant model READ model WRITE setModel)
+    Q_PROPERTY(QVariant model READ model WRITE setModel NOTIFY modelChanged)
     Q_PROPERTY(QQmlComponent *delegate READ delegate WRITE setDelegate NOTIFY delegateChanged)
     Q_PROPERTY(QString filterOnGroup READ filterGroup WRITE setFilterGroup NOTIFY filterGroupChanged RESET resetFilterGroup)
     Q_PROPERTY(QQmlDelegateModelGroup *items READ items CONSTANT) //TODO : worth renaming?
@@ -47,6 +48,8 @@ class Q_QMLMODELS_EXPORT QQmlDelegateModel : public QQmlInstanceModel, public QQ
     Q_PROPERTY(QQmlListProperty<QQmlDelegateModelGroup> groups READ groups CONSTANT)
     Q_PROPERTY(QObject *parts READ parts CONSTANT)
     Q_PROPERTY(QVariant rootIndex READ rootIndex WRITE setRootIndex NOTIFY rootIndexChanged)
+    Q_PROPERTY(DelegateModelAccess delegateModelAccess READ delegateModelAccess
+            WRITE setDelegateModelAccess NOTIFY delegateModelAccessChanged REVISION(6, 10) FINAL)
     Q_CLASSINFO("DefaultProperty", "delegate")
     QML_NAMED_ELEMENT(DelegateModel)
     QML_ADDED_IN_VERSION(2, 1)
@@ -54,6 +57,13 @@ class Q_QMLMODELS_EXPORT QQmlDelegateModel : public QQmlInstanceModel, public QQ
     Q_INTERFACES(QQmlParserStatus)
 
 public:
+    enum DelegateModelAccess : quint8 {
+        Qt5ReadWrite,
+        ReadOnly,
+        ReadWrite
+    };
+    Q_ENUM(DelegateModelAccess)
+
     QQmlDelegateModel();
     QQmlDelegateModel(QQmlContext *, QObject *parent=nullptr);
     ~QQmlDelegateModel();
@@ -69,6 +79,9 @@ public:
 
     QVariant rootIndex() const;
     void setRootIndex(const QVariant &root);
+
+    DelegateModelAccess delegateModelAccess() const;
+    void setDelegateModelAccess(DelegateModelAccess delegateModelAccess);
 
     Q_INVOKABLE QVariant modelIndex(int idx) const;
     Q_INVOKABLE QVariant parentModelIndex() const;
@@ -102,14 +115,50 @@ public:
 
     static QQmlDelegateModelAttached *qmlAttachedProperties(QObject *obj);
 
+    template<typename View, typename ViewPrivate>
+    static QQmlDelegateModel *createForView(View *q, ViewPrivate *d)
+    {
+        Q_ASSERT(d->model.isNull());
+        QQmlDelegateModel *delegateModel = new QQmlDelegateModel(qmlContext(q), q);
+        d->model = delegateModel;
+        d->ownModel = true;
+        if (d->componentComplete)
+            delegateModel->componentComplete();
+        return delegateModel;
+    }
+
+    template<typename View, typename ViewPrivate>
+    static void applyDelegateModelAccessChangeOnView(View *q, ViewPrivate *d)
+    {
+        if (d->explicitDelegateModelAccess) {
+            qmlWarning(q) << "Explicitly set delegateModelAccess is externally overridden";
+            d->explicitDelegateModelAccess = false;
+        }
+
+        Q_EMIT q->delegateModelAccessChanged();
+    }
+
+    template<typename View, typename ViewPrivate>
+    static void applyDelegateChangeOnView(View *q, ViewPrivate *d)
+    {
+        if (d->explicitDelegate) {
+            qmlWarning(q) << "Explicitly set delegate is externally overridden";
+            d->explicitDelegate = false;
+        }
+
+        Q_EMIT q->delegateChanged();
+    }
+
 Q_SIGNALS:
     void filterGroupChanged();
     void defaultGroupsChanged();
     void rootIndexChanged();
     void delegateChanged();
+    Q_REVISION(6, 10) void delegateModelAccessChanged();
+    Q_REVISION(6, 10) void modelChanged();
 
 private Q_SLOTS:
-    void _q_itemsChanged(int index, int count, const QVector<int> &roles);
+    void _q_itemsChanged(int index, int count, const QList<int> &roles);
     void _q_itemsInserted(int index, int count);
     void _q_itemsRemoved(int index, int count);
     void _q_itemsMoved(int from, int to, int count);
@@ -121,7 +170,7 @@ private Q_SLOTS:
     void _q_rowsAboutToBeRemoved(const QModelIndex &parent, int begin, int end);
     void _q_rowsRemoved(const QModelIndex &,int,int);
     void _q_rowsMoved(const QModelIndex &, int, int, const QModelIndex &, int);
-    void _q_dataChanged(const QModelIndex&,const QModelIndex&,const QVector<int> &);
+    void _q_dataChanged(const QModelIndex&,const QModelIndex&,const QList<int> &);
     void _q_layoutChanged(const QList<QPersistentModelIndex>&, QAbstractItemModel::LayoutChangeHint);
 
 private:
@@ -182,15 +231,15 @@ class QQmlDelegateModelAttached : public QObject
     Q_PROPERTY(QQmlDelegateModel *model READ model CONSTANT FINAL)
     Q_PROPERTY(QStringList groups READ groups WRITE setGroups NOTIFY groupsChanged FINAL)
     Q_PROPERTY(bool isUnresolved READ isUnresolved NOTIFY unresolvedChanged FINAL)
-    Q_PROPERTY(bool inPersistedItems READ inPersistedItems WRITE setInPersistedItems NOTIFY groupsChanged FINAL)
-    Q_PROPERTY(bool inItems READ inItems WRITE setInItems NOTIFY groupsChanged FINAL)
-    Q_PROPERTY(int persistedItemsIndex READ persistedItemsIndex NOTIFY groupsChanged FINAL)
-    Q_PROPERTY(int itemsIndex READ itemsIndex NOTIFY groupsChanged FINAL)
+    Q_PROPERTY(bool inPersistedItems READ inPersistedItems WRITE setInPersistedItems NOTIFY groupsChanged VIRTUAL)
+    Q_PROPERTY(bool inItems READ inItems WRITE setInItems NOTIFY groupsChanged VIRTUAL)
+    Q_PROPERTY(int persistedItemsIndex READ persistedItemsIndex NOTIFY groupsChanged VIRTUAL)
+    Q_PROPERTY(int itemsIndex READ itemsIndex NOTIFY groupsChanged VIRTUAL)
 
 public:
     QQmlDelegateModelAttached(QObject *parent);
     QQmlDelegateModelAttached(QQmlDelegateModelItem *cacheItem, QObject *parent);
-    ~QQmlDelegateModelAttached() {}
+    ~QQmlDelegateModelAttached();
 
     void resetCurrentIndex();
     void setCacheItem(QQmlDelegateModelItem *item);
@@ -228,6 +277,69 @@ public:
     int m_previousIndex[QQmlListCompositor::MaximumGroupCount];
 
     friend class QQmlDelegateModelAttachedMetaObject;
+};
+
+struct QQmlDelegateModelPointer
+{
+    QQmlDelegateModelPointer() = default;
+    QQmlDelegateModelPointer(const QQmlDelegateModelPointer &) = default;
+    QQmlDelegateModelPointer(QQmlDelegateModelPointer &&) = default;
+    QQmlDelegateModelPointer &operator=(const QQmlDelegateModelPointer &) = default;
+    QQmlDelegateModelPointer &operator=(QQmlDelegateModelPointer &&) = default;
+
+    QQmlDelegateModelPointer(QQmlInstanceModel *model)
+        : model(model)
+          , concrete(model ? Unknown : InstanceModel)
+    {}
+
+    QQmlDelegateModelPointer(QQmlDelegateModel *model)
+        : model(model)
+          , concrete(DelegateModel)
+    {}
+
+    QQmlDelegateModelPointer &operator=(QQmlInstanceModel *instanceModel)
+    {
+        model = instanceModel;
+        concrete = model ? Unknown : InstanceModel;
+        return *this;
+    }
+
+    QQmlDelegateModelPointer &operator=(QQmlDelegateModel *delegateModel)
+    {
+        model = delegateModel;
+        concrete = DelegateModel;
+        return *this;
+    }
+
+    QQmlDelegateModel *delegateModel()
+    {
+        switch (concrete) {
+        case DelegateModel:
+            return static_cast<QQmlDelegateModel *>(model);
+        case InstanceModel:
+            return nullptr;
+        case Unknown:
+            break;
+        }
+
+        QQmlDelegateModel *result = qobject_cast<QQmlDelegateModel *>(model);
+        concrete = result ? DelegateModel : InstanceModel;
+        return result;
+    }
+
+    QQmlInstanceModel *instanceModel() { return model; }
+
+    operator bool() const { return model != nullptr; }
+
+private:
+    enum ConcreteType {
+        Unknown,
+        InstanceModel,
+        DelegateModel
+    };
+
+    QQmlInstanceModel *model = nullptr;
+    ConcreteType concrete = InstanceModel;
 };
 
 QT_END_NAMESPACE

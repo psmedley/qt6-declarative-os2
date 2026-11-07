@@ -1112,7 +1112,7 @@ void tst_qqmlincubator::selfDelete()
     // We have to cheat and manually remove it from the creator->allCreatedObjects
     // otherwise we will do a double delete
     QQmlIncubatorPrivate *incubatorPriv = QQmlIncubatorPrivate::get(incubator);
-    incubatorPriv->creator->allCreatedObjects().pop();
+    incubatorPriv->creator->allCreatedObjects().pop_back();
     delete SelfRegisteringType::me();
 
     {
@@ -1161,7 +1161,7 @@ void tst_qqmlincubator::garbageCollection()
 
     // turn the last strong reference to the incubator into a weak one and collect
     QV4::WeakValue weakIncubatorRef;
-    weakIncubatorRef.set(QQmlEnginePrivate::getV4Engine(&engine), QJSValuePrivate::asReturnedValue(&strongRef));
+    weakIncubatorRef.set(engine.handle(), QJSValuePrivate::asReturnedValue(&strongRef));
     strongRef = QJSValue();
     incubatorVariant.clear();
 

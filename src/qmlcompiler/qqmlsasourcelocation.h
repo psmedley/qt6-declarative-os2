@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+// Qt-Security score:significant
 
 #ifndef QQMLSASOURCELOCATION_H
 #define QQMLSASOURCELOCATION_H
@@ -67,6 +68,8 @@ public:
     {
         return !(lhs == rhs);
     }
+
+    static SourceLocation documentOrigin();
 
 private:
     static qsizetype qHashImpl(const SourceLocation &location, qsizetype seed);

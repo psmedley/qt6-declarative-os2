@@ -538,9 +538,11 @@ TestCase {
             initButton: buttonPropertyValue, initAction: defaultValue,
             assignExpected: buttonPropertyValue, assignChanged: false,
             resetExpected: buttonPropertyValue, resetChanged: false })
+        // QTBUG-87459: setting a transparent icon color on the Action when the button's icon
+        // has no explicit color should result in the original icon colors being used.
         data.push({ tag: "default both " + propertyName, property: propertyName,
             initButton: undefined, initAction: defaultValue,
-            assignExpected: defaultValue, assignChanged: false,
+            assignExpected: defaultValue, assignChanged: true,
             resetExpected: defaultValue, resetChanged: false })
         data.push({ tag: "modify button " + propertyName, property: propertyName,
             initButton: undefined, initAction: actionPropertyValue,
@@ -1175,5 +1177,40 @@ TestCase {
         control.animateClick()
         verify(sequenceSpy.success)
         tryCompare(destructionSpy, "count", 1)
+    }
+
+    Component {
+        id: clickedEmittedTwiceBugComponent
+
+        Item {
+            id: container
+
+            property alias button: button
+
+            Button {
+                id: button
+                text: "Take all"
+                action: Action {
+                    shortcut: "R"
+                    enabled: container.visible
+                }
+                onClicked: {
+                    // some stuff would usually happen here...
+                    container.visible = false
+                }
+            }
+        }
+    }
+
+    function test_clickedEmittedTwiceBug() {
+        let root = createTemporaryObject(clickedEmittedTwiceBugComponent, testCase)
+        verify(root)
+        let control = root.button
+
+        let clickedSpy = signalSpy.createObject(control, { target: control, signalName: "clicked" })
+        verify(clickedSpy.valid)
+
+        mouseClick(control)
+        compare(clickedSpy.count, 1)
     }
 }

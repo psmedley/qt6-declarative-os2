@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls
@@ -13,12 +14,12 @@ DialogsQuickImpl.FolderBreadcrumbBar {
                             implicitContentWidth + (upButton ? upButton.implicitWidth + upButtonSpacing : 0)
                             + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
+                             implicitContentHeight + topPadding + bottomPadding, upButton.implicitHeight)
     upButtonSpacing: 20
     padding: 1
 
     background: Rectangle {
-        border.color: control.palette.button
+        color: control.palette.button
     }
     contentItem: ListView {
         currentIndex: control.currentIndex
@@ -50,15 +51,17 @@ DialogsQuickImpl.FolderBreadcrumbBar {
         sourceSize: Qt.size(8, 8)
         width: 8
         height: control.contentItem.height
-        color: control.palette.button
+        color: control.palette.buttonText
         y: (control.height - height) / 2
     }
     upButton: ToolButton {
         x: control.leftPadding
         y: control.topPadding
         icon.source: "qrc:/qt-project.org/imports/QtQuick/Dialogs/quickimpl/images/up-icon-round.png"
+        icon.color: control.palette.buttonText
         icon.width: 16
         icon.height: 16
+        height: control.contentItem.height
         width: height
         focusPolicy: Qt.TabFocus
     }

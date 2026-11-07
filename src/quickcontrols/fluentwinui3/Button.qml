@@ -1,5 +1,6 @@
 // Copyright (C) 2024 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 import QtQuick
 import QtQuick.Controls.impl
@@ -14,38 +15,20 @@ T.Button {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    spacing: config.spacing || 0
+    spacing: __config.spacing || 0
 
-    topPadding: config.topPadding || 0
-    bottomPadding: config.bottomPadding || 0
-    leftPadding: config.leftPadding || 0
-    rightPadding: config.rightPadding || 0
+    topPadding: __config.topPadding || 0
+    bottomPadding: __config.bottomPadding || 0
+    leftPadding: __config.leftPadding || 0
+    rightPadding: __config.rightPadding || 0
 
-    topInset: -config.topInset || 0
-    bottomInset: -config.bottomInset || 0
-    leftInset: -config.leftInset || 0
-    rightInset: -config.rightInset || 0
+    topInset: -__config.topInset || 0
+    bottomInset: -__config.bottomInset || 0
+    leftInset: -__config.leftInset || 0
+    rightInset: -__config.rightInset || 0
 
-    icon.width: config.icon.width
-    icon.height: config.icon.height
-    icon.color: __buttonText
-
-    readonly property color __buttonText: {
-        if (control.down) {
-            return (control.checked || control.highlighted)
-                ? Application.styleHints.colorScheme == Qt.Light
-                    ? Color.transparent("white", 0.7) : Color.transparent("black", 0.5)
-                : (Application.styleHints.colorScheme === Qt.Light
-                    ? Color.transparent(control.palette.buttonText, 0.62)
-                    : Color.transparent(control.palette.buttonText, 0.7725))
-        } else if (control.checked || control.highlighted) {
-            return (Application.styleHints.colorScheme === Qt.Dark && !control.enabled)
-                ? Color.transparent("white", 0.5302)
-                : (Application.styleHints.colorScheme === Qt.Dark ? "black" : "white")
-        } else {
-            return control.palette.buttonText
-        }
-    }
+    icon.width: __config.icon.width
+    icon.height: __config.icon.height
 
     readonly property string __currentState: [
         (control.checked || control.highlighted) && "checked",
@@ -53,7 +36,7 @@ T.Button {
         control.enabled && !control.down && control.hovered && "hovered",
         control.down && "pressed"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var config: (control.flat && Config.controls.flatbutton
+    readonly property var __config: (control.flat && Config.controls.flatbutton
         ? Config.controls.flatbutton[__currentState]
         : Config.controls.button[__currentState]) || {}
 
@@ -63,18 +46,42 @@ T.Button {
         spacing: control.spacing
         mirrored: control.mirrored
         display: control.display
-        alignment: control.config.label.textVAlignment | control.config.label.textHAlignment
+        alignment: control.__config.label.textVAlignment | control.__config.label.textHAlignment
         icon: control.icon
         text: control.text
         font: control.font
-        color: control.icon.color
+        color: defaultIconColor
+        defaultIconColor: {
+            if (Application.styleHints.accessibility.contrastPreference === Qt.HighContrast) {
+                return (control.enabled && ((control.flat && (control.down || control.hovered))
+                    || ((control.highlighted || control.checked) && !control.down)))
+                    ? control.palette.button
+                    : control.enabled && (control.hovered || control.down)
+                    ? control.palette.highlight
+                    : control.palette.buttonText
+            }
+            if (control.down) {
+                return (control.checked || control.highlighted)
+                    ? Application.styleHints.colorScheme === Qt.Light
+                        ? Color.transparent("white", 0.7) : Color.transparent("black", 0.5)
+                    : (Application.styleHints.colorScheme === Qt.Light
+                        ? Color.transparent(control.palette.buttonText, 0.62)
+                        : Color.transparent(control.palette.buttonText, 0.7725))
+            } else if (control.checked || control.highlighted) {
+                return (Application.styleHints.colorScheme === Qt.Dark && !control.enabled)
+                    ? Color.transparent("white", 0.5302)
+                    : (Application.styleHints.colorScheme === Qt.Dark ? "black" : "white")
+            } else {
+                return control.palette.buttonText
+            }
+        }
     }
 
     background: ButtonBackground {
         control: control
-        implicitHeight: control.config.background.height
-        implicitWidth: control.config.background.width
-        radius: control.config.background.topOffset
+        implicitHeight: control.__config.background.height
+        implicitWidth: control.__config.background.width
+        radius: control.__config.background.topOffset
         subtle: control.flat
     }
 }

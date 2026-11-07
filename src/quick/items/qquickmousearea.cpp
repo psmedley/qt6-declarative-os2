@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickmousearea_p.h"
 #include "qquickmousearea_p_p.h"
@@ -20,8 +21,6 @@
 QT_BEGIN_NAMESPACE
 
 DEFINE_BOOL_CONFIG_OPTION(qmlMaVisualTouchDebugging, QML_VISUAL_TOUCH_DEBUGGING)
-
-Q_DECLARE_LOGGING_CATEGORY(lcHoverTrace)
 
 QQuickMouseAreaPrivate::QQuickMouseAreaPrivate()
 : enabled(true), hoverEnabled(false), scrollGestureEnabled(true), hovered(false), longPress(false),
@@ -110,7 +109,7 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
     Q_Q(const QQuickMouseArea);
     QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);
 
-    if (itemPrivate->flags & QQuickItem::ItemClipsChildrenToShape) {
+    if (itemPrivate->effectivelyClipsEventHandlingChildren()) {
         QPointF p = item->mapFromScene(sp);
         if (!item->contains(p))
             return false;
@@ -208,6 +207,7 @@ bool QQuickMouseAreaPrivate::propagateHelper(QQuickMouseEvent *ev, QQuickItem *i
 
     \div {class="float-right"}
     \inlineimage qml-mousearea-snippet.png
+                 {Red and green rectangles demonstrating click and hover states}
     \enddiv
 
     The following example uses a MouseArea in a \l Rectangle that changes
@@ -1084,7 +1084,7 @@ void QQuickMouseArea::itemChange(ItemChange change, const ItemChangeData &value)
                 // that this QQuickMouseArea item was one of the hovered items.
                 if (dap->hoveredLeafItemFound) {
                     for (auto hoverItem : dap->hoverItems) {
-                        if (hoverItem.first == this) {
+                        if (hoverItem.item == this) {
                             // Found a match so update the hover state.
                             d->lastScenePos = scenePos;
                             d->lastPos = mapFromScene(d->lastScenePos);

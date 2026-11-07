@@ -1,5 +1,6 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 #ifndef QSGRHILAYER_P_H
 #define QSGRHILAYER_P_H
 
@@ -17,6 +18,7 @@
 #include <private/qsgadaptationlayer_p.h>
 #include <private/qsgcontext_p.h>
 #include <private/qsgtexture_p.h>
+#include <private/qsgdefaultrendercontext_p.h>
 #include <rhi/qrhi.h>
 
 QT_BEGIN_NAMESPACE
@@ -64,6 +66,7 @@ public Q_SLOTS:
 private:
     void grab();
     void releaseResources();
+    void clearMainTexture();
 
     QSGNode *m_item = nullptr;
     QRectF m_logicalRect;
@@ -73,7 +76,8 @@ private:
 
     QSGRenderer *m_renderer = nullptr;
     QRhiTexture *m_texture = nullptr;
-    QRhiRenderBuffer *m_ds = nullptr;
+    QRhiTexture *m_prevTexture = nullptr;
+    QSharedPointer<QSGDepthStencilBuffer> m_ds;
     QRhiRenderBuffer *m_msaaColorBuffer = nullptr;
     QRhiTexture *m_secondaryTexture = nullptr;
     QRhiTextureRenderTarget *m_rt = nullptr;

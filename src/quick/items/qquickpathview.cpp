@@ -1,11 +1,14 @@
 // Copyright (C) 2019 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickpathview_p.h"
 #include "qquickpathview_p_p.h"
 #include "qquickflickablebehavior_p.h" //Contains flicking behavior defines
 #include "qquicktext_p.h"
 
+#include <QtQml/qqmlcomponent.h>
+#include <QtQuick/private/qquickpointerhandler_p.h>
 #include <QtQuick/private/qquickstate_p.h>
 #include <private/qqmlglobal_p.h>
 #include <private/qqmlopenmetaobject_p.h>
@@ -23,13 +26,16 @@
 
 #include <cmath>
 
+#if QT_CONFIG(quick_itemview)
+#include <private/qquickitemview_p.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcItemViewDelegateLifecycle)
 #if !QT_CONFIG(quick_itemview)
-Q_LOGGING_CATEGORY(lcItemViewDelegateLifecycle, "qt.quick.itemview.lifecycle")
+Q_STATIC_LOGGING_CATEGORY(lcItemViewDelegateLifecycle, "qt.quick.itemview.lifecycle")
 #endif
-Q_LOGGING_CATEGORY(lcPathView, "qt.quick.pathview")
+Q_STATIC_LOGGING_CATEGORY(lcPathView, "qt.quick.pathview")
 
 static QQmlOpenMetaObjectType *qPathViewAttachedType = nullptr;
 
@@ -474,7 +480,8 @@ void QQuickPathViewPrivate::setDragging(bool d)
 
     \snippet qml/pathview/pathview.qml 0
 
-    \image pathview.gif
+    \image pathview.gif {Qt logos rotating along curved path with
+           names Jane Doe, Bill Jones, John Smith}
 
     (Note the above example uses PathAttribute to scale and modify the
     opacity of the items as they rotate. This additional code can be seen in the
@@ -769,7 +776,7 @@ QQuickItem *QQuickPathView::currentItem() const
 }
 
 /*!
-    \qmlmethod QtQuick::PathView::incrementCurrentIndex()
+    \qmlmethod void QtQuick::PathView::incrementCurrentIndex()
 
     Increments the current index.
 
@@ -783,7 +790,7 @@ void QQuickPathView::incrementCurrentIndex()
 }
 
 /*!
-    \qmlmethod QtQuick::PathView::decrementCurrentIndex()
+    \qmlmethod void QtQuick::PathView::decrementCurrentIndex()
 
     Decrements the current index.
 
@@ -1387,7 +1394,7 @@ void QQuickPathView::setMovementDirection(QQuickPathView::MovementDirection dir)
 }
 
 /*!
-    \qmlmethod QtQuick::PathView::positionViewAtIndex(int index, PositionMode mode)
+    \qmlmethod void QtQuick::PathView::positionViewAtIndex(int index, PositionMode mode)
 
     Positions the view such that the \a index is at the position specified by
     \a mode:
@@ -1829,15 +1836,19 @@ bool QQuickPathView::childMouseEventFilter(QQuickItem *i, QEvent *e)
         // but we need to look at position relative to the PathView itself.
         const auto &point = pe->points().first();
         QPointF localPos = mapFromScene(point.scenePosition());
-        QQuickItem *grabber = qmlobject_cast<QQuickItem *>(pe->exclusiveGrabber(point));
-        if (grabber == this && d->stealMouse) {
+        QObject *grabber = pe->exclusiveGrabber(point);
+        QQuickPointerHandler *grabberHandler = qmlobject_cast<QQuickPointerHandler *>(grabber);
+        QQuickItem *grabberItem = grabberHandler ? grabberHandler->parentItem() : qmlobject_cast<QQuickItem *>(grabber);
+        if (grabberItem == this && d->stealMouse) {
             // we are already the grabber and we do want the mouse event to ourselves.
             return true;
         }
 
-        bool grabberDisabled = grabber && !grabber->isEnabled();
+        bool grabberDisabled = (grabberItem && !grabberItem->isEnabled()) || (grabberHandler && !grabberHandler->enabled());
         bool stealThisEvent = d->stealMouse;
-        if ((stealThisEvent || contains(localPos)) && (!grabber || !grabber->keepMouseGrab() || grabberDisabled)) {
+        const bool mouseFromTouch = pe->pointingDevice()->type() == QPointingDevice::DeviceType::TouchScreen;
+        if ((stealThisEvent || contains(localPos)) && (!grabberItem ||
+             (!grabberItem->keepMouseGrab() && (!mouseFromTouch || !grabberItem->keepTouchGrab())) || grabberDisabled)) {
             // Make a localized copy of the QMouseEvent.
             QMutableSinglePointEvent localizedEvent(*static_cast<QMouseEvent *>(pe));
             QMutableEventPoint::setPosition(localizedEvent.point(0), localPos);
@@ -1858,20 +1869,23 @@ bool QQuickPathView::childMouseEventFilter(QQuickItem *i, QEvent *e)
                 break;
             }
 
-            grabber = qmlobject_cast<QQuickItem *>(localizedEvent.exclusiveGrabber(localizedEvent.points().first()));
-            if ((grabber && stealThisEvent && !grabber->keepMouseGrab() && grabber != this) || grabberDisabled)
+            grabber = localizedEvent.exclusiveGrabber(localizedEvent.points().first());
+            grabberHandler = qmlobject_cast<QQuickPointerHandler *>(grabber);
+            grabberItem = grabberHandler ? grabberHandler->parentItem() : qmlobject_cast<QQuickItem *>(grabber);
+            grabberDisabled = (grabberItem && !grabberItem->isEnabled()) || (grabberHandler && !grabberHandler->enabled());
+            if ((grabberItem && stealThisEvent && !grabberItem->keepMouseGrab() && grabber != this) || grabberDisabled)
                 pe->setExclusiveGrabber(point, this);
 
             const bool filtered = stealThisEvent || grabberDisabled;
             if (filtered)
-                pe->setAccepted(stealThisEvent && grabber == this && grabber->isEnabled());
+                pe->setAccepted(stealThisEvent && grabberItem == this && !grabberDisabled);
 
             return filtered;
         } else if (d->timer.isValid()) {
             d->timer.invalidate();
             d->fixOffset();
         }
-        if (pe->type() == QEvent::MouseButtonRelease || (grabber && grabber->keepMouseGrab() && !grabberDisabled))
+        if (pe->type() == QEvent::MouseButtonRelease || (grabberItem && grabberItem->keepMouseGrab() && !grabberDisabled))
             d->stealMouse = false;
         return false;
     }
@@ -2047,7 +2061,6 @@ void QQuickPathView::refill()
                 }
                 d->items.append(item);
                 d->updateItem(item, nextPos);
-                endIdx = idx;
                 endPos = nextPos;
                 ++idx;
                 if (idx >= d->modelCount)
@@ -2095,7 +2108,9 @@ void QQuickPathView::refill()
                 qCDebug(lcItemViewDelegateLifecycle) << "Checking for pathview middle inserts, items count was" << d->items.size();
                 idx = startIdx;
                 QQuickItem *lastItem = d->items.at(0);
-                while (idx != endIdx) {
+                // Walk every index once instead of stopping at endIdx, because a hole can
+                // also sit just outside the populated span. Leave as soon as the view is full.
+                for (int i = 0; i < d->modelCount && d->items.size() < count+d->cacheSize; ++i) {
                     nextPos = d->positionOfIndex(idx);
                     if (d->isInBound(nextPos, d->mappedRange - d->mappedCache, 1 + d->mappedCache)) {
                         //This gets the reference from the delegate model, and will not re-create

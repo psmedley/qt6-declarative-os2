@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKACCESSIBLEATTACHED_H
 #define QQUICKACCESSIBLEATTACHED_H
@@ -24,6 +25,8 @@
 
 #include <QtGui/qaccessible.h>
 #include <private/qtquickglobal_p.h>
+#include <QtQml/qqml.h>
+#include <QtQml/qqmlinfo.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,6 +58,8 @@ class Q_QUICK_EXPORT QQuickAccessibleAttached : public QObject
     Q_PROPERTY(QString description READ description WRITE setDescription NOTIFY descriptionChanged FINAL)
     Q_PROPERTY(QString id READ id WRITE setId NOTIFY idChanged FINAL)
     Q_PROPERTY(bool ignored READ ignored WRITE setIgnored NOTIFY ignoredChanged FINAL)
+    Q_PROPERTY(QQuickItem *labelledBy READ labelledBy WRITE setLabelledBy NOTIFY labelledByChanged FINAL)
+    Q_PROPERTY(QQuickItem *labelFor READ labelFor WRITE setLabelFor NOTIFY labelForChanged FINAL)
 
     QML_NAMED_ELEMENT(Accessible)
     QML_ADDED_IN_VERSION(2, 0)
@@ -66,6 +71,8 @@ public:
     STATE_PROPERTY(checkable)
     STATE_PROPERTY(checked)
     STATE_PROPERTY(editable)
+    STATE_PROPERTY(expandable)
+    STATE_PROPERTY(expanded)
     STATE_PROPERTY(focusable)
     STATE_PROPERTY(focused)
     STATE_PROPERTY(multiLine)
@@ -120,6 +127,7 @@ public:
             QAccessible::updateAccessibility(&ev);
         }
     }
+    void setDescriptionImplicitly(const QString &desc);
 
     QString id() const { return m_id; }
     void setId(const QString &id)
@@ -130,6 +138,56 @@ public:
             QAccessibleEvent ev(parent(), QAccessible::IdentifierChanged);
             QAccessible::updateAccessibility(&ev);
         }
+    }
+
+    QQuickItem *labelledBy() const
+    {
+        return findRelation(QAccessible::Labelled);
+    }
+
+    void setLabelledBy(QQuickItem *labelledBy)
+    {
+        QQuickItem *p = qobject_cast<QQuickItem *>(parent());
+        if (!labelledBy) {
+            qmlWarning(p) << "labelledBy cannot be null";
+            return;
+        }
+        setLabelledByInternal(labelledBy);
+
+        QQuickAccessibleAttached *label = qobject_cast<QQuickAccessibleAttached *>(
+                qmlAttachedPropertiesObject<QQuickAccessibleAttached>(labelledBy));
+
+        label->setLabelForInternal(p);
+    }
+    void setLabelledByInternal(QQuickItem *labelledBy)
+    {
+        m_relations.append({ labelledBy, QAccessible::Labelled });
+        Q_EMIT labelledByChanged();
+    }
+
+    QQuickItem *labelFor() const
+    {
+        return findRelation(QAccessible::Label);
+    }
+
+    void setLabelFor(QQuickItem *labelFor)
+    {
+        QQuickItem *p = qobject_cast<QQuickItem *>(parent());
+        if (!labelFor) {
+            qmlWarning(p) << "labelFor cannot be null";
+            return;
+        }
+        setLabelForInternal(labelFor);
+
+        QQuickAccessibleAttached *labelled = qobject_cast<QQuickAccessibleAttached *>(
+                qmlAttachedPropertiesObject<QQuickAccessibleAttached>(labelFor));
+        labelled->setLabelledBy(p);
+    }
+
+    void setLabelForInternal(QQuickItem *labelFor)
+    {
+        m_relations.append({ labelFor, QAccessible::Label });
+        Q_EMIT labelForChanged();
     }
 
     // Factory function
@@ -205,10 +263,13 @@ Q_SIGNALS:
     void descriptionChanged();
     void idChanged();
     void ignoredChanged();
+    void labelledByChanged();
+    void labelForChanged();
     void pressAction();
     void toggleAction();
     void increaseAction();
     void decreaseAction();
+    void showOnScreenAction();
     void scrollUpAction();
     void scrollDownAction();
     void scrollLeftAction();
@@ -217,6 +278,8 @@ Q_SIGNALS:
     void nextPageAction();
 
 private:
+    QQuickItem *findRelation(QAccessible::Relation relation) const;
+
     QAccessible::Role m_role;
     QAccessible::State m_state;
     QAccessible::State m_stateExplicitlySet;
@@ -226,11 +289,13 @@ private:
     bool m_descriptionExplicitlySet = false;
     QQuickAccessibleAttached* m_proxying = nullptr;
     QString m_id;
+    QList<std::pair<QQuickItem *, QAccessible::Relation>> m_relations;
 
     static QMetaMethod sigPress;
     static QMetaMethod sigToggle;
     static QMetaMethod sigIncrease;
     static QMetaMethod sigDecrease;
+    static QMetaMethod sigShowOnScreen;
     static QMetaMethod sigScrollUp;
     static QMetaMethod sigScrollDown;
     static QMetaMethod sigScrollLeft;

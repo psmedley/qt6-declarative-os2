@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qquadpath_p.h"
+
+#include <private/qsgcurveprocessor_p.h>
+
 #include <QtGui/private/qbezier_p.h>
 #include <QtMath>
 #include <QtCore/QLoggingCategory>
@@ -9,17 +12,17 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcSGCurveProcessor);
-
 static qreal qt_scoreQuadratic(const QBezier &b, QPointF qcp)
 {
-    static bool init = false;
-    const int numSteps = 21;
-    Q_STATIC_ASSERT(numSteps % 2 == 1); // numTries must be odd
-    static qreal t2s[numSteps];
-    static qreal tmts[numSteps];
-    if (!init) {
+    // constexpr auto [t2s, tmts] = [] { // not allowed by C++ :(
+    constexpr auto precomputed = [] {
         // Precompute bezier factors
+        constexpr int numSteps = 21;
+        static_assert(numSteps % 2 == 1, "numSteps must be odd");
+        struct R {
+            std::array<qreal, numSteps> t2s, tmts;
+        } r = {};
+        auto &[t2s, tmts] = r;
         qreal t = 0.20;
         const qreal step = (1 - (2 * t)) / (numSteps - 1);
         for (int i = 0; i < numSteps; i++) {
@@ -27,8 +30,11 @@ static qreal qt_scoreQuadratic(const QBezier &b, QPointF qcp)
             tmts[i] = 2 * t * (1 - t);
             t += step;
         }
-        init = true;
-    }
+        return r;
+    }();
+    constexpr auto t2s = precomputed.t2s;
+    constexpr auto tmts = precomputed.tmts;
+    constexpr auto numSteps = t2s.size();
 
     const QPointF midPoint = b.midPoint();
     auto distForIndex = [&](int i) -> qreal {
@@ -362,8 +368,16 @@ bool QQuadPath::contains(const QVector2D &point, int fromIndex, int toIndex) con
                 }
             }
             if (oneHit) {
-                dir = e.tangentAtFraction(tForHit).y() < 0 ? -1 : 1;
-                winding_number += dir;
+                float ty = e.tangentAtFraction(tForHit).y();
+                if (qFuzzyIsNull(ty)) {
+                    // Horizontal tangent is ambiguous, check second derivative
+                    const float b = e.endPoint().y() - 2 * e.controlPoint().y() + e.startPoint().y();
+                    ty = (tForHit < 0.5f) ? b : -b;
+                }
+                if (ty != 0.0f) {
+                    dir = ty < 0 ? -1 : 1;
+                    winding_number += dir;
+                }
             }
         }
     };
@@ -455,6 +469,10 @@ void QQuadPath::addElement(const QVector2D &control, const QVector2D &endPoint, 
 
     isLine = isLine || isPointNearLine(control, m_currentPoint, endPoint); // Turn flat quad into line
 
+    if (!m_subPathToStart) {
+        Q_ASSERT(!m_elements.isEmpty());
+        m_elements.last().m_isSubpathEnd = false;
+    }
     m_elements.resize(m_elements.size() + 1);
     Element &elem = m_elements.last();
     elem.sp = m_currentPoint;
@@ -463,6 +481,7 @@ void QQuadPath::addElement(const QVector2D &control, const QVector2D &endPoint, 
     elem.m_isLine = isLine;
     elem.m_isSubpathStart = m_subPathToStart;
     m_subPathToStart = false;
+    elem.m_isSubpathEnd = true;
     m_currentPoint = endPoint;
 }
 
@@ -477,16 +496,22 @@ void QQuadPath::addElement(const Element &e)
 #  define QQUICKSHAPECURVERENDERER_CONVEX_CHECK_ERROR_MARGIN (1.0f / 32.0f)
 #endif
 
-QQuadPath::Element::CurvatureFlags QQuadPath::coordinateOrderOfElement(const QQuadPath::Element &element) const
+QQuadPath::Element::FillSide QQuadPath::coordinateOrderOfElement(const QQuadPath::Element &element) const
 {
     QVector2D baseLine = element.endPoint() - element.startPoint();
     QVector2D midPoint = element.midPoint();
     // At the midpoint, the tangent of a quad is parallel to the baseline
     QVector2D normal = QVector2D(-baseLine.y(), baseLine.x()).normalized();
     float delta = qMin(element.extent() / 100, QQUICKSHAPECURVERENDERER_CONVEX_CHECK_ERROR_MARGIN);
-    QVector2D justRightOfMid = midPoint + (normal * delta);
-    bool pathContainsPoint = contains(justRightOfMid);
-    return pathContainsPoint ? Element::FillOnRight : Element::CurvatureFlags(0);
+    QVector2D offset = (normal * delta);
+    bool pathContainsPointToRight = contains(midPoint + offset);
+    bool pathContainsPointToLeft = contains(midPoint - offset);
+    Element::FillSide res = Element::FillSideUndetermined;
+    if (pathContainsPointToRight)
+        res = (pathContainsPointToLeft ? Element::FillSideBoth : Element::FillSideRight);
+    else if (pathContainsPointToLeft)
+        res = Element::FillSideLeft;
+    return res;
 }
 
 QQuadPath QQuadPath::fromPainterPath(const QPainterPath &path, PathHints hints)
@@ -540,6 +565,36 @@ QQuadPath QQuadPath::fromPainterPath(const QPainterPath &path, PathHints hints)
     return res;
 }
 
+static bool hasOverlappingLines(const QQuadPath &path)
+{
+    QVarLengthArray<int, 16> lines;
+    for (int i = 0; i < path.elementCount(); i++) {
+        const QQuadPath::Element &e = path.elementAt(i);
+        if (e.isLine()) {
+            const QVector2D tangent = e.tangentAtFraction(0);
+            const bool isHorizontal = qAbs(tangent.x()) > qAbs(tangent.y());
+            float e1 = isHorizontal ? e.startPoint().x() : e.startPoint().y();
+            float e2 = isHorizontal ? e.endPoint().x() : e.endPoint().y();
+            if (e1 > e2)
+                qSwap(e1, e2);
+            for (int j = 0; j < lines.size(); j++) {
+                const QQuadPath::Element &line = path.elementAt(j);
+                if (QQuadPath::isPointOnLine(e.controlPoint(), line.startPoint(), line.endPoint())) {
+                    // Check overlap
+                    float l1 = isHorizontal ? line.startPoint().x() : line.startPoint().y();
+                    float l2 = isHorizontal ? line.endPoint().x() : line.endPoint().y();
+                    if (l1 > l2)
+                        qSwap(l1, l2);
+                    if (qMax(l1, e1) <= qMin(l2, e2))
+                        return true;
+                }
+            }
+            lines.append(i);
+        }
+    }
+    return false;
+}
+
 void QQuadPath::addCurvatureData()
 {
     // We use the convention that the inside of a curve is on the *right* side of the
@@ -550,24 +605,52 @@ void QQuadPath::addCurvatureData()
     // determine if the direction already follows the convention or not, and then we
     // can easily detect curvature of all subsequent elements in the subpath.
 
-    static bool checkAnomaly = qEnvironmentVariableIntValue("QT_QUICKSHAPES_CHECK_ALL_CURVATURE") != 0;
+    auto isSingleSided = [](Element::FillSide fillSide) {
+        return fillSide == Element::FillSideLeft || fillSide == Element::FillSideRight;
+    };
+
+    auto flagFromFillSide = [](Element::FillSide fillSide) {
+        if (fillSide == Element::FillSideRight || fillSide == Element::FillSideBoth)
+            return Element::FillOnRight;
+        else
+            return Element::CurvatureUndetermined;
+    };
+
+    static bool checkAnomalyEnv = qEnvironmentVariableIntValue("QT_QUICKSHAPES_CHECK_ALL_CURVATURE") != 0;
+    constexpr int overlapTestLimit = 64;
+    // Line overlap test becomes expensive for large counts; leave to manual override with CHECK_ALL
+    const bool checkAnomaly =
+            checkAnomalyEnv || (lineCount() <= overlapTestLimit && hasOverlappingLines(*this));
     const bool pathHasFillOnRight = testHint(PathFillOnRight);
 
     Element::CurvatureFlags flags = Element::CurvatureUndetermined;
-    for (QQuadPath::Element &element : m_elements) {
+    for (int i = 0; i < m_elements.size(); i++) {
+        QQuadPath::Element &element = m_elements[i];
         Q_ASSERT(element.childCount() == 0);
         if (element.isSubpathStart()) {
-            if (pathHasFillOnRight && !checkAnomaly)
+            if (pathHasFillOnRight && !checkAnomaly) {
                 flags = Element::FillOnRight;
-            else
-                flags = coordinateOrderOfElement(element);
+            } else {
+                Element::FillSide fillSide = Element::FillSideUndetermined;
+                for (int j = i; !isSingleSided(fillSide) && j < m_elements.size(); j++) {
+                    const QQuadPath::Element &subElem = m_elements.at(j);
+                    if (j > i && subElem.isSubpathStart())
+                        break;
+                    fillSide = coordinateOrderOfElement(subElem);
+                }
+                flags = flagFromFillSide(fillSide);
+            }
         } else if (checkAnomaly) {
-            Element::CurvatureFlags newFlags = coordinateOrderOfElement(element);
-            if (flags != newFlags) {
-                qDebug() << "Curvature anomaly detected:" << element
-                         << "Subpath fill on right:" << (flags & Element::FillOnRight)
-                         << "Element fill on right:" << (newFlags & Element::FillOnRight);
-                flags = newFlags;
+            Element::FillSide fillSide = coordinateOrderOfElement(element);
+            if (isSingleSided(fillSide)) {
+                Element::CurvatureFlags newFlags = flagFromFillSide(fillSide);
+                if (flags != newFlags) {
+                    qCDebug(lcSGCurveProcessor)
+                            << "Curvature anomaly detected:" << element
+                            << "Subpath fill on right:" << (flags & Element::FillOnRight)
+                            << "Element fill on right:" << (newFlags & Element::FillOnRight);
+                    flags = newFlags;
+                }
             }
         }
 
@@ -917,9 +1000,11 @@ static void printElement(QDebug stream, const QQuadPath::Element &element)
     printPoint(element.controlPoint());
     printPoint(element.endPoint());
     stream << "} " << (element.isLine() ? "L " : "C ") << (element.isConvex() ? "X " : "O ")
+           << (element.isFillOnRight() ? "R " : "L ")
            << (element.isSubpathStart() ? "S" : element.isSubpathEnd() ? "E" : "");
 }
 
+#ifndef QT_NO_DEBUG_STREAM
 QDebug operator<<(QDebug stream, const QQuadPath::Element &element)
 {
     QDebugStateSaver saver(stream);
@@ -936,15 +1021,17 @@ QDebug operator<<(QDebug stream, const QQuadPath &path)
     stream.nospace();
     stream << "QuadPath(" << path.elementCount() << " main elements, "
            << path.elementCountRecursive() << " leaf elements, "
-           << (path.fillRule() == Qt::OddEvenFill ? "OddEven" : "Winding") << Qt::endl;
+           << (path.fillRule() == Qt::OddEvenFill ? "OddEven" : "Winding")
+           << ", hints: " << path.pathHints() << Qt::endl;
     int count = 0;
     path.iterateElements([&](const QQuadPath::Element &e, int) {
-        stream << " " << count++ << (e.isSubpathStart() ? " >" : " ");
+        stream << " " << count++ << (e.isSubpathStart() ? ">" : e.isSubpathEnd() ? "<" : " ");
         printElement(stream, e);
         stream << Qt::endl;
     });
     stream << ")";
     return stream;
 }
+#endif
 
 QT_END_NAMESPACE

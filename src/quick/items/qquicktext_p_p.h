@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKTEXT_P_P_H
 #define QQUICKTEXT_P_P_H
@@ -46,10 +47,11 @@ public:
     void mirrorChange() override;
     bool isLineLaidOutConnected();
     void setLineGeometry(QTextLine &line, qreal lineWidth, qreal &height);
+    void positionInlineImages(const QTextLine &line, const QList<QTextLayout::FormatRange> &formats);
 
     int lineHeightOffset() const;
-    QString elidedText(qreal lineWidth, const QTextLine &line, const QTextLine *nextLine = nullptr) const;
-    void elideFormats(int start, int length, int offset, QVector<QTextLayout::FormatRange> *elidedFormats);
+    QString elidedText(qreal lineWidth, const QTextLine &line) const;
+    void elideFormats(int start, int length, int offset, QList<QTextLayout::FormatRange> *elidedFormats);
     void clearFormats();
 
     void processHoverEvent(QHoverEvent *event);
@@ -164,8 +166,6 @@ public:
     void ensureDoc();
     void updateDocumentText();
 
-    qreal devicePixelRatio() const;
-
     QRectF setupTextLayout(qreal * const baseline);
     void setupCustomLineGeometry(QTextLine &line, qreal &height, int fullLayoutTextLength, int lineOffset = 0);
     bool isLinkActivatedConnected();
@@ -180,7 +180,7 @@ public:
         QRect rect;
     };
 
-    QVector<LinkDesc> getLinks() const;
+    QList<LinkDesc> getLinks() const;
 
     static QString anchorAt(const QTextLayout *layout, const QPointF &mousePos);
     QString anchorAt(const QPointF &pos) const;

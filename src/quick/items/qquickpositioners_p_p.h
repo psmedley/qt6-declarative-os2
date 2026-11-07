@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPOSITIONERS_P_P_H
 #define QQUICKPOSITIONERS_P_P_H
@@ -28,11 +29,14 @@ QT_REQUIRE_CONFIG(quick_positioners);
 #include <QtCore/qstring.h>
 #include <QtCore/qtimer.h>
 
+#include <algorithm>
+
 QT_BEGIN_NAMESPACE
 
 class QQuickItemViewTransitioner;
 
-class QQuickBasePositionerPrivate : public QQuickImplicitSizeItemPrivate, public QQuickItemChangeListener
+class QQuickBasePositionerPrivate : public QQuickImplicitSizeItemPrivate,
+                                    public QSafeQuickItemChangeListener<QQuickBasePositionerPrivate>
 {
     Q_DECLARE_PUBLIC(QQuickBasePositioner)
 
@@ -121,9 +125,9 @@ public:
     void itemDestroyed(QQuickItem *item) override
     {
         Q_Q(QQuickBasePositioner);
-        int index = q->positionedItems.find(QQuickBasePositioner::PositionedItem(item));
-        if (index >= 0)
-            q->removePositionedItem(&q->positionedItems, index);
+        auto it = std::find(q->positionedItems.begin(), q->positionedItems.end(), item);
+        if (it != q->positionedItems.end())
+            q->positionedItems.erase(it);
     }
 
     static Qt::LayoutDirection getLayoutDirection(const QQuickBasePositioner *positioner)

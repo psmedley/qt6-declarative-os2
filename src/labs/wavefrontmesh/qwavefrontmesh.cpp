@@ -1,5 +1,6 @@
 // Copyright (C) 2018 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
 
 #include "qwavefrontmesh_p.h"
 
@@ -36,9 +37,9 @@ public:
         return mesh->d_func();
     }
 
-    QVector<QPair<ushort, ushort> > indexes;
-    QVector<QVector3D> vertexes;
-    QVector<QVector2D> textureCoordinates;
+    QList<std::pair<ushort, ushort> > indexes;
+    QList<QVector3D> vertexes;
+    QList<QVector2D> textureCoordinates;
 
     QUrl source;
     QWavefrontMesh::Error lastError;
@@ -93,6 +94,7 @@ public:
     \table
     \row
     \li \image qtlabs-wavefrontmesh.png
+              {Torus shape with gradient texture coordinates}
     \li \qml
         import QtQuick 2.\1
         import Qt.labs.wavefrontmesh 1.\1
@@ -349,9 +351,9 @@ void QWavefrontMesh::readData()
                             return;
                         }
 
-                        d->indexes.append(qMakePair(ushort(p1), ushort(t1)));
-                        d->indexes.append(qMakePair(ushort(p2), ushort(t2)));
-                        d->indexes.append(qMakePair(ushort(p3), ushort(t3)));
+                        d->indexes.append(std::make_pair(ushort(p1), ushort(t1)));
+                        d->indexes.append(std::make_pair(ushort(p2), ushort(t2)));
+                        d->indexes.append(std::make_pair(ushort(p3), ushort(t3)));
                     } else {
                         setLastError(UnsupportedFaceShapeError);
                         return;
@@ -385,9 +387,9 @@ void QWavefrontMesh::readData()
                         // ### Assumes convex quad, correct algorithm is to find the concave corner,
                         // and if there is one, do the split on the line between this and the corner it is
                         // not connected to. Also assumes order of vertices is counter clockwise.
-                        d->indexes.append(qMakePair(ushort(p3), ushort(t3)));
-                        d->indexes.append(qMakePair(ushort(p4), ushort(t4)));
-                        d->indexes.append(qMakePair(ushort(p1), ushort(t1)));
+                        d->indexes.append(std::make_pair(ushort(p3), ushort(t3)));
+                        d->indexes.append(std::make_pair(ushort(p4), ushort(t4)));
+                        d->indexes.append(std::make_pair(ushort(p1), ushort(t1)));
                     }
                 }
             }

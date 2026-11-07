@@ -3,8 +3,9 @@
 
 /*!
 \page qtquick-index.html
+\meta {keywords} {qmltopic}
 \title Qt Quick
-\brief The Qt Quick module implements the "standard library" for QML
+\brief The Qt Quick module implements the "standard library" for QML.
 
 The Qt Quick module is the standard library for writing QML applications.
 While the \l{Qt Qml} module provides the QML engine and
@@ -24,13 +25,13 @@ interfaces. See \l{Qt Quick Controls} for more information.
 If you're new to QML and Qt Quick, please see \l{QML Applications} for an
 introduction to writing QML applications.
 
-\section1 Using the Module
+\section1 Using the Module in your Project
 
-\section2 QML API
+\section2 Accessing the QML API
 
 \include {module-use.qdocinc} {using the qml api} {QtQuick}
 
-\section2 C++ API
+\section2 In your C++ Project
 
 \include {module-use.qdocinc} {using the c++ api}
 
@@ -59,8 +60,8 @@ shader effects.
     \li \l {Important Concepts In Qt Quick - Positioning} {Positioning}
     \li \l {Important Concepts in Qt Quick - States, Transitions and Animations}
            {States, Transitions And Animations}
-    \li \l {Important Concepts In Qt Quick - Data - Models, Views and data Storage}
-           {Data - Models, Views and Data Storage}
+    \li \l {Important Concepts In Qt Quick - Data - Models, Views, and data Storage}
+           {Data - Models, Views, and Data Storage}
     \li \list \l {Important Concepts In Qt Quick - Graphical Effects}
            {Particles And Graphical Effects}
        \li \l MultiEffect
@@ -102,7 +103,7 @@ To find out more about using the QML language, see the \l{Qt Qml} module documen
             - essential information for application development with QML and Qt
             Quick
         \li \l {Qt Qml}
-            - documentation for the Qt QML module, which provides the QML engine
+            - documentation for the Qt Qml module, which provides the QML engine
             and language infrastructure
         \li \l {Qt Quick How-tos}
             - shows how to achieve specific tasks in Qt Quick
@@ -158,4 +159,9 @@ these free software licenses are
 \l{GNU Lesser General Public License, version 3}, or
 the \l{GNU General Public License, version 2}.
 See \l{Qt Licensing} for further details.
+
+Furthermore Qt Quick in Qt \QtVersion may contain third party
+modules under following permissive licenses:
+
+\annotatedlist attributions-qtquick
 */

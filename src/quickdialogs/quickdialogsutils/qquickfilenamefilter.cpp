@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickfilenamefilter_p.h"
 
@@ -7,7 +8,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcFileNameFilter, "qt.quick.dialogs.qquickfilenamefilter")
+Q_STATIC_LOGGING_CATEGORY(lcFileNameFilter, "qt.quick.dialogs.qquickfilenamefilter")
 
 QQuickFileNameFilter::QQuickFileNameFilter(QObject *parent)
     : QObject(parent), m_index(-1)

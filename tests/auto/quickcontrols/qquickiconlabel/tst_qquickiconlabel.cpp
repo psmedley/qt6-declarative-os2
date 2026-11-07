@@ -12,13 +12,16 @@
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQuick/private/qquickimage_p_p.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickTemplates2/private/qquickabstractbutton_p.h>
 #include <QtQuickTemplates2/private/qquickicon_p.h>
 #include <QtQuickControls2Impl/private/qquickiconimage_p.h>
 #include <QtQuickControls2Impl/private/qquickiconlabel_p.h>
 #include <QtQuickControls2Impl/private/qquickiconlabel_p_p.h>
+#include <QtQuickControls2Impl/private/qquickmnemoniclabel_p.h>
 
+using namespace QQuickViewTestUtils;
 using namespace QQuickVisualTestUtils;
 
 class tst_qquickiconlabel : public QQmlDataTest
@@ -35,6 +38,9 @@ private slots:
     void emptyIconSource();
     void colorChanges();
     void iconSourceContext();
+    void childPaintOrder();
+    void defaultIconColor_data();
+    void defaultIconColor();
 };
 
 tst_qquickiconlabel::tst_qquickiconlabel()
@@ -339,6 +345,71 @@ void tst_qquickiconlabel::iconSourceContext()
         QCOMPARE(imagePrivate->pix1.url(), testFileUrl("a.png"));
     }
 #endif
+}
+
+// QTBUG-133924: check that items declared as children of us are rendered on top of the label and icon image.
+void tst_qquickiconlabel::childPaintOrder()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("childPaintOrder.qml")));
+
+    auto *iconLabel = window.findChild<QQuickItem *>("iconLabel");
+    QVERIFY(iconLabel);
+    auto *iconLabelPrivate = static_cast<QQuickIconLabelPrivate *>(QQuickItemPrivate::get(iconLabel));
+
+    auto *childText = window.findChild<QQuickItem *>("childText");
+    QVERIFY(childText);
+    const QList<QQuickItem *> expectedPaintOrder = { iconLabelPrivate->label, iconLabelPrivate->image, childText };
+    QCOMPARE(iconLabelPrivate->paintOrderChildItems(), expectedPaintOrder);
+}
+
+void tst_qquickiconlabel::defaultIconColor_data()
+{
+    QTest::addColumn<QString>("qmlFileName");
+    QTest::addColumn<QColor>("expectedColorPropertyValue");
+    QTest::addColumn<QColor>("expectedPixelColor");
+
+    const auto grey = QColor("grey");
+    const auto green = QColor("green");
+    const auto red = QColor("red");
+    const auto transparent = QColor("transparent");
+
+    QTest::addRow("default icon color set")
+        << "defaultIconColorSet.qml" << grey << grey;
+    QTest::addRow("icon color and default icon color set")
+        << "iconColorAndDefaultIconColorSet.qml" << green << green;
+    QTest::addRow("menu item action default icon color set")
+        << "menuItemActionDefaultIconColorSet.qml" << grey << grey;
+    QTest::addRow("menu item action icon color and default icon color set")
+        << "menuItemActionIconColorAndDefaultIconColorSet.qml" << green << green;
+    QTest::addRow("no icon color set")
+        << "noIconColorSet.qml" << transparent << red;
+    QTest::addRow("transparent icon color and default icon colour set")
+        << "transparentIconColorAndDefaultIconColorSet.qml" << transparent << red;
+    QTest::addRow("transparent action icon color and default icon colour set")
+        << "transparentActionIconColorAndDefaultIconColorSet.qml" << transparent << red;
+}
+
+void tst_qquickiconlabel::defaultIconColor()
+{
+    QFETCH(QString, qmlFileName);
+    QFETCH(QColor, expectedColorPropertyValue);
+    QFETCH(QColor, expectedPixelColor);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl(qmlFileName)));
+
+    auto *iconImage = window.findChild<QQuickIconImage *>();
+    QVERIFY(iconImage);
+    QCOMPARE(iconImage->color(), expectedColorPropertyValue);
+
+    SKIP_IF_NO_WINDOW_GRAB;
+#ifdef Q_OS_ANDROID
+    QSKIP("Image grabbing is buggy on Android");
+#endif
+    const QImage windowContents = window.grabWindow();
+    QCOMPARE(windowContents.pixelColor(windowContents.width() / 2, windowContents.height() / 2),
+        expectedPixelColor);
 }
 
 QTEST_MAIN(tst_qquickiconlabel)

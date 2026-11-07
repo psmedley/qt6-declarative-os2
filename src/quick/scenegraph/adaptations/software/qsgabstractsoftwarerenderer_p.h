@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QSGABSTRACTSOFTWARERENDERER_H
 #define QSGABSTRACTSOFTWARERENDERER_H
@@ -40,6 +41,9 @@ public:
 
     void markDirty();
 
+    void setClearColorEnabled(bool enable);
+    bool clearColorEnabled() const;
+
 protected:
     QRegion renderNodes(QPainter *painter);
     void buildRenderList();
@@ -51,7 +55,7 @@ protected:
     QRect backgroundRect();
     // only known after calling optimizeRenderList()
     bool isOpaque() const { return m_isOpaque; }
-    const QVector<QSGSoftwareRenderableNode*> &renderableNodes() const;
+    const QList<QSGSoftwareRenderableNode*> &renderableNodes() const;
 
 private:
     void nodeAdded(QSGNode *node);
@@ -62,7 +66,7 @@ private:
     void nodeOpacityUpdated(QSGNode *node);
 
     QHash<QSGNode*, QSGSoftwareRenderableNode*> m_nodes;
-    QVector<QSGSoftwareRenderableNode*> m_renderableNodes;
+    QList<QSGSoftwareRenderableNode*> m_renderableNodes;
 
     QSGSimpleRectNode *m_background;
 
@@ -70,6 +74,7 @@ private:
     QRegion m_obscuredRegion;
     qreal m_devicePixelRatio = 1;
     bool m_isOpaque = false;
+    bool m_clearColorEnabled = true;
 
     QSGSoftwareRenderableNodeUpdater *m_nodeUpdater;
 };

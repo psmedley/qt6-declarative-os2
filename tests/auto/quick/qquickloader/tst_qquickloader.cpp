@@ -5,6 +5,8 @@
 
 #include <QSignalSpy>
 
+#include <QtCore/QElapsedTimer>
+
 #include <QtQml/QQmlContext>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
@@ -117,6 +119,8 @@ private slots:
     void stackOverflow();
     void stackOverflow2();
     void boundComponent();
+
+    void invalidateContext();
 };
 
 Q_DECLARE_METATYPE(QList<QQmlError>)
@@ -486,7 +490,7 @@ void tst_QQuickLoader::networkComponent()
                         "Item {\n"
                         " Component { id: comp; NW.Rect120x60 {} }\n"
                         " Loader { sourceComponent: comp } }";
-    component.setData(qml.toUtf8(), dataDirectory());
+    component.setData(qml.toUtf8(), dataDirectoryUrl());
     // The component may be loaded synchronously or asynchronously, so we cannot test for
     // status == Loading here. Also, it makes no sense to instruct the server to send here
     // because in the synchronous case we're already done loading.
@@ -730,13 +734,13 @@ void tst_QQuickLoader::initialPropertyValues_data()
 void tst_QQuickLoader::initialPropertyValues()
 {
     QFETCH(QUrl, qmlFile);
-    QFETCH(QStringList, expectedWarnings);
+    QFETCH(const QStringList, expectedWarnings);
     QFETCH(QStringList, propertyNames);
     QFETCH(QVariantList, propertyValues);
 
     ThreadedTestHTTPServer server(dataDirectory());
 
-    for (const QString &warning : std::as_const(expectedWarnings))
+    for (const QString &warning : expectedWarnings)
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warning.toLatin1().constData()));
 
     QQmlEngine engine;
@@ -795,9 +799,9 @@ void tst_QQuickLoader::initialPropertyValuesError_data()
 void tst_QQuickLoader::initialPropertyValuesError()
 {
     QFETCH(QUrl, qmlFile);
-    QFETCH(QStringList, expectedWarnings);
+    QFETCH(const QStringList, expectedWarnings);
 
-    for (const QString &warning : std::as_const(expectedWarnings))
+    for (const QString &warning : expectedWarnings)
         QTest::ignoreMessage(QtWarningMsg, warning.toUtf8().constData());
 
     QQmlEngine engine;
@@ -939,7 +943,7 @@ void tst_QQuickLoader::asynchronous_data()
 void tst_QQuickLoader::asynchronous()
 {
     QFETCH(QUrl, qmlFile);
-    QFETCH(QStringList, expectedWarnings);
+    QFETCH(const QStringList, expectedWarnings);
 
     QQmlEngine engine;
     QScopedPointer<PeriodicIncubationController> controller(new PeriodicIncubationController);
@@ -954,7 +958,7 @@ void tst_QQuickLoader::asynchronous()
     QQuickLoader *loader = root->findChild<QQuickLoader*>("loader");
     QVERIFY(loader);
 
-    for (const QString &warning : std::as_const(expectedWarnings))
+    for (const QString &warning : expectedWarnings)
         QTest::ignoreMessage(QtWarningMsg, warning.toUtf8().constData());
 
     QVERIFY(!loader->item());
@@ -1245,9 +1249,9 @@ void tst_QQuickLoader::transientWindow() // QTBUG-52944
     QElapsedTimer timer;
     qint64 viewVisibleTime = -1;
     qint64 loadedWindowVisibleTime = -1;
-    connect(&view, &QWindow::visibleChanged,
+    connect(&view, &QWindow::visibleChanged, this,
             [&viewVisibleTime, &timer]() { viewVisibleTime = timer.elapsed(); } );
-    connect(loadedWindow, &QQuickWindowQmlImpl::visibilityChanged,
+    connect(loadedWindow, &QQuickWindowQmlImpl::visibilityChanged, this,
             [&loadedWindowVisibleTime, &timer]() { loadedWindowVisibleTime = timer.elapsed(); } );
     timer.start();
     view.show();
@@ -1286,9 +1290,9 @@ void tst_QQuickLoader::nestedTransientWindow() // QTBUG-52944
     QElapsedTimer timer;
     qint64 viewVisibleTime = -1;
     qint64 loadedWindowVisibleTime = -1;
-    connect(&view, &QWindow::visibleChanged,
+    connect(&view, &QWindow::visibleChanged, this,
             [&viewVisibleTime, &timer]() { viewVisibleTime = timer.elapsed(); } );
-    connect(loadedWindow, &QQuickWindowQmlImpl::visibilityChanged,
+    connect(loadedWindow, &QQuickWindowQmlImpl::visibilityChanged, this,
             [&loadedWindowVisibleTime, &timer]() { loadedWindowVisibleTime = timer.elapsed(); } );
     timer.start();
     view.show();
@@ -1616,6 +1620,60 @@ void tst_QQuickLoader::boundComponent()
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     QScopedPointer<QObject> o(component.create());
     QCOMPARE(o->objectName(), QStringLiteral("loaded"));
+}
+
+class CppModel : public QAbstractListModel
+{
+public:
+    virtual int rowCount(const QModelIndex &) const override {return 1;}
+    virtual QVariant data(const QModelIndex &, int) const override { return "test"; }
+
+    void reset () {beginResetModel(); endResetModel();}
+};
+
+class RootData : public QObject
+{
+    Q_OBJECT
+public:
+    RootData() : object(std::make_unique<QObject>())
+    {
+        object->setObjectName("objectName");
+    }
+
+    Q_INVOKABLE QString getValue() const {  return object->objectName(); }
+
+    void deleteObject() { object.reset(); }
+
+private:
+    std::unique_ptr<QObject> object;
+};
+
+void tst_QQuickLoader::invalidateContext()
+{
+    CppModel model;
+    RootData rootData;
+
+    QQmlEngine engine;
+    QQmlContext *rootContext = engine.rootContext();
+    rootContext->setContextProperty("cppModel", &model);
+    rootContext->setContextProperty("loaderActive", true);
+    rootContext->setContextProperty("rootData", &rootData);
+
+    QQmlComponent component(&engine, testFileUrl("invalidateContext.qml"));\
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QTest::ignoreMessage(QtDebugMsg, "Repeater constructed");
+    QTest::ignoreMessage(QtDebugMsg, "updating text");
+    QScopedPointer<QObject> o(component.create());
+
+    QTest::ignoreMessage(QtDebugMsg, "Repeater destroyed");
+    rootContext->setContextProperty("loaderActive", false);
+
+    // The object should never be used anymore, as loader is inactive
+    rootData.deleteObject();
+
+    // Should not trigger any re-evaluation (which would crash in getValue())
+    model.reset();
 }
 
 QTEST_MAIN(tst_QQuickLoader)

@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickattachedpropertypropagator.h"
 
@@ -13,7 +14,7 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(lcAttached, "qt.quick.controls.attachedpropertypropagator")
+Q_STATIC_LOGGING_CATEGORY(lcAttached, "qt.quick.controls.attachedpropertypropagator")
 
 /*!
     \class QQuickAttachedPropertyPropagator
@@ -130,7 +131,7 @@ static QQuickAttachedPropertyPropagator *findAttachedParent(const QMetaObject *o
     */
     auto popupItem = qobject_cast<QQuickPopupItem *>(objectWeAreAttachedTo);
     if (popupItem) {
-        qCDebug(lcAttached).noquote() << "- attachee belongs to popup item" << popupItem << "- checking if it has an attached object";
+        qCDebug(lcAttached).noquote() << "- attachee is a popup item" << popupItem << "- checking if it has an attached object";
         auto popupItemPrivate = QQuickPopupItemPrivate::get(popupItem);
         QQuickAttachedPropertyPropagator *popupAttached = attachedObject(ourAttachedType, popupItemPrivate->popup);
         if (popupAttached) {
@@ -140,7 +141,7 @@ static QQuickAttachedPropertyPropagator *findAttachedParent(const QMetaObject *o
             qCDebug(lcAttached).noquote() << "- popup item does not have attached object";
         }
     } else {
-        qCDebug(lcAttached).noquote() << "- attachee does not belong to a popup";
+        qCDebug(lcAttached).noquote() << "- attachee is not a popup item";
     }
 
     QQuickItem *item = qobject_cast<QQuickItem *>(objectWeAreAttachedTo);
@@ -177,12 +178,20 @@ static QQuickAttachedPropertyPropagator *findAttachedParent(const QMetaObject *o
         QQuickPopup *popup = qobject_cast<QQuickPopup *>(objectWeAreAttachedTo);
         if (popup) {
             qCDebug(lcAttached).noquote() << "- attachee is a popup; checking its window";
-            auto* popupWindow = popup->popupItem()->window();
-            auto *object = attachedObject(ourAttachedType, popupWindow);
+            auto *window = popup->popupItem()->window();
+            auto *object = attachedObject(ourAttachedType, window);
             // Check if the attached object exists for the popup window. If it
             // doesn't, use transient parent attached object
-            if (!object && qobject_cast<QQuickPopupWindow *>(popupWindow))
-                return attachedObject(ourAttachedType, popupWindow->transientParent());
+            if (!object && qobject_cast<QQuickPopupWindow *>(window)) {
+                auto *transientParentWnd = window->transientParent();
+                do {
+                    object = attachedObject(ourAttachedType, transientParentWnd);
+                    if (object)
+                        break;
+                    transientParentWnd = transientParentWnd->transientParent();
+                } while (transientParentWnd);
+                qCDebug(lcAttached).noquote() << "- attached object of the transient parent window: " << object;
+            }
             return object;
         }
     }
@@ -276,7 +285,8 @@ static QQuickItem *findAttachedItem(QObject *parent)
     return item;
 }
 
-class QQuickAttachedPropertyPropagatorPrivate : public QObjectPrivate, public QQuickItemChangeListener
+class QQuickAttachedPropertyPropagatorPrivate : public QObjectPrivate,
+                                                public QSafeQuickItemChangeListener<QQuickAttachedPropertyPropagatorPrivate>
 {
 public:
     Q_DECLARE_PUBLIC(QQuickAttachedPropertyPropagator)

@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKPRESSHANDLER_P_P_H
 #define QQUICKPRESSHANDLER_P_P_H
@@ -46,7 +47,7 @@ struct QQuickPressHandler
     int pressAndHoldSignalIndex = -1;
     int pressedSignalIndex = -1;
     int releasedSignalIndex = -1;
-    std::unique_ptr<QMouseEvent> delayedMousePressEvent = nullptr;
+    std::unique_ptr<QMouseEvent> delayedMousePressEvent;
 };
 
 QT_END_NAMESPACE

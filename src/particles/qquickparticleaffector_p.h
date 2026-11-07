@@ -29,7 +29,7 @@ class Q_QUICKPARTICLES_EXPORT QQuickParticleAffector : public QQuickItem
     Q_PROPERTY(QQuickParticleSystem* system READ system WRITE setSystem NOTIFY systemChanged)
     Q_PROPERTY(QStringList groups READ groups WRITE setGroups NOTIFY groupsChanged)
     Q_PROPERTY(QStringList whenCollidingWith READ whenCollidingWith WRITE setWhenCollidingWith NOTIFY whenCollidingWithChanged)
-    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged OVERRIDE)
     Q_PROPERTY(bool once READ onceOff WRITE setOnceOff NOTIFY onceChanged)
     Q_PROPERTY(QQuickParticleExtruder* shape READ shape WRITE setShape NOTIFY shapeChanged)
 
@@ -91,6 +91,8 @@ public Q_SLOTS:
 void setSystem(QQuickParticleSystem* arg)
 {
     if (m_system != arg) {
+        if (m_system)
+            m_system->unregisterParticleAffector(this);
         m_system = arg;
         if (m_system)
             m_system->registerParticleAffector(this);
@@ -161,7 +163,7 @@ protected:
     static const qreal simulationCutoff;
 
     QPointF m_offset;
-    QSet<QPair<int, int>> m_onceOffed;
+    QSet<std::pair<int, int>> m_onceOffed;
 private:
     QSet<int> m_groupIds;
     bool m_updateIntSet;

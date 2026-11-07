@@ -10,6 +10,7 @@ Rectangle {
     height: 256
 
     Shape {
+        preferredRendererType: root.requestedBackend
         anchors.centerIn: parent
         width: 200
         height: 100
@@ -19,6 +20,7 @@ Rectangle {
             strokeColor: "black"
             strokeWidth: 1
             fillColor: "black"
+            fillRule: ShapePath.WindingFill
 
             PathText {
                 x: 0

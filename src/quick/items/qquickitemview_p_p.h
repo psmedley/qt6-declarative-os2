@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKITEMVIEW_P_P_H
 #define QQUICKITEMVIEW_P_P_H
@@ -43,7 +44,7 @@ public:
 };
 
 
-class Q_AUTOTEST_EXPORT QQuickItemViewChangeSet
+class Q_QUICK_EXPORT QQuickItemViewChangeSet
 {
 public:
     QQuickItemViewChangeSet();
@@ -151,6 +152,7 @@ public:
         return releaseItem(oldCurrentItem, reusableFlag);
     }
     virtual bool releaseItem(FxViewItem *item, QQmlInstanceModel::ReusableFlag reusableFlag);
+    void itemDestroyed(QQuickItem *item) override;
 
     QQuickItem *createHighlightItem();
     QQuickItem *createComponentItem(QQmlComponent *component, qreal zValue, bool createDefault = false) const;
@@ -168,7 +170,14 @@ public:
     qreal calculatedMinExtent() const;
     qreal calculatedMaxExtent() const;
 
+    void connectModel(QQuickItemView *q, QQmlDelegateModelPointer *model);
+    void disconnectModel(QQuickItemView *q, QQmlDelegateModelPointer *model);
+
     void applyDelegateChange();
+    void applyDelegateModelAccessChange()
+    {
+        QQmlDelegateModel::applyDelegateModelAccessChangeOnView(q_func(), this);
+    }
 
     void applyPendingChanges();
     bool applyModelChanges(ChangeResult *insertionResult, ChangeResult *removalResult);
@@ -186,7 +195,7 @@ public:
     void viewItemTransitionFinished(QQuickItemViewTransitionableItem *item) override;
 #endif
 
-    int findMoveKeyIndex(QQmlChangeSet::MoveKey key, const QVector<QQmlChangeSet::Change> &changes) const;
+    int findMoveKeyIndex(QQmlChangeSet::MoveKey key, const QList<QQmlChangeSet::Change> &changes) const;
 
     void checkVisible() const;
     void showVisibleItems() const;
@@ -234,7 +243,6 @@ public:
     virtual QQuickItemViewAttached *getAttachedObject(const QObject *) const { return nullptr; }
 
     QPointer<QQmlInstanceModel> model;
-    QVariant modelVariant;
     int itemCount;
     int buffer;
     int bufferMode;
@@ -285,7 +293,7 @@ public:
     };
 #if QT_CONFIG(quick_viewtransitions)
     QQuickItemViewTransitioner *transitioner;
-    QVector<FxViewItem *> releasePendingTransition;
+    QList<FxViewItem *> releasePendingTransition;
 #endif
 
     mutable qreal minExtent;
@@ -310,6 +318,9 @@ public:
 #endif
     bool delegateValidated : 1;
     bool isClearing : 1;
+    bool explicitDelegate: 1;
+    bool explicitDelegateModelAccess: 1;
+    bool inRefill : 1;
 
 protected:
     virtual Qt::Orientation layoutOrientation() const = 0;

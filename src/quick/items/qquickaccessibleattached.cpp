@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickaccessibleattached_p.h"
 
@@ -99,13 +100,13 @@ QT_BEGIN_NAMESPACE
             that run on touch-only devices since screen readers often implement a virtual focus that
             can be moved from item to item.
     \row
-        \li Button, CheckBox, RadioButton
+        \li Button, CheckBox, RadioButton, Switch
         \li \l {Accessible::pressAction}{Accessible.pressAction}
         \li A button should have a signal handler with the name \c onPressAction.
             This signal may be emitted by an assistive tool such as a screen-reader.
             The implementation needs to behave the same as a mouse click or tap on the button.
     \row
-       \li CheckBox, RadioButton
+       \li CheckBox, RadioButton, Switch
        \li \l checkable, \l checked, \l {Accessible::toggleAction}{Accessible.toggleAction}
 
        \li The check state of the check box. Updated on Press, Check and Uncheck actions.
@@ -133,8 +134,8 @@ QT_BEGIN_NAMESPACE
     \brief This property holds whether this item is focusable.
 
     By default, this property is \c false except for items where the role is one of
-    \c CheckBox, \c RadioButton, \c Button, \c MenuItem, \c PageTab, \c EditableText, \c SpinBox, \c ComboBox,
-    \c Terminal or \c ScrollBar.
+    \c CheckBox, \c RadioButton, \c Switch, \c Button, \c MenuItem, \c PageTab,
+    \c EditableText, \c SpinBox, \c ComboBox, \c Terminal or \c ScrollBar.
     \sa focused
 */
 /*! \qmlproperty bool QtQuick::Accessible::focused
@@ -155,6 +156,20 @@ QT_BEGIN_NAMESPACE
 
     By default this property is \c false.
     \sa checkable
+*/
+/*! \qmlproperty bool QtQuick::Accessible::expandable
+    \brief This property holds whether this item is expandable.
+
+    \since 6.12
+    By default this property is \c false.
+    \sa expanded
+*/
+/*! \qmlproperty bool QtQuick::Accessible::expanded
+    \brief This property holds whether this item is currently expanded.
+
+    \since 6.12
+    By default this property is \c false.
+    \sa expandable
 */
 /*! \qmlproperty bool QtQuick::Accessible::editable
     \brief This property holds whether this item has editable text.
@@ -243,6 +258,24 @@ QT_BEGIN_NAMESPACE
 
     By default this property is \c false.
 */
+/*! \qmlproperty Item QtQuick::Accessible::labelledBy
+    \brief This property holds the item that is used as a label for this item.
+
+    Setting this property automatically sets up the labelFor relation of the other object.
+
+    By default this property is \c undefined.
+
+    \since 6.10
+ */
+/*! \qmlproperty Item QtQuick::Accessible::labelFor
+    \brief This property holds the item that this item is a label for.
+
+    Setting this property automatically sets up the labelledBy relation of the other object.
+
+    By default this property is \c undefined.
+
+    \since 6.10
+ */
 
 /*!
     \qmlsignal QtQuick::Accessible::pressAction()
@@ -263,6 +296,12 @@ QT_BEGIN_NAMESPACE
     \qmlsignal QtQuick::Accessible::decreaseAction()
 
     This signal is emitted when a decrease action is received from an assistive tool such as a screen-reader.
+*/
+/*!
+    \qmlsignal QtQuick::Accessible::showOnScreenAction()
+
+    This signal is emitted when an assistive tool such as a screen-reader detects a partially visible element
+    and requests it to be fully visible.
 */
 /*!
     \qmlsignal QtQuick::Accessible::scrollUpAction()
@@ -299,6 +338,7 @@ QMetaMethod QQuickAccessibleAttached::sigPress;
 QMetaMethod QQuickAccessibleAttached::sigToggle;
 QMetaMethod QQuickAccessibleAttached::sigIncrease;
 QMetaMethod QQuickAccessibleAttached::sigDecrease;
+QMetaMethod QQuickAccessibleAttached::sigShowOnScreen;
 QMetaMethod QQuickAccessibleAttached::sigScrollUp;
 QMetaMethod QQuickAccessibleAttached::sigScrollDown;
 QMetaMethod QQuickAccessibleAttached::sigScrollLeft;
@@ -318,7 +358,7 @@ QQuickAccessibleAttached::QQuickAccessibleAttached(QObject *parent)
     } else {
         const QLatin1StringView className(QQmlData::ensurePropertyCache(parent)->firstCppMetaObject()->className());
         if (className != QLatin1StringView("QQuickAction")) {
-            qmlWarning(parent) << "Accessible must be attached to an Item or an Action";
+            qmlWarning(parent) << "Accessible attached property must be attached to an object deriving from Item or Action";
             return;
         }
     }
@@ -346,12 +386,19 @@ QQuickAccessibleAttached::QQuickAccessibleAttached(QObject *parent)
             return;
         };
         const QMetaObject &smo = staticMetaObject;
-        static const int valueChangedIndex = smo.indexOfSlot("valueChanged()");
-        connectPropertyChangeSignal("value", "valueChanged", valueChangedIndex);
 
-        static const int cursorPositionChangedIndex = smo.indexOfSlot("cursorPositionChanged()");
-        connectPropertyChangeSignal("cursorPosition", "cursorPositionChanged",
-                                    cursorPositionChangedIndex);
+        QAccessibleInterface *iface = ev.accessibleInterface();
+        if (iface && iface->valueInterface()) {
+            static const int valueChangedIndex = smo.indexOfSlot("valueChanged()");
+            connectPropertyChangeSignal("value", "valueChanged", valueChangedIndex);
+        }
+
+        if (iface && iface->textInterface()) {
+            static const int cursorPositionChangedIndex =
+                    smo.indexOfSlot("cursorPositionChanged()");
+            connectPropertyChangeSignal("cursorPosition", "cursorPositionChanged",
+                                        cursorPositionChangedIndex);
+        }
     }
 
     if (!sigPress.isValid()) {
@@ -359,6 +406,7 @@ QQuickAccessibleAttached::QQuickAccessibleAttached(QObject *parent)
         sigToggle = QMetaMethod::fromSignal(&QQuickAccessibleAttached::toggleAction);
         sigIncrease = QMetaMethod::fromSignal(&QQuickAccessibleAttached::increaseAction);
         sigDecrease = QMetaMethod::fromSignal(&QQuickAccessibleAttached::decreaseAction);
+        sigShowOnScreen = QMetaMethod::fromSignal(&QQuickAccessibleAttached::showOnScreenAction);
         sigScrollUp = QMetaMethod::fromSignal(&QQuickAccessibleAttached::scrollUpAction);
         sigScrollDown = QMetaMethod::fromSignal(&QQuickAccessibleAttached::scrollDownAction);
         sigScrollLeft = QMetaMethod::fromSignal(&QQuickAccessibleAttached::scrollLeftAction);
@@ -383,6 +431,7 @@ void QQuickAccessibleAttached::setRole(QAccessible::Role role)
         switch (role) {
         case QAccessible::CheckBox:
         case QAccessible::RadioButton:
+        case QAccessible::Switch:
             if (!m_stateExplicitlySet.focusable)
                 m_state.focusable = true;
             if (!m_stateExplicitlySet.checkable)
@@ -429,6 +478,14 @@ void QQuickAccessibleAttached::setNameImplicitly(const QString &name)
     m_nameExplicitlySet = false;
 }
 
+void QQuickAccessibleAttached::setDescriptionImplicitly(const QString &desc)
+{
+    if (m_descriptionExplicitlySet)
+        return;
+    setDescription(desc);
+    m_descriptionExplicitlySet = false;
+}
+
 QQuickAccessibleAttached *QQuickAccessibleAttached::qmlAttachedProperties(QObject *obj)
 {
     return new QQuickAccessibleAttached(obj);
@@ -445,6 +502,9 @@ void QQuickAccessibleAttached::setIgnored(bool ignored)
     auto item = qobject_cast<QQuickItem *>(parent());
     if (item && this->ignored() != ignored) {
         item->d_func()->isAccessible = !ignored;
+        QAccessibleEvent event(item,
+                               ignored ? QAccessible::ObjectDestroyed : QAccessible::ObjectCreated);
+        QAccessible::updateAccessibility(&event);
         emit ignoredChanged();
     }
 }
@@ -460,6 +520,8 @@ bool QQuickAccessibleAttached::doAction(const QString &actionName)
         sig = &sigIncrease;
     else if (actionName == QAccessibleActionInterface::decreaseAction())
         sig = &sigDecrease;
+    else if (actionName == QAccessibleActionInterface::showOnScreenAction())
+        sig = &sigShowOnScreen;
     else if (actionName == QAccessibleActionInterface::scrollUpAction())
         sig = &sigScrollUp;
     else if (actionName == QAccessibleActionInterface::scrollDownAction())
@@ -493,6 +555,8 @@ void QQuickAccessibleAttached::availableActions(QStringList *actions) const
         actions->append(QAccessibleActionInterface::increaseAction());
     if (isSignalConnected(sigDecrease))
         actions->append(QAccessibleActionInterface::decreaseAction());
+    if (isSignalConnected(sigShowOnScreen))
+        actions->append(QAccessibleActionInterface::showOnScreenAction());
     if (isSignalConnected(sigScrollUp))
         actions->append(QAccessibleActionInterface::scrollUpAction());
     if (isSignalConnected(sigScrollDown))
@@ -581,6 +645,16 @@ void QQuickAccessibleAttached::announce(const QString &message, QAccessible::Ann
     QAccessibleAnnouncementEvent event(parent(), message);
     event.setPoliteness(politeness);
     QAccessible::updateAccessibility(&event);
+}
+
+QQuickItem *QQuickAccessibleAttached::findRelation(QAccessible::Relation relation) const
+{
+    const auto it = std::find_if(m_relations.cbegin(), m_relations.cend(),
+                                 [relation](const auto &rel) {
+        return rel.second == relation;
+    });
+
+    return it != m_relations.cend() ? it->first : nullptr;
 }
 
 QT_END_NAMESPACE

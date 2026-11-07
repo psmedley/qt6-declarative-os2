@@ -16,10 +16,13 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
+#include <QtQuick/private/qquickloader_p.h>
 #include <QtQuickTest/quicktest.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
@@ -123,10 +126,19 @@ private slots:
     void resetCurrentIndexUponPopup_data();
     void resetCurrentIndexUponPopup();
     void mousePropagationWithinPopup();
+    void shortcutInNestedSubMenuAction();
+    void animationOnHeight();
+    void dontDeleteDelegates();
+    void loadMenuAsynchronously();
+    void visibleTrue();
+    void resetContentItem();
+    void collapsibleSeparators();
+    void collapsibleSeparatorsUserHidden();
+    void collapsibleSeparatorsWithBinding();
+    void destroyWindowWithOpenPopupWindow();
 
 private:
     bool nativeMenuSupported = false;
-    bool popupWindowsSupported = false;
 };
 
 // This allows us to use QQuickMenuItem's more descriptive operator<< output
@@ -143,9 +155,6 @@ tst_QQuickMenu::tst_QQuickMenu()
 {
     std::unique_ptr<QPlatformMenu> platformMenu(QGuiApplicationPrivate::platformTheme()->createPlatformMenu());
     nativeMenuSupported = platformMenu != nullptr;
-#if defined(Q_OS_WINDOWS) || defined (Q_OS_MACOS)
-    popupWindowsSupported = QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::Capability::MultipleWindows);
-#endif
 }
 
 void tst_QQuickMenu::init()
@@ -212,7 +221,7 @@ void tst_QQuickMenu::mouse_data()
 {
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
     QTest::newRow("Popup.Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("Popup.Window") << QQuickPopup::Window;
 }
 
@@ -230,7 +239,6 @@ void tst_QQuickMenu::mouse()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
@@ -265,7 +273,7 @@ void tst_QQuickMenu::mouse()
     // so that the highlight acts as a way of illustrating press state.
     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, window->mapFromGlobal(firstItem->mapToGlobal(firstItem->boundingRect().center()).toPoint()));
     QTRY_COMPARE(menu->currentIndex(), 0);
-    QTRY_VERIFY(firstItem->hasActiveFocus());
+    QTRY_VERIFY_ACTIVE_FOCUS(firstItem);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(0));
     QTRY_VERIFY(menu->isOpened());
 
@@ -280,8 +288,7 @@ void tst_QQuickMenu::mouse()
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
     menu->open();
-    if (auto *popupWindow = menuPrivate->popupWindow)
-        QVERIFY(QTest::qWaitForWindowExposed(popupWindow));
+    TRY_VERIFY_POPUP_OPENED(menu);
 
     QCOMPARE(visibleSpy.size(), 2);
     QVERIFY(menu->isVisible());
@@ -301,8 +308,7 @@ void tst_QQuickMenu::mouse()
         QVERIFY(!parentItem->childItems().contains(menu->contentItem()->parentItem()));
 
     menu->open();
-    if (auto *popupWindow = menuPrivate->popupWindow)
-        QVERIFY(QTest::qWaitForWindowExposed(popupWindow));
+    TRY_VERIFY_POPUP_OPENED(menu);
     QTRY_COMPARE(visibleSpy.size(), 4);
     QVERIFY(menu->isVisible());
     QVERIFY(parentItem->childItems().contains(menu->contentItem()->parentItem()));
@@ -318,9 +324,9 @@ void tst_QQuickMenu::mouse()
         QVERIFY(QMetaObject::invokeMethod(listView, "itemAt", Q_RETURN_ARG(QQuickItem *, hoverItem), Q_ARG(qreal, 0), Q_ARG(qreal, listView->property("contentY").toReal() + y)));
         if (!hoverItem || !hoverItem->isVisible() || hoverItem == prevHoverItem)
             continue;
-        QTest::mouseMove(window, QPoint(
-            menu->x() + menu->leftPadding() + hoverItem->x() + hoverItem->width() / 2,
-            menu->y() + menu->topPadding() + hoverItem->y() + hoverItem->height() / 2));
+
+        QPoint p = hoverItem->mapToScene(QPointF(hoverItem->width() / 2, hoverItem->height() / 2)).toPoint();
+        QTest::mouseMove(hoverItem->window(), p);
         QTRY_VERIFY(hoverItem->property("highlighted").toBool());
         if (prevHoverItem)
             QVERIFY(!prevHoverItem->property("highlighted").toBool());
@@ -331,7 +337,7 @@ void tst_QQuickMenu::mouse()
     // Try pressing within the menu and releasing outside of it; it should close.
     // TODO: won't work until QQuickPopup::releasedOutside() actually gets emitted
 //    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(firstItem->width() / 2, firstItem->height() / 2));
-//    QVERIFY(firstItem->hasActiveFocus());
+//    QVERIFY_ACTIVE_FOCUS(firstItem);
 //    QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(0));
 //    QVERIFY(menu->isVisible());
 //    QCOMPARE(triggeredSpy.count(), 1);
@@ -357,13 +363,16 @@ void tst_QQuickMenu::pressAndHold()
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
 
-    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
+    const QMargins safeMargins = window->safeAreaMargins();
+    QPoint safeTopLeft = QPoint(safeMargins.left() + 1, safeMargins.top() + 1);
+
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, safeTopLeft);
     QTRY_VERIFY(menu->isVisible());
 
-    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, safeTopLeft);
     QVERIFY(menu->isVisible());
 
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(1, 1));
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, safeTopLeft);
     QTRY_VERIFY(!menu->isVisible());
 }
 
@@ -376,7 +385,7 @@ void tst_QQuickMenu::contextMenuKeyboard_data()
 
 void tst_QQuickMenu::contextMenuKeyboard()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QFETCH(QQuickPopup::PopupType, popupType);
 
@@ -390,7 +399,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
 
@@ -401,11 +410,35 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
+    // Make sure the internal list view won't handle key events directly
+    menu->setHeight(menu->contentHeight() + menu->topPadding() + menu->bottomPadding() + 20);
+    QQuickListView *listView = qobject_cast<QQuickListView *>(menu->contentItem());
+    if (listView) {
+        listView->setInteractive(false);
+        listView->setKeyNavigationEnabled(false);
+        QVERIFY(!listView->isInteractive());
+        QVERIFY(!listView->isKeyNavigationEnabled());
+    }
+
     menu->setPopupType(popupType);
 
     QQuickMenuItem *firstItem = qobject_cast<QQuickMenuItem *>(menu->itemAt(0));
     QVERIFY(firstItem);
     QSignalSpy visibleSpy(menu, SIGNAL(visibleChanged()));
+
+#if QT_CONFIG(xcb)
+    // The focus-out event is triggered when the expected focus-in event does not occur
+    // within a certain time frame. In this case, the xcb connection sends a focus-out event,
+    // causing the active window to lose focus. As a result, if the menu is already open,
+    // it will be closed automatically.
+    // To prevent this issue, we force the application to process pending and deferred events,
+    // ensuring that the focus-in event is handled before opening the menu.
+    // See also QXcbConnection::QXcbConnection() (line: m_focusInTimer.callOnTimeout(...)).
+    if (QGuiApplication::platformName().compare(QLatin1String("xcb"), Qt::CaseInsensitive)) {
+        QGuiApplication::processEvents();
+        QGuiApplication::sendPostedEvents();
+    }
+#endif
 
     QVERIFY(menu->hasFocus());
     menu->open();
@@ -417,12 +450,13 @@ void tst_QQuickMenu::contextMenuKeyboard()
         QTRY_VERIFY(menuPrivate->popupWindow);
         parentItem = menuPrivate->popupWindow->contentItem();
         QVERIFY(QTest::qWaitForWindowExposed(menuPrivate->popupWindow));
-        QQuickTest::qWaitForPolish(menuPrivate->popupWindow);
+        QVERIFY(QTest::qWaitForWindowActive(menuPrivate->popupWindow));
+        QVERIFY(QQuickTest::qWaitForPolish(menuPrivate->popupWindow));
     }
 
     QTRY_VERIFY(menu->isOpened());
     QCOMPARE(visibleSpy.size(), 1);
-    QVERIFY(menu->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(menu);
 
     QVERIFY(parentItem);
     QVERIFY(parentItem->childItems().contains(menu->contentItem()->parentItem()));
@@ -432,7 +466,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
     QTest::keyClick(window, Qt::Key_Tab);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::TabFocusReason);
@@ -445,7 +479,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(!firstItem->hasActiveFocus());
     QVERIFY(!firstItem->hasVisualFocus());
     QVERIFY(!firstItem->isHighlighted());
-    QVERIFY(secondItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(secondItem);
     VERIFY_VISUAL_FOCUS(secondItem);
     QVERIFY(secondItem->isHighlighted());
     QCOMPARE(secondItem->focusReason(), Qt::TabFocusReason);
@@ -470,15 +504,11 @@ void tst_QQuickMenu::contextMenuKeyboard()
     // Enter/return should also work.
     // Open the menu.
     menu->open();
-    QTRY_VERIFY(menu->isOpened());
+    TRY_VERIFY_POPUP_OPENED(menu);
     QCOMPARE(visibleSpy.size(), 3);
-    if (auto *popupWindow = menuPrivate->popupWindow) {
-        QVERIFY(QTest::qWaitForWindowExposed(popupWindow));
-        QVERIFY(QQuickTest::qWaitForPolish(popupWindow));
-    }
     // Give the first item focus.
     QTest::keyClick(window, Qt::Key_Tab);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::TabFocusReason);
@@ -501,11 +531,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
     menu->open();
-    if (auto *popupWindow = menuPrivate->popupWindow) {
-        QVERIFY(QTest::qWaitForWindowExposed(popupWindow));
-        QVERIFY(QQuickTest::qWaitForPolish(popupWindow));
-    }
-    QTRY_VERIFY(menu->isOpened());
+    TRY_VERIFY_POPUP_OPENED(menu);
     QCOMPARE(visibleSpy.size(), 5);
     QVERIFY(parentItem->childItems().contains(menu->contentItem()->parentItem()));
     QVERIFY(!firstItem->hasActiveFocus());
@@ -518,13 +544,13 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
     QTest::keyClick(window, Qt::Key_Down);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Down);
-    QVERIFY(secondItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(secondItem);
     VERIFY_VISUAL_FOCUS(secondItem);
     QVERIFY(secondItem->isHighlighted());
     QCOMPARE(secondItem->focusReason(), Qt::TabFocusReason);
@@ -538,7 +564,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(!secondItem->hasActiveFocus());
     QVERIFY(!secondItem->hasVisualFocus());
     QVERIFY(!secondItem->isHighlighted());
-    QVERIFY(thirdItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(thirdItem);
     VERIFY_VISUAL_FOCUS(thirdItem);
     QVERIFY(thirdItem->isHighlighted());
     QCOMPARE(thirdItem->focusReason(), Qt::TabFocusReason);
@@ -551,7 +577,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(!secondItem->hasActiveFocus());
     QVERIFY(!secondItem->hasVisualFocus());
     QVERIFY(!secondItem->isHighlighted());
-    QVERIFY(thirdItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(thirdItem);
     VERIFY_VISUAL_FOCUS(thirdItem);
     QVERIFY(thirdItem->isHighlighted());
     QCOMPARE(thirdItem->focusReason(), Qt::TabFocusReason);
@@ -560,7 +586,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(!firstItem->hasActiveFocus());
     QVERIFY(!firstItem->hasVisualFocus());
     QVERIFY(!firstItem->isHighlighted());
-    QVERIFY(secondItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(secondItem);
     VERIFY_VISUAL_FOCUS(secondItem);
     QVERIFY(secondItem->isHighlighted());
     QCOMPARE(secondItem->focusReason(), Qt::BacktabFocusReason);
@@ -569,7 +595,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(!thirdItem->isHighlighted());
 
     QTest::keyClick(window, Qt::Key_Backtab);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::BacktabFocusReason);
@@ -588,7 +614,7 @@ void tst_QQuickMenu::contextMenuKeyboard()
 // QTBUG-70181
 void tst_QQuickMenu::disabledMenuItemKeyNavigation()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
         QSKIP("This platform only allows tab focus for text controls");
@@ -600,7 +626,6 @@ void tst_QQuickMenu::disabledMenuItemKeyNavigation()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
 
@@ -626,7 +651,7 @@ void tst_QQuickMenu::disabledMenuItemKeyNavigation()
     QCOMPARE(menu->currentIndex(), -1);
 
     QTest::keyClick(window, Qt::Key_Tab);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::TabFocusReason);
@@ -637,13 +662,13 @@ void tst_QQuickMenu::disabledMenuItemKeyNavigation()
     QVERIFY(!secondItem->hasActiveFocus());
     QVERIFY(!secondItem->hasVisualFocus());
     QVERIFY(!secondItem->isHighlighted());
-    QVERIFY(thirdItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(thirdItem);
     VERIFY_VISUAL_FOCUS(thirdItem);
     QVERIFY(thirdItem->isHighlighted());
     QCOMPARE(thirdItem->focusReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Up);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
     VERIFY_VISUAL_FOCUS(firstItem);
     QVERIFY(firstItem->isHighlighted());
     QCOMPARE(firstItem->focusReason(), Qt::BacktabFocusReason);
@@ -654,7 +679,7 @@ void tst_QQuickMenu::disabledMenuItemKeyNavigation()
 
 void tst_QQuickMenu::mnemonics()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
 #ifdef Q_OS_MACOS
     QSKIP("Mnemonics are not used on macOS");
@@ -665,7 +690,6 @@ void tst_QQuickMenu::mnemonics()
 
     QQuickWindow *window = helper.window;
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     MnemonicKeySimulator keySim(window);
@@ -868,7 +892,6 @@ void tst_QQuickMenu::checkableMnemonics()
 
     QQuickWindow *window = helper.window;
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     window->setProperty("checkable", checkable);
@@ -920,7 +943,7 @@ void tst_QQuickMenu::checkableMnemonics()
 
 void tst_QQuickMenu::menuButton()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     if (QGuiApplication::styleHints()->tabFocusBehavior() != Qt::TabFocusAllControls)
         QSKIP("This platform only allows tab focus for text controls");
@@ -930,7 +953,6 @@ void tst_QQuickMenu::menuButton()
 
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
     QVERIFY(QGuiApplication::focusWindow() == window);
 
@@ -947,7 +969,7 @@ void tst_QQuickMenu::menuButton()
 
     QTest::keyClick(window, Qt::Key_Tab);
     QQuickItem *firstItem = menu->itemAt(0);
-    QVERIFY(firstItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(firstItem);
 }
 
 void tst_QQuickMenu::addItem()
@@ -975,7 +997,7 @@ void tst_QQuickMenu::addItem()
 
 void tst_QQuickMenu::menuSeparator()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickControlsApplicationHelper helper(this, QLatin1String("menuSeparator.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
@@ -983,7 +1005,6 @@ void tst_QQuickMenu::menuSeparator()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
@@ -1031,27 +1052,27 @@ void tst_QQuickMenu::menuSeparator()
 
     // Key navigation skips separators
     QTest::keyClick(window, Qt::Key_Down);
-    QVERIFY(newMenuItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(newMenuItem);
     VERIFY_VISUAL_FOCUS(newMenuItem);
     QCOMPARE(newMenuItem->focusReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Down);
-    QVERIFY(saveMenuItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(saveMenuItem);
     VERIFY_VISUAL_FOCUS(saveMenuItem);
     QCOMPARE(saveMenuItem->focusReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Down);
-    QVERIFY(saveMenuItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(saveMenuItem);
     VERIFY_VISUAL_FOCUS(saveMenuItem);
     QCOMPARE(saveMenuItem->focusReason(), Qt::TabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Up);
-    QVERIFY(newMenuItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(newMenuItem);
     VERIFY_VISUAL_FOCUS(newMenuItem);
     QCOMPARE(newMenuItem->focusReason(), Qt::BacktabFocusReason);
 
     QTest::keyClick(window, Qt::Key_Up);
-    QVERIFY(newMenuItem->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(newMenuItem);
     VERIFY_VISUAL_FOCUS(newMenuItem);
     QCOMPARE(newMenuItem->focusReason(), Qt::BacktabFocusReason);
 }
@@ -1165,7 +1186,10 @@ void tst_QQuickMenu::popup()
     QVERIFY(button);
 
     QPoint oldCursorPos = QCursor::pos();
-    QPoint cursorPos = window->mapToGlobal(QPoint(11, 22));
+
+    const auto safeAreaMargins = window->safeAreaMargins();
+    const auto topLeftSafePoint = QPointF(11, 22) + QPointF(safeAreaMargins.left(), safeAreaMargins.top());
+    QPoint cursorPos = window->mapToGlobal(topLeftSafePoint.toPoint());
     QCursor::setPos(cursorPos);
     QTRY_COMPARE(QCursor::pos(), cursorPos);
 
@@ -1173,13 +1197,16 @@ void tst_QQuickMenu::popup()
     QCOMPARE(menu->parentItem(), window->contentItem());
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex").toInt(), -1);
-    const qreal elevenOrLeftMargin = qMax(qreal(11), menu->leftMargin());
-    const qreal twentyTwoOrTopMargin = qMax(qreal(22), menu->topMargin());
+
+    const auto menuPos = window->contentItem()->mapToScene(QPointF(menu->x(), menu->y()));
+
+    const qreal elevenOrLeftMargin = qMax(topLeftSafePoint.x(), menu->leftMargin());
+    const qreal twentyTwoOrTopMargin = qMax(topLeftSafePoint.y(), menu->topMargin());
     // If the Menu has large margins, it may be moved to stay within them.
     static QString errorStringXPos("The menu's x position was %1 and differed too much from %2");
     static QString errorStringYPos("The menu's y position was %1 and differed too much from %2");
-    QTRY_VERIFY2(qAbs(menu->x() - elevenOrLeftMargin) <= 0.5, qPrintable(errorStringXPos.arg(menu->x()).arg(elevenOrLeftMargin)));
-    QTRY_VERIFY2(qAbs(menu->y() - twentyTwoOrTopMargin) <= 0.5, qPrintable(errorStringYPos.arg(menu->y()).arg(twentyTwoOrTopMargin)));
+    QTRY_VERIFY2(qAbs(menuPos.x() - elevenOrLeftMargin) <= 0.5, qPrintable(errorStringXPos.arg(menu->x()).arg(elevenOrLeftMargin)));
+    QTRY_VERIFY2(qAbs(menuPos.y() - twentyTwoOrTopMargin) <= 0.5, qPrintable(errorStringYPos.arg(menu->y()).arg(twentyTwoOrTopMargin)));
     menu->close();
 
     QVERIFY(QMetaObject::invokeMethod(window, "popupAtPos", Q_ARG(QVariant, QPointF(33, 44))));
@@ -1326,8 +1353,6 @@ void tst_QQuickMenu::openParentlessMenu()
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
-    QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot show menu: parent is null"));
-
     QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
     QVERIFY(menu);
     menu->setParentItem(nullptr);
@@ -1407,13 +1432,12 @@ void tst_QQuickMenu::actions()
 #if QT_CONFIG(shortcut)
 void tst_QQuickMenu::actionShortcuts()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickControlsApplicationHelper helper(this, QLatin1String("actionShortcuts.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickWindow *window = helper.window;
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     // Try the menu's shortcut.
@@ -1508,7 +1532,7 @@ void tst_QQuickMenu::subMenuMouse_data()
 
     QTest::newRow("cascading, in-scene") << true << QQuickPopup::Item;
     QTest::newRow("non-cascading, in-scene") << false << QQuickPopup::Item;
-    if (popupWindowsSupported) {
+    if (arePopupWindowsSupported()) {
         QTest::newRow("cascading, popup windows") << true << QQuickPopup::Window;
         QTest::newRow("non-cascading, popup windows") << false << QQuickPopup::Window;
     }
@@ -1646,7 +1670,10 @@ void tst_QQuickMenu::subMenuMouse()
 #else
     QQuickMenuItem *mainMenuItem1 = qobject_cast<QQuickMenuItem *>(mainMenu->itemAt(0));
     QVERIFY(mainMenuItem1);
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, mainMenuItem1->mapToScene({1,1}).toPoint());
+    auto topSafeMargin = window->safeAreaMargins().top();
+    auto mousePoint = mainMenuItem1->mapToScene(QPointF(1, 1)).toPoint();
+    mousePoint.setY(mousePoint.y() - topSafeMargin);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, mousePoint);
 #endif // !Q_OS_ANDROID
 
     QTRY_VERIFY(!subMenu1->isVisible());
@@ -1735,7 +1762,7 @@ void tst_QQuickMenu::subMenuKeyboard_data()
 
 void tst_QQuickMenu::subMenuKeyboard()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QFETCH(bool, cascade);
     QFETCH(bool, mirrored);
@@ -1746,7 +1773,6 @@ void tst_QQuickMenu::subMenuKeyboard()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     if (mirrored) {
@@ -1866,7 +1892,7 @@ void tst_QQuickMenu::subMenuDisabledKeyboard_data()
 // QTBUG-69540
 void tst_QQuickMenu::subMenuDisabledKeyboard()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QFETCH(bool, cascade);
     QFETCH(bool, mirrored);
@@ -1877,7 +1903,6 @@ void tst_QQuickMenu::subMenuDisabledKeyboard()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     if (mirrored) {
@@ -2156,7 +2181,7 @@ void tst_QQuickMenu::subMenuFlipsPositionWhenOutOfBounds_data()
 {
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
     QTest::newRow("PopupType::Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("PopupType::Window") << QQuickPopup::Window;
 }
 
@@ -2177,7 +2202,7 @@ void tst_QQuickMenu::subMenuFlipsPositionWhenOutOfBounds()
     mainMenu->setPopupType(popupType);
 
     window->show();
-    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QVERIFY(QTest::qWaitForWindowActive(window));
 
     mainMenu->open();
     QTRY_VERIFY(mainMenu->isOpened());
@@ -2215,9 +2240,9 @@ void tst_QQuickMenu::subMenuFlipsPositionWhenOutOfBounds()
     const QPointF subMenuGlobalPos = subMenu_d->popupItem->mapToGlobal({subMenu->leftMargin(), subMenu->topMargin()});
     const qreal expectedGlobalSubMenuPositionX = qFloor(mainMenuGlobalPos.x()) - subMenu->width() + mainMenu->overlap() * mainMenu->scale();
 
-    if (popupType == QQuickPopup::Item && !qFuzzyCompare(mainMenu->scale(), 1.0))
-        QEXPECT_FAIL(nullptr, "Item based menu flipping doesn't properly work when the parent menu's scale isn't 1.0", TestFailMode::Continue);
-    QCOMPARE(subMenuGlobalPos.x(), mainMenu->cascade() ? expectedGlobalSubMenuPositionX : mainMenuGlobalPos.x());
+    // FIXME: This does not properly work if scale is applied on the menu
+    if (qFuzzyCompare(mainMenu->scale(), 1.0))
+        QCOMPARE(subMenuGlobalPos.x(), mainMenu->cascade() ? expectedGlobalSubMenuPositionX : mainMenuGlobalPos.x());
 }
 
 void tst_QQuickMenu::subMenuWithIcon()
@@ -2316,7 +2341,7 @@ void tst_QQuickMenu::addRemoveSubMenus()
 
 void tst_QQuickMenu::subMenuPopupType()
 {
-    if (!popupWindowsSupported)
+    if (!arePopupWindowsSupported())
         QSKIP("The platform doesn't support popup windows. Skipping test.");
 
     // Undo the setting of AA_DontUseNativeMenuWindows to true from init()
@@ -2681,20 +2706,19 @@ void tst_QQuickMenu::menuItemWidthAfterRetranslate()
 
 void tst_QQuickMenu::giveMenuItemFocusOnButtonPress()
 {
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickControlsApplicationHelper helper(this, QLatin1String("giveMenuItemFocusOnButtonPress.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
     QQuickApplicationWindow *window = helper.appWindow;
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     // Press enter on the button to open the menu.
     QQuickButton *menuButton = window->property("menuButton").value<QQuickButton*>();
     QVERIFY(menuButton);
     menuButton->forceActiveFocus();
-    QVERIFY(menuButton->hasActiveFocus());
+    QVERIFY_ACTIVE_FOCUS(menuButton);
 
     QSignalSpy clickedSpy(window, SIGNAL(menuButtonClicked()));
     QVERIFY(clickedSpy.isValid());
@@ -3240,7 +3264,7 @@ void tst_QQuickMenu::effectivePosition_data()
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
 
     QTest::newRow("Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("Window") << QQuickPopup::Window;
 }
 
@@ -3256,7 +3280,7 @@ void tst_QQuickMenu::effectivePosition()
     // background the opposite way, to ensure that the top-left of the background
     // ends up at the requested position.
     QFETCH(QQuickPopup::PopupType, popupType);
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickControlsApplicationHelper helper(this, QLatin1String("applicationwindow.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
@@ -3264,7 +3288,6 @@ void tst_QQuickMenu::effectivePosition()
     QQuickApplicationWindow *window = helper.appWindow;
     centerOnScreen(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
@@ -3380,7 +3403,7 @@ void tst_QQuickMenu::resetCurrentIndexUponPopup()
     // a menu is repopened using the popup() function without
     // providing a MenuItem as argument.
     QFETCH(QQuickPopup::PopupType, popupType);
-    SKIP_IF_NO_WINDOW_ACTIVATION
+    SKIP_IF_NO_WINDOW_ACTIVATION;
 
     QQuickControlsApplicationHelper helper(this, QLatin1String("applicationwindow.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
@@ -3389,7 +3412,6 @@ void tst_QQuickMenu::resetCurrentIndexUponPopup()
     centerOnScreen(window);
     moveMouseAway(window);
     window->show();
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
@@ -3400,7 +3422,7 @@ void tst_QQuickMenu::resetCurrentIndexUponPopup()
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
 
-    menu->popup({0, 0}, nullptr);
+    menu->popup(0, 0, nullptr);
     QTRY_VERIFY(menu->isOpened());
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
@@ -3412,7 +3434,7 @@ void tst_QQuickMenu::resetCurrentIndexUponPopup()
     menu->close();
     QTRY_VERIFY(!menu->isVisible());
 
-    menu->popup({0, 0}, nullptr);
+    menu->popup(0, 0, nullptr);
     QTRY_VERIFY(menu->isOpened());
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
@@ -3420,23 +3442,26 @@ void tst_QQuickMenu::resetCurrentIndexUponPopup()
 
 void tst_QQuickMenu::mousePropagationWithinPopup()
 {
+    SKIP_IF_NO_WINDOW_ACTIVATION;
+
     QQuickControlsApplicationHelper helper(this, QLatin1String("mousePropagationWithinPopup.qml"));
     QVERIFY2(helper.ready, helper.failureMessage());
 
     QQuickApplicationWindow *window = helper.appWindow;
     centerOnScreen(window);
+    moveMouseAway(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QQuickPopup *popup = window->property("popup").value<QQuickPopup*>();
     QVERIFY(popup);
     popup->open();
-    QTRY_VERIFY(popup->isOpened());
+    TRY_VERIFY_POPUP_OPENED(popup);
 
     QQuickMenu *nestedMenu = window->property("nestedMenu").value<QQuickMenu*>();
     QVERIFY(nestedMenu);
     nestedMenu->open();
-    QTRY_VERIFY(nestedMenu->isOpened());
+    TRY_VERIFY_POPUP_OPENED(nestedMenu);
 
     QQuickMouseArea *mouseArea = window->property("mouseArea").value<QQuickMouseArea *>();
     QVERIFY(mouseArea);
@@ -3464,6 +3489,440 @@ void tst_QQuickMenu::mousePropagationWithinPopup()
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, gapPoint);
         QCOMPARE(clickedSpy.size(), 0);
     }
+}
+
+void tst_QQuickMenu::shortcutInNestedSubMenuAction()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("shortcutInNestedSubMenuAction.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    // Shouldn't result in an infinite loop.
+    QTest::keyClick(window, Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(window->property("triggeredCount").value<int>(), 1);
+}
+
+void tst_QQuickMenu::animationOnHeight()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("animationOnHeight.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *menu = window->findChild<QQuickMenu *>();
+    QVERIFY(menu);
+    menu->popup(100, 100);
+    QTRY_VERIFY(menu->isOpened());
+
+    // After adding the Action, the contentHeight of the Menu's ListView should
+    // be not be greater than its height; it shouldn't be possible to scroll.
+    auto *listView = qobject_cast<QQuickListView *>(menu->contentItem());
+    const qreal itemHeight = menu->itemAt(0)->height();
+    QCOMPARE(listView->contentHeight(), itemHeight * 2 + listView->spacing());
+    QCOMPARE_GE(listView->height(), listView->contentHeight());
+}
+
+void tst_QQuickMenu::dontDeleteDelegates()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("dontDeleteDelegates.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+    QPointer<QQmlComponent> delegateComponent1 = window->property("delegateComponent1").value<QQmlComponent *>();
+    QVERIFY(delegateComponent1);
+    QPointer<QQmlComponent> delegateComponent2 = window->property("delegateComponent2").value<QQmlComponent *>();
+    QVERIFY(delegateComponent2);
+
+    // When setting a new delegate, the old one shouldn't be destroyed.
+    menu->setDelegate(delegateComponent2);
+    QVERIFY(delegateComponent1);
+
+    // The same goes for the new delegate: it shouldn't be destroyed when setting the old one.
+    menu->setDelegate(delegateComponent1);
+    QVERIFY(delegateComponent2);
+}
+
+void tst_QQuickMenu::loadMenuAsynchronously()
+{
+    QQuickView window(testFileUrl("loadMenuAsynchronously.qml"));
+    QCOMPARE(window.status(), QQuickView::Ready);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+
+    auto *rootItem = window.rootObject();
+    QVERIFY(rootItem);
+
+    auto *loader = rootItem->property("loader").value<QQuickLoader*>();
+    QVERIFY(loader);
+    QCOMPARE(loader->active(), false);
+    QCOMPARE(loader->asynchronous(), true);
+
+    auto activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, false);
+    QVERIFY(rootItem->setProperty("activateLoader", true));
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, true);
+
+    QTRY_COMPARE(loader->active(), false);
+
+    rootItem->setProperty("activateLoader", false);
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, false);
+    QVERIFY(rootItem->setProperty("activateLoader", true));
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, true);
+
+    QTRY_COMPARE(loader->active(), false);
+
+    // The ignored warning message described below is triggered from the loader
+    // when progress creations not been reset. This needs to be analyzed.
+    // The bug report QTBUG-139552 raised to track the investigation.
+    auto *enginePriv = QQmlEnginePrivate::get(window.engine());
+    if (enginePriv->inProgressCreations)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("There are still \\\\\"(\\d+)\\\\\" items in the process of being created at engine destruction\\."));
+}
+
+void tst_QQuickMenu::visibleTrue()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("visibleTrue.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+
+    QTRY_VERIFY(menu->isOpened());
+
+    menu->close();
+}
+
+void tst_QQuickMenu::resetContentItem()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("removeContentItem.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    auto *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+    QSignalSpy spy(menu, &QQuickMenu::contentItemChanged);
+
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QTRY_VERIFY(menu->isOpened());
+
+    QMetaObject::invokeMethod(window, "removeContentItem");
+    QCOMPARE(spy.count(), 1);
+    QMetaObject::invokeMethod(window, "restoreContentItem");
+    QCOMPARE(spy.count(), 2);
+    menu->close();
+}
+
+void tst_QQuickMenu::collapsibleSeparators()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("collapsibleSeparators.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+
+    auto *menuItem1 = window->property("menuItem1").value<QQuickMenuItem*>();
+    auto *menuItem2 = window->property("menuItem2").value<QQuickMenuItem*>();
+    auto *menuItem3 = window->property("menuItem3").value<QQuickMenuItem*>();
+    auto *menuItem4 = window->property("menuItem4").value<QQuickMenuItem*>();
+    auto *menuItem5 = window->property("menuItem5").value<QQuickMenuItem*>();
+    auto *separator1 = window->property("separator1").value<QQuickMenuSeparator*>();
+    auto *separator2 = window->property("separator2").value<QQuickMenuSeparator*>();
+    auto *separator3 = window->property("separator3").value<QQuickMenuSeparator*>();
+    QVERIFY(menuItem1 && menuItem2 && menuItem3 && menuItem4 && menuItem5);
+    QVERIFY(separator1 && separator2 && separator3);
+
+    // Verify default property value is true
+    QVERIFY(menu->separatorsCollapsible());
+
+    // Test 1: With collapsing enabled, trailing separator should be hidden
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(separator2->isVisible());
+    QVERIFY(!separator3->isVisible()); // trailing separator
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 2: Disable — all separators visible
+    menu->setSeparatorsCollapsible(false);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(separator2->isVisible());
+    QVERIFY(separator3->isVisible());
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Re-enable for remaining tests
+    menu->setSeparatorsCollapsible(true);
+
+    // Test 3: Hide all items in the middle group — separator between groups
+    // should collapse (two consecutive separators become one)
+    menuItem3->setVisible(false);
+    menuItem4->setVisible(false);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(!separator2->isVisible()); // collapsed: consecutive separator
+    QVERIFY(!separator3->isVisible()); // trailing separator
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 4: Hide all items after separator1 — it becomes trailing
+    menuItem5->setVisible(false);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(!separator1->isVisible()); // now trailing — no visible items after
+    QVERIFY(!separator2->isVisible());
+    QVERIFY(!separator3->isVisible());
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 5: Hide all items before separator1 — it becomes leading
+    menuItem1->setVisible(false);
+    menuItem2->setVisible(false);
+    menuItem3->setVisible(true);
+    menuItem4->setVisible(true);
+    menuItem5->setVisible(true);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(!separator1->isVisible()); // leading separator — no visible items before
+    QVERIFY(separator2->isVisible());  // valid separator between groups
+    QVERIFY(!separator3->isVisible()); // trailing separator
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 6: Restore all items — separators should reappear
+    menuItem1->setVisible(true);
+    menuItem2->setVisible(true);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(separator2->isVisible());
+    QVERIFY(!separator3->isVisible()); // still trailing
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 7: Disable collapsible separators — all should be visible again
+    menu->setSeparatorsCollapsible(false);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(separator2->isVisible());
+    QVERIFY(separator3->isVisible()); // no longer collapsed
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 8: Verify separatorsCollapsibleChanged signal
+    QSignalSpy spy(menu, &QQuickMenu::separatorsCollapsibleChanged);
+    QVERIFY(spy.isValid());
+    menu->setSeparatorsCollapsible(true);
+    QCOMPARE(spy.count(), 1);
+    menu->setSeparatorsCollapsible(true); // same value — no signal
+    QCOMPARE(spy.count(), 1);
+    menu->setSeparatorsCollapsible(false);
+    QCOMPARE(spy.count(), 2);
+
+    // Test 9: Dynamic removal — remove Item5, separators after it become trailing
+    menu->setSeparatorsCollapsible(true);
+    QQuickItem *item5AtIndex = menu->itemAt(6); // Item5 is at index 6
+    QVERIFY(item5AtIndex);
+    menu->removeItem(item5AtIndex);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(!separator2->isVisible()); // trailing — no visible items after
+    QVERIFY(!separator3->isVisible()); // trailing
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 10: Dynamic addition — add item at end, separator2 reappears
+    auto *newItem = new QQuickMenuItem();
+    newItem->setText(QStringLiteral("New Item"));
+    menu->addItem(newItem);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(separator2->isVisible()); // now has visible item after it
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 11: Remove the new item — separator2 becomes trailing again
+    menu->removeItem(newItem);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(!separator2->isVisible()); // trailing again
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Test 12: Insert a leading separator — should be hidden
+    auto *leadingSep = new QQuickMenuSeparator();
+    menu->insertItem(0, leadingSep);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(!leadingSep->isVisible()); // leading separator
+    QVERIFY(separator1->isVisible());
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    menu->removeItem(leadingSep);
+}
+
+void tst_QQuickMenu::collapsibleSeparatorsUserHidden()
+{
+    // Verify that disabling separatorsCollapsible does not restore
+    // separators that were explicitly hidden by the user.
+    QQuickControlsApplicationHelper helper(this, QLatin1String("collapsibleSeparators.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+
+    auto *separator1 = window->property("separator1").value<QQuickMenuSeparator*>();
+    auto *separator2 = window->property("separator2").value<QQuickMenuSeparator*>();
+    QVERIFY(separator1 && separator2);
+
+    menu->setSeparatorsCollapsible(true);
+
+    // Simulate user explicitly hiding separator2
+    separator2->setVisible(false);
+
+    // Disable collapsible separators — separator2 should remain hidden
+    // because it was hidden by the user, not by the collapsing logic.
+    menu->setSeparatorsCollapsible(false);
+
+    // Open the menu to check effective visibility
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(!separator2->isVisible()); // must stay hidden — user hid it
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Re-enable and verify separator2 is still not touched
+    menu->setSeparatorsCollapsible(true);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(separator1->isVisible());
+    QVERIFY(!separator2->isVisible());
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+}
+
+void tst_QQuickMenu::collapsibleSeparatorsWithBinding()
+{
+    // Verify that separators with a QML binding on visible are not touched
+    // by the collapsing logic.
+    QQuickControlsApplicationHelper helper(this, QLatin1String("collapsibleSeparators.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QQuickMenu *menu = window->property("menu").value<QQuickMenu*>();
+    QVERIFY(menu);
+    QVERIFY(menu->separatorsCollapsible());
+
+    // boundSeparator has visible: showBoundSeparator (a binding).
+    // It is trailing (no visible items after it), but should NOT be hidden.
+    auto *boundSeparator = window->property("boundSeparator").value<QQuickMenuSeparator*>();
+    QVERIFY(boundSeparator);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(boundSeparator->isVisible()); // has binding — not collapsed
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Toggle the binding source to false — separator hides via binding
+    window->setProperty("showBoundSeparator", false);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(!boundSeparator->isVisible()); // hidden by user binding
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // Toggle back — separator shows via binding
+    window->setProperty("showBoundSeparator", true);
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(boundSeparator->isVisible()); // shown by user binding
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+
+    // A separator without binding consecutive to a bound one is still collapsed
+    auto *separator3 = window->property("separator3").value<QQuickMenuSeparator*>();
+    QVERIFY(separator3);
+
+    menu->open();
+    QTRY_VERIFY(menu->isOpened());
+    QVERIFY(boundSeparator->isVisible()); // bound — not touched
+    QVERIFY(!separator3->isVisible());    // consecutive after bound — collapsed
+    menu->close();
+    QTRY_VERIFY(!menu->isVisible());
+}
+
+void tst_QQuickMenu::destroyWindowWithOpenPopupWindow()
+{
+    if (!arePopupWindowsSupported())
+        QSKIP("The platform doesn't support popup windows. Skipping test.");
+
+    SKIP_IF_NO_WINDOW_ACTIVATION;
+
+    QQuickControlsApplicationHelper helper(this, QLatin1String("applicationwindow.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickMenu *menu = window->property("menu").value<QQuickMenu *>();
+    QVERIFY(menu);
+    menu->setPopupType(QQuickPopup::Window);
+    menu->open();
+    TRY_VERIFY_POPUP_OPENED(menu);
+
+    auto *menuPrivate = QQuickMenuPrivate::get(menu);
+    QQuickPopupWindow *popupWindow = menuPrivate->popupWindow;
+    QVERIFY(popupWindow);
+    QVERIFY(popupWindow->isVisible());
+    QSignalSpy popupWindowVisibleSpy(popupWindow, &QWindow::visibleChanged);
+    QVERIFY(popupWindowVisibleSpy.isValid());
+
+    // Destroy the ApplicationWindow while the menu is still open. The popup
+    // window must be properly hidden, not just dropped: QQuickPopupWindow used
+    // to skip QWindowPrivate::setVisible() when the transient parent was going
+    // away, which meant no hide event was sent, and so the render loop kept
+    // believing the window was still exposed. QTBUG-149041.
+    helper.cleanup.reset();
+
+    QCOMPARE(popupWindowVisibleSpy.size(), 1);
+    QCOMPARE(popupWindowVisibleSpy.constLast().constFirst().toBool(), false);
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickMenu)

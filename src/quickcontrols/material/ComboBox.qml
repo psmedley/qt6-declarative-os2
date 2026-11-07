@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 pragma ComponentBehavior: Bound
 
@@ -44,6 +45,7 @@ T.ComboBox {
     }
 
     contentItem: T.TextField {
+        implicitHeight: contentHeight + topPadding + bottomPadding
         leftPadding: Material.textFieldHorizontalPadding
         topPadding: Material.textFieldVerticalPadding
         bottomPadding: Material.textFieldVerticalPadding
@@ -63,6 +65,10 @@ T.ComboBox {
         verticalAlignment: Text.AlignVCenter
 
         cursorDelegate: CursorDelegate { }
+
+        ContextMenu.menu: TextEditingContextMenu {
+            editor: parent
+        }
     }
 
     background: MaterialTextContainer {
@@ -84,6 +90,7 @@ T.ComboBox {
         topMargin: 12
         bottomMargin: 12
         verticalPadding: 8
+        font: control.font
 
         Material.theme: control.Material.theme
         Material.accent: control.Material.accent

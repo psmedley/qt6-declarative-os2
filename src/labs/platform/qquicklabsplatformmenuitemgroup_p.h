@@ -1,5 +1,6 @@
 // Copyright (C) 2022 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMENUITEMGROUP_P_H
 #define QQUICKLABSPLATFORMMENUITEMGROUP_P_H
@@ -29,6 +30,7 @@ class QQuickLabsPlatformMenuItemGroup : public QObject
 {
     Q_OBJECT
     QML_NAMED_ELEMENT(MenuItemGroup)
+    QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged FINAL)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged FINAL)
     Q_PROPERTY(bool exclusive READ isExclusive WRITE setExclusive NOTIFY exclusiveChanged FINAL)

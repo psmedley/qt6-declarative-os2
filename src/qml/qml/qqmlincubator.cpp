@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlincubator.h"
 #include "qqmlcomponent.h"
@@ -7,6 +8,8 @@
 
 #include "qqmlobjectcreator_p.h"
 #include <private/qqmlcomponent_p.h>
+
+QT_BEGIN_NAMESPACE
 
 void QQmlEnginePrivate::incubate(
         QQmlIncubator &i, const QQmlRefPointer<QQmlContextData> &forContext)
@@ -48,7 +51,10 @@ void QQmlEnginePrivate::incubate(
 
         p->changeStatus(QQmlIncubator::Loading);
 
-        if (!watcher.hasRecursed()) {
+        if (!p->q) {
+            p->clear();
+            inProgressCreations--;
+        } else if (!watcher.hasRecursed()) {
             QQmlInstantiationInterrupt i;
             p->incubate(i);
         }
@@ -59,8 +65,12 @@ void QQmlEnginePrivate::incubate(
         p->vmeGuard.guard(p->creator.data());
         p->changeStatus(QQmlIncubator::Loading);
 
-        if (incubationController)
+        if (!p->q) {
+            p->clear();
+            inProgressCreations--;
+        } else if (incubationController) {
              incubationController->incubatingObjectCountChanged(incubatorCount);
+        }
     }
 }
 
@@ -90,6 +100,11 @@ QQmlIncubationController *QQmlEngine::incubationController() const
     return d->incubationController;
 }
 
+/*!
+    \class QQmlIncubatorPrivate
+    \inmodule QtQml
+    \internal
+*/
 QQmlIncubatorPrivate::QQmlIncubatorPrivate(QQmlIncubator *q, QQmlIncubator::IncubationMode m)
     : q(q), status(QQmlIncubator::Null), mode(m), isAsynchronous(false), progress(Execute),
       result(nullptr), enginePriv(nullptr), waitingOnMe(nullptr)
@@ -103,6 +118,8 @@ QQmlIncubatorPrivate::~QQmlIncubatorPrivate()
 
 void QQmlIncubatorPrivate::clear()
 {
+    if (!enginePriv)
+        return;
     // reset the tagged pointer
     if (requiredPropertiesFromComponent)
         requiredPropertiesFromComponent = decltype(requiredPropertiesFromComponent){};
@@ -330,10 +347,12 @@ void QQmlIncubatorPrivate::incubate(QQmlInstantiationInterrupt &i)
         if (watcher.hasRecursed())
             return;
 
-        if (errors.isEmpty())
+        if (errors.isEmpty()) {
             progress = QQmlIncubatorPrivate::Completing;
-        else
+        } else {
             progress = QQmlIncubatorPrivate::Completed;
+            delete std::exchange(result, nullptr);
+        }
 
         changeStatus(calculateStatus());
 
@@ -361,6 +380,9 @@ finishIncubate:
     if (progress == QQmlIncubatorPrivate::Completed && waitingFor.isEmpty()) {
         QExplicitlySharedDataPointer<QQmlIncubatorPrivate> isWaiting = waitingOnMe;
         clear();
+
+        if (!errors.isEmpty())
+            delete std::exchange(result, nullptr);
 
         if (isWaiting) {
             QRecursionWatcher<QQmlIncubatorPrivate, &QQmlIncubatorPrivate::recursion> watcher(isWaiting.data());
@@ -391,10 +413,10 @@ finishIncubate:
 void QQmlIncubatorPrivate::incubateCppBasedComponent(QQmlComponent *component, QQmlContext *context)
 {
     auto compPriv = QQmlComponentPrivate::get(component);
-    Q_ASSERT(compPriv->loadedType.isCreatable());
+    Q_ASSERT(compPriv->loadedType().isCreatable());
     std::unique_ptr<QObject> object(component->beginCreate(context));
     component->setInitialProperties(object.get(), initialProperties);
-    if (auto props = compPriv->state.requiredProperties()) {
+    if (auto props = compPriv->requiredProperties()) {
         requiredPropertiesFromComponent = props;
         requiredPropertiesFromComponent.setTag(HadTopLevelRequired::Yes);
     }
@@ -713,13 +735,15 @@ QObject *QQmlIncubator::object() const
 }
 
 /*!
-Return a pointer to a list of properties which are required but haven't
-been set yet.
-This list can be modified, so that subclasses which implement special logic
-setInitialProperties can mark properties set there as no longer required.
+    \internal
+    Return a pointer to a list of properties which are required but
+    haven't been set yet.
+    This list can be modified, so that subclasses which implement
+    special logic setInitialProperties can mark properties set there
+    as no longer required.
 
-\sa QQmlIncubator::setInitialProperties
-\since 5.15
+    \sa QQmlIncubator::setInitialProperties
+    \since 5.15
 */
 RequiredProperties *QQmlIncubatorPrivate::requiredProperties()
 {
@@ -805,3 +829,4 @@ QQmlIncubator::Status QQmlIncubatorPrivate::calculateStatus() const
         return QQmlIncubator::Null;
 }
 
+QT_END_NAMESPACE

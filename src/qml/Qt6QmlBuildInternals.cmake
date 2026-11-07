@@ -25,6 +25,7 @@ macro(qt_internal_get_internal_add_qml_module_keywords
         ENABLE_TYPE_COMPILER
         __QT_INTERNAL_STATIC_MODULE
         __QT_INTERNAL_SYSTEM_MODULE
+        __QT_INTERNAL_NO_GENERATE_QMLLS_BUILD_INI
     )
     set(${single_args}
         URI
@@ -33,7 +34,6 @@ macro(qt_internal_get_internal_add_qml_module_keywords
         TYPEINFO
         CLASS_NAME
         TYPE_COMPILER_NAMESPACE
-        OS2_SHORT_NAME
     )
     set(${multi_args}
         QML_FILES
@@ -222,6 +222,14 @@ function(qt_internal_add_qml_module target)
             CLASS_NAME ${arg_CLASS_NAME}
         )
 
+        if(NOT arg_PLUGIN_TARGET STREQUAL target)
+            # This is needed so that the dependency to the backing target is included in
+            # the plugin's Dependencies.cmake -> _qt_internal_find_qt_dependencies() call.
+            # For static builds, we need the backing target to be available for transitive
+            # linkage. For shared builds, we need it for (Android) deployment reasons.
+            list(APPEND plugin_args LIBRARIES Qt::${target})
+        endif()
+
         qt_internal_add_plugin(${arg_PLUGIN_TARGET} ${plugin_args})
 
         # Use the plugin target name as the main part of the plugin basename.
@@ -238,22 +246,14 @@ function(qt_internal_add_qml_module target)
             string(APPEND plugin_basename "${QT_LIBINFIX}")
         endif()
 
-if (NOT OS2)
         # Add the "plugin" suffix after the infix.
         string(APPEND plugin_basename "plugin")
-endif()
 
         # Lowercase the whole thing and use it as the basename of the plugin library.
         string(TOLOWER "${plugin_basename}" plugin_basename)
         set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
             OUTPUT_NAME "${plugin_basename}"
         )
-
-        if(arg_OS2_SHORT_NAME)
-            set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
-                TARGET_SHORT ${arg_OS2_SHORT_NAME}
-            )
-        endif()
 
         get_target_property(export_name ${arg_PLUGIN_TARGET} EXPORT_NAME)
         if(export_name)
@@ -266,22 +266,9 @@ endif()
                 )
         endif()
 
-        if(NOT arg_PLUGIN_TARGET STREQUAL target)
-            get_target_property(lib_type ${arg_PLUGIN_TARGET} TYPE)
-            if(lib_type STREQUAL "STATIC_LIBRARY")
-                # This is needed so that the dependency on the backing target
-                # is included in the plugin's find_package() support.
-                # The naming of backing targets and plugins don't typically
-                # follow the pattern of other plugins with regard to Private
-                # suffixes, so the dependency logic in qt_internal_add_plugin()
-                # doesn't find these. For non-static builds, the private
-                # dependency doesn't get exposed to find_package(), so we don't
-                # have to make the dependency known for that case.
-                set_property(TARGET ${arg_PLUGIN_TARGET} APPEND PROPERTY
-                    _qt_target_deps "${INSTALL_CMAKE_NAMESPACE}${target}\;${PROJECT_VERSION}"
-                )
-            endif()
-        endif()
+        list(APPEND add_qml_module_args
+            INSTALLED_BACKING_TARGET "${QT_CMAKE_EXPORT_NAMESPACE}::${target}"
+        )
     endif()
 
     # TODO: Check if we need arg_SOURCES in this condition
@@ -307,7 +294,7 @@ endif()
         message(FATAL_ERROR "Do not set FOLLOW_FOREIGN_VERSIONING for module ${target}. It is already set by default for internal modules.")
     endif()
 
-    get_target_property(qt_namespace ${QT_CMAKE_EXPORT_NAMESPACE}::Core _qt_namespace)
+    get_target_property(qt_namespace ${QT_CMAKE_EXPORT_NAMESPACE}::Core QT_NAMESPACE)
     if(qt_namespace)
         list(APPEND add_qml_module_args NAMESPACE ${qt_namespace})
     endif()
@@ -315,6 +302,12 @@ endif()
     if (arg_ENABLE_TYPE_COMPILER AND NOT arg_TYPE_COMPILER_NAMESPACE)
         # if qmltc namespace is not specified explicitly, use Qt's namespace
         list(APPEND add_qml_module_args TYPE_COMPILER_NAMESPACE ${qt_namespace})
+    endif()
+
+    if((NOT arg_NO_GENERATE_QMLDIR) OR arg_INSTALL_SOURCE_QMLDIR)
+        list(APPEND add_qml_module_args
+            INSTALLED_QMLDIR_PATH
+            "${arg_INSTALL_DIRECTORY}/qmldir")
     endif()
 
     # Update the backing and plugin targets with qml-specific things.
@@ -350,7 +343,8 @@ endif()
 
                 # Plugin initializers associated with an internal module need the internal
                 # platform flags.
-                qt_internal_link_internal_platform_for_object_library("${output_target}")
+                qt_internal_link_internal_platform_for_object_library("${output_target}"
+                    PARENT_TARGET "${target}")
             else()
                 list(APPEND backing_lib_export_targets ${output_target})
             endif()

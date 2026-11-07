@@ -1,5 +1,6 @@
 // Copyright (C) 2017 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qquickmaterialstyle_p.h"
 #include "qquickmaterialtheme_p.h"
@@ -10,6 +11,8 @@
 #endif
 #include <QtQml/qqmlinfo.h>
 #include <QtQuickControls2/private/qquickstyle_p.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -355,8 +358,8 @@ static bool hasGlobalBackground = false;
 // values that QColor accepts, as opposed to one of the pre-defined colors like Red.
 static bool globalPrimaryCustom = false;
 static bool globalAccentCustom = false;
-static bool globalForegroundCustom = true;
-static bool globalBackgroundCustom = true;
+static bool globalForegroundCustom = false;
+static bool globalBackgroundCustom = false;
 // This is global because:
 // 1) The theme needs access to it to determine font sizes.
 // 2) There can only be one variant used for the whole application.
@@ -488,9 +491,9 @@ void QQuickMaterialStyle::setTheme(Theme theme)
     themeChange();
     if (!m_customAccent)
         accentChange();
-    if (!m_hasBackground)
+    if (!m_customBackground)
         backgroundChange();
-    if (!m_hasForeground)
+    if (!m_customForeground)
         foregroundChange();
 }
 
@@ -508,9 +511,9 @@ void QQuickMaterialStyle::inheritTheme(Theme theme)
     themeChange();
     if (!m_customAccent)
         accentChange();
-    if (!m_hasBackground)
+    if (!m_customBackground)
         backgroundChange();
-    if (!m_hasForeground)
+    if (!m_customForeground)
         foregroundChange();
 }
 
@@ -677,8 +680,12 @@ void QQuickMaterialStyle::accentChange()
 
 QVariant QQuickMaterialStyle::foreground() const
 {
-    if (!m_hasForeground)
-        return QColor::fromRgba(m_theme == Light ? primaryTextColorLight : primaryTextColorDark);
+    if (!m_hasForeground) {
+        if (!m_customBackground && m_background == m_primary) {
+            return toolTextColor();
+        }
+         return QColor::fromRgba(m_theme == Light ? primaryTextColorLight : primaryTextColorDark);
+    }
     if (m_customForeground)
         return QColor::fromRgba(m_foreground);
     if (m_foreground > BlueGrey)
@@ -693,11 +700,21 @@ void QQuickMaterialStyle::setForeground(const QVariant &var)
     if (!variantToRgba(var, "foreground", &foreground, &custom))
         return;
 
-    m_hasForeground = true;
+    // Reset the foreground if the new color matches the current theme's default.
+    // This allows the color to update dynamically when the theme changes.
+    if (!hasGlobalForeground) {
+        const QRgb themeDefault = (m_theme == Light ? primaryTextColorLight : primaryTextColorDark);
+        if (foreground == themeDefault) {
+            resetForeground();
+            return;
+        }
+    }
+
     m_explicitForeground = true;
-    if (m_foreground == foreground)
+    if (m_hasForeground && m_foreground == foreground)
         return;
 
+    m_hasForeground = true;
     m_customForeground = custom;
     m_foreground = foreground;
     propagateForeground();
@@ -706,7 +723,7 @@ void QQuickMaterialStyle::setForeground(const QVariant &var)
 
 void QQuickMaterialStyle::inheritForeground(uint foreground, bool custom, bool has)
 {
-    if (m_explicitForeground || m_foreground == foreground)
+    if (m_explicitForeground || (m_hasForeground == has && m_foreground == foreground))
         return;
 
     m_hasForeground = has;
@@ -731,19 +748,17 @@ void QQuickMaterialStyle::resetForeground()
     if (!m_explicitForeground)
         return;
 
-    m_hasForeground = false;
-    m_customForeground = false;
     m_explicitForeground = false;
     QQuickMaterialStyle *material = qobject_cast<QQuickMaterialStyle *>(attachedParent());
-    inheritForeground(material ? material->m_foreground : globalForeground, true, material ? material->m_hasForeground : false);
+    inheritForeground(material ? material->m_foreground : globalForeground,
+                      material ? material->m_customForeground : globalForegroundCustom,
+                      material ? material->m_hasForeground : false);
 }
 
 void QQuickMaterialStyle::foregroundChange()
 {
     emit foregroundChanged();
     emit primaryHighlightedTextColorChanged();
-    // TODO: This causes a binding loop: see QTBUG-85699 and the comments on its fix
-//    emit toolTextColorChanged();
 }
 
 QVariant QQuickMaterialStyle::background() const
@@ -758,20 +773,41 @@ void QQuickMaterialStyle::setBackground(const QVariant &var)
     if (!variantToRgba(var, "background", &background, &custom))
         return;
 
-    m_hasBackground = true;
-    m_explicitBackground = true;
-    if (m_background == background)
-        return;
+    // Reset the background if the new color matches the current theme's default.
+    // This allows the color to update dynamically when the theme changes.
+    if (!hasGlobalBackground) {
+        const QRgb themeDefault = (m_theme == Light ? backgroundColorLight : backgroundColorDark);
+        if (background == themeDefault) {
+            resetBackground();
+            return;
+        }
+    }
 
+    // Do not treat the background as custom if it resolves to the same RGB as the
+    // current primary color. This allows the foreground color to map to
+    // toolTextColor, which is resolved dynamically based on the primary color.
+    if (custom && background == primaryColor().rgb()) {
+        background = m_primary;
+        custom = false;
+    }
+
+    m_explicitBackground = true;
+    if (m_hasBackground && m_background == background)
+        return;
+    m_hasBackground = true;
     m_customBackground = custom;
     m_background = background;
     propagateBackground();
     backgroundChange();
+
+    // Foreground color depends on the background color if the background is set to primary.
+    if (!m_customBackground && m_background == m_primary)
+        foregroundChange();
 }
 
 void QQuickMaterialStyle::inheritBackground(uint background, bool custom, bool has)
 {
-    if (m_explicitBackground || m_background == background)
+    if (m_explicitBackground || (m_hasBackground == has && m_background == background))
         return;
 
     m_hasBackground = has;
@@ -779,6 +815,8 @@ void QQuickMaterialStyle::inheritBackground(uint background, bool custom, bool h
     m_background = background;
     propagateBackground();
     backgroundChange();
+    if (!m_customBackground && m_background == m_primary)
+        foregroundChange();
 }
 
 void QQuickMaterialStyle::propagateBackground()
@@ -796,11 +834,11 @@ void QQuickMaterialStyle::resetBackground()
     if (!m_explicitBackground)
         return;
 
-    m_hasBackground = false;
-    m_customBackground = false;
     m_explicitBackground = false;
     QQuickMaterialStyle *material = qobject_cast<QQuickMaterialStyle *>(attachedParent());
-    inheritBackground(material ? material->m_background : globalBackground, true, material ? material->m_hasBackground : false);
+    inheritBackground(material ? material->m_background : globalBackground,
+                      material ? material->m_customBackground : globalBackgroundCustom,
+                      material ? material->m_hasBackground : false);
 }
 
 void QQuickMaterialStyle::backgroundChange()
@@ -901,7 +939,9 @@ QColor QQuickMaterialStyle::backgroundColor(Shade shade) const
 {
     if (!m_hasBackground)
         return QColor::fromRgba(m_theme == Light ? backgroundColorLight : backgroundColorDark);
-    if (m_customBackground)
+    // The application bars (such as ToolBar) set the background color from the primary color,
+    // and in that case, it's better to validate with the custom primary and use it accordingly.
+    if (m_customBackground || (m_customPrimary && m_background == m_primary))
         return shade == themeShade() ? QColor::fromRgba(m_background)
                                      : this->shade(QColor::fromRgba(m_background), shade);
     if (m_background > BlueGrey)
@@ -1205,14 +1245,16 @@ QColor QQuickMaterialStyle::color(QQuickMaterialStyle::Color color, QQuickMateri
 static QColor lighterShade(const QColor &color, qreal amount)
 {
     QColor hsl = color.toHsl();
-    hsl.setHslF(hsl.hueF(), hsl.saturationF(), qBound<qreal>(0.0, hsl.lightnessF() + amount, 1.0), color.alphaF());
+    hsl.setHslF(hsl.hueF(), hsl.saturationF(),
+                std::clamp(hsl.lightnessF() + amount, qreal(0.0), qreal(1.0)), color.alphaF());
     return hsl.convertTo(color.spec());
 }
 
 static QColor darkerShade(const QColor &color, qreal amount)
 {
     QColor hsl = color.toHsl();
-    hsl.setHslF(hsl.hueF(), hsl.saturationF(), qBound<qreal>(0.0, hsl.lightnessF() - amount, 1.0), color.alphaF());
+    hsl.setHslF(hsl.hueF(), hsl.saturationF(),
+                std::clamp(hsl.lightnessF() - amount, qreal(0.0), qreal(1.0)), color.alphaF());
     return hsl.convertTo(color.spec());
 }
 

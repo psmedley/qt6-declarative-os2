@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
 /*!
 \page qtqml-modules-qmldir.html
+\meta {keywords} {qmltopic}
 \title Module Definition qmldir Files
-\brief Defines a QML module
+\brief Defines a QML module.
 
 There are two distinct types of \c qmldir files:
 \list
@@ -85,7 +86,7 @@ any particular version of the module.
 type must include the \c {pragma Singleton} statement.
 
 Example:
-\code
+\qml
     //Style.qml with custom singleton type definition
     pragma Singleton
     import QtQuick 2.0
@@ -108,7 +109,7 @@ Example:
         color: Style.textColor
         text: "Hello World"
     }
-\endcode
+\endqml
 
 \section2 Internal Object Type Declaration
 
@@ -218,7 +219,7 @@ this information.
 \endcode
 
 Declares a \l{Type Description Files}{type description file} for
-the module that can be read by QML tools such as Qt Creator to
+the module that can be read by QML tools such as \l{\QC Documentation}{\QC} to
 access information about the types defined by the module's plugins.
 \c <File> is the (relative) file name of a \c .qmltypes file.
 
@@ -320,7 +321,7 @@ A module can offer multiple major versions but the clients have access
 to one major version only at a time. For example, importing
 \c{MyExampleModule 2.0} provides access to that major version only and not
 the previous major version. Although you can organize the artifacts that belong
-to different major versions under a sigle directory and a \c qmldir file, it is
+to different major versions under a single directory and a \c qmldir file, it is
 recommended to use different directories for each major version. If you
 choose to go with the earlier approach (one directory and a \c qmldir file),
 try to use the version suffix for the file names. For example, artifacts
@@ -410,7 +411,7 @@ extension and are read by external tools to gain information about
 types defined in C++ and typically imported via plugins.
 
 As such qmltypes files have no effect on the functionality of a QML module.
-Their only use is to allow tools such as Qt Creator to provide code completion,
+Their only use is to allow tools such as \l{\QC Documentation}{\QC} to provide code completion,
 error checking and other functionality to users of your module.
 
 Any module that defines QML types in C++ should also ship a type description

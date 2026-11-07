@@ -6,6 +6,9 @@ set_source_files_properties(CheckBox.qml TabSet.qml TextField.qml
         QT_QML_SOURCE_VERSIONS 2.1
 )
 
+# this QML module is generated multiple times and therefore would get multiple .qmlls.ini files...
+set(QT_QML_GENERATE_QMLLS_INI OFF)
+
 set_source_files_properties(Images.qml
     PROPERTIES
         QT_QML_SINGLETON_TYPE true
@@ -24,6 +27,8 @@ qt_add_qml_module(${PROJECT_NAME}_shared
         "FlickrRssModel.qml"
         "Images.qml"
         "Label.qml"
+        "LauncherList.qml"
+        "SimpleLauncherDelegate.qml"
         "Slider.qml"
         "TabSet.qml"
         "TextField.qml"

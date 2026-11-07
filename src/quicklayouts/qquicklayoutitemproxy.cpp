@@ -1,7 +1,10 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 #include "qquicklayoutitemproxy_p.h"
 #include "qquicklayout_p.h"
+
+QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype LayoutItemProxy
@@ -61,6 +64,8 @@
 
     \div {class="float-right"}
     \inlineimage simpleProxy.png
+                 {Narrow window with stacked layout and wide window with
+                 side-by-side layout}
     \enddiv
 
     The LayoutItemProxy can also be used without layouts, e.g. by anchoring it
@@ -73,7 +78,7 @@
     \sa Item, GridLayout, RowLayout, ColumnLayout
 */
 
-Q_LOGGING_CATEGORY(lcLayouts, "qt.quick.layouts")
+Q_STATIC_LOGGING_CATEGORY(lcLayouts, "qt.quick.layouts")
 
 
 QQuickLayoutItemProxy::QQuickLayoutItemProxy(QQuickItem *parent)
@@ -285,12 +290,14 @@ void QQuickLayoutItemProxy::setTarget(QQuickItem *newTarget)
             // proxy.implicitWidth: target.implicitWidth
             auto fnBindImplW = [newTarget, this](){ this->setImplicitWidth(newTarget->implicitWidth()); };
             fnBindImplW();
-            connect(newTarget, &QQuickItem::implicitWidthChanged, fnBindImplW);
+            connect(newTarget, &QQuickItem::implicitWidthChanged,
+                    this, std::move(fnBindImplW));
 
             // proxy.implicitHeight: target.implicitHeight
             auto fnBindImplH = [newTarget, this](){ this->setImplicitHeight(newTarget->implicitHeight()); };
             fnBindImplH();
-            connect(newTarget, &QQuickItem::implicitHeightChanged, fnBindImplH);
+            connect(newTarget, &QQuickItem::implicitHeightChanged,
+                    this, std::move(fnBindImplH));
         }
     }
 
@@ -537,3 +544,5 @@ bool QQuickLayoutItemProxyAttachedData::proxyHasControl() const
 {
     return controllingProxy != nullptr;
 }
+
+QT_END_NAMESPACE

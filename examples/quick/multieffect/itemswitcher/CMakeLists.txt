@@ -14,6 +14,8 @@ qt_add_executable(itemswitcherexample WIN32 MACOSX_BUNDLE
     main.cpp
 )
 
+set_target_properties(itemswitcherexample PROPERTIES FOLDER "qtc_runnable")
+
 target_link_libraries(itemswitcherexample PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -63,7 +65,6 @@ install(TARGETS itemswitcherexample
 qt_generate_deploy_qml_app_script(
     TARGET itemswitcherexample
     OUTPUT_SCRIPT deploy_script
-    MACOS_BUNDLE_POST_BUILD
     NO_UNSUPPORTED_PLATFORM_ERROR
     DEPLOY_USER_QML_MODULES_ON_UNSUPPORTED_PLATFORM
 )

@@ -1,18 +1,22 @@
 #version 440
 
 layout(location = 0) in vec4 vertexCoord;
-layout(location = 1) in vec2 inA;
+layout(location = 1) in vec2 inA;   // A B and C: control points in logical coordinates
 layout(location = 2) in vec2 inB;
 layout(location = 3) in vec2 inC;
-layout(location = 4) in vec2 normalVector;
+layout(location = 4) in vec3 normalExt; // x and y: normal vector; z: strokeWidth multiplier (default 1)
 
-layout(location = 0) out vec4 P;
-layout(location = 1) out vec2 A;
+layout(location = 0) out vec4 P;    // stroke edge
+layout(location = 1) out vec2 A;    // A B and C: control points in logical coordinates
 layout(location = 2) out vec2 B;
 layout(location = 3) out vec2 C;
-layout(location = 4) out vec2 HG;
-layout(location = 5) out float offset;
+layout(location = 4) out vec4 HGOW; // H and G: args to solveDepressedCubic(); O: offset; W: adj strokeWidth
 
+#if defined(LINEARGRADIENT)
+layout(location = 5) out float gradTabIndex;
+#elif defined(RADIALGRADIENT) || defined(CONICALGRADIENT)
+layout(location = 5) out vec2 coord;
+#endif
 
 layout(std140, binding = 0) uniform buf {
 #if QSHADER_VIEW_COUNT >= 2
@@ -23,15 +27,32 @@ layout(std140, binding = 0) uniform buf {
 
     float matrixScale;
     float opacity;
-    float reserved2;
-    float reserved3;
-
-    vec4 strokeColor;
-
+    float devicePixelRatio;
     float strokeWidth;
+
+#if defined(LINEARGRADIENT)
+    vec2 gradientStart;
+    vec2 gradientEnd;
+#elif defined(RADIALGRADIENT)
+    vec2 translationPoint;
+    vec2 focalToCenter;
+    float centerRadius;
+    float focalRadius;
+    float reserved3;
+    float reserved4;
+#elif defined(CONICALGRADIENT)
+    vec2 translationPoint;
+    float angle;
+    float reserved3;
+#else
+    vec4 strokeColor;
+#endif
+
     float debug;
     float reserved5;
     float reserved6;
+    float reserved7;
+
 } ubuf;
 
 #define SQRT2 1.41421356237
@@ -43,7 +64,41 @@ float qdot(vec2 a, vec2 b)
 
 void main()
 {
-    P = vertexCoord + vec4(normalVector, 0.0, 0.0) * SQRT2/ubuf.matrixScale;
+    vec4 normalVector = vec4(normalExt.xy, 0.0, 0.0);
+    // If STROKE_EXPANDING is _not_ defined, vertexCoord starts out in
+    // logical coordinates, already positioned outwards past an edge of the stroke.
+    P = vertexCoord + normalVector * SQRT2 / ubuf.matrixScale;
+    float adjStrokeWidth = abs(ubuf.strokeWidth); // passed to fragment shader in HGOW.w
+
+#if defined(STROKE_EXPANDING)
+    // vertexCoord starts out in logical coordinates, in the center of the stroke.
+    // Move the vertex by stroke width * normalVector to fill the stroke width;
+    // and in case of a cosmetic stroke, divide by matrixScale to undo the scaling.
+    // In the case of a miter joint, the tip vertices need to be moved farther,
+    // so the length of normalVector may be > 1.
+    P += normalVector * adjStrokeWidth; // expand to stroke width
+
+    // Negative ubuf.strokeWidth means we want a "cosmetic pen", which means
+    // we make the stroke triangles wider or narrower to adjust for the difference
+    // between zoomed stroke width and cosmetic stroke width.
+    if (ubuf.strokeWidth < 0.) { // cosmetic stroke
+        adjStrokeWidth *= ubuf.devicePixelRatio / ubuf.matrixScale;
+        float strokeDiff = max(ubuf.devicePixelRatio / ubuf.matrixScale, adjStrokeWidth) *
+                (ubuf.matrixScale / ubuf.devicePixelRatio - 1) / 2.;
+        P -= normalVector * strokeDiff; // cosmetic adjustment
+    }
+
+    // adjust stroke width by the given multiplier (usually 1)
+    adjStrokeWidth *= normalExt.z;
+#endif // if the shader is expected to expand the stroke by moving vertices outwards
+
+#if defined(LINEARGRADIENT)
+    vec2 gradVec = ubuf.gradientEnd - ubuf.gradientStart;
+    gradTabIndex = dot(gradVec, P.xy - ubuf.gradientStart) / dot(gradVec, gradVec);
+#elif defined(RADIALGRADIENT) || defined(CONICALGRADIENT)
+    coord = P.xy - ubuf.translationPoint;
+#endif
+
 
     A = inA;
     B = inB;
@@ -53,7 +108,7 @@ void main()
     // t^2+H*t+G=0
     // that results from the equation
     // Q'(s).(p-Q(s)) = 0
-    // The last parameter is the static offset between s and t:
+    // O (HGOW.z) is the static offset between s and t:
     // s = t - b/(3a)
     // use it to get back the parameter t
 
@@ -69,10 +124,7 @@ void main()
     // both functions are linear in c and d and thus linear in p
     float H = (3. * a * c - b * b) / (3. * a * a);
     float G = (2. * b * b * b - 9. * a * b * c + 27. * a * a * d) / (27. * a * a * a);
-    HG = vec2(H, G);
-    offset = b/(3*a);
-
-
+    HGOW = vec4(H, G, b / (3 * a), adjStrokeWidth);
 
 #if QSHADER_VIEW_COUNT >= 2
     gl_Position = ubuf.qt_Matrix[gl_ViewIndex] * P;

@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlproperty.h"
 
@@ -21,13 +22,14 @@
 #include <private/qqmlvmemetaobject_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4sequenceobject_p.h>
 
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlpropertymap.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/qsequentialiterable.h>
+#include <QtCore/qmetasequence.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qvector.h>
 
@@ -76,6 +78,12 @@ qWarning() << "Current pixel size:" << property.read().toInt();
 property.write(24);
 qWarning() << "Pixel size should now be 24:" << property.read().toInt();
 \endcode
+*/
+
+/*!
+    \class QQmlPropertyPrivate
+    \inmodule QtQml
+    \internal
 */
 
 /*!
@@ -194,6 +202,9 @@ QQmlProperty::QQmlProperty(QObject *obj, const QString &name, QQmlEngine *engine
     }
 }
 
+QQmlPropertyPrivate::QQmlPropertyPrivate() = default;
+QQmlPropertyPrivate::~QQmlPropertyPrivate() = default;
+
 QQmlProperty QQmlPropertyPrivate::create(QObject *target, const QString &propertyName,
                                          const QQmlRefPointer<QQmlContextData> &context,
                                          QQmlPropertyPrivate::InitFlags flags)
@@ -248,12 +259,11 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
             // Types must begin with an uppercase letter (see checkRegistration()
             // in qqmlmetatype.cpp for the enforcement of this).
             if (typeNameCache && !pathName.isEmpty() && pathName.at(0).isUpper()) {
-                QQmlEnginePrivate *enginePrivate = QQmlEnginePrivate::get(engine);
-                QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(enginePrivate);
+                QQmlTypeLoader *typeLoader = QQmlTypeLoader::get(engine.data());
                 QQmlTypeNameCache::Result r = typeNameCache->query(pathName, typeLoader);
                 if (r.isValid()) {
                     if (r.type.isValid()) {
-                        QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(enginePrivate);
+                        QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(typeLoader);
                         if (!func) return; // Not an attachable type
 
                         currentObject = qmlAttachedPropertiesObject(currentObject, func);
@@ -269,7 +279,7 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
                         if (!r.type.isValid())
                             return; // Invalid type in namespace
 
-                        QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(enginePrivate);
+                        QQmlAttachedPropertiesFunc func = r.type.attachedPropertiesFunction(typeLoader);
                         if (!func)
                             return; // Not an attachable type
 
@@ -301,7 +311,7 @@ void QQmlPropertyPrivate::initProperty(QObject *obj, const QString &name,
                 for (auto idContext = context; idContext; idContext = idContext->parent()) {
                     const int objectId = idContext->propertyIndex(pathName.toString());
                     if (objectId != -1 && objectId < idContext->numIdValues()) {
-                        currentObject = context->idValue(objectId);
+                        currentObject = idContext->idValue(objectId);
                         break;
                     }
                 }
@@ -648,6 +658,12 @@ bool QQmlProperty::isSignalProperty() const
 }
 
 /*!
+    \property QQmlProperty::object
+    \brief the QObject represented by the QML property.
+    \sa QQmlProperty::name
+*/
+
+/*!
     Returns the QQmlProperty's QObject.
 */
 QObject *QQmlProperty::object() const
@@ -695,7 +711,7 @@ bool QQmlProperty::isBindable() const
     if (!d->object)
         return false;
     if (d->core.isValid())
-        return d->core.isBindable();
+        return d->core.notifiesViaBindable();
     return false;
 }
 
@@ -735,6 +751,12 @@ bool QQmlProperty::isValid() const
         return false;
     return type() != Invalid;
 }
+
+/*!
+    \property QQmlProperty::name
+    \brief the name of the QML property.
+    \sa QQmlProperty::object
+*/
 
 /*!
     Return the name of this QML property.
@@ -818,7 +840,7 @@ void
 QQmlPropertyPrivate::setBinding(const QQmlProperty &that, QQmlAbstractBinding *newBinding)
 {
     if (!newBinding) {
-        removeBinding(that);
+        removeBinding(that, OverrideSticky);
         return;
     }
 
@@ -830,7 +852,9 @@ QQmlPropertyPrivate::setBinding(const QQmlProperty &that, QQmlAbstractBinding *n
     setBinding(newBinding);
 }
 
-static void removeOldBinding(QObject *object, QQmlPropertyIndex index, QQmlPropertyPrivate::BindingFlags flags = QQmlPropertyPrivate::None)
+static bool removeOldBinding(
+        QObject *object, QQmlPropertyIndex index,
+        QQmlPropertyPrivate::BindingFlags flags = QQmlPropertyPrivate::None)
 {
     int coreIndex = index.coreIndex();
     int valueTypeIndex = index.valueTypeIndex();
@@ -838,7 +862,7 @@ static void removeOldBinding(QObject *object, QQmlPropertyIndex index, QQmlPrope
     QQmlData *data = QQmlData::get(object, false);
 
     if (!data || !data->hasBindingBit(coreIndex))
-        return;
+        return true;
 
     QQmlAbstractBinding::Ptr oldBinding;
     oldBinding = data->bindings;
@@ -851,39 +875,49 @@ static void removeOldBinding(QObject *object, QQmlPropertyIndex index, QQmlPrope
     if (!oldBinding) {
         // Clear the binding bit so that the binding doesn't appear later for any reason
         data->clearBindingBit(coreIndex);
-        return;
+        return true;
     }
 
     if (valueTypeIndex != -1 && oldBinding->kind() == QQmlAbstractBinding::ValueTypeProxy) {
         oldBinding = static_cast<QQmlValueTypeProxyBinding *>(oldBinding.data())->binding(index);
         if (!oldBinding)
-           return;
+           return true;
     }
+
+    if (oldBinding->isSticky() && !(flags & QQmlPropertyPrivate::OverrideSticky))
+        return false;
 
     if (!(flags & QQmlPropertyPrivate::DontEnable))
         oldBinding->setEnabled(false, {});
     oldBinding->removeFromObject();
+    return true;
 }
 
-void QQmlPropertyPrivate::removeBinding(QQmlAbstractBinding *b)
+bool QQmlPropertyPrivate::removeBinding(
+        QQmlAbstractBinding *b, QQmlPropertyPrivate::BindingFlags flags)
 {
-    removeBinding(b->targetObject(), b->targetPropertyIndex());
+    return removeBinding(b->targetObject(), b->targetPropertyIndex(), flags);
 }
 
-void QQmlPropertyPrivate::removeBinding(QObject *o, QQmlPropertyIndex index)
+bool QQmlPropertyPrivate::removeBinding(
+        QObject *o, QQmlPropertyIndex index, QQmlPropertyPrivate::BindingFlags flags)
 {
     Q_ASSERT(o);
 
-    auto [target, targetIndex] = findAliasTarget(o, index);
-    removeOldBinding(target, targetIndex);
+    const auto [target, targetPropertyIndex] = findAliasTarget(o, index);
+
+    // If the target property index is invalid, there is no property. The alias targets the "target"
+    // object itself. You can't have a binding on a bare object so there is nothing to do here.
+    return !targetPropertyIndex.isValid() || removeOldBinding(target, targetPropertyIndex, flags);
 }
 
-void QQmlPropertyPrivate::removeBinding(const QQmlProperty &that)
+bool QQmlPropertyPrivate::removeBinding(
+        const QQmlProperty &that, QQmlPropertyPrivate::BindingFlags flags)
 {
     if (!that.d || !that.isProperty() || !that.d->object)
-        return;
+        return false;
 
-    removeBinding(that.d->object, that.d->encodedIndex());
+    return removeBinding(that.d->object, that.d->encodedIndex(), flags);
 }
 
 QQmlAbstractBinding *
@@ -978,12 +1012,11 @@ void QQmlPropertyPrivate::setBinding(QQmlAbstractBinding *binding, BindingFlags 
     }
 #endif
 
-    removeOldBinding(object, index, flags);
+    removeOldBinding(object, index, flags | OverrideSticky);
 
     binding->addToObject();
     if (!(flags & DontEnable))
         binding->setEnabled(true, writeFlags);
-
 }
 
 /*!
@@ -1145,10 +1178,22 @@ QVariant QQmlPropertyPrivate::readValueProperty()
         }
         return QVariant();
     } else if (core.isQList()) {
+        auto coreMetaType = core.propType();
 
-        QQmlListProperty<QObject> prop;
-        core.readProperty(object, &prop);
-        return QVariant::fromValue(QQmlListReferencePrivate::init(prop, core.propType()));
+        // IsQmlList is set for QQmlListPropery and list<ObjectType>
+        if (coreMetaType.flags() & QMetaType::IsQmlList) {
+            QQmlListProperty<QObject> prop;
+            core.readProperty(object, &prop);
+            return QVariant::fromValue(QQmlListReferencePrivate::init(prop, coreMetaType));
+        } else {
+            // but not for lists of value types
+            QVariant result(coreMetaType);
+            // TODO: ideally, we would not default construct and copy assign,
+            // but do a single copy-construct; we don't have API for that, though
+            coreMetaType.construct(result.data());
+            core.readProperty(object, result.data());
+            return result;
+        }
 
     } else if (core.isQObject()) {
 
@@ -1258,7 +1303,8 @@ static void removeValuePropertyBinding(
     // Remove any existing bindings on this property
     if (!(flags & QQmlPropertyData::DontRemoveBinding) && object) {
         QQmlPropertyPrivate::removeBinding(
-                    object, QQmlPropertyPrivate::encodedIndex(core, valueTypeData));
+                    object, QQmlPropertyPrivate::encodedIndex(core, valueTypeData),
+                    QQmlPropertyPrivate::OverrideSticky);
     }
 }
 
@@ -1336,15 +1382,19 @@ struct BindingFixer
     BindingFixer(QObject *object, const QQmlPropertyData &property,
                  QQmlPropertyData::WriteFlags flags)
     {
-        if (!property.isBindable() || !(flags & QQmlPropertyData::DontRemoveBinding))
+        // Even if QML cannot install bindings on this property, there may be a C++-created binding.
+        // If the property can notify via a bindable, there is a bindable that can hold a binding.
+        if (!property.notifiesViaBindable() || !(flags & QQmlPropertyData::DontRemoveBinding))
             return;
 
         QUntypedBindable bindable;
         void *argv[] = {&bindable};
         QMetaObject::metacall(object, QMetaObject::BindableProperty, property.coreIndex(), argv);
         untypedBinding = bindable.binding();
-        if (auto priv = QPropertyBindingPrivate::get(untypedBinding))
+        if (auto priv = QPropertyBindingPrivate::get(untypedBinding)) {
+            wasSticky = priv->isSticky();
             priv->setSticky(true);
+        }
     }
 
     ~BindingFixer()
@@ -1352,11 +1402,12 @@ struct BindingFixer
         if (untypedBinding.isNull())
             return;
         auto priv = QPropertyBindingPrivate::get(untypedBinding);
-        priv->setSticky(false);
+        priv->setSticky(wasSticky);
     }
 
 private:
     QUntypedPropertyBinding untypedBinding;
+    bool wasSticky = false;
 };
 
 struct ConvertAndAssignResult {
@@ -1424,7 +1475,7 @@ static ConvertAndAssignResult tryConvertAndAssign(
     }
 
     QVariant converted = QQmlValueTypeProvider::createValueType(
-            value, propertyMetaType, enginePriv ? enginePriv->v4engine() : nullptr);
+            value, propertyMetaType, enginePriv ? enginePriv->v4Engine.get() : nullptr);
     if (!converted.isValid()) {
         converted = QVariant(propertyMetaType);
         if (!QMetaType::convert(value.metaType(), value.constData(),
@@ -1438,15 +1489,15 @@ static ConvertAndAssignResult tryConvertAndAssign(
 template<typename Op>
 bool iterateQObjectContainer(QMetaType metaType, const void *data, Op op)
 {
-    QSequentialIterable iterable;
-    if (!QMetaType::convert(metaType, data, QMetaType::fromType<QSequentialIterable>(), &iterable))
+    QMetaSequence::Iterable iterable;
+    if (!QMetaType::convert(metaType, data, QMetaType::fromType<QMetaSequence::Iterable>(), &iterable))
         return false;
 
     const QMetaSequence metaSequence = iterable.metaContainer();
 
     if (!metaSequence.hasConstIterator()
             || !metaSequence.canGetValueAtConstIterator()
-            || !iterable.valueMetaType().flags().testFlag(QMetaType::PointerToQObject)) {
+            || !metaSequence.valueMetaType().flags().testFlag(QMetaType::PointerToQObject)) {
         return false;
     }
 
@@ -1480,6 +1531,378 @@ static bool tryAssignBinding(
     return true;
 }
 
+template<typename L>
+qsizetype listCount(const L *list)
+{
+    if constexpr (std::is_same_v<L, QQmlListReference>)
+        return list->count();
+    if constexpr (std::is_same_v<L, QObjectList>)
+        return list->count();
+    if constexpr (std::is_same_v<L, QVariantList>)
+        return list->count();
+    return -1;
+}
+
+template<typename L, typename F>
+bool iterateList(const L *list, qsizetype size, F &&callback)
+{
+    for (qsizetype i = 0; i < size; ++i){
+        if (!callback(i, list->at(i)))
+            return false;
+    }
+
+    return true;
+}
+
+static QObject *extractObject(const QVariant &variant)
+{
+    return QQmlMetaType::toQObject(variant);
+}
+
+static QObject *extractObject(QObject *object)
+{
+    return object;
+}
+
+using AssignResult = QQmlPropertyPrivate::ListCopyResult;
+
+template<typename L, typename DoAppend>
+AssignResult assignListToListProperty(
+        QQmlListProperty<QObject> *prop, const L *list, DoAppend &&doAppend)
+{
+    const qsizetype newSize = listCount(list);
+    if (prop->at && prop->count && newSize == prop->count(prop)) {
+        if (iterateList(list, newSize, [prop](qsizetype i, const auto &element) {
+            return (extractObject(element) == prop->at(prop, i));
+        })) {
+            // Nothing to do, the lists are the same
+            return AssignResult::WasEqual;
+        }
+    }
+
+    prop->clear(prop);
+    iterateList(list, newSize, [&](qsizetype, const auto &element) {
+        return doAppend(prop, extractObject(element));
+    });
+
+    return AssignResult::Copied;
+}
+
+template<typename DoAppend>
+AssignResult assignMetaContainerToListProperty(
+        QQmlListProperty<QObject> *prop, QMetaType metaType, const void *data, DoAppend &&doAppend)
+{
+    QMetaSequence::Iterable iterable;
+    if (!QMetaType::convert(metaType, data, QMetaType::fromType<QMetaSequence::Iterable>(), &iterable))
+        return AssignResult::TypeMismatch;
+
+    const QMetaSequence metaSequence = iterable.metaContainer();
+    if (!metaSequence.hasConstIterator()
+            || !metaSequence.canGetValueAtConstIterator()
+            || !metaSequence.valueMetaType().flags().testFlag(QMetaType::PointerToQObject)) {
+        return AssignResult::TypeMismatch;
+    }
+
+    const void *container = iterable.constIterable();
+    const void *end = metaSequence.constEnd(container);
+
+    QObject *o = nullptr;
+    bool same = false;
+    if (prop->at && prop->count && metaSequence.hasSize()
+            && metaSequence.size(container) == prop->count(prop)) {
+        void *it = metaSequence.constBegin(container);
+        same = true;
+        qsizetype i = -1;
+        while (!metaSequence.compareConstIterator(it, end)) {
+            metaSequence.valueAtConstIterator(it, &o);
+            if (o != prop->at(prop, ++i)) {
+                same = false;
+                break;
+            }
+            metaSequence.advanceConstIterator(it, 1);
+        }
+        metaSequence.destroyConstIterator(it);
+    }
+
+    if (!same) {
+        prop->clear(prop);
+        void *it = metaSequence.constBegin(container);
+        while (!metaSequence.compareConstIterator(it, end)) {
+            metaSequence.valueAtConstIterator(it, &o);
+            doAppend(prop, o);
+            metaSequence.advanceConstIterator(it, 1);
+        }
+        metaSequence.destroyConstIterator(it);
+    }
+
+    metaSequence.destroyConstIterator(end);
+    return same ? AssignResult::WasEqual : AssignResult::Copied;
+}
+
+/*!
+  \internal
+  Attempts to convert \a value to a QQmlListProperty.
+  The existing \a listProperty will be modified (so use a temporary one if that
+  is not desired). \a listProperty is passed as a QQmlListProperty<QObject>,
+  but might actually be a list property of a more specific type. The actual
+  type of the list property is given by \a actualListType.
+*/
+QQmlPropertyPrivate::ListCopyResult  QQmlPropertyPrivate::convertToQQmlListProperty(QQmlListProperty<QObject> *listProperty, QMetaType actualListType, const QVariant &value) {
+    QQmlListProperty<QObject> &prop = *listProperty;
+    QMetaType listValueType = QQmlMetaType::listValueType(actualListType);
+    // elementMetaObject may be null. That means we haven't loaded the type, and the given value
+    // can't be of this type. That's what the warning in doAppend below is for.
+    QQmlMetaObject elementMetaObject = QQmlMetaType::rawMetaObjectForType(listValueType);
+
+    auto doAppend = [&](QQmlListProperty<QObject> *propPtr, QObject *o) {
+        if (Q_UNLIKELY(o && (elementMetaObject.isNull()
+                             || !QQmlMetaObject::canConvert(o, elementMetaObject)))) {
+            qCWarning(lcIncompatibleElement)
+                    << "Cannot append" << o << "to a QML list of" << listValueType.name();
+            o = nullptr;
+        }
+        propPtr->append(propPtr, o);
+        return true;
+    };
+
+    AssignResult result = AssignResult::TypeMismatch;
+    QMetaType variantMetaType = value.metaType();
+    if (variantMetaType == QMetaType::fromType<QQmlListReference>()) {
+        result = assignListToListProperty(
+                &prop, static_cast<const QQmlListReference *>(value.constData()),
+                std::move(doAppend));
+    } else if (variantMetaType == QMetaType::fromType<QObjectList>()) {
+        result = assignListToListProperty(
+                &prop, static_cast<const QObjectList *>(value.constData()),
+                std::move(doAppend));
+    } else if (variantMetaType == QMetaType::fromType<QVariantList>()) {
+        result = assignListToListProperty(
+                &prop, static_cast<const QVariantList *>(value.constData()),
+                std::move(doAppend));
+    } else {
+        result = assignMetaContainerToListProperty(
+                &prop, variantMetaType, value.data(), doAppend);
+        if (result == AssignResult::TypeMismatch) {
+            prop.clear(&prop);
+            doAppend(&prop, QQmlMetaType::toQObject(value));
+            result = AssignResult::Copied;
+        }
+    }
+
+    return result;
+}
+
+// handles only properties backed by QQmlListProperty
+static bool assignToQQmlListProperty(
+        QObject *object,
+        const QQmlPropertyData &property,
+        const QMetaType propertyMetaType, const QVariant &value)
+{
+    Q_ASSERT(propertyMetaType.flags() & QMetaType::IsQmlList);
+    QQmlListProperty<QObject> prop;
+    property.readProperty(object, &prop);
+
+    // clear and append are the minimum operations we need to perform an assignment.
+    if (!prop.clear || !prop.append)
+        return false;
+
+    const bool useNonsignalingListOps = prop.clear == &QQmlVMEMetaObject::list_clear
+            && prop.append == &QQmlVMEMetaObject::list_append;
+    if (useNonsignalingListOps) {
+        prop.clear = &QQmlVMEMetaObject::list_clear_nosignal;
+        prop.append = &QQmlVMEMetaObject::list_append_nosignal;
+    }
+
+    auto result = QQmlPropertyPrivate::convertToQQmlListProperty(&prop, propertyMetaType, value);
+
+    if (useNonsignalingListOps && result == QQmlPropertyPrivate::ListCopyResult::Copied) {
+        Q_ASSERT(QQmlVMEMetaObject::get(object));
+        QQmlVMEResolvedList(&prop).activateSignal();
+    }
+
+    return result != QQmlPropertyPrivate::ListCopyResult::TypeMismatch;
+}
+
+// handles only properties not backed by QQmlListProperty - both list of value types
+// and containers of object types
+static bool assignToListProperty(
+        const QQmlPropertyData &property, QQmlPropertyData::WriteFlags flags,
+        const QMetaType propertyMetaType, const QMetaType variantMetaType, const QVariant &value,
+        QObject *object)
+{
+    Q_ASSERT(!(propertyMetaType.flags() & QMetaType::IsQmlList));
+    if (variantMetaType == propertyMetaType) {
+        QVariant v = value;
+        return property.writeProperty(object, v.data(), flags);
+    } else {
+        QVariant outputList(propertyMetaType);
+        const QQmlType type = QQmlMetaType::qmlListType(propertyMetaType);
+        const QMetaSequence outputSequence = type.listMetaSequence();
+        if (!outputSequence.canAddValue())
+            return property.writeProperty(object, outputList.data(), flags);
+
+        const QMetaType outputElementMetaType = outputSequence.valueMetaType();
+        const bool outputIsQVariant = (outputElementMetaType == QMetaType::fromType<QVariant>());
+
+        QMetaSequence::Iterable inputIterable;
+        QVariant inputList = value;
+        if (QMetaType::view(
+                    inputList.metaType(), inputList.data(),
+                    QMetaType::fromType<QMetaSequence::Iterable>(), &inputIterable)) {
+
+            const QMetaSequence inputSequence = inputIterable.metaContainer();
+            const QMetaType inputElementMetaType = inputSequence.valueMetaType();
+            const bool inputIsQVariant = (inputElementMetaType == QMetaType::fromType<QVariant>());
+
+            QVariant outputElement
+                    = outputIsQVariant ? QVariant() : QVariant(outputElementMetaType);
+            QVariant inputElement
+                    = inputIsQVariant ? QVariant() : QVariant(inputElementMetaType);
+
+            void *it = inputSequence.constBegin(inputList.constData());
+            void *end = inputSequence.constEnd(inputList.constData());
+
+            for (; !inputSequence.compareConstIterator(it, end);
+                 inputSequence.advanceConstIterator(it, 1)) {
+
+                if (inputIsQVariant)
+                    inputSequence.valueAtIterator(it, &inputElement);
+                else
+                    inputSequence.valueAtIterator(it, inputElement.data());
+
+                if (outputIsQVariant) {
+                    outputSequence.addValue(outputList.data(), &inputElement);
+                } else if (inputElement.metaType() == outputElement.metaType()) {
+                    outputSequence.addValue(outputList.data(), inputElement.constData());
+                } else {
+                    QMetaType::convert(
+                            inputElement.metaType(), inputElement.constData(),
+                            outputElementMetaType, outputElement.data());
+                    outputSequence.addValue(outputList.data(), outputElement.constData());
+                }
+            }
+
+            inputSequence.destroyConstIterator(it);
+            inputSequence.destroyConstIterator(end);
+        } else if (outputIsQVariant) {
+            outputSequence.addValue(outputList.data(), &value);
+        } else if (outputElementMetaType == value.metaType()){
+            outputSequence.addValue(outputList.data(), value.constData());
+        } else {
+            QVariant output(outputElementMetaType);
+            QMetaType::convert(
+                    value.metaType(), value.constData(), outputElementMetaType, output.data());
+            outputSequence.addValue(outputList.data(), output.constData());
+        }
+
+        return property.writeProperty(object, outputList.data(), flags);
+    }
+}
+
+QVariant QQmlPropertyPrivate::convertToWriteTargetType(const QVariant &value, QMetaType targetMetaType){
+    QMetaType sourceMetaType = value.metaType();
+    Q_ASSERT(sourceMetaType != targetMetaType);
+
+    // handle string converters
+    if (sourceMetaType == QMetaType::fromType<QString>()) {
+        bool ok = false;
+        QVariant converted = QQmlStringConverters::variantFromString(value.toString(), targetMetaType, &ok);
+        if (ok)
+            return converted;
+    }
+
+    // try a plain QVariant conversion
+    // Note that convert clears the old value, and can fail even if canConvert returns true
+    if (QMetaType::canConvert(sourceMetaType, targetMetaType))
+        if (QVariant copy = value; copy.convert(targetMetaType))
+            return copy;
+
+    // the only other options are that they are assigning a single value
+    // or a QVariantList to a sequence type property (eg, an int to a
+    // QList<int> property) or that we encountered an interface type.
+
+    /* Note that we've already handled single-value assignment to QList<QUrl> properties in write,
+       before calling this function but the generic code still handles them, which is important for
+       other places*/
+    QMetaSequence::Iterable iterable;
+    QVariant sequenceVariant = QVariant(targetMetaType);
+    if (QMetaType::view(
+                targetMetaType, sequenceVariant.data(),
+                QMetaType::fromType<QMetaSequence::Iterable>(),
+                &iterable)) {
+        const QMetaSequence propertyMetaSequence = iterable.metaContainer();
+        if (propertyMetaSequence.canAddValueAtEnd()) {
+            const QMetaType elementMetaType = propertyMetaSequence.valueMetaType();
+            void *propertyContainer = iterable.mutableIterable();
+
+            if (sourceMetaType == elementMetaType) {
+                propertyMetaSequence.addValueAtEnd(propertyContainer, value.constData());
+                return sequenceVariant;
+            } else if (sourceMetaType == QMetaType::fromType<QVariantList>()) {
+                const QVariantList list = value.value<QVariantList>();
+                for (const QVariant &valueElement : list) {
+                    if (valueElement.metaType() == elementMetaType) {
+                        propertyMetaSequence.addValueAtEnd(
+                                propertyContainer, valueElement.constData());
+                    } else {
+                        QVariant converted(elementMetaType);
+                        QMetaType::convert(
+                                valueElement.metaType(), valueElement.constData(),
+                                elementMetaType, converted.data());
+                        propertyMetaSequence.addValueAtEnd(
+                                propertyContainer, converted.constData());
+                    }
+                }
+                return sequenceVariant;
+            } else if (elementMetaType.flags().testFlag(QMetaType::PointerToQObject)) {
+                const QMetaObject *elementMetaObject = elementMetaType.metaObject();
+                Q_ASSERT(elementMetaObject);
+
+                const auto doAppend = [&](QObject *o) {
+                    QObject *casted = elementMetaObject->cast(o);
+                    propertyMetaSequence.addValueAtEnd(propertyContainer, &casted);
+                };
+
+                if (sourceMetaType.flags().testFlag(QMetaType::PointerToQObject)) {
+                    doAppend(*static_cast<QObject *const *>(value.data()));
+                    return sequenceVariant;
+                } else if (sourceMetaType == QMetaType::fromType<QQmlListReference>()) {
+                    const QQmlListReference *reference
+                            = static_cast<const QQmlListReference *>(value.constData());
+                    Q_ASSERT(elementMetaObject);
+                    for (int i = 0, end = reference->size(); i < end; ++i)
+                        doAppend(reference->at(i));
+                    return sequenceVariant;
+                } else if (!iterateQObjectContainer(
+                                   sourceMetaType, value.data(), doAppend)) {
+                    doAppend(QQmlMetaType::toQObject(value));
+                }
+            } else {
+                QVariant converted = value;
+                if (converted.convert(elementMetaType)) {
+                    propertyMetaSequence.addValueAtEnd(propertyContainer, converted.constData());
+                    return sequenceVariant;
+                }
+            }
+        }
+    }
+
+
+    if (QQmlMetaType::isInterface(targetMetaType)) {
+        auto valueAsQObject = qvariant_cast<QObject *>(value);
+
+        if (void *iface = valueAsQObject
+                    ? valueAsQObject->qt_metacast(QQmlMetaType::interfaceIId(targetMetaType))
+                    : nullptr;
+            iface) {
+            // this case can occur when object has an interface type
+            // and the variant contains a type implementing the interface
+            return QVariant(targetMetaType, &iface);
+        }
+    }
+    return QVariant();
+}
+
 bool QQmlPropertyPrivate::write(
         QObject *object, const QQmlPropertyData &property, const QVariant &value,
         const QQmlRefPointer<QQmlContextData> &context, QQmlPropertyData::WriteFlags flags)
@@ -1488,6 +1911,12 @@ bool QQmlPropertyPrivate::write(
     const QMetaType variantMetaType = value.metaType();
 
     const BindingFixer bindingFixer(object, property, flags);
+
+    // handle property resets here to avoid duplciating code for QObject and other properties
+    if (property.isResettable() && !value.isValid()) {
+        property.resetProperty(object, flags);
+        return true;
+    }
 
     if (property.isEnum()) {
         QMetaProperty prop = object->metaObject()->property(property.coreIndex());
@@ -1524,25 +1953,26 @@ bool QQmlPropertyPrivate::write(
         } else {
             varType = variantMetaType;
         }
-        QQmlMetaObject valMo = rawMetaObjectForType(varType);
-        if (valMo.isNull() || !varType.flags().testFlag(QMetaType::PointerToQObject))
+
+        if (!varType.flags().testFlag(QMetaType::PointerToQObject))
             return false;
+
         QObject *o = *static_cast<QObject *const *>(val.constData());
-        QQmlMetaObject propMo = rawMetaObjectForType(propertyMetaType);
-
-        if (o)
-            valMo = o;
-
-        if (QQmlMetaObject::canConvert(valMo, propMo)) {
-            return property.writeProperty(object, &o, flags);
-        } else if (!o && QQmlMetaObject::canConvert(propMo, valMo)) {
-            // In the case of a null QObject, we assign the null if there is
-            // any change that the null variant type could be up or down cast to
-            // the property type.
-            return property.writeProperty(object, &o, flags);
-        } else {
-            return false;
+        if (o) {
+            // If we have an object, we can use that to obtain and check the metaobject.
+            // Composite property type. We can check all candidate composite types in one go.
+            return QQmlMetaType::canConvert(o, propertyMetaType)
+                    && property.writeProperty(object, &o, flags);
         }
+
+        // In the case of a null QObject, we assign the null if there is
+        // any chance that the variant type could be up or down cast to
+        // the property type.
+        const QQmlMetaObject valMo = rawMetaObjectForType(varType);
+        const QQmlMetaObject propMo = rawMetaObjectForType(propertyMetaType);
+        if (QQmlMetaObject::canConvert(valMo, propMo) || QQmlMetaObject::canConvert(propMo, valMo))
+            return property.writeProperty(object, &o, flags);
+        return false;
     } else if (ConvertAndAssignResult result = tryConvertAndAssign(
                        object, property, value, flags, propertyMetaType, variantMetaType, isUrl,
                        enginePriv)) {
@@ -1570,171 +2000,22 @@ bool QQmlPropertyPrivate::write(
                 : urlSequence(value);
         return property.writeProperty(object, &urlSeq, flags);
     } else if (property.isQList()) {
-        if (propertyMetaType.flags() & QMetaType::IsQmlList) {
-            QMetaType listValueType = QQmlMetaType::listValueType(propertyMetaType);
-            QQmlMetaObject valueMetaObject = QQmlMetaType::rawMetaObjectForType(listValueType);
-            if (valueMetaObject.isNull())
-                return false;
-
-            QQmlListProperty<QObject> prop;
-            property.readProperty(object, &prop);
-
-            if (!prop.clear || !prop.append)
-                return false;
-
-            const bool useNonsignalingListOps = prop.clear == &QQmlVMEMetaObject::list_clear
-                    && prop.append == &QQmlVMEMetaObject::list_append;
-
-            auto propClear =
-                    useNonsignalingListOps ? &QQmlVMEMetaObject::list_clear_nosignal : prop.clear;
-            auto propAppend =
-                    useNonsignalingListOps ? &QQmlVMEMetaObject::list_append_nosignal : prop.append;
-
-            propClear(&prop);
-
-            const auto doAppend = [&](QObject *o) {
-                if (Q_UNLIKELY(o && !QQmlMetaObject::canConvert(o, valueMetaObject))) {
-                    qCWarning(lcIncompatibleElement)
-                            << "Cannot append" << o << "to a QML list of" << listValueType.name();
-                    o = nullptr;
-                }
-                propAppend(&prop, o);
-            };
-
-            if (variantMetaType == QMetaType::fromType<QQmlListReference>()) {
-                QQmlListReference qdlr = value.value<QQmlListReference>();
-                for (qsizetype ii = 0; ii < qdlr.count(); ++ii)
-                    doAppend(qdlr.at(ii));
-            } else if (variantMetaType == QMetaType::fromType<QList<QObject *>>()) {
-                const QList<QObject *> &list = qvariant_cast<QList<QObject *> >(value);
-                for (qsizetype ii = 0; ii < list.size(); ++ii)
-                    doAppend(list.at(ii));
-            } else if (variantMetaType == QMetaType::fromType<QList<QVariant>>()) {
-                const QList<QVariant> &list
-                    = *static_cast<const QList<QVariant> *>(value.constData());
-                for (const QVariant &entry : list)
-                    doAppend(QQmlMetaType::toQObject(entry));
-            } else if (!iterateQObjectContainer(variantMetaType, value.data(), doAppend)) {
-                doAppend(QQmlMetaType::toQObject(value));
-            }
-            if (useNonsignalingListOps) {
-                Q_ASSERT(QQmlVMEMetaObject::get(object));
-                QQmlVMEResolvedList(&prop).activateSignal();
-            }
-        } else if (variantMetaType == propertyMetaType) {
-            QVariant v = value;
-            property.writeProperty(object, v.data(), flags);
+        if (propertyMetaType.flags()  & QMetaType::IsQmlList) {
+            return assignToQQmlListProperty(object, property, propertyMetaType, value);
         } else {
-            QVariant list(propertyMetaType);
-            const QQmlType type = QQmlMetaType::qmlType(propertyMetaType);
-            const QMetaSequence sequence = type.listMetaSequence();
-            if (sequence.canAddValue())
-                sequence.addValue(list.data(), value.data());
-            property.writeProperty(object, list.data(), flags);
+            return assignToListProperty(property, flags, propertyMetaType, variantMetaType, value, object);
         }
     } else if (enginePriv && propertyMetaType == QMetaType::fromType<QJSValue>()) {
         // We can convert everything into a QJSValue if we have an engine.
         QJSValue jsValue = QJSValuePrivate::fromReturnedValue(
-                    enginePriv->v4engine()->metaTypeToJS(variantMetaType, value.constData()));
+                    enginePriv->v4Engine->metaTypeToJS(variantMetaType, value.constData()));
         return property.writeProperty(object, &jsValue, flags);
     } else {
         Q_ASSERT(variantMetaType != propertyMetaType);
 
-        bool ok = false;
-        QVariant v;
-        if (variantMetaType == QMetaType::fromType<QString>())
-            v = QQmlStringConverters::variantFromString(value.toString(), propertyMetaType, &ok);
-
-        if (!ok) {
-            v = value;
-            if (v.convert(propertyMetaType)) {
-                ok = true;
-            }
-        }
-        if (!ok) {
-            // the only other options are that they are assigning a single value
-            // or a QVariantList to a sequence type property (eg, an int to a
-            // QList<int> property) or that we encountered an interface type.
-            // Note that we've already handled single-value assignment to QList<QUrl> properties.
-            QSequentialIterable iterable;
-            v = QVariant(propertyMetaType);
-            if (QMetaType::view(
-                        propertyMetaType, v.data(),
-                        QMetaType::fromType<QSequentialIterable>(),
-                        &iterable)) {
-                const QMetaSequence propertyMetaSequence = iterable.metaContainer();
-                if (propertyMetaSequence.canAddValueAtEnd()) {
-                    const QMetaType elementMetaType = iterable.valueMetaType();
-                    void *propertyContainer = iterable.mutableIterable();
-
-                    if (variantMetaType == elementMetaType) {
-                        propertyMetaSequence.addValueAtEnd(propertyContainer, value.constData());
-                        ok = true;
-                    } else if (variantMetaType == QMetaType::fromType<QVariantList>()) {
-                        const QVariantList list = value.value<QVariantList>();
-                        for (const QVariant &valueElement : list) {
-                            if (valueElement.metaType() == elementMetaType) {
-                                propertyMetaSequence.addValueAtEnd(
-                                            propertyContainer, valueElement.constData());
-                            } else {
-                                QVariant converted(elementMetaType);
-                                QMetaType::convert(
-                                            valueElement.metaType(), valueElement.constData(),
-                                            elementMetaType, converted.data());
-                                propertyMetaSequence.addValueAtEnd(
-                                            propertyContainer, converted.constData());
-                            }
-                        }
-                        ok = true;
-                    } else if (elementMetaType.flags().testFlag(QMetaType::PointerToQObject)) {
-                        const QMetaObject *elementMetaObject = elementMetaType.metaObject();
-                        Q_ASSERT(elementMetaObject);
-
-                        const auto doAppend = [&](QObject *o) {
-                            QObject *casted = elementMetaObject->cast(o);
-                            propertyMetaSequence.addValueAtEnd(propertyContainer, &casted);
-                        };
-
-                        if (variantMetaType.flags().testFlag(QMetaType::PointerToQObject)) {
-                            doAppend(*static_cast<QObject *const *>(value.data()));
-                            ok = true;
-                        } else if (variantMetaType == QMetaType::fromType<QQmlListReference>()) {
-                            const QQmlListReference *reference
-                                    = static_cast<const QQmlListReference *>(value.constData());
-                            Q_ASSERT(elementMetaObject);
-                            for (int i = 0, end = reference->size(); i < end; ++i)
-                                doAppend(reference->at(i));
-                            ok = true;
-                        } else if (!iterateQObjectContainer(
-                                       variantMetaType, value.data(), doAppend)) {
-                            doAppend(QQmlMetaType::toQObject(value));
-                        }
-                    } else {
-                        QVariant converted = value;
-                        if (converted.convert(elementMetaType)) {
-                            propertyMetaSequence.addValueAtEnd(propertyContainer, converted.constData());
-                            ok = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!ok && QQmlMetaType::isInterface(propertyMetaType)) {
-            auto valueAsQObject = qvariant_cast<QObject *>(value);
-
-            if (void *iface = valueAsQObject
-                        ? valueAsQObject->qt_metacast(QQmlMetaType::interfaceIId(propertyMetaType))
-                        : nullptr;
-                iface) {
-                // this case can occur when object has an interface type
-                // and the variant contains a type implementing the interface
-                return property.writeProperty(object, &iface, flags);
-            }
-        }
-
-        if (ok) {
-            return property.writeProperty(object, const_cast<void *>(v.constData()), flags);
+        QVariant converted = convertToWriteTargetType(value, propertyMetaType);
+        if (converted.isValid()) {
+            return property.writeProperty(object, const_cast<void *>(converted.constData()), flags);
         } else {
             return false;
         }

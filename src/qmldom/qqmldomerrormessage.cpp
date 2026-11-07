@@ -1,8 +1,10 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
+
 #include "qqmldomitem_p.h"
 #include "qqmldomstringdumper_p.h"
-#include "qqmldomattachedinfo_p.h"
+#include "qqmldomfilelocations_p.h"
 
 #include <QtCore/QCborMap>
 #include <QtCore/QMutex>
@@ -325,16 +327,18 @@ QLatin1String ErrorMessage::msg(const char *errorId, ErrorMessage &&err)
 
 QLatin1String ErrorMessage::msg(QLatin1String errorId, ErrorMessage &&err)
 {
+    using namespace Qt::StringLiterals;
     bool doubleRegister = false;
-    ErrorMessage old = myErrors().debug(u"dummy");
+    ErrorMessage old = myErrors().debug(u"dummy"_sv);
     {
         QMutexLocker l(registryMutex());
         auto &r = registry();
         if (r.contains(err.errorId)) {
             old = r[err.errorId].msg;
             doubleRegister = true;
+        } else {
+            r[errorId] = StorableMsg{std::move(err.withErrorId(errorId))};
         }
-        r[errorId] = StorableMsg{std::move(err.withErrorId(errorId))};
     }
     if (doubleRegister)
         defaultErrorHandler(myErrors().warning(tr("Double registration of error %1: (%2) vs (%3)").arg(errorId, err.withErrorId(errorId).toString(), old.toString())));

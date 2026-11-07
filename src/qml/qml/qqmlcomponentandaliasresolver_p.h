@@ -1,5 +1,7 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
+
 #ifndef QQMLCOMPONENTANDALIASRESOLVER_P_H
 #define QQMLCOMPONENTANDALIASRESOLVER_P_H
 
@@ -21,6 +23,7 @@
 #include <QtCore/qhash.h>
 
 #include <private/qqmltypeloader_p.h>
+#include <private/qqmlpropertyresolver_p.h>
 #include <private/qqmlpropertycachecreator_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -47,7 +50,6 @@ public:
 
     QQmlComponentAndAliasResolver(
             ObjectContainer *compiler,
-            QQmlEnginePrivate *enginePrivate,
             QQmlPropertyCacheVector *propertyCaches);
 
     [[nodiscard]] QQmlError resolve(int root = 0);
@@ -64,9 +66,40 @@ private:
     void setObjectId(int index) const;
     [[nodiscard]] bool markAsComponent(int index) const;
     [[nodiscard]] AliasResolutionResult resolveAliasesInObject(
-            const CompiledObject &component, int objectIndex, QQmlError *error);
+            const CompiledObject &component, int objectIndex,
+            QQmlPropertyCacheAliasCreator<ObjectContainer> *aliasCacheCreator, QQmlError *error);
+    [[nodiscard]] bool appendAliasToPropertyCache(
+            const CompiledObject *component, const QV4::CompiledData::Alias *alias, int objectIndex,
+            int aliasIndex, int encodedPropertyIndex, int resolvedTargetObjectId,
+            QQmlPropertyCacheAliasCreator<ObjectContainer> *aliasCacheCreator, QQmlError *error)
+    {
+        *error = aliasCacheCreator->appendAliasToPropertyCache(
+                *component, *alias, objectIndex, aliasIndex, encodedPropertyIndex,
+                resolvedTargetObjectId);
+        resolvedAliases.insert(alias);
+        return !error->isValid();
+    }
+
+
     void resolveGeneralizedGroupProperty(const CompiledObject &component, CompiledBinding *binding);
-    [[nodiscard]] bool wrapImplicitComponent(CompiledBinding *binding);
+    [[nodiscard]] bool wrapImplicitComponent(CompiledBinding *binding)
+    {
+        const int childObjectIndex = binding->value.objectIndex;
+
+        // Create an implicit component wrapper as an additional property cache entry.
+        // The CU binary is read-only so we cannot patch the binding.
+        QQmlPropertyCache::ConstPtr baseComponentCache
+                = QQmlMetaType::propertyCache(&QQmlComponent::staticMetaObject);
+        QQmlPropertyCache::Ptr wrapperCache = baseComponentCache->copyAndReserve(1, 0, 0, 0);
+        wrapperCache->appendComponentWrapper(
+                wrapperCache->propertyCount(), childObjectIndex);
+
+        const uint wrapperIndex = m_propertyCaches->count();
+        m_propertyCaches->append(std::move(wrapperCache));
+
+        m_componentRoots.append(wrapperIndex);
+        return true;
+    }
 
     [[nodiscard]] QQmlError findAndRegisterImplicitComponents(
             const CompiledObject *obj, const QQmlPropertyCache::ConstPtr &propertyCache);
@@ -114,26 +147,24 @@ private:
     }
 
     ObjectContainer *m_compiler = nullptr;
-    QQmlEnginePrivate *m_enginePrivate = nullptr;
 
     // Implicit component insertion may have added objects and thus we also need
     // to extend the symmetric propertyCaches. Therefore, non-const propertyCaches.
     QQmlPropertyCacheVector *m_propertyCaches = nullptr;
 
     // indices of the objects that are actually Component {}
-    QVector<quint32> m_componentRoots;
-    QVector<int> m_objectsWithAliases;
-    QVector<CompiledBinding *> m_generalizedGroupProperties;
+    QList<quint32> m_componentRoots;
+    QList<int> m_objectsWithAliases;
+    QList<CompiledBinding *> m_generalizedGroupProperties;
+    QSet<const QV4::CompiledData::Alias *> resolvedAliases;
     typename ObjectContainer::IdToObjectMap m_idToObjectIndex;
 };
 
 template<typename ObjectContainer>
 QQmlComponentAndAliasResolver<ObjectContainer>::QQmlComponentAndAliasResolver(
         ObjectContainer *compiler,
-        QQmlEnginePrivate *enginePrivate,
         QQmlPropertyCacheVector *propertyCaches)
     : m_compiler(compiler)
-    , m_enginePrivate(enginePrivate)
     , m_propertyCaches(propertyCaches)
 {
 }
@@ -159,11 +190,8 @@ QQmlError QQmlComponentAndAliasResolver<ObjectContainer>::findAndRegisterImplici
         Q_ASSERT(typeReference);
 
         const QMetaObject *firstMetaObject = nullptr;
-        const auto type = typeReference->type();
-        if (type.isValid())
-            firstMetaObject = type.metaObject();
-        else if (const auto compilationUnit = typeReference->compilationUnit())
-            firstMetaObject = compilationUnit->rootPropertyCache()->firstCppMetaObject();
+        if (const auto propCache = typeReference->typePropertyCache())
+            firstMetaObject = propCache->firstCppMetaObject();
         if (isUsableComponent(firstMetaObject))
             continue;
 
@@ -338,24 +366,26 @@ QQmlError QQmlComponentAndAliasResolver<ObjectContainer>::resolve(int root)
     }
 
     for (int i = 0; i < m_componentRoots.size(); ++i) {
-        CompiledObject *component = m_compiler->objectAt(m_componentRoots.at(i));
-        const auto rootBinding = component->bindingsBegin();
+        const int componentRoot = m_componentRoots.at(i);
+        const int childObjectIndex = componentRoot < m_compiler->objectCount()
+                ? m_compiler->objectAt(componentRoot)->bindingsBegin()->value.objectIndex
+                : m_compiler->resolvedIndex(componentRoot);
 
         m_idToObjectIndex.clear();
         m_objectsWithAliases.clear();
         m_generalizedGroupProperties.clear();
 
-        if (const QQmlError error = collectIdsAndAliases(rootBinding->value.objectIndex);
+        if (const QQmlError error = collectIdsAndAliases(childObjectIndex);
                 error.isValid()) {
             return error;
         }
 
-        allocateNamedObjects(component);
+        allocateNamedObjects(m_compiler->objectAt(componentRoot));
 
-        if (const QQmlError error = resolveAliases(m_componentRoots.at(i)); error.isValid())
+        if (const QQmlError error = resolveAliases(componentRoot); error.isValid())
             return error;
 
-        resolveGeneralizedGroupProperties(m_componentRoots.at(i));
+        resolveGeneralizedGroupProperties(componentRoot);
     }
 
     // Collect ids and aliases for root
@@ -409,6 +439,10 @@ QQmlError QQmlComponentAndAliasResolver<ObjectContainer>::collectIdsAndAliases(i
         Q_FALLTHROUGH();
         case QV4::CompiledData::Binding::Type_Object:
         case QV4::CompiledData::Binding::Type_AttachedProperty:
+            // Implicit component wrappers are component boundaries.
+            // Their children are collected separately via the componentRoots loop.
+            if (m_compiler->implicitComponentForObject(binding->value.objectIndex) != -1)
+                break;
             if (const QQmlError error = collectIdsAndAliases(binding->value.objectIndex);
                     error.isValid()) {
                 return error;
@@ -433,21 +467,18 @@ QQmlError QQmlComponentAndAliasResolver<ObjectContainer>::resolveAliases(int com
     bool atLeastOneAliasResolved;
     do {
         atLeastOneAliasResolved = false;
-        QVector<int> pendingObjects;
+        QList<int> pendingObjects;
 
         for (int objectIndex: std::as_const(m_objectsWithAliases)) {
 
             QQmlError error;
             const auto &component = *m_compiler->objectAt(componentIndex);
-            const auto result = resolveAliasesInObject(component, objectIndex, &error);
+            const auto result
+                    = resolveAliasesInObject(component, objectIndex, &aliasCacheCreator, &error);
             if (error.isValid())
                 return error;
 
             if (result == AllAliasesResolved) {
-                QQmlError error = aliasCacheCreator.appendAliasesToPropertyCache(
-                            component, objectIndex, m_enginePrivate);
-                if (error.isValid())
-                    return error;
                 atLeastOneAliasResolved = true;
             } else if (result == SomeAliasesResolved) {
                 atLeastOneAliasResolved = true;
@@ -462,8 +493,10 @@ QQmlError QQmlComponentAndAliasResolver<ObjectContainer>::resolveAliases(int com
     if (!atLeastOneAliasResolved && !m_objectsWithAliases.isEmpty()) {
         const CompiledObject *obj = m_compiler->objectAt(m_objectsWithAliases.first());
         for (auto alias = obj->aliasesBegin(), end = obj->aliasesEnd(); alias != end; ++alias) {
-            if (!alias->hasFlag(QV4::CompiledData::Alias::Resolved))
-                return error(alias->location, QQmlComponentAndAliasResolverBase::tr("Circular alias reference detected"));
+            if (!resolvedAliases.contains(alias)) {
+                return error(
+                        alias->location(), QQmlComponentAndAliasResolverBase::tr("Cyclic alias"));
+            }
         }
     }
 
@@ -475,7 +508,7 @@ void QQmlComponentAndAliasResolver<ObjectContainer>::resolveGeneralizedGroupProp
         int componentIndex)
 {
     const auto &component = *m_compiler->objectAt(componentIndex);
-    for (CompiledBinding *binding : m_generalizedGroupProperties)
+    for (CompiledBinding *binding : std::as_const(m_generalizedGroupProperties))
         resolveGeneralizedGroupProperty(component, binding);
 }
 

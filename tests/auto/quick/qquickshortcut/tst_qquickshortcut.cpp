@@ -15,6 +15,7 @@
 #endif
 
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/visualtestutils_p.h>
 
 class tst_QQuickShortcut : public QQmlDataTest
 {
@@ -30,6 +31,7 @@ private slots:
     void shortcuts();
     void sequence_data();
     void sequence();
+    void qkeysequence();
     void context_data();
     void context();
     void contextChange_data();
@@ -95,7 +97,6 @@ void tst_QQuickShortcut::standardShortcuts()
     QVERIFY(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QObject *shortcut = window->property("shortcut").value<QObject *>();
@@ -106,13 +107,25 @@ void tst_QQuickShortcut::standardShortcuts()
     shortcuts.push_back(standardKey);
     shortcut->setProperty("sequences", shortcuts);
 
-    // test all:
+
+    /* test that all keys trigger the shortcut, and also
+       test that we get a sensible value for nativeText
+       and portableText */
+    const QString nativeText = shortcut->property("nativeText").toString();
+    bool foundMatchingNativeText = false;
+    const QString portableText = shortcut->property("portableText").toString();
+    bool foundMatchingPortableText = false;
     QList<QKeySequence> allsequences = QKeySequence::keyBindings(standardKey);
     for (const QKeySequence &s : allsequences) {
+        foundMatchingNativeText |= s.toString(QKeySequence::NativeText) == nativeText;
+        foundMatchingPortableText |= s.toString(QKeySequence::PortableText) == portableText;
         window->setProperty("activated", false);
         QTest::keySequence(window, s);
         QCOMPARE(window->property("activated").toBool(), true);
     }
+
+    QVERIFY(foundMatchingNativeText);
+    QVERIFY(foundMatchingPortableText);
 }
 
 void tst_QQuickShortcut::shortcuts_data()
@@ -216,7 +229,6 @@ void tst_QQuickShortcut::shortcuts()
     QVERIFY(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     window->setProperty("shortcuts", shortcuts);
@@ -293,7 +305,6 @@ void tst_QQuickShortcut::sequence()
     QVERIFY(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     window->setProperty("shortcuts", shortcuts);
@@ -317,6 +328,30 @@ void tst_QQuickShortcut::sequence()
 
     QCOMPARE(window->property("activatedShortcut").toString(), activatedShortcut);
     QCOMPARE(window->property("ambiguousShortcut").toString(), ambiguousShortcut);
+}
+
+using namespace QQuickVisualTestUtils;
+
+void tst_QQuickShortcut::qkeysequence()
+{
+    const Qt::Key key = Qt::Key_M;
+    const Qt::KeyboardModifiers modifiers = Qt::KeyboardModifiers(Qt::ControlModifier | Qt::AltModifier);
+    const QKeySequence shortcut = QKeySequence(Qt::ControlModifier | Qt::AltModifier | Qt::Key_M);
+
+    QQuickApplicationHelper helper(this, "qkeysequence.qml");
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    window->setProperty("shortcut", shortcut);
+
+    QTest::keyPress(window, key, modifiers);
+    QTest::keyRelease(window, key, modifiers);
+
+    QCOMPARE(window->property("activatedShortcut"), shortcut);
+    QVERIFY(!window->property("ambiguousShortcut").isValid());
 }
 
 void tst_QQuickShortcut::context_data()
@@ -390,7 +425,6 @@ void tst_QQuickShortcut::context()
     QVERIFY(activeWindow);
     activeWindow->show();
     QVERIFY(QTest::qWaitForWindowExposed(activeWindow));
-    activeWindow->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(activeWindow));
     activeWindow->setProperty("shortcuts", activeWindowShortcuts);
 
@@ -404,8 +438,13 @@ void tst_QQuickShortcut::context()
 }
 
 typedef bool (*ShortcutContextMatcher)(QObject *, Qt::ShortcutContext);
+
+QT_BEGIN_NAMESPACE
+
 extern ShortcutContextMatcher qt_quick_shortcut_context_matcher();
 extern void qt_quick_set_shortcut_context_matcher(ShortcutContextMatcher matcher);
+
+QT_END_NAMESPACE
 
 static ShortcutContextMatcher lastMatcher = nullptr;
 
@@ -455,7 +494,6 @@ void tst_QQuickShortcut::matcher()
     QVERIFY(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     window->setProperty("shortcuts", QVariantList() << shortcut);
@@ -498,7 +536,6 @@ void tst_QQuickShortcut::multiple()
     QVERIFY(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
-    window->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QObject *shortcut = window->property("shortcut").value<QObject *>();
@@ -569,7 +606,6 @@ void tst_QQuickShortcut::contextChange()
     QVERIFY(activeWindow);
     activeWindow->show();
     QVERIFY(QTest::qWaitForWindowExposed(activeWindow));
-    activeWindow->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(activeWindow));
 
     QTest::keyPress(activeWindow, key, modifiers);
@@ -588,10 +624,14 @@ void tst_QQuickShortcut::embedded_data()
     QTest::addColumn<Qt::Key>("testKey");
     QTest::addColumn<Qt::KeyboardModifiers>("testModifiers");
     QTest::addColumn<QString>("windowShortcutSequence");
+    QTest::addColumn<QString>("applicationShortcutSequence");
     QTest::addColumn<bool>("windowShortcutActivated");
+    QTest::addColumn<bool>("applicationShortcutActivated");
 
-    QTest::newRow("windowActivated") << Qt::Key_W << (Qt::ControlModifier|Qt::AltModifier)
-                                     << "Ctrl+Alt+W" << true;
+    QTest::newRow("windowActivated") << Qt::Key_W << (Qt::ControlModifier | Qt::AltModifier)
+                                     << "Ctrl+Alt+W" << "Ctrl+Alt+A" << true << false;
+    QTest::newRow("applicationActivated") << Qt::Key_A << (Qt::ControlModifier | Qt::AltModifier)
+                                          << "Ctrl+Alt+W" << "Ctrl+Alt+A" << false << true;
 }
 
 void tst_QQuickShortcut::embedded()
@@ -602,7 +642,9 @@ void tst_QQuickShortcut::embedded()
     QFETCH(Qt::Key, testKey);
     QFETCH(Qt::KeyboardModifiers, testModifiers);
     QFETCH(QString, windowShortcutSequence);
+    QFETCH(QString, applicationShortcutSequence);
     QFETCH(bool, windowShortcutActivated);
+    QFETCH(bool, applicationShortcutActivated);
 
     QWidget window;
     QVBoxLayout *layout = new QVBoxLayout {&window};
@@ -625,6 +667,10 @@ void tst_QQuickShortcut::embedded()
     QTRY_VERIFY(window.isVisible());
     // The widget can get focused only when the including window has exposed.
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    QWindow *windowHandle = window.windowHandle();
+    windowHandle->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(windowHandle));
 
     widget->setFocus();
     QTRY_VERIFY(widget->hasFocus());
@@ -660,7 +706,50 @@ void tst_QQuickShortcut::embedded()
 
     QTest::keyPress(&window, testKey, testModifiers);
     QTest::keyRelease(&window, testKey, testModifiers);
-    QCOMPARE(item->property("activated").toBool(), true);
+    QCOMPARE(item->property("activated").toBool(), windowShortcutActivated);
+
+    QWidget otherWindow;
+    QVBoxLayout *otherLayout = new QVBoxLayout {&otherWindow};
+    QQuickView *otherQuickView = new QQuickView;
+    otherQuickView->setResizeMode(QQuickView::SizeRootObjectToView);
+    otherQuickView->setSource(testFileUrl("embedded.qml"));
+
+    QWidget *otherContainer = QWidget::createWindowContainer(otherQuickView);
+    otherContainer->setMinimumSize(quickView->size());
+    otherContainer->setFocusPolicy(Qt::TabFocus);
+
+    QWidget *otherWidget = new QWidget;
+    otherLayout->addWidget(otherWidget);
+    otherLayout->addWidget(otherContainer);
+
+    otherWindow.show();
+    QTRY_VERIFY(otherWindow.isVisible());
+    QVERIFY(otherWindow.isVisible());
+
+    // make sure that the (first) window is active
+    quickView->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(quickView));
+
+    QQuickItem *otherItem = otherQuickView->rootObject();
+    QVERIFY(otherItem);
+
+    QObject *applicationShortcut = otherItem->property("shortcut").value<QObject *>();
+    QVERIFY(applicationShortcut);
+
+    applicationShortcut->setProperty("context", Qt::ApplicationShortcut);
+    applicationShortcut->setProperty("sequence", applicationShortcutSequence);
+
+    QTest::keyPress(&otherWindow, testKey, testModifiers);
+    QTest::keyRelease(&otherWindow, testKey, testModifiers);
+    QCOMPARE(otherItem->property("activated").toBool(), applicationShortcutActivated);
+
+    otherItem->setProperty("activated", false);
+    otherWindow.close();
+    QTRY_VERIFY(!otherWindow.isVisible());
+
+    QTest::keyPress(&otherWindow, testKey, testModifiers);
+    QTest::keyRelease(&otherWindow, testKey, testModifiers);
+    QCOMPARE(otherItem->property("activated").toBool(), false);
 #endif
 }
 

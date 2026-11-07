@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qqmlpropertymap.h"
 
@@ -38,7 +39,7 @@ public:
 
     QVariant updateValue(const QString &key, const QVariant &input);
     void emitChanged(const QString &key, const QVariant &value);
-    bool validKeyName(const QString& name);
+    static bool validKeyName(const QString& name);
 
     const QString &propertyName(int index) const;
 };
@@ -142,12 +143,24 @@ void QQmlPropertyMapMetaObject::propertyCreated(int, QMetaPropertyBuilder &b)
     care to explicitly synchronize access to the meta object.
 */
 
+#if QT_DEPRECATED_SINCE(6, 11)
 /*!
+    \deprecated [6.11] Use the factory or the protected two-argument constructor instead.
+
     Constructs a bindable map with parent object \a parent.
 */
 QQmlPropertyMap::QQmlPropertyMap(QObject *parent)
 : QQmlPropertyMap(&staticMetaObject, parent)
 {
+}
+#endif // QT_DEPRECATED_SINCE(6, 11)
+
+/*!
+    Creates a bindable map with parent object \a parent.
+*/
+QQmlPropertyMap *QQmlPropertyMap::create(QObject *parent)
+{
+    return new QQmlPropertyMap(&staticMetaObject, parent);
 }
 
 /*!
@@ -370,6 +383,21 @@ QQmlPropertyMap::QQmlPropertyMap(const QMetaObject *staticMetaObject, QObject *p
     The type of \a derived is used to register the property map with the \l {Meta-Object System},
     which is necessary to ensure that properties of the derived class are accessible.
     This type must be derived from QQmlPropertyMap.
+
+    In the C++ file:
+    \snippet code/src_qml_qqmlpropertymap.cpp 0
+
+    \snippet code/src_qml_qqmlpropertymap.cpp 1
+
+    Then, in \c main.qml:
+    \code
+    MyQmlPropertyMap
+    {
+        id : owner
+        Component.onCompleted: { owner.updateEmail("new.email@example.com") }
+    }
+    Text { text : owner.name + " " + owner.phone + " " + owner.email }
+    \endcode
 */
 
 QT_END_NAMESPACE
