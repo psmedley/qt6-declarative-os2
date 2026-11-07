@@ -24,4 +24,5 @@ qt_internal_add_qml_module(quicktooling
     PLUGIN_TARGET quicktooling
     PAST_MAJOR_VERSIONS 1
     QML_FILES ${qml_files}
+    OS2_SHORT_NAME QuickToo
 )

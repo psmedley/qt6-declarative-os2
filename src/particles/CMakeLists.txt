@@ -69,6 +69,7 @@ qt_internal_add_qml_module(QuickParticles
         Qt::GuiPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME Qt6QuiPa
     )
 
 # Resources:

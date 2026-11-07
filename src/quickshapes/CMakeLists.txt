@@ -29,6 +29,7 @@ qt_internal_add_qml_module(QuickShapes
         Qt::Qml
     PRIVATE_MODULE_INTERFACE
         Qt::QuickPrivate
+    OS2_SHORT_NAME Qt6QuiSh.dll
     )
 
 # We need to do additional initialization, so we have to provide our own

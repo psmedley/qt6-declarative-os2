@@ -19,4 +19,5 @@ qt_internal_add_plugin(QQuickEventReplayServiceFactoryPlugin
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME qmldbger
 )

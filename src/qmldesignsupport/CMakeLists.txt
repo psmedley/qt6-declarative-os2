@@ -30,6 +30,7 @@ qt_internal_add_qml_module(QmlDesignSupport
     PRIVATE_MODULE_INTERFACE
         Qt::CorePrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME QmlDesSu
 )
 
 qt_internal_add_docs(QmlDesignSupport

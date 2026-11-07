@@ -669,7 +669,7 @@ if(QT_FEATURE_qml_debug)
     target_compile_definitions(Qml INTERFACE "${qt_qml_debug_definition}")
 endif()
 
-qt_internal_extend_target(Qml CONDITION UNIX
+qt_internal_extend_target(Qml CONDITION (UNIX OR OS2)
     SOURCES
         jsruntime/qv4compilationunitmapper_unix.cpp
         jsruntime/qv4functiontable_unix.cpp
@@ -761,6 +761,11 @@ qt_internal_extend_target(Qml CONDITION INTEGRITY
 qt_internal_extend_target(Qml CONDITION UNIX AND NOT INTEGRITY
     SOURCES
         ../3rdparty/masm/wtf/OSAllocatorPosix.cpp
+)
+
+qt_internal_extend_target(Qml CONDITION OS2
+    SOURCES
+        ../3rdparty/masm/wtf/OSAllocatorOS2.cpp
 )
 
 qt_internal_extend_target(Qml CONDITION DEFINES___contains___WTF_USE_UDIS86=1

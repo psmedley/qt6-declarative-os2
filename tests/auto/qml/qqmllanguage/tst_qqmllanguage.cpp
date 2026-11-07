@@ -54,7 +54,7 @@ static inline bool isCaseSensitiveFileSystem(const QString &path) {
     Q_UNUSED(path);
 #if defined(Q_OS_DARWIN)
     return pathconf(path.toLatin1().constData(), _PC_CASE_SENSITIVE) == 1;
-#elif defined(Q_OS_WIN)
+#elif defined(Q_OS_DOSLIKE)
     return false;
 #else
     return true;

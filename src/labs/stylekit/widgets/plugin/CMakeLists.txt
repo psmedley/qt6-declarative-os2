@@ -16,4 +16,5 @@ qt_internal_add_plugin(QStyleKitStylePlugin
         Qt::Widgets
         Qt::WidgetsPrivate
         Qt::LabsStyleKit
+    OS2_SHORT_NAME qstkstyl
 )

@@ -16,4 +16,5 @@ qt_internal_add_qml_module(QmlLocalStorage
         Qt::QmlPrivate
     PUBLIC_LIBRARIES
         Qt::Sql
+    OS2_SHORT_NAME QmlLocal
     )

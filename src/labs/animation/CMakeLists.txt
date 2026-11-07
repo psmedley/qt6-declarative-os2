@@ -17,6 +17,7 @@ qt_internal_add_qml_module(LabsAnimation
     LIBRARIES
         Qt::QmlPrivate
         Qt::QuickPrivate
+    OS2_SHORT_NAME labsanim
 )
 
 target_sources(LabsAnimation

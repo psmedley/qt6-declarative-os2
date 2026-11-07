@@ -25,6 +25,7 @@ qt_internal_add_qml_module(QuickLayouts
     PUBLIC_LIBRARIES
         Qt::Core
         Qt::Qml
+    OS2_SHORT_NAME Qt6QuiLa
     )
 
 qt_internal_extend_target(QuickLayouts CONDITION NOT INTEGRITY

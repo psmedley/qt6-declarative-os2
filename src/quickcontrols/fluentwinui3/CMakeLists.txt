@@ -97,6 +97,7 @@ qt_internal_add_qml_module(QuickControls2FluentWinUI3
         Qt::QuickControls2ImplPrivate
         Qt::QuickTemplates2Private
         Qt::QuickControls2FusionPrivate
+    OS2_SHORT_NAME QuCoFlSt
 )
 
 target_sources(qtquickcontrols2fluentwinui3styleplugin

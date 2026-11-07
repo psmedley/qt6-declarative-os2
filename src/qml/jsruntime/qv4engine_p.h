@@ -930,11 +930,12 @@ struct ExecutionEngineCallDepthRecorder
 
 inline bool ExecutionEngine::checkStackLimits()
 {
+#if !defined(Q_OS_OS2)
     if (Q_UNLIKELY(hasStackOverflow())) {
         throwRangeError(QStringLiteral("Maximum call stack size exceeded."));
         return true;
     }
-
+#endif
     return false;
 }
 

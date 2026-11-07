@@ -22,6 +22,7 @@ qt_internal_add_module(QuickVectorImageGeneratorPrivate
         Qt::QuickPrivate
         Qt::QuickShapesPrivate
         Qt::SvgPrivate
+    OS2_SHORT_NAME Qt6QVIGP
 )
 
 if(ANDROID)
@@ -47,6 +48,7 @@ qt_internal_add_qml_module(QuickVectorImage
         Qt::QuickPrivate
         Qt::QuickVectorImageGeneratorPrivate
         Qt::SvgPrivate
+    OS2_SHORT_NAME Qt6QuVI
 )
 
 qt_internal_add_qml_module(QuickVectorImageHelpers
@@ -65,6 +67,7 @@ qt_internal_add_qml_module(QuickVectorImageHelpers
     LIBRARIES
         Qt::QuickPrivate
         Qt::QuickVectorImageGeneratorPrivate
+    OS2_SHORT_NAME Qt6QVIH
 )
 
 qt_internal_add_shaders(QuickVectorImageHelpers "vectorimage_shaders"

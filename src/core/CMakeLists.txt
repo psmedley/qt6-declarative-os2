@@ -24,6 +24,7 @@ qt_internal_add_qml_module(QmlCore
         Qt::QmlPrivate
     PRIVATE_MODULE_INTERFACE
         Qt::QmlPrivate
+    OS2_SHORT_NAME QtQmlcoe
 )
 
 qt_internal_extend_target(QmlCore CONDITION QT_FEATURE_settings

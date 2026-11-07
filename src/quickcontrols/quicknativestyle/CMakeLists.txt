@@ -103,6 +103,7 @@ qt_internal_add_qml_module(QuickNativeStyle
     PRIVATE_MODULE_INTERFACE
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoNaSt
 )
 
 qt_internal_extend_target(QuickNativeStyle CONDITION QT_FEATURE_quick_treeview

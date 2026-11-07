@@ -41,6 +41,7 @@ qt_internal_add_qml_module(QuickControls2Native
         ${native_import}/auto
     LIBRARIES
         ${native_library}
+    OS2_SHORT_NAME QuCoNvSt
 )
 
 _qt_internal_add_qml_static_plugin_dependency(qtquickcontrols2nativestyleplugin ${native_plugin})

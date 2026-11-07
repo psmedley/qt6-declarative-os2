@@ -140,6 +140,7 @@ qt_internal_add_qml_module(QuickControls2Universal
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
         Qt::QuickControls2BasicPrivate
+    OS2_SHORT_NAME QuCoUnSt
 )
 
 target_sources(qtquickcontrols2universalstyleplugin

@@ -391,8 +391,7 @@ void TestQmllint::initTestCase()
 {
     QQmlDataTest::initTestCase();
     m_qmllintPath = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QLatin1String("/qmllint");
-
-#ifdef Q_OS_WIN
+#ifdef Q_OS_DOSLIKE
     m_qmllintPath += QLatin1String(".exe");
 #endif
     if (!QFileInfo(m_qmllintPath).exists()) {

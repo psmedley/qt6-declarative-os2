@@ -90,6 +90,7 @@ qt_internal_add_qml_module(LabsStyleKit
         Qt6::QuickTemplates2
         Qt6::QuickTemplates2Private
         Qt6::QuickControls2ImplPrivate
+    OS2_SHORT_NAME LabsStKt
 )
 
 qt_internal_add_docs(LabsStyleKit

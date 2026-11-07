@@ -14,4 +14,5 @@ qt_internal_add_qml_module(LabsSynchronizer
         Qt::QmlPrivate
     PRIVATE_MODULE_INTERFACE
         Qt::QmlPrivate
+    OS2_SHORT_NAME LabsSync
 )

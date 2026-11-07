@@ -30,4 +30,5 @@ qt_internal_add_qml_module(LabsStyleKitImpl
         Qt6::QuickTemplates2
         Qt6::QuickTemplates2Private
         Qt6::LabsStyleKit
+    OS2_SHORT_NAME LabsStKI
 )

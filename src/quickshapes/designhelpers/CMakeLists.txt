@@ -37,6 +37,7 @@ qt_internal_add_qml_module(QuickShapesDesignHelpers
         Qt::GuiPrivate
         Qt::QuickPrivate
         Qt::QuickShapesPrivate
+    OS2_SHORT_NAME Qt6QuSDH
 )
 
 target_sources(QuickShapesDesignHelpers

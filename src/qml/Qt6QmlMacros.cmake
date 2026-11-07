@@ -375,6 +375,7 @@ function(qt6_add_qml_module target)
         TYPE_COMPILER_NAMESPACE
         QMLTC_EXPORT_DIRECTIVE
         QMLTC_EXPORT_FILE_NAME
+        OS2_SHORT_NAME
     )
 
     set(args_multi
@@ -840,6 +841,14 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
 
     list(REMOVE_DUPLICATES all_qml_import_paths)
 
+    # On OS/2 the plugin may be built with an 8.3 short name, which is what
+    # the generated qmldir must refer to.
+    if(arg_OS2_SHORT_NAME)
+        set(os2_qml_plugin_target "${arg_OS2_SHORT_NAME}")
+    else()
+        set(os2_qml_plugin_target "${arg_PLUGIN_TARGET}")
+    endif()
+
     set_target_properties(${target} PROPERTIES
         QT_QML_MODULE_NO_LINT "${arg_NO_LINT}"
         QT_QML_MODULE_NO_CACHEGEN "${arg_NO_CACHEGEN}"
@@ -856,7 +865,7 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
         QT_QML_MODULE_VERSION "${arg_VERSION}"
         QT_QML_MODULE_CLASS_NAME "${arg_CLASS_NAME}"
 
-        QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
+        QT_QML_MODULE_PLUGIN_TARGET "${os2_qml_plugin_target}"
         QT_QML_MODULE_INSTALLED_PLUGIN_TARGET "${arg_INSTALLED_PLUGIN_TARGET}"
 
         # Also Save the PLUGIN_TARGET values in a separate property to circumvent
@@ -888,6 +897,12 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     if(arg_TYPEINFO)
         set_target_properties(${target} PROPERTIES
             QT_QML_MODULE_TYPEINFO "${arg_TYPEINFO}"
+        )
+    endif()
+
+    if(arg_OS2_SHORT_NAME)
+        set_target_properties(${target} PROPERTIES
+            TARGET_SHORT ${arg_OS2_SHORT_NAME}
         )
     endif()
 
