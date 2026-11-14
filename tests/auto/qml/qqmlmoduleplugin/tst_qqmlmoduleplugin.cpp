@@ -286,7 +286,7 @@ void tst_qqmlmoduleplugin::incorrectPluginCase()
     QString expectedError = QLatin1String("module \"org.qtproject.WrongCase\" plugin \"PluGin\" not found");
 
 #ifndef QT_STATIC
-#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN32)
+#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN32) || defined(Q_OS_OS2)
 #if defined(Q_OS_DARWIN)
     bool caseSensitive =
             pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE) == 1;
@@ -295,7 +295,7 @@ void tst_qqmlmoduleplugin::incorrectPluginCase()
 #else
     QString libname = "libPluGin.dylib";
 #endif
-#elif defined(Q_OS_WIN32)
+#elif defined(Q_OS_WIN32) || defined(Q_OS_OS2)
     bool caseSensitive = false;
     QString libname = "PluGin.dll";
 #endif

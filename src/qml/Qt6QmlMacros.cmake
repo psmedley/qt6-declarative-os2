@@ -276,6 +276,7 @@ function(qt6_add_qml_module target)
         TYPE_COMPILER_NAMESPACE
         QMLTC_EXPORT_DIRECTIVE
         QMLTC_EXPORT_FILE_NAME
+        OS2_SHORT_NAME
     )
 
     set(args_multi
@@ -775,7 +776,11 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
         QT_QML_MODULE_VERSION "${arg_VERSION}"
         QT_QML_MODULE_CLASS_NAME "${arg_CLASS_NAME}"
 
-        QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
+        if(arg_OS2_SHORT_NAME)
+            QT_QML_MODULE_PLUGIN_TARGET "${arg_OS2_SHORT_NAME}"
+        elseif()
+            QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
+        endif()
         QT_QML_MODULE_INSTALLED_PLUGIN_TARGET "${arg_INSTALLED_PLUGIN_TARGET}"
 
         # Also Save the PLUGIN_TARGET values in a separate property to circumvent
@@ -807,6 +812,12 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
     if(arg_TYPEINFO)
         set_target_properties(${target} PROPERTIES
             QT_QML_MODULE_TYPEINFO "${arg_TYPEINFO}"
+        )
+    endif()
+
+    if(arg_OS2_SHORT_NAME)
+        set_target_properties(${target} PROPERTIES
+            TARGET_SHORT ${arg_OS2_SHORT_NAME}
         )
     endif()
 

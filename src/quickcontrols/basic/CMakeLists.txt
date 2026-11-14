@@ -178,7 +178,8 @@ qt_internal_add_qml_module(QuickControls2Basic
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-)
+    OS2_SHORT_NAME QuCoBaSt
+    )
 
 target_sources(qtquickcontrols2basicstyleplugin
     PRIVATE

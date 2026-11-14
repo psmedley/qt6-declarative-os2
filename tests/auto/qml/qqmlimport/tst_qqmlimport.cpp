@@ -262,8 +262,8 @@ void tst_QQmlImport::testDesignerSupported()
     window->setSource(testFileUrl("testfile_supported.qml"));
     QVERIFY(window->errors().isEmpty());
 
-    QString warningString("%1:5:1: module does not support the designer \"MyPluginUnsupported\" \n     import MyPluginUnsupported 1.0\r \n     ^ ");
-#if !defined(Q_OS_WIN)
+    QString warningString("%1:5:1: module does not support the designer \"MyPluginUnsupported\" \n     import MyPluginUnsupported 1.0\r \n     ^ ");");
+#if !defined(Q_OS_DOSLIKE)
     warningString.remove('\r');
 #endif
     warningString = warningString.arg(testFileUrl("testfile_unsupported.qml").toString());
@@ -317,7 +317,7 @@ void tst_QQmlImport::importPathOrder()
     QStringList expectedImportPaths;
     QString appDirPath = QCoreApplication::applicationDirPath();
     QString qml2Imports = QLibraryInfo::path(QLibraryInfo::QmlImportsPath);
-#ifdef Q_OS_WIN
+#ifdef Q_OS_DOSLIKE
     // The drive letter has a different case as QQmlImport will
     // cause it to be converted after passing through QUrl
     appDirPath[0] = appDirPath[0].toUpper();

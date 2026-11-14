@@ -24,4 +24,5 @@ qt_internal_add_module(QuickDialogs2Utils
         Qt::GuiPrivate
     PUBLIC_LIBRARIES
         Qt::Core
+    OS2_SHORT_NAME Qt6QuDiU
     )

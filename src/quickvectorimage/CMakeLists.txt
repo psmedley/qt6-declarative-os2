@@ -20,6 +20,7 @@ qt_internal_add_module(QuickVectorImageGeneratorPrivate
         Qt::QuickPrivate
         Qt::QuickShapesPrivate
         Qt::SvgPrivate
+    OS2_SHORT_NAME Qt6QVIGP
 )
 
 qt_internal_add_qml_module(QuickVectorImage
@@ -35,4 +36,5 @@ qt_internal_add_qml_module(QuickVectorImage
         Qt::QuickPrivate
         Qt::QuickVectorImageGeneratorPrivate
         Qt::SvgPrivate
+    OS2_SHORT_NAME Qt6QuVI
 )

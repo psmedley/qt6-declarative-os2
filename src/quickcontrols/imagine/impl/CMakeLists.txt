@@ -28,6 +28,7 @@ qt_internal_add_qml_module(QuickControls2ImagineStyleImpl
         Qt::QuickControls2ImplPrivate
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoImSI
 )
 
 qt_internal_add_shaders(QuickControls2ImagineStyleImpl "qtquickcontrols2imaginestyleimplplugin_shaders"

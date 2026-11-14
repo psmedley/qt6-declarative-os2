@@ -24,6 +24,7 @@ qt_internal_add_plugin(QQmlDebuggerServiceFactoryPlugin
         Qt::CorePrivate
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME qmldbgde
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_debugger.pro:<TRUE>:

@@ -26,6 +26,7 @@ qt_add_qml_module(wearablestyle
         fonts/TitilliumWeb-Bold.ttf
         fonts/TitilliumWeb-SemiBold.ttf
         fonts/TitilliumWeb-Regular.ttf
+    OS2_SHORT_NAME wearstyl
 )
 
 target_link_libraries(wearablestyle PUBLIC

@@ -442,6 +442,11 @@
 #define WTF_OS_WINDOWS 1
 #endif
 
+/* OS(OS2) - Any version of OS/2 */
+#if defined(__OS2__)
+#define WTF_OS_OS2 1
+#endif
+
 #ifdef __rtems__
 #define WTF_OS_RTEMS 1
 #endif
@@ -473,6 +478,11 @@
 #define WTF_OS_UNIX 1
 #endif
 
+/* OS(UNIXLIKE) - Any Unix-like system or OS/2 (with Posix) */
+#if OS(UNIX) || OS(OS2)
+#define WTF_OS_UNIXLIKE 1
+#endif
+
 /* Operating environments */
 
 /* FIXME: these are all mixes of OS, operating environment and policy choices. */
@@ -497,6 +507,8 @@
 #define WTF_PLATFORM_MAC 1
 #elif OS(WINDOWS)
 #define WTF_PLATFORM_WIN 1
+#elif OS(OS2)
+#define WTF_PLATFORM_OS2 1
 #else
 
 /* PLATFORM(IOS) */
@@ -630,7 +642,7 @@
 #endif
 #endif /* !defined(HAVE_ACCESSIBILITY) */
 
-#if OS(UNIX)
+#if OS(UNIXLIKE)
 #define HAVE_ERRNO_H 1
 #if !OS(INTEGRITY)
 #define HAVE_MMAP 1
@@ -641,7 +653,7 @@
 #define HAVE_SYS_TIME_H 1 
 #define WTF_USE_OS_RANDOMNESS 1
 #define WTF_USE_PTHREADS 1
-#endif /* OS(UNIX) */
+#endif /* OS(UNIXLIKE) */
 
 #if OS(UNIX) && !OS(QNX)
 #define HAVE_LANGINFO_H 1

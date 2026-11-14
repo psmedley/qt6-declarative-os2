@@ -2051,11 +2051,11 @@ static inline QString shellNormalizeFileName(const QString &name)
 
 bool QQml_isFileCaseCorrect(const QString &fileName, int lengthIn /* = -1 */)
 {
-#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN)
+#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN) || defined(Q_OS_OS2)
     QFileInfo info(fileName);
     const QString absolute = info.absoluteFilePath();
 
-#if defined(Q_OS_DARWIN)
+#if defined(Q_OS_DARWIN) || defined(Q_OS_OS2)
     const QString canonical = info.canonicalFilePath();
 #elif defined(Q_OS_WIN)
     // No difference if the path is qrc based

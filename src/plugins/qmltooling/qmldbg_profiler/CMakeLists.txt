@@ -21,6 +21,7 @@ qt_internal_add_plugin(QQmlProfilerServiceFactoryPlugin
         Qt::CorePrivate
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
+    OS2_SHORT_NAME qmldbgpr
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_profiler.pro:<TRUE>:

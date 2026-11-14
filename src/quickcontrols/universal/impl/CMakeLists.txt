@@ -35,4 +35,5 @@ qt_internal_add_qml_module(QuickControls2UniversalStyleImpl
         Qt::QuickControls2ImplPrivate
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
+    OS2_SHORT_NAME QuCoUnSI
 )
