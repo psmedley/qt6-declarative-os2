@@ -762,6 +762,14 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
 
     list(REMOVE_DUPLICATES all_qml_import_paths)
 
+    # On OS/2 the plugin may be built with an 8.3 short name, which is what
+    # the generated qmldir must refer to.
+    if(arg_OS2_SHORT_NAME)
+        set(os2_qml_plugin_target "${arg_OS2_SHORT_NAME}")
+    else()
+        set(os2_qml_plugin_target "${arg_PLUGIN_TARGET}")
+    endif()
+
     set_target_properties(${target} PROPERTIES
         QT_QML_MODULE_NO_LINT "${arg_NO_LINT}"
         QT_QML_MODULE_NO_CACHEGEN "${arg_NO_CACHEGEN}"
@@ -776,11 +784,7 @@ Check https://doc.qt.io/qt-6/qt-cmake-policy-qtp0001.html for policy details."
         QT_QML_MODULE_VERSION "${arg_VERSION}"
         QT_QML_MODULE_CLASS_NAME "${arg_CLASS_NAME}"
 
-        if(arg_OS2_SHORT_NAME)
-            QT_QML_MODULE_PLUGIN_TARGET "${arg_OS2_SHORT_NAME}"
-        elseif()
-            QT_QML_MODULE_PLUGIN_TARGET "${arg_PLUGIN_TARGET}"
-        endif()
+        QT_QML_MODULE_PLUGIN_TARGET "${os2_qml_plugin_target}"
         QT_QML_MODULE_INSTALLED_PLUGIN_TARGET "${arg_INSTALLED_PLUGIN_TARGET}"
 
         # Also Save the PLUGIN_TARGET values in a separate property to circumvent
