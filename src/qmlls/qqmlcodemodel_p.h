@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQMLCODEMODEL_P_H
 #define QQMLCODEMODEL_P_H
@@ -65,12 +66,6 @@ public:
     std::shared_ptr<Utils::TextDocument> textDocument;
 };
 
-struct ToIndex
-{
-    QString path;
-    int leftDepth;
-};
-
 struct RegisteredSemanticTokens
 {
     QByteArray resultId = "0";
@@ -92,8 +87,6 @@ public:
     OpenDocument openDocumentByUrl(const QByteArray &url);
 
     void openNeedUpdate();
-    void indexNeedsUpdate();
-    void addDirectoriesToIndex(const QStringList &paths, QLanguageServer *server);
     void addOpenToUpdate(const QByteArray &);
     void removeDirectory(const QString &path);
     // void updateDocument(const OpenDocument &doc);
@@ -129,13 +122,6 @@ Q_SIGNALS:
     void documentationRootPathChanged(const QString &path);
 
 private:
-    void indexDirectory(const QString &path, int depthLeft);
-    int indexEvalProgress() const; // to be called in the mutex
-    void indexStart(); // to be called in the mutex
-    void indexEnd(); // to be called in the mutex
-    void indexSendProgress(int progress);
-    bool indexCancelled();
-    bool indexSome();
     void addDirectory(const QString &path, int leftDepth);
     bool openUpdateSome();
     void openUpdateStart();
@@ -149,11 +135,6 @@ private:
 
     mutable QMutex m_mutex;
     State m_state = State::Running;
-    int m_lastIndexProgress = 0;
-    int m_nIndexInProgress = 0;
-    QList<ToIndex> m_toIndex;
-    int m_indexInProgressCost = 0;
-    int m_indexDoneCost = 0;
     int m_nUpdateInProgress = 0;
     QStringList m_importPaths;
     QQmlJS::Dom::DomItem m_currentEnv;

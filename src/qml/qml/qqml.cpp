@@ -3,8 +3,6 @@
 
 #include "qqml.h"
 
-#include <QtQml/qqmlprivate.h>
-
 #include <private/qjsvalue_p.h>
 #include <private/qqmlbuiltinfunctions_p.h>
 #include <private/qqmlcomponent_p.h>
@@ -23,7 +21,10 @@
 #include <private/qv4lookup_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 
+#include <QtQml/qqmlprivate.h>
+
 #include <QtCore/qmutex.h>
+#include <QtCore/qsequentialiterable.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -138,7 +139,7 @@ QObject *qmlAttachedPropertiesObject(QObject *object, QQmlAttachedPropertiesFunc
 }
 
 /*!
-    \relates qqml.h
+    \relates <qqml.h>
 
     This function returns the extension object that belongs to \a base, if there is any.
     Otherwise it returns \c nullptr.
@@ -177,7 +178,7 @@ void QQmlPrivate::qmlRegistrationWarning(
         qWarning().nospace()
                 << metaType.name()
                 << " is neither a default constructible QObject, nor a default- "
-                << "and copy-constructible Q_GADGET, nor marked as uncreatable.\n"
+                << "and copy-constructible Q_GADGET, nor a QObject marked as uncreatable.\n"
                 << "You should not use it as a QML type.";
         break;
     case UnconstructibleSingleton:
@@ -224,7 +225,7 @@ QMetaType QQmlPrivate::compositeListMetaType(
 }
 
 /*!
-  \relates qqml.h
+  \relates <qqml.h>
   \since 5.8
 
   This function registers the \a staticMetaObject and its extension
@@ -299,7 +300,7 @@ int qmlRegisterUncreatableMetaObject(const QMetaObject &staticMetaObject,
 }
 
 /*!
-  \relates qqml.h
+  \relates <qqml.h>
 
   Clears all stored type registrations, such as those produced with \l qmlRegisterType().
 
@@ -316,7 +317,7 @@ void qmlClearTypeRegistrations() // Declared in qqml.h
 }
 
 /*!
-  \relates qqml.h
+  \relates <qqml.h>
 
   This function protects a module from further modification. This can be used
   to prevent other plugins from injecting types into your module. It can also
@@ -351,7 +352,7 @@ bool qmlProtectModule(const char *uri, int majVersion)
 
 /*!
   \since 5.9
-  \relates qqml.h
+  \relates <qqml.h>
 
   This function registers a module in a particular \a uri with a version specified
   in \a versionMajor and \a versionMinor.
@@ -386,7 +387,7 @@ static QTypeRevision resolveModuleVersion(int moduleMajor)
 
 /*!
  * \enum QQmlModuleImportSpecialVersions
- * \relates qqml.h
+ * \relates <qqml.h>
  *
  * Defines some special values that can be passed to the version arguments of
  * qmlRegisterModuleImport() and qmlUnregisterModuleImport().
@@ -405,7 +406,7 @@ static QTypeRevision resolveModuleVersion(int moduleMajor)
  */
 
 /*!
- * \relates qqml.h
+ * \relates <qqml.h>
  * Registers a qmldir-import for module \a uri of major version \a moduleMajor.
  *
  * This has the same effect as an \c import statement in a qmldir file: Whenever
@@ -454,7 +455,7 @@ void qmlRegisterModuleImport(const char *uri, int moduleMajor,
 
 
 /*!
- * \relates qqml.h
+ * \relates <qqml.h>
  * Removes a module import previously registered with qmlRegisterModuleImport()
  *
  * Calling this function makes sure that \a import of version
@@ -474,7 +475,7 @@ void qmlUnregisterModuleImport(const char *uri, int moduleMajor,
 
 /*!
   \since 5.12
-  \relates qqml.h
+  \relates <qqml.h>
 
   Returns the QML type id of a type that was registered with the
   name \a qmlName in a particular \a uri and a version specified in \a
@@ -1070,7 +1071,7 @@ QList<QTypeRevision> QQmlPrivate::revisionClassInfos(const QMetaObject *metaObje
 }
 
 /*!
-  \relates qqml.h
+  \relates <qqml.h>
 
   This function registers a type in the QML system with the name \a qmlName, in the type namespace imported from \a uri having the
   version number composed from \a versionMajor and \a versionMinor, but any attempt to instantiate the type
@@ -1182,11 +1183,100 @@ void AOTCompiledContext::setInstructionPointer(int offset) const
         frame->instructionPointer = offset;
 }
 
+void AOTCompiledContext::setLocals(const AOTTrackedLocalsStorage *locals) const
+{
+    if (auto *frame = engine->handle()->currentStackFrame)
+        frame->locals = locals;
+}
+
 void AOTCompiledContext::setReturnValueUndefined() const
 {
     if (auto *frame = engine->handle()->currentStackFrame) {
         Q_ASSERT(frame->isMetaTypesFrame());
         static_cast<QV4::MetaTypesStackFrame *>(frame)->setReturnValueUndefined();
+    }
+}
+
+void AOTCompiledContext::mark(QObject *object, QV4::MarkStack *markStack)
+{
+    QV4::QObjectWrapper::markWrapper(object, markStack);
+}
+
+static bool markPointer(const QVariant &element, QV4::MarkStack *markStack)
+{
+    if (!element.metaType().flags().testFlag(QMetaType::PointerToQObject))
+        return false;
+
+    QV4::QObjectWrapper::markWrapper(
+            *static_cast<QObject *const *>(element.constData()), markStack);
+    return true;
+}
+
+static void iterateVariant(const QVariant &element, std::vector<QVariant> *elements)
+{
+#define ADD_CASE(Type, id, T) \
+    case QMetaType::Type:
+
+    switch (element.metaType().id()) {
+    case QMetaType::QVariantMap:
+        for (const QVariant &variant : *static_cast<const QVariantMap *>(element.constData()))
+            elements->push_back(variant);
+        return;
+    case QMetaType::QVariantHash:
+        for (const QVariant &variant : *static_cast<const QVariantHash *>(element.constData()))
+            elements->push_back(variant);
+        return;
+    case QMetaType::QVariantList:
+        for (const QVariant &variant : *static_cast<const QVariantList *>(element.constData()))
+            elements->push_back(variant);
+        return;
+    QT_FOR_EACH_STATIC_PRIMITIVE_TYPE(ADD_CASE)
+    QT_FOR_EACH_STATIC_CORE_CLASS(ADD_CASE)
+    QT_FOR_EACH_STATIC_GUI_CLASS(ADD_CASE)
+    case QMetaType::QStringList:
+    case QMetaType::QByteArrayList:
+        return;
+    default:
+        break;
+    }
+
+    QSequentialIterable iterable;
+    if (!QMetaType::convert(
+                element.metaType(), element.constData(),
+                QMetaType::fromType<QSequentialIterable>(), &iterable)) {
+        return;
+    }
+
+    switch (iterable.valueMetaType().id()) {
+    QT_FOR_EACH_STATIC_PRIMITIVE_TYPE(ADD_CASE)
+    QT_FOR_EACH_STATIC_CORE_CLASS(ADD_CASE)
+    QT_FOR_EACH_STATIC_GUI_CLASS(ADD_CASE)
+    case QMetaType::QStringList:
+    case QMetaType::QByteArrayList:
+        return;
+    default:
+        break;
+    }
+
+    for (auto it = iterable.constBegin(), end = iterable.constEnd(); it != end; ++it)
+        elements->push_back(*it);
+
+#undef ADD_CASE
+}
+
+void AOTCompiledContext::mark(const QVariant &variant, QV4::MarkStack *markStack)
+{
+    if (markPointer(variant, markStack))
+        return;
+
+    std::vector<QVariant> stack;
+    iterateVariant(variant, &stack);
+
+    while (!stack.empty()) {
+        const QVariant &element = std::as_const(stack).back();
+        if (!markPointer(element, markStack))
+            iterateVariant(element, &stack);
+        stack.pop_back();
     }
 }
 
@@ -2747,18 +2837,25 @@ void AOTCompiledContext::initSetValueLookup(
             : QV4::QQmlValueTypeWrapper::lookupSetter;
 }
 
+void AOTCompiledContext::setObjectImplicitDestructible(QObject *object) const
+{
+    Q_ASSERT(object);
+    QQmlData::get(object, true)->setImplicitDestructible();
+    QV4::QObjectWrapper::ensureWrapper(engine->handle(), object);
+}
+
 } // namespace QQmlPrivate
 
 /*!
   \macro QML_DECLARE_TYPE()
-  \relates qqml.h
+  \relates <qqml.h>
 
   Equivalent to \c Q_DECLARE_METATYPE(TYPE *) and \c Q_DECLARE_METATYPE(QQmlListProperty<TYPE>)
 */
 
 /*!
   \macro QML_DECLARE_TYPEINFO(Type,Flags)
-  \relates qqml.h
+  \relates <qqml.h>
 
   Declares additional properties of the given \a Type as described by the
   specified \a Flags.
@@ -2771,7 +2868,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template <typename T> int qmlRegisterType(const char *uri, int versionMajor, int versionMinor, const char *qmlName)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the C++ type in the QML system with
   the name \a qmlName, in the library imported from \a uri having the
@@ -2824,7 +2921,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template<typename T, int metaObjectRevision> int qmlRegisterRevision(const char *uri, int versionMajor, int versionMinor)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the specified revision of a C++ type in the QML system with
   the library imported from \a uri having the version number composed
@@ -2843,7 +2940,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template <typename T> int qmlRegisterUncreatableType(const char *uri, int versionMajor, int versionMinor, const char *qmlName, const QString& message)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the C++ type in the QML system with
   the name \a qmlName, in the library imported from \a uri having the
@@ -2862,7 +2959,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template <typename T, typename E> int qmlRegisterExtendedType(const char *uri, int versionMajor, int versionMinor, const char *qmlName)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the C++ type and its extension object in the
   QML system with the name \a qmlName in the library imported from \a uri having
@@ -2876,7 +2973,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template <typename T, typename E> int qmlRegisterExtendedUncreatableType(const char *uri, int versionMajor, int versionMinor, const char *qmlName, const QString& reason)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the C++ type and its extension
   in the QML system with the name \a qmlName in the library imported
@@ -2897,7 +2994,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn int qmlRegisterCustomExtendedType(const char *uri, int versionMajor, int versionMinor, const char *qmlName, QQmlCustomParser *parser)
-  \relates qqml.h
+  \relates <qqml.h>
   \internal
 
   This template function registers the C++ type and its extension
@@ -2914,7 +3011,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn template <typename T> int qmlRegisterAnonymousType(const char *uri, int versionMajor)
-  \relates qqml.h
+  \relates <qqml.h>
 
   This template function registers the C++ type in the QML system as an anonymous type. The
   resulting QML type does not have a name. Therefore, instances of this type cannot be created from
@@ -2998,7 +3095,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
     \fn int qmlRegisterInterface(const char *typeName)
-    \relates qqml.h
+    \relates <qqml.h>
 
     This template function registers the C++ type in the QML system
     under the name \a typeName.
@@ -3033,7 +3130,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
    \fn int qmlRegisterSingletonType(const char *uri, int versionMajor, int versionMinor, const char *typeName, std::function<QJSValue(QQmlEngine *, QJSEngine *)> callback)
-   \relates qqml.h
+   \relates <qqml.h>
 
    This function may be used to register a singleton type provider \a callback in a particular \a uri
    and \a typeName with a version specified in \a versionMajor and \a versionMinor.
@@ -3092,7 +3189,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
     \fn template<typename T> QObject *qmlAttachedPropertiesObject(const QObject *attachee, bool create)
-    \relates qqml.h
+    \relates <qqml.h>
 
     The form of this template function is:
 
@@ -3103,18 +3200,18 @@ void AOTCompiledContext::initSetValueLookup(
     This returns the attached object instance that has been attached to the specified
     \a attachee by the attaching type \e T.
 
-    If \a create is true and type \e T is a valid attaching type, this creates and returns a new
-    attached object instance.
+    If \a attachee is \nullptr, returns \nullptr.
 
-    Returns \nullptr if type \e T is not a valid attaching type, or if \a create is false and no
-    attachment object instance has previously been created for \a attachee.
+    If an existing attached object instance of type \e T exists, it will return
+    it. Otherwise, it will return a newly created instance if \a create is
+    \c true and \e T is a valid attaching type, or \nullptr if it's not.
 
     \sa QML_ATTACHED(), {Providing Attached Properties}
 */
 
 /*!
    \fn template <typename T> int qmlRegisterSingletonType(const char *uri, int versionMajor, int versionMinor, const char *typeName, std::function<QObject*(QQmlEngine *, QJSEngine *)> callback)
-   \relates qqml.h
+   \relates <qqml.h>
 
    This function may be used to register a singleton type provider \a callback in a particular \a uri
    and \a typeName with a version specified in \a versionMajor and \a versionMinor.
@@ -3208,7 +3305,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
    \fn int qmlRegisterSingletonType(const QUrl &url, const char *uri, int versionMajor, int versionMinor, const char *qmlName)
-   \relates qqml.h
+   \relates <qqml.h>
 
    This function may be used to register a singleton type with the name \a qmlName, in the library imported from \a uri having
    the version number composed from \a versionMajor and \a versionMinor. The type is defined by the QML file located at \a url.
@@ -3256,7 +3353,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
    \fn int qmlRegisterSingletonInstance(const char *uri, int versionMajor, int versionMinor, const char *typeName, QObject *cppObject)
-   \relates qqml.h
+   \relates <qqml.h>
    \since 5.14
 
    This function is used to register a singleton object \a cppObject, with a
@@ -3352,7 +3449,7 @@ void AOTCompiledContext::initSetValueLookup(
 
 /*!
   \fn int qmlRegisterType(const QUrl &url, const char *uri, int versionMajor, int versionMinor, const char *qmlName);
-  \relates qqml.h
+  \relates <qqml.h>
 
   This function registers a type in the QML system with the name \a qmlName, in the library imported from \a uri having the
   version number composed from \a versionMajor and \a versionMinor. The type is defined by the QML file located at \a url. The

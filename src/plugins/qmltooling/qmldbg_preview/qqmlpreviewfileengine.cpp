@@ -20,7 +20,7 @@ static bool isRelative(const QString &path)
         return false;
     if (path.at(0) == ':' && path.size() >= 2 && path.at(1) == '/')
         return false;
-#ifdef Q_OS_DOSLIKE
+#ifdef Q_OS_WIN
     if (path.length() >= 2 && path.at(1) == ':')
         return false;
 #endif

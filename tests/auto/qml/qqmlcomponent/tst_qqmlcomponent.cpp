@@ -22,6 +22,9 @@
 #include <qcolor.h>
 #include <qsignalspy.h>
 #include "lifecyclewatcher.h"
+
+#include <QtGui/qquaternion.h>
+
 #include <algorithm>
 
 using namespace Qt::StringLiterals;
@@ -144,6 +147,7 @@ private slots:
     void bindingEvaluationOrder();
     void compilationUnitsWithSameUrl();
     void bindingInRequired();
+    void repeatedSetDataWithInlineComponent();
 
 private:
     QQmlEngine engine;
@@ -1501,16 +1505,67 @@ struct SingleRequiredProperty : QObject
     int i = 42;
 };
 
+
+struct SingleRequiredPropertyDynamic : QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int i MEMBER i REQUIRED)
+
+    int i = 42;
+
+    class QObjectDynamicMetaObject : public QDynamicMetaObjectData
+    {
+    public:
+    #if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+        const QMetaObject *toDynamicMetaObject(QObject *) const final
+        {
+            return &SingleRequiredPropertyDynamic::staticMetaObject;
+        }
+    #else
+        QMetaObject *toDynamicMetaObject(QObject *) final
+        {
+            return const_cast<QMetaObject *>(&SingleRequiredPropertyDynamic::staticMetaObject);
+        }
+    #endif
+        int metaCall(QObject *o, QMetaObject::Call c, int id, void **argv) final
+        {
+            return o->qt_metacall(c, id, argv);
+        }
+    };
+
+public:
+    SingleRequiredPropertyDynamic() {
+        auto priv = QObjectPrivate::get(this);
+        priv->metaObject = new QObjectDynamicMetaObject;
+    }
+
+    ~SingleRequiredPropertyDynamic()  {
+        auto priv = QObjectPrivate::get(this);
+        delete priv->metaObject;
+        priv->metaObject = nullptr ;
+    }
+};
+
 void tst_qqmlcomponent::loadFromModuleRequired()
 {
 
     QQmlEngine engine;
     qmlRegisterType<SingleRequiredProperty>("qqmlcomponenttest", 1, 0, "SingleRequiredProperty");
-    QQmlComponent component(&engine, "qqmlcomponenttest", "SingleRequiredProperty");
-    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    qmlRegisterType<SingleRequiredPropertyDynamic>("qqmlcomponenttest", 1, 0, "SingleRequiredPropertyDynamic");
+    {
+        QQmlComponent component(&engine, "qqmlcomponenttest", "SingleRequiredProperty");
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
 
-    QScopedPointer<QObject> root(component.create());
-    QVERIFY(!root);
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY(!root);
+    }
+    {
+        QQmlComponent component(&engine, "qqmlcomponenttest", "SingleRequiredPropertyDynamic");
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        QScopedPointer<QObject> root(component.create());
+        QEXPECT_FAIL("", "Can't check required properties when there's a dynamic metaobject", Continue);
+        QVERIFY(!root);
+    }
 }
 
 void tst_qqmlcomponent::loadFromQrc()
@@ -1633,6 +1688,33 @@ void tst_qqmlcomponent::bindingInRequired()
 
     QCOMPARE(inner, outer->property("obj").value<QObject *>());
     QVERIFY(!inner->property("obj").value<QObject *>());
+}
+
+void tst_qqmlcomponent::repeatedSetDataWithInlineComponent()
+{
+    QQmlEngine engine;
+    int counter = 0;
+
+    const QByteArray code = R"(
+        import QtQml
+        QtObject {
+            component Info : QtObject {}
+            property Info info : Info {}
+        })";
+
+    for (int i = 0; i < 5; ++i) {
+        QQmlComponent firstComp(&engine);
+        firstComp.setData(code, QUrl{});
+        QVERIFY2(firstComp.isReady(), qPrintable(firstComp.errorString()));
+        QScopedPointer<QObject> firstObject(firstComp.create());
+        QVERIFY2(!firstObject.isNull(), qPrintable(firstComp.errorString()));
+
+        QQmlComponent secondComp(&engine);
+        secondComp.setData(code, QUrl( QString("qrc:/test") + QString::number(counter++)));
+        QVERIFY2(secondComp.isReady(), qPrintable(secondComp.errorString()));
+        QScopedPointer<QObject> secondObject(secondComp.create());
+        QVERIFY2(!secondObject.isNull(), qPrintable(secondComp.errorString()));
+    }
 }
 
 QTEST_MAIN(tst_qqmlcomponent)

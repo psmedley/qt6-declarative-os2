@@ -4,6 +4,7 @@
 #include <qtest.h>
 #include <qtesttouch.h>
 #include <QtTest/QSignalSpy>
+#include <QtTest/QTestAccessibility>
 #include <QtTest/private/qtesthelpers_p.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlcontext.h>
@@ -20,6 +21,7 @@
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
 #include <QtGui/QImage>
+#include <QtGui/qpa/qplatformaccessibility.h>
 #include <QtCore/QDebug>
 #include <QtQml/qqmlengine.h>
 
@@ -110,6 +112,11 @@ class tst_qquickwidget : public QQmlDataTest
 public:
     tst_qquickwidget();
 
+#if QT_CONFIG(accessibility)
+private:
+    bool initAccessibility();
+#endif
+
 private slots:
     void showHide();
     void reparentAfterShow();
@@ -147,7 +154,10 @@ private slots:
     void focusOnClickInProxyWidget();
 #endif
     void focusPreserved();
+#if QT_CONFIG(accessibility)
     void accessibilityHandlesViewChange();
+    void accessibleParentOfQuickItems();
+#endif
     void cleanupRhi();
     void dontRecreateRootElementOnWindowChange();
 
@@ -160,6 +170,19 @@ tst_qquickwidget::tst_qquickwidget()
     : QQmlDataTest(QT_QMLTEST_DATADIR)
 {
 }
+
+#if QT_CONFIG(accessibility)
+bool tst_qquickwidget::initAccessibility()
+{
+    // Copied from tst_QQuickAccessible::initTestCase()
+    QTestAccessibility::initialize();
+    QPlatformIntegration *pfIntegration = QGuiApplicationPrivate::platformIntegration();
+    if (!pfIntegration->accessibility())
+        return false;
+    pfIntegration->accessibility()->setActive(true);
+    return true;
+}
+#endif
 
 void tst_qquickwidget::showHide()
 {
@@ -1205,6 +1228,7 @@ void tst_qquickwidget::focusPreserved()
     QTRY_VERIFY(content2->hasActiveFocus());
 }
 
+#if QT_CONFIG(accessibility)
 /*
     Reparenting the QQuickWidget recreates the offscreen QQuickWindow.
     Since the accessible interface that is cached for the QQuickWidget dispatches
@@ -1246,6 +1270,48 @@ void tst_qquickwidget::accessibilityHandlesViewChange()
     // delegate calls to the new (or at least not the old, destroyed) QQuickWindow.
     (void)iface->child(0);
 }
+
+/*
+QTBUG-130116
+Since the quick widget reports the quick items as its children, then
+the quick items should report the quick widget as their parent.
+*/
+void tst_qquickwidget::accessibleParentOfQuickItems()
+{
+    if (!initAccessibility())
+        QSKIP("This platform does not support accessibility");
+
+    // These lines are copied from accessibilityHandlesViewChange()
+    if (QGuiApplication::platformName() == "offscreen")
+        QSKIP("Doesn't test anything on offscreen platform.");
+
+    QWidget window;
+    window.resize(300, 300);
+
+    QQuickWidget *quickWidget = new QQuickWidget(&window);
+    quickWidget->setSource(testFileUrl("button.qml"));
+
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto *rootItem = quickWidget->rootObject();
+    QVERIFY(rootItem);
+
+    QQuickButton *button = rootItem->findChild<QQuickButton *>("button");
+    QVERIFY(button);
+
+    QAccessibleInterface *iface_quickWidget = QAccessible::queryAccessibleInterface(quickWidget);
+    QVERIFY(iface_quickWidget);
+
+    QAccessibleInterface *iface_button = QAccessible::queryAccessibleInterface(button);
+    QVERIFY(iface_button);
+
+    QAccessibleInterface *iface_popup = iface_button->parent();
+    QVERIFY(iface_popup);
+    QVERIFY(iface_popup->parent());
+    QCOMPARE(iface_popup->parent(), iface_quickWidget);
+}
+#endif
 
 class CreateDestroyWidget : public QWidget
 {

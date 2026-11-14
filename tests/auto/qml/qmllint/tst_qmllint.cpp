@@ -60,6 +60,18 @@ private Q_SLOTS:
     void dirtyQmlCode_data();
     void dirtyQmlCode();
 
+    void dirtyQmlSnippet_data();
+    void dirtyQmlSnippet();
+
+    void cleanQmlSnippet_data();
+    void cleanQmlSnippet();
+
+    void dirtyJsSnippet_data();
+    void dirtyJsSnippet();
+
+    void cleanJsSnippet_data();
+    void cleanJsSnippet();
+
     void compilerWarnings_data();
     void compilerWarnings();
 
@@ -149,7 +161,7 @@ private:
                      QStringList resources = {},
                      DefaultImportOption defaultImports = UseDefaultImports,
                      QList<QQmlJS::LoggerCategory> *categories = nullptr, bool autoFixable = false,
-                     LintType type = LintFile);
+                     LintType type = LintFile, const QString *content = nullptr);
 
     void searchWarnings(const QJsonArray &warnings, const QString &string,
                         QtMsgType type = QtWarningMsg, quint32 line = 0, quint32 column = 0,
@@ -194,7 +206,8 @@ void TestQmllint::initTestCase()
 {
     QQmlDataTest::initTestCase();
     m_qmllintPath = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QLatin1String("/qmllint");
-#ifdef Q_OS_DOSLIKE
+
+#ifdef Q_OS_WIN
     m_qmllintPath += QLatin1String(".exe");
 #endif
     if (!QFileInfo(m_qmllintPath).exists()) {
@@ -491,7 +504,7 @@ void TestQmllint::dirtyQmlCode_data()
                                             5, 5 } } };
     QTest::newRow("invalidAliasTarget1") << QStringLiteral("invalidAliasTarget.qml")
                                          << Result { { Message {
-                                            QStringLiteral("Invalid alias expression – an initalizer is needed."),
+                                            QStringLiteral("Invalid alias expression - an initalizer is needed."),
                                             6, 18 } } };
     QTest::newRow("invalidAliasTarget2") << QStringLiteral("invalidAliasTarget.qml")
                                          << Result { { Message {
@@ -1003,9 +1016,7 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                                             "Cannot assign literal of type null to double") } } };
     QTest::newRow("missingRequiredAlias")
             << QStringLiteral("missingRequiredAlias.qml")
-            << Result { { Message {
-                       QStringLiteral("Component is missing required property requiredAlias from "
-                                      "RequiredWithRootLevelAlias") } } };
+            << Result{ { Message{ u"Component is missing required property foo from Item"_s } } };
     QTest::newRow("missingSingletonPragma")
             << QStringLiteral("missingSingletonPragma.qml")
             << Result { { Message { QStringLiteral(
@@ -1089,10 +1100,10 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
             << Result{ {
                          Message {
                                   QStringLiteral("Member \"Mode\" not found on type \"Item\""), 12,
-                                  29, QtWarningMsg },
+                                  29},
                           Message{
                                   QStringLiteral("\"Hour\" is not an entry of enum \"Mode\"."), 13,
-                                  62, QtInfoMsg }
+                                  62}
                        },
                        {},
                        { Message{ QStringLiteral("Hours") } }
@@ -1107,6 +1118,13 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
             << Result { { Message {
                     QStringLiteral("Function without return type annotation returns double")
                } } };
+
+    QTest::newRow("annotatedDefaultParameter")
+            << QStringLiteral("annotatedDefaultParameter.qml")
+            << Result { { Message {
+                       QStringLiteral("Type annotations on default parameters are not supported")
+               } } };
+
 
     QTest::newRow("lowerCaseQualifiedImport")
             << QStringLiteral("lowerCaseQualifiedImport.qml")
@@ -1186,6 +1204,23 @@ expression: \${expr} \${expr} \\\${expr} \\\${expr}`)",
                          Message { QStringLiteral(
                            "Type QQC2.Label is used but it is not resolved") } },
                        };
+    QTest::newRow("missingRequiredOnObjectDefinitionBinding")
+            << QStringLiteral("missingRequiredPropertyOnObjectDefinitionBinding.qml")
+            << Result{ { { uR"(Component is missing required property i from QtObject)"_s, 4, 26 } } };
+    QTest::newRow("inlineComponentSearchInfiniteLoop")
+            << QStringLiteral("InlineComponentSearchInfiniteLoop_Main.qml")
+            << Result{ { { "InlineComponentSearchInfiniteLoop_Other.a was not found. "
+                           "Did you add all imports and dependencies?"_L1, 5, 5 } } };
+    QTest::newRow("enumsAreNotTypes_functionAnnotations")
+            << QStringLiteral("EnumsAreNotTypes_functionAnnotations.qml")
+            << Result{ { { "QML enumerations are not types. Use underlying type "
+                           "(int or double) instead."_L1, 5, 17 },
+                         { "QML enumerations are not types. Use underlying type "
+                           "(int or double) instead."_L1, 6, 9 } } };
+
+    QTest::newRow("jsdeclInQmlScope")
+            << QStringLiteral("jsdeclInQmlScope.qml")
+            << Result{ { { "JavaScript declarations are not allowed in QML elements"_L1 , 4, 13 } } };
 }
 
 void TestQmllint::dirtyQmlCode()
@@ -1226,6 +1261,143 @@ void TestQmllint::dirtyQmlCode()
             });
 }
 
+static void addLocationOffsetTo(TestQmllint::Result *result, qsizetype lineOffset,
+                                qsizetype columnOffset = 0)
+{
+    for (auto *messages :
+         { &result->expectedMessages, &result->badMessages, &result->expectedReplacements }) {
+        for (auto &message : *messages) {
+            message.line += lineOffset;
+            message.column += columnOffset;
+        }
+    }
+}
+
+void TestQmllint::dirtyQmlSnippet_data()
+{
+    QTest::addColumn<QString>("code");
+    QTest::addColumn<Result>("result");
+
+    QTest::newRow("testSnippet") << u"property int qwer: \"Hello\""_s
+                                 << Result{ { { "Cannot assign literal of type string to int"_L1, 1, 20 } } };
+    QTest::newRow("requiredInInlineComponent")
+            << u"Item { component Foo: Item { required property var bla; } } Foo {}"_s
+            << Result{ { { "Component is missing required property bla from Foo"_L1, 1, 61 } } };
+
+    QTest::newRow("requiredPropertyOwnerMixup")
+            << u"component Foo: Item { required property var bla }\n"_s
+               u"Foo { Item { property int bla: 43 } }\n"_s
+               u"Foo {}\n"_s
+            << Result{ { { "Component is missing required property bla from Foo"_L1, 2, 1 },
+                         { "Component is missing required property bla from Foo"_L1, 3, 1 } } };
+}
+
+void TestQmllint::dirtyQmlSnippet()
+{
+    QFETCH(QString, code);
+    QFETCH(Result, result);
+
+    QString qmlCode = "import QtQuick\nItem {\n%1}"_L1.arg(code);
+
+    addLocationOffsetTo(&result, 2);
+
+    QJsonArray warnings;
+    callQmllint(QString(), result.flags.testFlag(Result::ExitsNormally), &warnings, {}, {}, {},
+                UseDefaultImports, nullptr, result.flags.testFlag(Result::Flag::AutoFixable),
+                LintFile, &qmlCode);
+
+    checkResult(warnings, result, [] { }, [] { }, [] { });
+}
+
+void TestQmllint::cleanQmlSnippet_data()
+{
+    QTest::addColumn<QString>("code");
+
+    QTest::newRow("testSnippet") << u"property int qwer: 123"_s;
+    QTest::newRow("requiredInComponent")
+            << u"Item { Component { id: comp; required property var bla; } }"_s;
+    QTest::newRow("requiredInInlineComponent")
+            << u"Item { component Foo: Item { required property var bla; } }"_s;
+}
+
+void TestQmllint::cleanQmlSnippet()
+{
+    QFETCH(QString, code);
+
+    const QString qmlCode = "import QtQuick\nItem {%1}"_L1.arg(code);
+    const Result result = Result::clean();
+
+    QJsonArray warnings;
+    callQmllint(QString(), result.flags.testFlag(Result::ExitsNormally), &warnings, {}, {}, {},
+                UseDefaultImports, nullptr, result.flags.testFlag(Result::Flag::AutoFixable),
+                LintFile, &qmlCode);
+    checkResult(warnings, result, [] { }, [] { }, [] { });
+}
+
+void TestQmllint::dirtyJsSnippet_data()
+{
+    QTest::addColumn<QString>("code");
+    QTest::addColumn<Result>("result");
+
+    QTest::newRow("doubleLet") << u"let x = 4; let x = 4;"_s
+                               << Result{
+                                      { { "Identifier 'x' has already been declared"_L1, 1, 16 },
+                                        { "Note: previous declaration of 'x' here"_L1, 1, 5 } }
+                                  };
+    QTest::newRow("doubleConst") << u"const x = 4; const x = 4;"_s
+                                 << Result{
+                                        { { "Identifier 'x' has already been declared"_L1, 1, 20 },
+                                          { "Note: previous declaration of 'x' here"_L1, 1, 7 } }
+                                    };
+    QTest::newRow("assignmentWarningLocation")
+            << u"console.log(a = 1)"_s
+            << Result{ { { "Unqualified access"_L1, 1, 13 } } };
+}
+
+void TestQmllint::dirtyJsSnippet()
+{
+    QFETCH(QString, code);
+    QFETCH(Result, result);
+
+    static constexpr QLatin1StringView templateString =
+            "import QtQuick\nItem { function f() {\n%1}}"_L1;
+
+    // templateString adds 2 newlines before snippet
+    addLocationOffsetTo(&result, 2);
+
+    const QString qmlCode = templateString.arg(code);
+    QJsonArray warnings;
+    callQmllint(QString(), result.flags.testFlag(Result::ExitsNormally), &warnings, {}, {}, {},
+                UseDefaultImports, nullptr, result.flags.testFlag(Result::Flag::AutoFixable),
+                LintFile, &qmlCode);
+
+    checkResult(warnings, result, [] { }, [] { }, [] { });
+}
+
+void TestQmllint::cleanJsSnippet_data()
+{
+    QTest::addColumn<QString>("code");
+
+    QTest::newRow("testSnippet") << u"let x = 5"_s;
+    QTest::newRow("doubleVar") << u"var x = 5; var y = 5"_s;
+    QTest::newRow("doubleInDifferentScopes") << u"const a = 42; for (let a = 1; a < 10; ++a) {}"_s;
+}
+
+void TestQmllint::cleanJsSnippet()
+{
+    QFETCH(QString, code);
+
+    const QString qmlCode = "import QtQuick\nItem { function f() {%1}}"_L1.arg(code);
+    const Result result = Result::clean();
+
+    QJsonArray warnings;
+    callQmllint(QString(), result.flags.testFlag(Result::ExitsNormally), &warnings, {}, {}, {},
+                UseDefaultImports, nullptr, result.flags.testFlag(Result::Flag::AutoFixable),
+                LintFile, &qmlCode);
+    checkResult(warnings, result, [] { }, [] { }, [] { });
+}
+
+
 void TestQmllint::cleanQmlCode_data()
 {
     QTest::addColumn<QString>("filename");
@@ -1237,6 +1409,7 @@ void TestQmllint::cleanQmlCode_data()
     QTest::newRow("importWithPrefix")          << QStringLiteral("ImportWithPrefix.qml");
     QTest::newRow("catchIdentifier")           << QStringLiteral("catchIdentifierNoWarning.qml");
     QTest::newRow("qmldirAndQmltypes")         << QStringLiteral("qmldirAndQmltypes.qml");
+    QTest::newRow("enumList")                  << QStringLiteral("enumListTest.qml");
     QTest::newRow("forLoop")                   << QStringLiteral("forLoop.qml");
     QTest::newRow("esmodule")                  << QStringLiteral("esmodule.mjs");
     QTest::newRow("methodsInJavascript")       << QStringLiteral("javascriptMethods.qml");
@@ -1328,7 +1501,8 @@ void TestQmllint::cleanQmlCode_data()
     QTest::newRow("QQmlEasingEnums::Type") << QStringLiteral("animationEasing.qml");
     QTest::newRow("ValidLiterals") << QStringLiteral("validLiterals.qml");
     QTest::newRow("GoodModulePrefix") << QStringLiteral("goodModulePrefix.qml");
-    QTest::newRow("required property in Component") << QStringLiteral("requiredPropertyInComponent.qml");
+    QTest::newRow("required_property_in_Component") << QStringLiteral("requiredPropertyInComponent.qml");
+    QTest::newRow("requiredPropertyInGroupedPropertyScope") << QStringLiteral("requiredPropertyInGroupedPropertyScope.qml");
     QTest::newRow("bytearray") << QStringLiteral("bytearray.qml");
     QTest::newRow("initReadonly") << QStringLiteral("initReadonly.qml");
     QTest::newRow("connectionNoParent") << QStringLiteral("connectionNoParent.qml"); // QTBUG-97600
@@ -1388,14 +1562,18 @@ void TestQmllint::cleanQmlCode_data()
     QTest::newRow("aliasGroup") << QStringLiteral("aliasGroup.qml");
 
     QTest::addRow("deceptiveLayout") << u"deceptiveLayout.qml"_s;
+    QTest::newRow("aliasToRequiredProperty")
+            << QStringLiteral("aliasToRequiredPropertyIsNotRequiredItself.qml");
+    QTest::newRow("setRequiredTroughAlias") << QStringLiteral("setRequiredPropertyThroughAlias.qml");
+    QTest::newRow("setRequiredTroughAliasOfAlias")
+            << QStringLiteral("setRequiredPropertyThroughAliasOfAlias.qml");
+    QTest::newRow("evals")
+            << QStringLiteral("evals.qml");
 }
 
 void TestQmllint::cleanQmlCode()
 {
     QFETCH(QString, filename);
-
-    QJsonArray warnings;
-
     runTest(filename, Result::clean());
 }
 
@@ -1508,8 +1686,6 @@ void TestQmllint::compilerWarnings()
     QFETCH(Result, result);
     QFETCH(bool, enableCompilerWarnings);
 
-    QJsonArray warnings;
-
     auto categories = QQmlJSLogger::defaultCategories();
 
     auto category = std::find_if(categories.begin(), categories.end(), [](const QQmlJS::LoggerCategory& category) {
@@ -1621,7 +1797,7 @@ void TestQmllint::callQmllint(const QString &fileToLint, bool shouldSucceed, QJs
                               QStringList importPaths, QStringList qmldirFiles,
                               QStringList resources, DefaultImportOption defaultImports,
                               QList<QQmlJS::LoggerCategory> *categories, bool autoFixable,
-                              LintType type)
+                              LintType type, const QString *content)
 {
     QJsonArray jsonOutput;
 
@@ -1637,7 +1813,7 @@ void TestQmllint::callQmllint(const QString &fileToLint, bool shouldSucceed, QJs
         const QList<QQmlJS::LoggerCategory> resolvedCategories =
                 categories != nullptr ? *categories : QQmlJSLogger::defaultCategories();
         lintResult = m_linter.lintFile(
-                    lintedFile, nullptr, true, &jsonOutput, resolvedImportPaths, qmldirFiles,
+                    lintedFile, content, true, &jsonOutput, resolvedImportPaths, qmldirFiles,
                     resources, resolvedCategories);
     } else {
         lintResult =
@@ -1845,7 +2021,7 @@ void TestQmllint::requiredProperty()
             Result { { Message { QStringLiteral("Component is missing required property "
                                                 "required_now_string from Base") },
                        Message { QStringLiteral("Component is missing required property "
-                                                "required_defined_here_string from here") } } });
+                                                "required_defined_here_string from Derived") } } });
     runTest("requiredPropertyBindingsLater.qml",
             Result { { Message { QStringLiteral("Component is missing required property "
                                                 "required_later_string from "
@@ -2293,6 +2469,7 @@ void TestQmllint::quickPlugin()
             } });
     runTest("pluginQuick_propertyChangesInvalidTarget.qml", Result {}); // we don't care about the specific warnings
 }
+#endif // QT_CONFIG(library)
 
 void TestQmllint::environment_data()
 {
@@ -2353,8 +2530,6 @@ void TestQmllint::maxWarnings()
     // only 1 warning => should exit normally
     runQmllint(testFile("badScript.qml"), true, {"--max-warnings", "1"});
 }
-
-#endif
 
 void TestQmllint::ignoreSettingsNotCommandLineOptions()
 {

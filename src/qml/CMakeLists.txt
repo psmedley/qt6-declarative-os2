@@ -434,6 +434,7 @@ qt_internal_add_qml_module(Qml
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlModuleDirMappingTemplate.qrc.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmltcFileMappingTemplate.qrc.in"
         "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}QmlPublicCMakeHelpers.cmake"
+        "${CMAKE_CURRENT_LIST_DIR}/${INSTALL_CMAKE_NAMESPACE}UpdateQmllsIni.cmake"
         ${extra_cmake_files}
     EXTRA_CMAKE_INCLUDES
         "${INSTALL_CMAKE_NAMESPACE}QmlFindQmlscInternal.cmake"
@@ -628,7 +629,7 @@ qt_internal_extend_target(Qml CONDITION QT_FEATURE_qml_debug
         jsruntime/qv4profiling.cpp
 )
 
-qt_internal_extend_target(Qml CONDITION (UNIX OR OS2)
+qt_internal_extend_target(Qml CONDITION UNIX
     SOURCES
         jsruntime/qv4compilationunitmapper_unix.cpp
         jsruntime/qv4functiontable_unix.cpp
@@ -720,11 +721,6 @@ qt_internal_extend_target(Qml CONDITION INTEGRITY
 qt_internal_extend_target(Qml CONDITION UNIX AND NOT INTEGRITY
     SOURCES
         ../3rdparty/masm/wtf/OSAllocatorPosix.cpp
-)
-
-qt_internal_extend_target(Qml CONDITION OS2
-    SOURCES
-        ../3rdparty/masm/wtf/OSAllocatorOS2.cpp
 )
 
 qt_internal_extend_target(Qml CONDITION DEFINES___contains___WTF_USE_UDIS86=1

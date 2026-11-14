@@ -368,6 +368,8 @@ class QQmlJSMetaProperty
     QString m_notify;
     QString m_privateClass;
     QString m_aliasExpr;
+    QString m_aliasTargetName;
+    QWeakPointer<const QQmlJSScope> m_aliasTargetScope;
     QWeakPointer<const QQmlJSScope> m_type;
     QQmlJS::SourceLocation m_sourceLocation;
     QVector<QQmlJSAnnotation> m_annotations;
@@ -429,6 +431,18 @@ public:
     void setAliasExpression(const QString &aliasString) { m_aliasExpr = aliasString; }
     QString aliasExpression() const { return m_aliasExpr; }
     bool isAlias() const { return !m_aliasExpr.isEmpty(); } // exists for convenience
+
+    void setAliasTargetName(const QString &name) { m_aliasTargetName = name; }
+    QString aliasTargetName() const { return m_aliasTargetName; }
+
+    void setAliasTargetScope(const QSharedPointer<const QQmlJSScope> &scope)
+    {
+        m_aliasTargetScope = scope;
+    }
+    QSharedPointer<const QQmlJSScope> aliasTargetScope() const
+    {
+        return m_aliasTargetScope.toStrongRef();
+    }
 
     void setIsFinal(bool isFinal) { m_isFinal = isFinal; }
     bool isFinal() const { return m_isFinal; }

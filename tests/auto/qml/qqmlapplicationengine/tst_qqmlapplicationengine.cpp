@@ -160,7 +160,7 @@ void tst_qqmlapplicationengine::application()
     QCOMPARE(testProcess->exitCode(), 0);
     QByteArray testStdOut = testProcess->readAllStandardOutput();
     QByteArray testStdErr = testProcess->readAllStandardError();
-#ifdef Q_OS_DOSLIKE
+#ifdef Q_OS_WIN
     expectedStdErr.replace('\n', QByteArray("\r\n"));
 #endif
     QCOMPARE(testStdOut, QByteArray(""));

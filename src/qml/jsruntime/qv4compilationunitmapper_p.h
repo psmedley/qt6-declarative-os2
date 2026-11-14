@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QV4COMPILATIONUNITMAPPER_H
 #define QV4COMPILATIONUNITMAPPER_H
@@ -38,7 +39,7 @@ private:
             const QString &cacheFilePath, const QDateTime &sourceTimeStamp, QString *errorString);
     void close();
 
-#if defined(Q_OS_UNIXLIKE)
+#if defined(Q_OS_UNIX)
     size_t length = 0;
 #endif
     void *dataPtr = nullptr;

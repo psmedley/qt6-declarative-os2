@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "quicktest_p.h"
 #include "quicktestresult_p.h"
@@ -525,12 +526,12 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
 
     if (testPath.isEmpty()) {
         QDir current = QDir::current();
-#if defined(Q_OS_WIN) || defined(Q_OS_OS2)
+#ifdef Q_OS_WIN
         // Skip release/debug subfolders
         if (!current.dirName().compare(QLatin1String("Release"), Qt::CaseInsensitive)
             || !current.dirName().compare(QLatin1String("Debug"), Qt::CaseInsensitive))
             current.cdUp();
-#endif // Q_OS_WIN || Q_OS_OS2
+#endif // Q_OS_WIN
         testPath = current.absolutePath();
     }
     QStringList files;

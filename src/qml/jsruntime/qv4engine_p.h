@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 #ifndef QV4ENGINE_H
 #define QV4ENGINE_H
 
@@ -682,6 +683,7 @@ public:
             const QVariant &variant, Heap::Object *parent, int property, uint flags);
 
     static QVariantMap variantMapFromJS(const QV4::Object *o);
+    static QVariantHash variantHashFromJS(const QV4::Object *o);
 
     static bool metaTypeFromJS(const Value &value, QMetaType type, void *data);
     QV4::ReturnedValue metaTypeToJS(QMetaType type, const void *data);
@@ -769,8 +771,9 @@ public:
     {
         return m_compilationUnits;
     }
-    void trimCompilationUnits();
 
+    void trimCompilationUnits();
+    void trimCompilationUnitsForUrl(const QUrl &url);
 
     using Module = QQmlRefPointer<ExecutableCompilationUnit>;
 
@@ -914,12 +917,11 @@ struct ExecutionEngineCallDepthRecorder
 
 inline bool ExecutionEngine::checkStackLimits()
 {
-#if !defined(Q_OS_OS2)
     if (Q_UNLIKELY(hasStackOverflow())) {
         throwRangeError(QStringLiteral("Maximum call stack size exceeded."));
         return true;
     }
-#endif
+
     return false;
 }
 

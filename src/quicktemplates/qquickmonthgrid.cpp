@@ -45,7 +45,8 @@ QT_BEGIN_NAMESPACE
 
     \snippet qtquickcontrols-monthgrid-localization.qml 1
 
-    \sa DayOfWeekRow, WeekNumberColumn, CalendarModel
+    \sa DayOfWeekRow, WeekNumberColumn, CalendarModel,
+        {Qt Quick Controls - Event Calendar}
 */
 
 /*!
@@ -82,7 +83,7 @@ public:
     void resizeItems();
 
     QQuickItem *cellAt(const QPointF &pos) const;
-    QDate dateOf(QQuickItem *cell) const;
+    QDateTime dateOf(QQuickItem *cell) const;
 
     void updatePress(const QPointF &pos);
     void clearPress(bool clicked);
@@ -94,7 +95,10 @@ public:
 
     QString title;
     QVariant source;
-    QDate pressedDate;
+
+    // Only the date matters, but we have to store it as QDateTime for compatibility
+    // with Date: QTBUG-72208. See QQuickMonthModelPrivate::populate for more info.
+    QDateTime pressedDate;
     int pressTimer;
     QQuickItem *pressedItem;
     QQuickMonthModel *model;
@@ -127,11 +131,11 @@ QQuickItem *QQuickMonthGridPrivate::cellAt(const QPointF &pos) const
     return nullptr;
 }
 
-QDate QQuickMonthGridPrivate::dateOf(QQuickItem *cell) const
+QDateTime QQuickMonthGridPrivate::dateOf(QQuickItem *cell) const
 {
     if (contentItem)
         return model->dateAt(contentItem->childItems().indexOf(cell));
-    return QDate();
+    return {};
 }
 
 void QQuickMonthGridPrivate::updatePress(const QPointF &pos)
@@ -152,7 +156,7 @@ void QQuickMonthGridPrivate::clearPress(bool clicked)
         if (clicked)
             emit q->clicked(pressedDate);
     }
-    pressedDate = QDate();
+    pressedDate = {};
     pressedItem = nullptr;
 }
 

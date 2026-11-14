@@ -148,6 +148,7 @@ public:
     QQmlJSRegisterContent returnType(
             const QQmlJSScope::ConstPtr &type, QQmlJSRegisterContent::ContentVariant variant,
             const QQmlJSScope::ConstPtr &scope) const;
+    QQmlJSRegisterContent arrayType(const QQmlJSScope::ConstPtr &type) const;
 
     QQmlJSRegisterContent iteratorPointer(
             const QQmlJSRegisterContent &listType, QQmlJS::AST::ForEachType type,
@@ -256,8 +257,6 @@ protected:
             const QString &name,
             const QQmlJSScope::ConstPtr &scopeType = QQmlJSScope::ConstPtr(),
             bool hasObjectModuelPrefix = false) const;
-
-    bool canFindComponentBoundaries(const QQmlJSScope::ConstPtr &scope) const;
 
     QQmlJSScope::ConstPtr m_voidType;
     QQmlJSScope::ConstPtr m_emptyType;

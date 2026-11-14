@@ -20,8 +20,11 @@ qt_internal_add_qml_module(QmlCore
     PUBLIC_LIBRARIES
         Qt::Core
         Qt::Qml
-    OS2_SHORT_NAME QtQmlcoe
-    )
+    LIBRARIES
+        Qt::QmlPrivate
+    PRIVATE_MODULE_INTERFACE
+        Qt::QmlPrivate
+)
 
 qt_internal_extend_target(QmlCore CONDITION QT_FEATURE_settings
     SOURCES

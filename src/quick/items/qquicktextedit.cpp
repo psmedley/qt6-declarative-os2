@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:critical reason:data-parser
 
 #include "qquicktextedit_p.h"
 #include "qquicktextedit_p_p.h"
@@ -1975,12 +1976,15 @@ QRectF QQuickTextEdit::cursorRectangle() const
 bool QQuickTextEdit::event(QEvent *event)
 {
     Q_D(QQuickTextEdit);
-    if (event->type() == QEvent::ShortcutOverride) {
-        d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
-        if (event->isAccepted())
-            return true;
+    bool state = QQuickImplicitSizeItem::event(event);
+    if (event->type() == QEvent::ShortcutOverride && !event->isAccepted()) {
+        QQuickItemPrivate *itemPriv = QQuickItemPrivate::get(this);
+        if (!itemPriv->extra.isAllocated() || !itemPriv->extra->keyHandler) {
+            d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
+        }
+        state = true;
     }
-    return QQuickImplicitSizeItem::event(event);
+    return state;
 }
 
 /*!

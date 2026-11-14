@@ -806,7 +806,7 @@ TestCase {
         }
 
         if (distanceToReachContentY != 0)
-            mouseRelease(tumbler, tumblerXCenter(), itemCenterPos(1) + (data.contentY - defaultListViewTumblerOffset), Qt.LeftButton);
+            mouseRelease(tumbler, tumblerXCenter(), itemCenterPos(1).y + (data.contentY - defaultListViewTumblerOffset), Qt.LeftButton);
     }
 
     function test_listViewFlickAboveBounds_data() {

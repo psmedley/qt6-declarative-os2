@@ -1121,7 +1121,7 @@ bool Codegen::visit(ClassDeclaration *ast)
     return false;
 }
 
-bool Codegen::visit(Expression *ast)
+bool Codegen::visit(CommaExpression *ast)
 {
     if (hasError())
         return false;
@@ -1470,6 +1470,7 @@ bool Codegen::visit(BinaryExpression *ast)
 
         return false;
     } else if (ast->op == QSOperator::Assign) {
+        bytecodeGenerator->setLocation(ast->left->firstSourceLocation());
         if (AST::Pattern *p = ast->left->patternCast()) {
             RegisterScope scope(this);
             Reference right = expression(ast->right);

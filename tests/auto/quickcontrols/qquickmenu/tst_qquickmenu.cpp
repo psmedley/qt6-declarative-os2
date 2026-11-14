@@ -16,10 +16,13 @@
 #include <QtQml/qqmlcontext.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
+#include <QtQuick/private/qquickloader_p.h>
 #include <QtQuickTest/quicktest.h>
 #include <QtQuickTestUtils/private/qmlutils_p.h>
+#include <QtQuickTestUtils/private/viewtestutils_p.h>
 #include <QtQuickTestUtils/private/visualtestutils_p.h>
 #include <QtQuickControlsTestUtils/private/controlstestutils_p.h>
 #include <QtQuickControlsTestUtils/private/qtest_quickcontrols_p.h>
@@ -123,10 +126,12 @@ private slots:
     void resetCurrentIndexUponPopup_data();
     void resetCurrentIndexUponPopup();
     void mousePropagationWithinPopup();
+    void shortcutInNestedSubMenuAction();
+    void animationOnHeight();
+    void loadMenuAsynchronously();
 
 private:
     bool nativeMenuSupported = false;
-    bool popupWindowsSupported = false;
 };
 
 // This allows us to use QQuickMenuItem's more descriptive operator<< output
@@ -143,9 +148,6 @@ tst_QQuickMenu::tst_QQuickMenu()
 {
     std::unique_ptr<QPlatformMenu> platformMenu(QGuiApplicationPrivate::platformTheme()->createPlatformMenu());
     nativeMenuSupported = platformMenu != nullptr;
-#if defined(Q_OS_WINDOWS) || defined (Q_OS_MACOS)
-    popupWindowsSupported = QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::Capability::MultipleWindows);
-#endif
 }
 
 void tst_QQuickMenu::init()
@@ -212,7 +214,7 @@ void tst_QQuickMenu::mouse_data()
 {
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
     QTest::newRow("Popup.Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("Popup.Window") << QQuickPopup::Window;
 }
 
@@ -400,6 +402,16 @@ void tst_QQuickMenu::contextMenuKeyboard()
     QVERIFY(menuPrivate);
     QCOMPARE(menu->currentIndex(), -1);
     QCOMPARE(menu->contentItem()->property("currentIndex"), QVariant(-1));
+
+    // Make sure the internal list view won't handle key events directly
+    menu->setHeight(menu->contentHeight() + menu->topPadding() + menu->bottomPadding() + 20);
+    QQuickListView *listView = qobject_cast<QQuickListView *>(menu->contentItem());
+    if (listView) {
+        listView->setInteractive(false);
+        listView->setKeyNavigationEnabled(false);
+        QVERIFY(!listView->isInteractive());
+        QVERIFY(!listView->isKeyNavigationEnabled());
+    }
 
     menu->setPopupType(popupType);
 
@@ -1508,7 +1520,7 @@ void tst_QQuickMenu::subMenuMouse_data()
 
     QTest::newRow("cascading, in-scene") << true << QQuickPopup::Item;
     QTest::newRow("non-cascading, in-scene") << false << QQuickPopup::Item;
-    if (popupWindowsSupported) {
+    if (arePopupWindowsSupported()) {
         QTest::newRow("cascading, popup windows") << true << QQuickPopup::Window;
         QTest::newRow("non-cascading, popup windows") << false << QQuickPopup::Window;
     }
@@ -2156,7 +2168,7 @@ void tst_QQuickMenu::subMenuFlipsPositionWhenOutOfBounds_data()
 {
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
     QTest::newRow("PopupType::Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("PopupType::Window") << QQuickPopup::Window;
 }
 
@@ -2316,7 +2328,7 @@ void tst_QQuickMenu::addRemoveSubMenus()
 
 void tst_QQuickMenu::subMenuPopupType()
 {
-    if (!popupWindowsSupported)
+    if (!arePopupWindowsSupported())
         QSKIP("The platform doesn't support popup windows. Skipping test.");
 
     // Undo the setting of AA_DontUseNativeMenuWindows to true from init()
@@ -3240,7 +3252,7 @@ void tst_QQuickMenu::effectivePosition_data()
     QTest::addColumn<QQuickPopup::PopupType>("popupType");
 
     QTest::newRow("Item") << QQuickPopup::Item;
-    if (popupWindowsSupported)
+    if (arePopupWindowsSupported())
         QTest::newRow("Window") << QQuickPopup::Window;
 }
 
@@ -3464,6 +3476,82 @@ void tst_QQuickMenu::mousePropagationWithinPopup()
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, gapPoint);
         QCOMPARE(clickedSpy.size(), 0);
     }
+}
+
+void tst_QQuickMenu::shortcutInNestedSubMenuAction()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("shortcutInNestedSubMenuAction.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    // Shouldn't result in an infinite loop.
+    QTest::keyClick(window, Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(window->property("triggeredCount").value<int>(), 1);
+}
+
+void tst_QQuickMenu::animationOnHeight()
+{
+    QQuickControlsApplicationHelper helper(this, QLatin1String("animationOnHeight.qml"));
+    QVERIFY2(helper.ready, helper.failureMessage());
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    auto *menu = window->findChild<QQuickMenu *>();
+    QVERIFY(menu);
+    menu->popup(QPointF(100, 100));
+    QTRY_VERIFY(menu->isOpened());
+
+    // After adding the Action, the contentHeight of the Menu's ListView should
+    // be not be greater than its height; it shouldn't be possible to scroll.
+    auto *listView = qobject_cast<QQuickListView *>(menu->contentItem());
+    const qreal itemHeight = menu->itemAt(0)->height();
+    QCOMPARE(listView->contentHeight(), itemHeight * 2 + listView->spacing());
+    QCOMPARE_GE(listView->height(), listView->contentHeight());
+}
+
+void tst_QQuickMenu::loadMenuAsynchronously()
+{
+    QQuickView window(testFileUrl("loadMenuAsynchronously.qml"));
+    QCOMPARE(window.status(), QQuickView::Ready);
+    window.show();
+    window.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+
+    auto *rootItem = window.rootObject();
+    QVERIFY(rootItem);
+
+    auto *loader = rootItem->property("loader").value<QQuickLoader*>();
+    QVERIFY(loader);
+    QCOMPARE(loader->active(), false);
+    QCOMPARE(loader->asynchronous(), true);
+
+    auto activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, false);
+    QVERIFY(rootItem->setProperty("activateLoader", true));
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, true);
+
+    QTRY_COMPARE(loader->active(), false);
+
+    rootItem->setProperty("activateLoader", false);
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, false);
+    QVERIFY(rootItem->setProperty("activateLoader", true));
+    activateLoader = rootItem->property("activateLoader").value<bool>();
+    QCOMPARE(activateLoader, true);
+
+    QTRY_COMPARE(loader->active(), false);
+
+    // The ignored warning message described below is triggered from the loader
+    // when progress creations not been reset. This needs to be analyzed.
+    // The bug report QTBUG-139552 raised to track the investigation.
+    auto *enginePriv = QQmlEnginePrivate::get(window.engine());
+    if (enginePriv->inProgressCreations)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("There are still \\\\\"(\\d+)\\\\\" items in the process of being created at engine destruction\\."));
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickMenu)

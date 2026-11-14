@@ -499,6 +499,35 @@ void tst_qmltyperegistrar::consistencyWarnings()
     r.generatePluginTypes(pluginTypes.fileName());
 }
 
+void tst_qmltyperegistrar::deduplicateCleanPaths()
+{
+    QTest::failOnWarning();
+
+    QmlTypeRegistrar r;
+    r.setModuleVersions(QTypeRevision::fromVersion(1, 1), {}, false);
+    QString moduleName = "tstmodule";
+    QString targetNamespace = "tstnamespace";
+    r.setModuleNameAndNamespace(moduleName, targetNamespace);
+
+    MetaTypesJsonProcessor processor(true);
+
+    QVERIFY(processor.processTypes({ ":/processTwice.json", ":/./processTwice.json" }));
+    processor.postProcessTypes();
+    processor.postProcessForeignTypes();
+
+    r.setTypes(processor.types(), processor.foreignTypes());
+
+    QString outputData;
+    QTextStream output(&outputData, QIODeviceBase::ReadWrite);
+
+    r.write(output, "tstmodule_qmltyperegistrations.cpp");
+
+    QTemporaryFile pluginTypes;
+    QVERIFY(pluginTypes.open());
+
+    r.generatePluginTypes(pluginTypes.fileName());
+}
+
 void tst_qmltyperegistrar::enumWarnings()
 {
     QmlTypeRegistrar r;
@@ -660,15 +689,23 @@ void tst_qmltyperegistrar::uncreatable()
     QTest::ignoreMessage(
                 QtWarningMsg,
                 "BadUncreatable is neither a default constructible QObject, nor a default- "
-                "and copy-constructible Q_GADGET, nor marked as uncreatable.\n"
+                "and copy-constructible Q_GADGET, nor a QObject marked as uncreatable.\n"
                 "You should not use it as a QML type.");
     qmlRegisterTypesAndRevisions<BadUncreatable>("A", 1);
     QTest::ignoreMessage(
                 QtWarningMsg,
                 "BadUncreatableExtended is neither a default constructible QObject, nor a default- "
-                "and copy-constructible Q_GADGET, nor marked as uncreatable.\n"
+                "and copy-constructible Q_GADGET, nor a QObject marked as uncreatable.\n"
                 "You should not use it as a QML type.");
     qmlRegisterTypesAndRevisions<BadUncreatableExtended>("A", 1);
+#endif
+#if QT_DEPRECATED_SINCE(6, 10)
+    QTest::ignoreMessage(
+                QtWarningMsg,
+                "UncreatableGadget is neither a default constructible QObject, nor a default- "
+                "and copy-constructible Q_GADGET, nor a QObject marked as uncreatable.\n"
+                "You should not use it as a QML type.");
+    qmlRegisterTypesAndRevisions<UncreatableGadget>("A", 1);
 #endif
 
     const auto oldHandler = qInstallMessageHandler(

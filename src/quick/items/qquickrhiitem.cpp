@@ -14,11 +14,6 @@ QT_BEGIN_NAMESPACE
     QQuickFramebufferObject that is not tied to OpenGL, but rather allows
     integrating rendering with the QRhi APIs with Qt Quick.
 
-    \preliminary
-
-    \note QQuickRhiItem is in tech preview in Qt 6.7. \b {The API is under
-    development and subject to change.}
-
     QQuickRhiItem is effectively the counterpart of \l QRhiWidget in the world of
     Qt Quick. Both of these are meant to be subclassed, and they both enable
     recording QRhi-based rendering that targets an offscreen color buffer. The

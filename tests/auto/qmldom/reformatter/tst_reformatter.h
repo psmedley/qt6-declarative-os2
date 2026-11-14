@@ -756,6 +756,11 @@ private slots:
         QTest::newRow("StatementWithMultipleEmptyLinesAndPreCommentOnNextStatement")
                 << QStringLiteral(u"a=1;\n\n\n\n\n\n\n\n//\nb=1;")
                 << QStringLiteral(u"a = 1;\n\n//\nb = 1;");
+        QTest::newRow("ForLoopWithMultipleVarDeclarations")
+                << QStringLiteral("function bla() {"
+                                  "for (let i = 0, j = 1; i < j; ++i) {}}")
+                << QStringLiteral("function bla() {\n"
+                                  "for (let i = 0, j = 1; i < j; ++i) {}\n}");
     }
 
     void statementList()
@@ -765,6 +770,61 @@ private slots:
 
         QString formattedCode = formatJSCode(codeToBeFormatted);
 
+        QCOMPARE(formattedCode, expectedFormattedCode);
+    }
+
+    void comments_data()
+    {
+        QTest::addColumn<QString>("codeToBeFormatted");
+        QTest::addColumn<QString>("expectedFormattedCode");
+
+        QTest::newRow("MultipleCommentsAtTheEnd")
+                << QStringLiteral(u"a=1/*a*/ //abc\n/*b*/")
+                << QStringLiteral(u"a = 1/*a*/ //abc\n/*b*/");
+
+        QTest::newRow("emptyClassBody") << QStringLiteral(u"/*1*/class/*2*/ A/*3*/{/*4*/}/*5*/")
+                                        << QStringLiteral(u"/*1*/class /*2*/ A/*3*/ {/*4*/}/*5*/");
+        QTest::newRow("classBody")
+                << QStringLiteral(u"/*1*/class/*2*/ A/*3*/{/*4*/constructor(){}/*5*/}/*6*/")
+                << QStringLiteral(u"/*1*/class /*2*/ A/*3*/ {/*4*/\nconstructor(){}/*5*/\n}/*6*/");
+
+        QTest::newRow("AroundEmptyFunction")
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/{/*9*/}/*10*/"_s
+                << u"/*1*/function /*2*/ a/*3*/(/*4*/a/*5*/, /*6*/b/*7*/)/*8*/ {/*9*/}/*10*/"_s;
+        QTest::newRow("AroundFunction")
+                << u"/*1*/function/*2*/ a/*3*/(/*4*/a/*5*/,/*6*/b/*7*/)/*8*/{/*9*/ "
+                   u"return 42 /*10*/}/*11*/"_s
+                << u"/*1*/function /*2*/ a/*3*/(/*4*/a/*5*/, /*6*/b/*7*/)/*8*/ "
+                   u"{/*9*/\nreturn 42; /*10*/\n}/*11*/"_s;
+        QTest::newRow("AroundFunctionDouble")
+                << u"/*1a*//*1b*/function/*2a*//*2b*/ "
+                   u"a/*3a*//*3b*/(/*4a*//*4b*/a/*5a*//*5b*/,/*6a*//*6b*/b/*7a*//*7b*/)/"
+                   u"*8a*//*8b*/{/*9a*//*9b*/ return 42 /*10a*//*10b*/}/*11a*//*11b*/"_s
+                << u"/*1a*//*1b*/function /*2a*//*2b*/ "
+                   u"a/*3a*//*3b*/(/*4a*//*4b*/a/*5a*//*5b*/, "
+                   u"/*6a*//*6b*/b/*7a*//*7b*/)/*8a*//*8b*/ {/*9a*//*9b*/\nreturn "
+                   u"42; /*10a*//*10b*/\n}/*11a*//*11b*/"_s;
+
+        QTest::newRow("AroundAnonymous")
+                << u"const x = /*1*/function/*2*/(/*3*/a/*4*/,/*5*/b/*6*/)/*7*/{/*8*/ "
+                   u"return 42 /*9*/}/*10*/"_s
+                << u"const x = /*1*/function /*2*/(/*3*/a/*4*/, /*5*/b/*6*/)/*7*/ {/*8*/\nreturn 42; /*9*/\n}/*10*/"_s;
+
+        QTest::newRow("AroundArrowFunction")
+                << u"const x = /*1*/(/*2*/a/*3*/,/*4*/b/*5*/)/*6*/ => /*7*/ {/*8*/ return 42 /*9*/}/*10*/"_s
+                << u"const x = /*1*/(/*2*/a/*3*/, /*4*/b/*5*/)/*6*/ => /*7*/ {/*8*/\nreturn 42; /*9*/\n}/*10*/"_s;
+
+        QTest::newRow("AroundArrowFunction2")
+                << u"const x = /*1*/(/*2*/a/*3*/, /*4*/b/*5*/)/*6*/ => /*7*/42/*8*/"_s
+                << u"const x = /*1*/(/*2*/a/*3*/, /*4*/b/*5*/)/*6*/ => /*7*/42/*8*/"_s;
+    }
+
+    void comments()
+    {
+        QFETCH(QString, codeToBeFormatted);
+        QFETCH(QString, expectedFormattedCode);
+
+        QString formattedCode = formatJSCode(codeToBeFormatted);
         QCOMPARE(formattedCode, expectedFormattedCode);
     }
 

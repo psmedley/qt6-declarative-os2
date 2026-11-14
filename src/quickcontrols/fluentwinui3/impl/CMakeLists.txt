@@ -33,5 +33,4 @@ qt_internal_add_qml_module(QuickControls2FluentWinUI3StyleImpl
         Qt::QmlPrivate
         Qt::Quick
         Qt::QuickPrivate
-    OS2_SHORT_NAME Qt6QCFWI
 )

@@ -112,7 +112,6 @@ qt_internal_add_qml_module(QuickDialogs2QuickImpl
         Qt::Gui
         Qt::Quick
     NO_GENERATE_EXTRA_QMLDIRS
-    OS2_SHORT_NAME Qt6QuDQI
 )
 
 add_dependencies(QuickDialogs2QuickImpl Qt::QuickControls2Basic)

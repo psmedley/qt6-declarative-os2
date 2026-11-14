@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QV4RESOLVEDTYPEREFERNCE_P_H
 #define QV4RESOLVEDTYPEREFERNCE_P_H
@@ -37,7 +38,6 @@ public:
             m_compilationUnit->release();
     }
 
-    QQmlPropertyCache::ConstPtr propertyCache() const;
     QQmlPropertyCache::ConstPtr createPropertyCache();
     bool addToHash(QCryptographicHash *hash, QHash<quintptr, QByteArray> *checksums);
 

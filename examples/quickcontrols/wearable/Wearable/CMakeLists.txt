@@ -127,7 +127,6 @@ qt_add_qml_module(wearable
         images/fallbackmap.png
         fallbackroute.json
         weather.json
-    OS2_SHORT_NAME wearabl1
 )
 
 target_link_libraries(wearable PUBLIC

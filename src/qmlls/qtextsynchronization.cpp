@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qtextsynchronization_p.h"
 #include "qqmllsutils_p.h"
@@ -35,7 +36,7 @@ void TextSynchronization::didDidChangeTextDocument(const DidChangeTextDocumentPa
     auto openDoc = m_codeModel->openDocumentByUrl(url);
     std::shared_ptr<Utils::TextDocument> document = openDoc.textDocument;
     if (!document) {
-        qCWarning(lspServerLog) << "Ingnoring changes to non open or closed document"
+        qCWarning(lspServerLog) << "Ignoring changes to non open or closed document"
                                 << QString::fromUtf8(url);
         return;
     }

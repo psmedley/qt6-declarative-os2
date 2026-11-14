@@ -2777,7 +2777,8 @@ void tst_QQuickItem::mapCoordinates()
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
     QCOMPARE(result.value<QPointF>(), -QPointF(150,150) + QPointF(x, y));
 
-    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 at.*");
+    QRegularExpression warning1 = QRegularExpression(
+        ".*Could not convert argument 0 from 1122 to const QQuickItem\\*.*");
     QRegularExpression warning2 = QRegularExpression(".*checkMapA.*Invalid@.*");
 
     QTest::ignoreMessage(QtWarningMsg, warning1);
@@ -2850,7 +2851,7 @@ void tst_QQuickItem::mapCoordinatesRect()
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y), Q_ARG(QVariant, width), Q_ARG(QVariant, height)));
     QCOMPARE(result.value<QRectF>(), qobject_cast<QQuickItem*>(a)->mapRectFromScene(QRectF(x, y, width, height)));
 
-    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 at.*");
+    QRegularExpression warning1 = QRegularExpression(".*Could not convert argument 0 from 1122 to const QQuickItem\\*.*");
     QRegularExpression warning2 = QRegularExpression(".*checkMapA.*Invalid@.*");
 
     QTest::ignoreMessage(QtWarningMsg, warning1);

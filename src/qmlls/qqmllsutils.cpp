@@ -1,5 +1,6 @@
 // Copyright (C) 2023 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #include "qqmllsutils_p.h"
 
@@ -1366,15 +1367,16 @@ static std::optional<ExpressionType> resolveFieldMemberExpressionType(const DomI
         // Enumerations should live under the root element scope of the file that defines the enum,
         // therefore use the DomItem to find the root element of the qml file instead of directly
         // using owner->semanticScope.
-        const auto scope = item.goToFile(owner->semanticScope->filePath())
-                                   .rootQmlObject(GoTo::MostLikely)
-                                   .semanticScope();
-        if (scope->hasEnumerationKey(name)) {
-            return ExpressionType{ name, scope, EnumeratorValueIdentifier };
-        }
-        // Or it is a enum name <TypeName>.<EnumName>.<EnumValue>
-        else if (scope->hasEnumeration(name)) {
-            return ExpressionType{ name, scope, EnumeratorIdentifier };
+        if (const auto scope = item.goToFile(owner->semanticScope->filePath())
+                                       .rootQmlObject(GoTo::MostLikely)
+                                       .semanticScope()) {
+            if (scope->hasEnumerationKey(name)) {
+                return ExpressionType{ name, scope, EnumeratorValueIdentifier };
+            }
+            // Or it is a enum name <TypeName>.<EnumName>.<EnumValue>
+            else if (scope->hasEnumeration(name)) {
+                return ExpressionType{ name, scope, EnumeratorIdentifier };
+            }
         }
 
         // check inline components <TypeName>.<InlineComponentName>

@@ -105,6 +105,7 @@ qt_internal_extend_target(tst_qqmlmoduleplugin CONDITION NOT ANDROID AND NOT IOS
     DEFINES
         QT_QMLTEST_DATADIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
 )
+
 add_subdirectory(plugin)
 add_subdirectory(plugin.2)
 add_subdirectory(plugin.2.1)
@@ -127,3 +128,17 @@ add_subdirectory(plugin.2.1/childplugin)
 add_subdirectory(plugin.2.2)
 add_subdirectory(moduleWithQmlSingleton)
 add_subdirectory(optionalPlugin)
+
+add_dependencies(tst_qqmlmoduleplugin plugin plugin.2 plugin.2.1 plugin.2.2
+    pluginMixed Plugin pluginWithQmlFile pluginVersion nestedPlugin
+    strictModule strictModule.2 nonstrictModule preemptiveModule preemptedStrictModule
+    invalidNamespaceModule invalidFirstCommandModule childplugin childplugin.2 childplugin.2.1
+    moduleWithQmlSingleton)
+
+if(NOT BUILD_SHARED_LIBS)
+    target_link_libraries(tst_qqmlmoduleplugin PRIVATE plugin plugin.2 plugin.2.1 plugin.2.2
+        pluginMixed Qt6::qtquick2plugin pluginWithQmlFile pluginVersion nestedPlugin
+        strictModule strictModule.2 nonstrictModule preemptiveModule preemptedStrictModule
+        invalidNamespaceModule invalidFirstCommandModule childplugin childplugin.2 childplugin.2.1
+        moduleWithQmlSingleton)
+endif()

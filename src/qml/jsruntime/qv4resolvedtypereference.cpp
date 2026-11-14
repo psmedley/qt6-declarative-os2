@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4resolvedtypereference_p.h"
 
@@ -24,24 +25,15 @@ bool qtTypeInherits(const QMetaObject *mo) {
 void ResolvedTypeReference::doDynamicTypeCheck()
 {
     const QMetaObject *mo = nullptr;
-    if (m_typePropertyCache)
+    if (m_typePropertyCache) {
         mo = m_typePropertyCache->firstCppMetaObject();
-    else if (m_type.isValid())
+    } else if (m_type.isValid()) {
         mo = m_type.metaObject();
-    else if (m_compilationUnit)
-        mo = m_compilationUnit->rootPropertyCache()->firstCppMetaObject();
+    } else if (m_compilationUnit) {
+        if (const auto cache = m_compilationUnit->rootPropertyCache())
+            mo = cache->firstCppMetaObject();
+    }
     m_isFullyDynamicType = qtTypeInherits<QQmlPropertyMap>(mo);
-}
-
-/*!
-Returns the property cache, if one alread exists.  The cache is not referenced.
-*/
-QQmlPropertyCache::ConstPtr ResolvedTypeReference::propertyCache() const
-{
-    if (m_type.isValid())
-        return m_typePropertyCache;
-    else
-        return m_compilationUnit->rootPropertyCache();
 }
 
 /*!

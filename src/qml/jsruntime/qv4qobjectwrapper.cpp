@@ -1,5 +1,6 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4qobjectwrapper_p.h"
 
@@ -17,6 +18,7 @@
 #include <private/qqmlvmemetaobject_p.h>
 
 #include <private/qv4arraybuffer_p.h>
+#include <private/qv4arrayobject_p.h>
 #include <private/qv4compileddata_p.h>
 #include <private/qv4dateobject_p.h>
 #include <private/qv4functionobject_p.h>
@@ -363,9 +365,13 @@ ReturnedValue QObjectWrapper::getProperty(
 
     QQmlEnginePrivate *ep = engine->qmlEngine() ? QQmlEnginePrivate::get(engine->qmlEngine()) : nullptr;
 
-    if (ep && ep->propertyCapture && !property->isConstant())
-        if (!property->isBindable() || ep->propertyCapture->expression->mustCaptureBindableProperty())
-            ep->propertyCapture->captureProperty(object, property->coreIndex(), property->notifyIndex());
+    if (ep && ep->propertyCapture && !property->isConstant()) {
+        if (!property->notifiesViaBindable()
+                || ep->propertyCapture->expression->mustCaptureBindableProperty()) {
+            ep->propertyCapture->captureProperty(
+                    object, property->coreIndex(), property->notifyIndex());
+        }
+    }
 
     if (property->isVarProperty()) {
         QQmlVMEMetaObject *vmemo = QQmlVMEMetaObject::get(object);
@@ -630,7 +636,7 @@ void QObjectWrapper::setProperty(
             ScopedContext ctx(scope, f->scope());
 
             // binding assignment.
-            if (property->isBindable()) {
+            if (property->acceptsQBinding()) {
                 const QQmlPropertyIndex idx(property->coreIndex(), /*not a value type*/-1);
                 auto [targetObject, targetIndex] = QQmlPropertyPrivate::findAliasTarget(object, idx);
                 QUntypedPropertyBinding binding;
@@ -641,6 +647,7 @@ void QObjectWrapper::setProperty(
                 } else {
                     binding = QQmlPropertyBinding::create(property, f->function(), object, callingQmlContext,
                                                            ctx, targetObject, targetIndex);
+
                 }
                 QUntypedBindable bindable;
                 void *argv = {&bindable};
@@ -867,10 +874,8 @@ void QObjectWrapper::markWrapper(QObject *object, MarkStack *markStack)
         ddata->jsWrapper.markOnce(markStack);
     else if (engine->m_multiplyWrappedQObjects && ddata->hasTaintedV4Object)
         engine->m_multiplyWrappedQObjects->mark(object, markStack);
-    if (ddata->hasConstWrapper) {
-        Q_ASSERT(engine->m_multiplyWrappedQObjects);
+    if (ddata->hasConstWrapper && engine->m_multiplyWrappedQObjects)
         engine->m_multiplyWrappedQObjects->mark(static_cast<const QObject *>(object), markStack);
-    }
 }
 
 void QObjectWrapper::setProperty(ExecutionEngine *engine, int propertyIndex, const Value &value)
@@ -1499,26 +1504,26 @@ void Heap::QObjectWrapper::markObjects(Heap::Base *that, MarkStack *markStack)
                 }
             }
 
-            if (ddata->hasConstWrapper) {
+            // mark the const wrapper if our engine has interacted with it at some point
+            if (ddata->hasConstWrapper && that->internalClass->engine->m_multiplyWrappedQObjects) {
                 Scope scope(that->internalClass->engine);
-                Q_ASSERT(scope.engine->m_multiplyWrappedQObjects);
 
                 Scoped<QV4::QObjectWrapper> constWrapper(
                         scope,
                         scope.engine->m_multiplyWrappedQObjects->value(
                                 static_cast<const QObject *>(o)));
 
-                Q_ASSERT(constWrapper);
-
-                if (This == constWrapper->d()) {
-                    // We've got the const wrapper. Also mark the non-const one
-                    if (ddata->jsEngineId == scope.engine->m_engineId)
-                        ddata->jsWrapper.markOnce(markStack);
-                    else
-                        scope.engine->m_multiplyWrappedQObjects->mark(o, markStack);
-                } else {
-                    // We've got the non-const wrapper. Also mark the const one.
-                    constWrapper->mark(markStack);
+                if (constWrapper) {
+                    if (This == constWrapper->d()) {
+                        // We've got the const wrapper. Also mark the non-const one
+                        if (ddata->jsEngineId == scope.engine->m_engineId)
+                            ddata->jsWrapper.markOnce(markStack);
+                        else
+                            scope.engine->m_multiplyWrappedQObjects->mark(o, markStack);
+                    } else {
+                        // We've got the non-const wrapper. Also mark the const one.
+                        constWrapper->mark(markStack);
+                    }
                 }
             }
         }
@@ -1667,7 +1672,8 @@ static ReturnedValue CallMethod(const QQmlObjectOrGadget &object, int index, QMe
         for (int ii = 0; ii < argCount; ++ii) {
             if (!args[ii + 1].fromValue(argTypes[ii], engine,
                                         callArgs->args[ii].asValue<Value>())) {
-                qWarning() << QString::fromLatin1("Could not convert argument %1 at").arg(ii);
+                qWarning() << QString::fromLatin1("Could not convert argument %1 from %2 to %3")
+                    .arg(ii).arg(callArgs->args[ii].asValue<Value>().toQStringNoThrow()).arg(argTypes[ii].name());
                 const StackTrace stack = engine->stackTrace();
                 for (const StackFrame &frame : stack) {
                     qWarning() << "\t" << frame.function + QLatin1Char('@') + frame.source
@@ -2395,12 +2401,10 @@ void CallArgument::initAsType(QMetaType metaType)
 template <class T, class M>
 bool CallArgument::fromContainerValue(const Value &value, M CallArgument::*member)
 {
-    if (const Sequence *sequence = value.as<Sequence>()) {
-        if (T* ptr = static_cast<T *>(SequencePrototype::getRawContainerPtr(
-                    sequence, QMetaType(type)))) {
-            (this->*member) = ptr;
-            return true;
-        }
+    if (T* ptr = static_cast<T *>(SequencePrototype::rawContainerPtr(
+                value.as<Sequence>(), QMetaType(type)))) {
+        (this->*member) = ptr;
+        return true;
     }
     (this->*member) = nullptr;
     return false;
@@ -2516,11 +2520,19 @@ bool CallArgument::fromValue(QMetaType metaType, ExecutionEngine *engine, const 
             }
 
             if (const auto sequence = value.as<QV4::Sequence>()) {
-                QV4::ReferenceObject::readReference(sequence->d());
-                uint length = sequence->size();
-                if (sequence->d()->listType() == QMetaType::fromType<QList<QObject *>>()) {
-                    *qlistPtr = *static_cast<QList<QObject *> *>(sequence->getRawContainerPtr());
-                } else {
+
+                // Does readReference(). Don't move past getRawContainer()
+                const qint64 length = sequence->getLength();
+
+                switch (QV4::SequencePrototype::getRawContainer(
+                        sequence, qlistPtr, QMetaType::fromType<QList<QObject *>>())) {
+                case SequencePrototype::Copied:
+                case SequencePrototype::WasEqual:
+                    break;
+                case SequencePrototype::TypeMismatch: {
+                    if (!qIsAtMostSizetypeLimit(length) || !qIsAtMostUintLimit(length))
+                        return false;
+
                     qlistPtr->reserve(length);
                     Scoped<QObjectWrapper> qobjectWrapper(scope);
                     for (uint ii = 0; ii < length; ++ii) {
@@ -2530,6 +2542,8 @@ bool CallArgument::fromValue(QMetaType metaType, ExecutionEngine *engine, const 
                             o = qobjectWrapper->object();
                         qlistPtr->append(o);
                     }
+                    break;
+                }
                 }
                 return true;
             }

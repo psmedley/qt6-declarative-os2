@@ -173,8 +173,10 @@ void QQuickWidgetPrivate::ensureBackingScene()
     Q_Q(QQuickWidget);
     if (!renderControl)
         renderControl = new QQuickWidgetRenderControl(q);
-    if (!offscreenWindow)
+    if (!offscreenWindow) {
         offscreenWindow = new QQuickWidgetOffscreenWindow(*new QQuickWidgetOffscreenWindowPrivate(), renderControl);
+        offscreenWindow->setProperty("_q_parentWidget", QVariant::fromValue(q));
+    }
 
     // Check if the Software Adaptation is being used
     auto sgRendererInterface = offscreenWindow->rendererInterface();

@@ -50,7 +50,6 @@ qt_internal_add_qml_module(QuickDialogs2
         Qt::Core
         Qt::Gui
         Qt::Quick
-    OS2_SHORT_NAME Qt6QuiDi
     )
 
 qt_internal_add_docs(QuickDialogs2

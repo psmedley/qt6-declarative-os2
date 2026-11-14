@@ -1,5 +1,6 @@
 // Copyright (C) 2020 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant reason:default
 
 #ifndef QQUICKLABSPLATFORMMENU_P_H
 #define QQUICKLABSPLATFORMMENU_P_H
@@ -133,7 +134,7 @@ Q_SIGNALS:
     void minimumWidthChanged();
     void fontChanged();
     void typeChanged();
-    Q_REVISION(2, 1) void iconChanged();
+    Q_REVISION(1, 1) void iconChanged();
 
 protected:
     void classBegin() override;

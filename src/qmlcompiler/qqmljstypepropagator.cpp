@@ -125,7 +125,7 @@ void QQmlJSTypePropagator::generate_Ret()
             addReadAccumulator(m_returnType);
     }
 
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     m_state.skipInstructionsUntilNextJumpTarget = true;
 }
 
@@ -385,7 +385,8 @@ void QQmlJSTypePropagator::handleUnqualifiedAccess(const QString &name, bool isM
         for (QQmlJSScope::ConstPtr scope = m_function->qmlScope; !scope.isNull();
              scope = scope->parentScope()) {
             if (scope->hasProperty(name)) {
-                const QString id = m_function->addressableScopes.id(scope, m_function->qmlScope);
+                QQmlJSScopesById::MostLikelyCallback<QString> id;
+                m_function->addressableScopes.possibleIds(scope, m_function->qmlScope, Default, id);
 
                 QQmlJS::SourceLocation fixLocation = location;
                 fixLocation.length = 0;
@@ -393,10 +394,10 @@ void QQmlJSTypePropagator::handleUnqualifiedAccess(const QString &name, bool isM
                     name
                             + " is a member of a parent element.\n      You can qualify the access "
                               "with its id to avoid this warning.\n"_L1,
-                    fixLocation, (id.isEmpty() ? u"<id>."_s : (id + u'.'))
+                    fixLocation, (id.result.isEmpty() ? u"<id>."_s : (id.result + u'.'))
                 };
 
-                if (id.isEmpty())
+                if (id.result.isEmpty())
                     suggestion->setHint("You first have to give the element an id"_L1);
                 else
                     suggestion->setAutoApplicable();
@@ -678,7 +679,7 @@ void QQmlJSTypePropagator::generate_StoreNameCommon(int nameIndex)
         addReadAccumulator(type);
     }
 
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_StoreNameSloppy(int nameIndex)
@@ -731,12 +732,14 @@ void QQmlJSTypePropagator::generate_LoadElement(int base)
     };
 
     const QQmlJSRegisterContent baseRegister = m_state.registers[base].content;
-    if (!baseRegister.isList()
-        && !m_typeResolver->registerContains(baseRegister, m_typeResolver->stringType())) {
+    if (baseRegister.isList()) {
+        addReadRegister(base, m_typeResolver->globalType(m_typeResolver->arrayPrototype()));
+    } else if (m_typeResolver->registerContains(baseRegister, m_typeResolver->stringType())) {
+        addReadRegister(base, baseRegister);
+    } else {
         fallback();
         return;
     }
-    addReadRegister(base, baseRegister);
 
     if (m_typeResolver->isNumeric(m_state.accumulatorIn())) {
         const auto contained = m_typeResolver->containedType(m_state.accumulatorIn());
@@ -774,7 +777,7 @@ void QQmlJSTypePropagator::generate_StoreElement(int base, int index)
 
         // Writing to a JS array can have side effects all over the place since it's
         // passed by reference.
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         return;
     }
 
@@ -786,7 +789,7 @@ void QQmlJSTypePropagator::generate_StoreElement(int base, int index)
     else
         addReadRegister(index, m_typeResolver->globalType(m_typeResolver->realType()));
 
-    addReadRegister(base, baseRegister);
+    addReadRegister(base, m_typeResolver->globalType(m_typeResolver->arrayPrototype()));
     addReadAccumulator(m_typeResolver->valueType(baseRegister));
 
     // If we're writing a QQmlListProperty backed by a container somewhere else,
@@ -794,7 +797,7 @@ void QQmlJSTypePropagator::generate_StoreElement(int base, int index)
     // If we're writing to a list retrieved from a property, that _should_ have side effects,
     // but currently the QML engine doesn't implement them.
     // TODO: Figure out the above and accurately set the flag.
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
 }
 
 void QQmlJSTypePropagator::propagatePropertyLookup_SAcheck(const QString &propertyName)
@@ -1069,7 +1072,7 @@ void QQmlJSTypePropagator::generate_StoreProperty(int nameIndex, int base)
             : std::move(property);
     addReadAccumulator(readType);
     addReadRegister(base, callBase);
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_SetLookup(int index, int base)
@@ -1106,7 +1109,7 @@ void QQmlJSTypePropagator::generate_Resume(int)
 
 void QQmlJSTypePropagator::generate_CallValue(int name, int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(name)
     Q_UNUSED(argc)
     Q_UNUSED(argv)
@@ -1115,7 +1118,7 @@ void QQmlJSTypePropagator::generate_CallValue(int name, int argc, int argv)
 
 void QQmlJSTypePropagator::generate_CallWithReceiver(int name, int thisObject, int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(name)
     Q_UNUSED(thisObject)
     Q_UNUSED(argc)
@@ -1187,7 +1190,13 @@ void QQmlJSTypePropagator::generate_CallProperty_SCconsole(int base, int argc, i
                         : stringType);
     }
 
-    m_state.setHasSideEffects(true);
+    // It's debatable whether the console API should be considered an external side effect.
+    // You can certainly qInstallMessageHandler and then react to the message and change
+    // some property in an object exposed to the currently running method. However, we might
+    // disregard such a thing as abuse of the API. For now, the console API is considered to
+    // have external side effects, though.
+    m_state.setHasExternalSideEffects();
+
     setAccumulator(m_typeResolver->returnType(
             m_typeResolver->voidType(), QQmlJSRegisterContent::MethodReturnValue,
             m_typeResolver->consoleObject()));
@@ -1235,7 +1244,7 @@ void QQmlJSTypePropagator::generate_CallProperty(int nameIndex, int base, int ar
             addReadRegister(base, jsValueType);
             for (int i = 0; i < argc; ++i)
                 addReadRegister(argv + i, jsValueType);
-            m_state.setHasSideEffects(true);
+            m_state.setHasExternalSideEffects();
             setAccumulator(m_typeResolver->returnType(
                     m_typeResolver->jsValueType(), QQmlJSRegisterContent::JavaScriptReturnValue,
                     m_typeResolver->jsValueType()));
@@ -1387,19 +1396,24 @@ void QQmlJSTypePropagator::setRegister(int index, const QQmlJSRegisterContent &c
 }
 
 void QQmlJSTypePropagator::mergeRegister(
-            int index, const QQmlJSRegisterContent &a, const QQmlJSRegisterContent &b)
+            int index, const VirtualRegister &a, const VirtualRegister &b)
 {
-    auto merged = m_typeResolver->merge(a, b);
-    Q_ASSERT(merged.isValid());
+    const VirtualRegister merged = {
+        m_typeResolver->merge(a.content, b.content),
+        a.canMove && b.canMove,
+        a.affectedBySideEffects || b.affectedBySideEffects,
+    };
 
-    if (!merged.isConversion()) {
+    Q_ASSERT(merged.content.isValid());
+
+    if (!merged.content.isConversion()) {
         // The registers were the same. We're already tracking them.
-        m_state.annotations[currentInstructionOffset()].typeConversions[index].content = merged;
-        m_state.registers[index].content = merged;
+        m_state.annotations[currentInstructionOffset()].typeConversions[index] = merged;
+        m_state.registers[index] = merged;
         return;
     }
 
-    auto tryPrevStateConversion = [this](int index, const QQmlJSRegisterContent &merged) -> bool {
+    auto tryPrevStateConversion = [this](int index, const VirtualRegister &merged) -> bool {
         auto it = m_prevStateAnnotations.find(currentInstructionOffset());
         if (it == m_prevStateAnnotations.end())
             return false;
@@ -1414,22 +1428,33 @@ void QQmlJSTypePropagator::mergeRegister(
         if (!lastTry.content.isConversion())
             return false;
 
-        if (!m_typeResolver->equals(lastTry.content.conversionResult(), merged.conversionResult())
-                || lastTry.content.conversionOrigins() != merged.conversionOrigins()) {
+        if (!m_typeResolver->equals(lastTry.content.conversionResult(),
+                                    merged.content.conversionResult())
+                || lastTry.content.conversionOrigins() != merged.content.conversionOrigins()
+                || lastTry.canMove != merged.canMove
+                || lastTry.affectedBySideEffects != merged.affectedBySideEffects) {
             return false;
         }
 
         // We don't need to track it again if we've come to the same conclusion before.
         m_state.annotations[currentInstructionOffset()].typeConversions[index] = lastTry;
+
+        // Do not reset the side effects
+        Q_ASSERT(!m_state.registers[index].affectedBySideEffects || lastTry.affectedBySideEffects);
+
         m_state.registers[index] = lastTry;
         return true;
     };
 
     if (!tryPrevStateConversion(index, merged)) {
-        merged = m_typeResolver->tracked(merged);
-        Q_ASSERT(merged.isValid());
-        m_state.annotations[currentInstructionOffset()].typeConversions[index].content = merged;
-        m_state.registers[index].content = merged;
+        const VirtualRegister cloned = {
+            m_typeResolver->tracked(merged.content),
+            merged.canMove,
+            merged.affectedBySideEffects,
+        };
+        Q_ASSERT(cloned.content.isValid());
+        m_state.annotations[currentInstructionOffset()].typeConversions[index] = cloned;
+        m_state.registers[index] = cloned;
     }
 }
 
@@ -1484,7 +1509,7 @@ void QQmlJSTypePropagator::propagateCall(
         }
         addReadRegister(argv + i, m_typeResolver->globalType(m_typeResolver->jsValueType()));
     }
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
 }
 
 bool QQmlJSTypePropagator::propagateTranslationMethod(
@@ -1640,6 +1665,12 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
     // * For find(), findIndex(), sort(), every(), some(), forEach(), map(), filter(), reduce(),
     //   and reduceRight() we need typed function pointers.
 
+    // TODO:
+    // For now, every method that mutates the original array is considered to have external
+    // side effects. We could do better by figuring out whether the array is actually backed
+    // by an external property or has entries backed by an external property. If not, there
+    // can't be any external side effects.
+
     const auto intType = m_typeResolver->globalType(m_typeResolver->int32Type());
     const auto stringType = m_typeResolver->globalType(m_typeResolver->stringType());
     const auto baseContained = m_typeResolver->containedType(baseType);
@@ -1660,7 +1691,7 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
         for (int i = 0; i < argc; ++i)
             addReadRegister(argv + i, intType);
 
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(baseContained);
         return true;
     }
@@ -1679,7 +1710,7 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
         for (int i = 1; i < argc; ++i)
             addReadRegister(argv + i, intType);
 
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(baseContained);
         return true;
     }
@@ -1711,7 +1742,7 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
     }
 
     if ((name == u"pop" || name == u"shift") && argc == 0) {
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(valueContained);
         return true;
     }
@@ -1725,13 +1756,13 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
         for (int i = 0; i < argc; ++i)
             addReadRegister(argv + i, valueType);
 
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(m_typeResolver->int32Type());
         return true;
     }
 
     if (name == u"reverse" && argc == 0) {
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(baseContained);
         return true;
     }
@@ -1768,7 +1799,7 @@ bool QQmlJSTypePropagator::propagateArrayMethod(
         for (int i = 2; i < argc; ++i)
             addReadRegister(argv + i, valueType);
 
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setReturnType(baseContained);
         return true;
     }
@@ -1804,7 +1835,7 @@ void QQmlJSTypePropagator::generate_CallName(int name, int argc, int argv)
 
 void QQmlJSTypePropagator::generate_CallPossiblyDirectEval(int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(argc)
     Q_UNUSED(argv)
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
@@ -1849,7 +1880,7 @@ void QQmlJSTypePropagator::generate_CallQmlContextPropertyLookup(int index, int 
 
 void QQmlJSTypePropagator::generate_CallWithSpread(int func, int thisObject, int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(func)
     Q_UNUSED(thisObject)
     Q_UNUSED(argc)
@@ -1859,7 +1890,7 @@ void QQmlJSTypePropagator::generate_CallWithSpread(int func, int thisObject, int
 
 void QQmlJSTypePropagator::generate_TailCall(int func, int thisObject, int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(func)
     Q_UNUSED(thisObject)
     Q_UNUSED(argc)
@@ -1914,7 +1945,7 @@ void QQmlJSTypePropagator::generate_Construct(int func, int argc, int argv)
 {
     const QQmlJSRegisterContent type = m_state.registers[func].content;
     if (!type.isMethod()) {
-        m_state.setHasSideEffects(true);
+        m_state.setHasExternalSideEffects();
         setAccumulator(m_typeResolver->globalType(m_typeResolver->jsValueType()));
         return;
     }
@@ -1930,13 +1961,13 @@ void QQmlJSTypePropagator::generate_Construct(int func, int argc, int argv)
         return;
     }
 
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     setAccumulator(m_typeResolver->globalType(m_typeResolver->jsValueType()));
 }
 
 void QQmlJSTypePropagator::generate_ConstructWithSpread(int func, int argc, int argv)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasExternalSideEffects();
     Q_UNUSED(func)
     Q_UNUSED(argc)
     Q_UNUSED(argv)
@@ -1945,20 +1976,20 @@ void QQmlJSTypePropagator::generate_ConstructWithSpread(int func, int argc, int 
 
 void QQmlJSTypePropagator::generate_SetUnwindHandler(int offset)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     Q_UNUSED(offset)
     INSTR_PROLOGUE_NOT_IMPLEMENTED_IGNORE();
 }
 
 void QQmlJSTypePropagator::generate_UnwindDispatch()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     INSTR_PROLOGUE_NOT_IMPLEMENTED_IGNORE();
 }
 
 void QQmlJSTypePropagator::generate_UnwindToLabel(int level, int offset)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     Q_UNUSED(level)
     Q_UNUSED(offset)
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
@@ -1987,7 +2018,7 @@ void QQmlJSTypePropagator::generate_DeadTemporalZoneCheck(int name)
 void QQmlJSTypePropagator::generate_ThrowException()
 {
     addReadAccumulator(m_typeResolver->globalType(m_typeResolver->jsValueType()));
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     m_state.skipInstructionsUntilNextJumpTarget = true;
 }
 
@@ -1998,18 +2029,18 @@ void QQmlJSTypePropagator::generate_GetException()
 
 void QQmlJSTypePropagator::generate_SetException()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_CreateCallContext()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_PushCatchContext(int index, int name)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     Q_UNUSED(index)
     Q_UNUSED(name)
     INSTR_PROLOGUE_NOT_IMPLEMENTED_IGNORE();
@@ -2017,39 +2048,39 @@ void QQmlJSTypePropagator::generate_PushCatchContext(int index, int name)
 
 void QQmlJSTypePropagator::generate_PushWithContext()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_PushBlockContext(int index)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     Q_UNUSED(index)
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_CloneBlockContext()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_PushScriptContext(int index)
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     Q_UNUSED(index)
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_PopScriptContext()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
     INSTR_PROLOGUE_NOT_IMPLEMENTED();
 }
 
 void QQmlJSTypePropagator::generate_PopContext()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_GetIterator(int iterator)
@@ -2075,7 +2106,7 @@ void QQmlJSTypePropagator::generate_IteratorNext(int value, int offset)
                                 m_typeResolver->valueType(iteratorType),
                                 m_typeResolver->globalType(m_typeResolver->voidType())));
     saveRegisterStateForJump(offset);
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_IteratorNextForYieldStar(int iterator, int object, int offset)
@@ -2129,7 +2160,7 @@ void QQmlJSTypePropagator::generate_DeclareVar(int varName, int isDeletable)
 
 void QQmlJSTypePropagator::generate_DefineArray(int argc, int args)
 {
-    setAccumulator(m_typeResolver->globalType(m_typeResolver->variantListType()));
+    setAccumulator(m_typeResolver->arrayType(m_typeResolver->variantListType()));
 
     // Track all arguments as the same type.
     const QQmlJSRegisterContent elementType
@@ -2213,7 +2244,7 @@ void QQmlJSTypePropagator::generate_Jump(int offset)
 {
     saveRegisterStateForJump(offset);
     m_state.skipInstructionsUntilNextJumpTarget = true;
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_JumpTrue(int offset)
@@ -2226,7 +2257,7 @@ void QQmlJSTypePropagator::generate_JumpTrue(int offset)
     }
     saveRegisterStateForJump(offset);
     addReadAccumulator(m_typeResolver->globalType(m_typeResolver->boolType()));
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_JumpFalse(int offset)
@@ -2239,13 +2270,13 @@ void QQmlJSTypePropagator::generate_JumpFalse(int offset)
     }
     saveRegisterStateForJump(offset);
     addReadAccumulator(m_typeResolver->globalType(m_typeResolver->boolType()));
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_JumpNoException(int offset)
 {
     saveRegisterStateForJump(offset);
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::generate_JumpNotUndefined(int offset)
@@ -2256,7 +2287,7 @@ void QQmlJSTypePropagator::generate_JumpNotUndefined(int offset)
 
 void QQmlJSTypePropagator::generate_CheckException()
 {
-    m_state.setHasSideEffects(true);
+    m_state.setHasInternalSideEffects();
 }
 
 void QQmlJSTypePropagator::recordEqualsNullType()
@@ -2710,8 +2741,8 @@ QQmlJSTypePropagator::startInstruction(QV4::Moth::Instr::Type type)
              registerIt != end; ++registerIt) {
             const int registerIndex = registerIt.key();
 
-            auto newType = registerIt.value().content;
-            if (!newType.isValid()) {
+            const VirtualRegister &newType = registerIt.value();
+            if (!newType.content.isValid()) {
                 setError(u"When reached from offset %1, %2 is undefined"_s
                                  .arg(stateToMerge.originatingOffset)
                                  .arg(registerName(registerIndex)));
@@ -2720,7 +2751,7 @@ QQmlJSTypePropagator::startInstruction(QV4::Moth::Instr::Type type)
 
             auto currentRegister = m_state.registers.find(registerIndex);
             if (currentRegister != m_state.registers.end())
-                mergeRegister(registerIndex, newType, currentRegister.value().content);
+                mergeRegister(registerIndex, newType, currentRegister.value());
             else
                 mergeRegister(registerIndex, newType, newType);
         }
@@ -2735,7 +2766,8 @@ void QQmlJSTypePropagator::endInstruction(QV4::Moth::Instr::Type instr)
     currentInstruction.changedRegister = m_state.changedRegister();
     currentInstruction.changedRegisterIndex = m_state.changedRegisterIndex();
     currentInstruction.readRegisters = m_state.takeReadRegisters();
-    currentInstruction.hasSideEffects = m_state.hasSideEffects();
+    currentInstruction.hasExternalSideEffects = m_state.hasExternalSideEffects();
+    currentInstruction.hasInternalSideEffects = m_state.hasInternalSideEffects();
     currentInstruction.isRename = m_state.isRename();
 
     switch (instr) {
@@ -2783,7 +2815,7 @@ void QQmlJSTypePropagator::endInstruction(QV4::Moth::Instr::Type instr)
         && instr != QV4::Moth::Instr::Type::DeadTemporalZoneCheck) {
         // An instruction needs to have side effects or write to another register otherwise it's a
         // noop. DeadTemporalZoneCheck is not needed by the compiler and is ignored.
-        Q_ASSERT(m_state.hasSideEffects() || m_state.changedRegisterIndex() != -1);
+        Q_ASSERT(m_state.hasInternalSideEffects() || m_state.changedRegisterIndex() != -1);
     }
 
     if (m_state.changedRegisterIndex() != InvalidRegister) {
@@ -2796,7 +2828,7 @@ void QQmlJSTypePropagator::endInstruction(QV4::Moth::Instr::Type instr)
         m_state.clearChangedRegister();
     }
 
-    m_state.setHasSideEffects(false);
+    m_state.resetSideEffects();
     m_state.setIsRename(false);
     m_state.setReadRegisters(VirtualRegisters());
 }
@@ -2864,6 +2896,11 @@ QQmlJSRegisterContent QQmlJSTypePropagator::checkedInputRegister(int reg)
     if (regIt == m_state.registers.end()) {
         if (isArgument(reg))
             return argumentType(reg);
+        if (reg == This)
+            return m_typeResolver->globalType(m_function->qmlScope);
+        // over-approximation: needed in qmllint to not crash on `eval()`-calls
+        if (reg == NewTarget)
+            return m_typeResolver->globalType(m_typeResolver->varType());
 
         setError(u"Type error: could not infer the type of an expression"_s);
         return {};

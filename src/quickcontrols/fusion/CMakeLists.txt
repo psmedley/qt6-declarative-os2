@@ -122,7 +122,6 @@ qt_internal_add_qml_module(QuickControls2Fusion
         Qt::QuickControls2Private
         Qt::QuickPrivate
         Qt::QuickTemplates2Private
-    OS2_SHORT_NAME QuCoFuSt
 )
 
 target_sources(qtquickcontrols2fusionstyleplugin

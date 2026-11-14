@@ -39,7 +39,10 @@
     of Qt Quick into your Android app, making it possible to use various Qt Quick
     APIs in Android apps.
 
-    \note Methods in this class are assumed thread-safe unless otherwise specified.
+    \note Although we try to keep QtQuickView as thread-safe as possible, that
+        can't be guaranteed since it follows the same considerations as
+        \l {Android: View}{View}. See \l {Android: Event Handling and Threading}
+        {Event Handling and Threading}.
 
     A typical use of the class:
 
@@ -82,6 +85,10 @@
     \endcode
 
     For a more detailed example, see \l {Qt Quick for Android Studio Projects}.
+
+    \section1 QtQuickViews can be used in Android Fragments
+
+    See the \l{Android Fragments and Qt Quick for Android} tutorial for how to do this.
 
     \section1 Known issues
 

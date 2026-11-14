@@ -60,6 +60,7 @@ const QQmlSA::LoggerWarningId qmlAccessSingleton{ "access-singleton-via-object" 
 const QQmlSA::LoggerWarningId qmlTopLevelComponent{ "top-level-component" };
 const QQmlSA::LoggerWarningId qmlUncreatableType{ "uncreatable-type" };
 const QQmlSA::LoggerWarningId qmlMissingEnumEntry{ "missing-enum-entry" };
+const QQmlSA::LoggerWarningId qmlEnumsAreNotTypes{ "enums-are-not-types" };
 
 QQmlJSLogger::QQmlJSLogger()
 {
@@ -183,10 +184,16 @@ const QList<QQmlJS::LoggerCategory> &QQmlJSLogger::defaultCategories()
                 QStringLiteral("Warn if a singleton is accessed via an object"), QtWarningMsg },
         QQmlJS::LoggerCategory{
                 qmlTopLevelComponent.name().toString(), QStringLiteral("TopLevelComponent"),
-                QStringLiteral("Fail when a top level Component are encountered"), QtWarningMsg },
+                QStringLiteral("Warn if a top level Component is encountered"), QtWarningMsg },
         QQmlJS::LoggerCategory{
                 qmlUncreatableType.name().toString(), QStringLiteral("UncreatableType"),
-                QStringLiteral("Warn if uncreatable types are created"), QtWarningMsg }
+                QStringLiteral("Warn if uncreatable types are created"), QtWarningMsg },
+        QQmlJS::LoggerCategory{
+                qmlMissingEnumEntry.name().toString(), QStringLiteral("MissingEnumEntry"),
+                QStringLiteral("Warn about using missing enum values"), QtWarningMsg },
+        QQmlJS::LoggerCategory{
+                qmlEnumsAreNotTypes.name().toString(), QStringLiteral("EnumsAreNotTypes"),
+                QStringLiteral("Warn about the use of enumerations as types."), QtWarningMsg },
     };
 
     return cats;
@@ -378,19 +385,22 @@ void QQmlJSLogger::printFix(const QQmlJSFixSuggestion &fixItem)
     // But if there's nothing to change it cannot be auto-applied
     Q_ASSERT(!replacement.isEmpty() || !fixItem.isAutoApplicable());
 
-    m_output.write(replacementString, QtDebugMsg);
+    if (!replacementString.isEmpty())
+        m_output.write(replacementString, QtDebugMsg);
     m_output.write(issueLocationWithContext.afterText().toString() + u'\n');
 
     int tabCount = issueLocationWithContext.beforeText().count(u'\t');
 
     // Do not draw location indicator for multiline replacement strings
-    if (replacementString.contains(u'\n'))
-        return;
+    if (!replacementString.contains(u'\n')) {
+        m_output.write(u" "_s.repeated(
+                               issueLocationWithContext.beforeText().size() - tabCount)
+                       + u"\t"_s.repeated(tabCount)
+                       + u"^"_s.repeated(replacement.size()) + u'\n');
+    }
 
-    m_output.write(u" "_s.repeated(
-                           issueLocationWithContext.beforeText().size() - tabCount)
-                   + u"\t"_s.repeated(tabCount)
-                   + u"^"_s.repeated(replacement.size()) + u'\n');
+    if (!fixItem.hint().isEmpty())
+        m_output.write("      "_L1 + fixItem.hint());
 }
 
 QQmlJSFixSuggestion::QQmlJSFixSuggestion(const QString &fixDescription,

@@ -49,7 +49,7 @@ struct StrokeStyle
 {
     Qt::PenCapStyle lineCapStyle = Qt::SquareCap;
     Qt::PenJoinStyle lineJoinStyle = Qt::MiterJoin;
-    qreal miterLimit = 4;
+    int miterLimit = 4;
     qreal dashOffset = 0;
     QList<qreal> dashArray;
     QColor color = QColorConstants::Transparent;
@@ -60,7 +60,7 @@ struct StrokeStyle
         StrokeStyle style;
         style.lineCapStyle = p.capStyle();
         style.lineJoinStyle = p.joinStyle() == Qt::SvgMiterJoin ? Qt::MiterJoin : p.joinStyle(); //TODO support SvgMiterJoin
-        style.miterLimit = p.miterLimit();
+        style.miterLimit = qRound(p.miterLimit());
         style.dashOffset = p.dashOffset();
         style.dashArray = p.dashPattern();
         style.width = p.widthF();

@@ -12,6 +12,7 @@
 #include <QtQuick/private/qquicktextinput_p.h>
 
 #include <QtQuickTemplates2/private/qquickselectionrectangle_p.h>
+#include <QtQuickTemplates2/private/qquickcombobox_p.h>
 
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
@@ -7355,6 +7356,8 @@ void tst_QQuickTableView::editDelegateComboBox()
     const char kEditIndex[] = "editIndex";
     const char kCommitCount[] = "commitCount";
     const char kComboFocusCount[] = "comboFocusCount";
+    const char kComboEditable[] = "comboBoxEditable";
+    const char kComboBox[] = "comboBox";
 
     WAIT_UNTIL_POLISHED;
 
@@ -7404,6 +7407,33 @@ void tst_QQuickTableView::editDelegateComboBox()
     QTest::keyClick(window, Qt::Key_Enter);
     QCOMPARE(tableView->property(kCommitCount).value<int>(), 3);
     QCOMPARE(tableView->property(kComboFocusCount).value<int>(), 4);
+    QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
+    QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
+
+    // Make the combo in cell 1 editable and edit it. Then transfer focus to the
+    // textfield inside it. Check that when we transfer focus locally _inside_
+    // the edit delegate, it stays open. And that hitting Enter after the focus
+    // transfer still works.
+    tableView->setProperty(kComboEditable, true);
+    tableView->edit(index1);
+    const QQuickItem *comboBox = tableViewPrivate->editItem->property(kComboBox).value<QQuickItem *>();
+    QVERIFY(comboBox);
+    QCOMPARE(qGuiApp->focusObject(), comboBox);
+
+    // Click on the textinput inside the combo to give it focus
+    auto *cellItem = tableView->itemAtIndex(index1);
+    QVERIFY(cellItem);
+    const QPoint localCenterPos = QPoint(comboBox->width() / 2, comboBox->height() / 2);
+    const QPoint centerPos = window->contentItem()->mapFromItem(comboBox, localCenterPos).toPoint();
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centerPos);
+    // Check that focus moved to some other object (the line edit) inside the combo
+    QCOMPARE_NE(qGuiApp->focusObject(), comboBox);
+    QVERIFY(comboBox->isAncestorOf(qobject_cast<QQuickItem *>(qGuiApp->focusObject())));
+
+    // Press Enter to close the editor
+    QTest::keyClick(window, Qt::Key_Enter);
+    QCOMPARE(tableView->property(kCommitCount).value<int>(), 4);
+    QCOMPARE(tableView->property(kComboFocusCount).value<int>(), 5);
     QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
     QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
 }
@@ -7759,7 +7789,7 @@ void tst_QQuickTableView::attachedPropertiesOnEditDelegate()
     QQuickItem *editItem3 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem3);
     const auto attached3 = getAttachedObject(editItem3);
-    QVERIFY(editItem3);
+    QVERIFY(attached3);
     QSignalSpy commitSpy3(attached3, &QQuickTableViewAttached::commit);
 
     QTest::keyClick(window, Qt::Key_Escape);
@@ -7768,20 +7798,37 @@ void tst_QQuickTableView::attachedPropertiesOnEditDelegate()
     QCOMPARE(commitSpy3.count(), 0);
 
     // Repeat once more, but tap outside the edit item.
-    // This should close the edit, but without an accepted signal.
+    // This should close the edit with an accepted signal.
     tableView->edit(index);
     QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index);
     QQuickItem *editItem4 = tableView->property(kEditItem).value<QQuickItem *>();
     QVERIFY(editItem4);
     const auto attached4 = getAttachedObject(editItem4);
-    QVERIFY(editItem4);
+    QVERIFY(attached4);
     QSignalSpy commitSpy4(attached4, &QQuickTableViewAttached::commit);
 
     const QPoint tapPos = window->contentItem()->mapFromItem(editItem4, QPointF(-10, -10)).toPoint();
     QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, tapPos);
     QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
     QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
-    QCOMPARE(commitSpy4.count(), 0);
+    QCOMPARE(commitSpy4.count(), 1);
+
+    // Repeat once more, but transfer focus to a different text input
+    // This should close the edit with an accepted signal.
+    tableView->edit(index);
+    QCOMPARE(tableView->property(kEditIndex).value<QModelIndex>(), index);
+    QQuickItem *editItem5 = tableView->property(kEditItem).value<QQuickItem *>();
+    QVERIFY(editItem5);
+    const auto attached5 = getAttachedObject(editItem5);
+    QVERIFY(attached5);
+    QSignalSpy commitSpy5(attached5, &QQuickTableViewAttached::commit);
+
+    auto *textInput = view->rootObject()->property("textInput").value<QQuickTextInput *>();
+    QVERIFY(textInput);
+    textInput->forceActiveFocus();
+    QVERIFY(!tableView->property(kEditItem).value<QQuickItem *>());
+    QVERIFY(!tableView->property(kEditIndex).value<QModelIndex>().isValid());
+    QCOMPARE(commitSpy5.count(), 1);
 }
 
 void tst_QQuickTableView::requiredPropertiesOnEditDelegate()

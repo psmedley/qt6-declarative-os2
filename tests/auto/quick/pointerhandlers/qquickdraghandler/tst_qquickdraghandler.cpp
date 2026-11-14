@@ -43,6 +43,9 @@ private slots:
     void dragFromMargin();
     void snapMode_data();
     void snapMode();
+    void twoFingerDrag_data();
+    void twoFingerDrag();
+    void dragStartsOutside();
     void touchDragMulti();
     void touchDragMultiSliders_data();
     void touchDragMultiSliders();
@@ -53,6 +56,8 @@ private slots:
     void underModalLayer();
     void interruptedByIrrelevantButton();
     void touchDragExclusiveGrabber();
+    void touchDragSceneRotated_data();
+    void touchDragSceneRotated();
 
 private:
     void sendWheelEvent(QQuickView &window, QPoint pos, QPoint angleDelta, QPoint pixelDelta, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase, bool inverted);
@@ -586,6 +591,82 @@ void tst_DragHandler::snapMode()
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, p1);
     QTRY_VERIFY(!dragHandler1->active());
     QCOMPARE(dragHandler1->centroid().pressedButtons(), Qt::NoButton);
+}
+
+void tst_DragHandler::twoFingerDrag_data()
+{
+    QTest::addColumn<QPoint>("p1");
+    QTest::addColumn<QPoint>("p2");
+    QTest::addColumn<bool>("shouldDrag");
+
+    QTest::newRow("both start outside")
+            << QPoint(80, 45) << QPoint(120, 45) << false;
+    QTest::newRow("one starts outside")
+            << QPoint(80, 45) << QPoint(120, 55) << false;
+    QTest::newRow("both start inside")
+            << QPoint(80, 55) << QPoint(120, 55) << true;
+}
+
+void tst_DragHandler::twoFingerDrag()
+{
+    QFETCH(QPoint, p1);
+    QFETCH(QPoint, p2);
+    QFETCH(bool, shouldDrag);
+
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("multiFingerDrag.qml")));
+    QQuickDragHandler *dragHandler = window.rootObject()->findChild<QQuickDragHandler*>();
+    QVERIFY(dragHandler);
+    QSignalSpy activeSpy(dragHandler, &QQuickDragHandler::activeChanged);
+    const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
+
+    // press two points, inside or outside the Rectangle
+    QTest::QTouchEventSequence seq = QTest::touchEvent(&window, touchDevice);
+    seq.press(1, p1, &window).press(2, p2, &window).commit();
+    QQuickTouchUtils::flush(&window);
+
+    // drag downwards and check whether DragHandler activates
+    for (int i = 1; i <= 4; ++i) {
+        p1 += QPoint(0, dragThreshold);
+        p2 += QPoint(0, dragThreshold);
+        if (lcPointerTests().isDebugEnabled()) QTest::qWait(500);
+        seq.move(1, p1, &window).move(2, p2, &window).commit();
+        QQuickTouchUtils::flush(&window);
+        qCDebug(lcPointerTests) << i << "active" << dragHandler->active() << "pts" << p1 << p2;
+        if (!shouldDrag)
+            QCOMPARE(dragHandler->active(), false);
+    }
+    if (lcPointerTests().isDebugEnabled()) QTest::qWait(500);
+    seq.release(1, p1, &window).release(2, p2, &window).commit();
+    QQuickTouchUtils::flush(&window);
+    QCOMPARE(activeSpy.size(), shouldDrag ? 2 : 0);
+}
+
+void tst_DragHandler::dragStartsOutside()
+{
+    QQuickView window;
+    QVERIFY(QQuickTest::showView(window, testFileUrl("draggables.qml")));
+
+    QQuickItem *ball1 = window.rootObject()->childItems().first();
+    QVERIFY(ball1);
+    QQuickDragHandler *dragHandler1 = ball1->findChild<QQuickDragHandler*>();
+    QVERIFY(dragHandler1);
+    const QPointF oldTargetPos = ball1->position();
+
+    QPoint p1 = ball1->mapToScene(QPointF(45, -30)).toPoint();
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, p1);
+    QVERIFY(!dragHandler1->active());
+    p1 += {0, 30};
+    QTest::mouseMove(&window, p1);
+    QCOMPARE(dragHandler1->active(), false);
+    QCOMPARE(ball1->position(), oldTargetPos);
+    p1 += {0, 20};
+    QTest::mouseMove(&window, p1);
+    QCOMPARE(dragHandler1->active(), false);
+    QVERIFY(dragHandler1->centroid().position().isNull());
+    QCOMPARE(ball1->position(), oldTargetPos);
+    QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, p1);
+    QCOMPARE(dragHandler1->active(), false);
 }
 
 void tst_DragHandler::touchDragMulti()
@@ -1187,6 +1268,55 @@ void tst_DragHandler::touchDragExclusiveGrabber()
     QVERIFY(!dragHandler->active());
     QCOMPARE(centroidChangedSpy.size(), 1);
     QCOMPARE(grabChangedSpy.size(), 1);
+}
+
+void tst_DragHandler::touchDragSceneRotated_data()
+{
+    QTest::addColumn<QString>("objectName");
+    QTest::addColumn<QPoint>("movePoint");
+    QTest::addColumn<bool>("moveExpected");
+
+    QTest::newRow("Drag X on rotated scene when Axis Y is disabled")
+            << "ballX" << QPoint{ 50, 0 } << false;
+    QTest::newRow("Drag Y on rotated scene when Axis Y is disabled")
+            << "ballX" << QPoint{ 0, 50 } << true;
+    QTest::newRow("Drag X on rotated scene when Axis X is disabled")
+            << "ballY" << QPoint{ 50, 0 } << true;
+    QTest::newRow("Drag Y on rotated scene when Axis X is disabled")
+            << "ballY" << QPoint{ 0, 50 } << false;
+}
+
+void tst_DragHandler::touchDragSceneRotated()
+{
+    QFETCH(QString, objectName);
+    QFETCH(QPoint, movePoint);
+    QFETCH(bool, moveExpected);
+
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "dragSceneRotated.qml");
+    QQuickView *window = windowPtr.data();
+
+    QQuickItem *ball = window->rootObject()->findChild<QQuickItem *>(objectName);
+    QVERIFY(ball);
+    QQuickDragHandler *dragHandler = ball->findChild<QQuickDragHandler *>();
+    QVERIFY(dragHandler);
+
+    QPointF ballCenter = ball->clipRect().center();
+    QPointF scenePressPos = ball->mapToScene(ballCenter);
+    QPoint p1 = scenePressPos.toPoint();
+    QTest::touchEvent(window, touchDevice).press(1, p1, window);
+    QQuickTouchUtils::flush(window);
+
+    p1 += movePoint;
+    QTest::touchEvent(window, touchDevice).move(1, p1, window);
+    QQuickTouchUtils::flush(window);
+    QCOMPARE(dragHandler->active(), moveExpected);
+
+    QTest::touchEvent(window, touchDevice).release(1, p1, window);
+    QQuickTouchUtils::flush(window);
+
+    QCOMPARE_EQ(ball->mapToScene(ballCenter).toPoint(),
+                moveExpected ? p1 : scenePressPos.toPoint());
 }
 
 QTEST_MAIN(tst_DragHandler)

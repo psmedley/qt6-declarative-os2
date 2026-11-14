@@ -1,6 +1,7 @@
 // Copyright (C) 2018 Crimson AS <info@crimson.no>
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #include "qv4arrayobject_p.h"
 #include "qv4arrayiterator_p.h"
@@ -573,6 +574,7 @@ ReturnedValue ArrayPrototype::method_join(const FunctionObject *functionObject,
                                           const Value *thisObject, const Value *argv, int argc)
 {
     Scope scope(functionObject);
+    CHECK_STACK_LIMITS(scope.engine)
     ScopedObject instance(scope, thisObject->toObject(scope.engine));
 
     if (!instance)

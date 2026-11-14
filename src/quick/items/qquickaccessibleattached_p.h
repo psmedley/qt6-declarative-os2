@@ -120,6 +120,7 @@ public:
             QAccessible::updateAccessibility(&ev);
         }
     }
+    void setDescriptionImplicitly(const QString &desc);
 
     QString id() const { return m_id; }
     void setId(const QString &id)

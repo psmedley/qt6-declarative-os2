@@ -71,7 +71,7 @@ static_assert(QQmlJSScope::sizeofQQmlSAElement() == sizeof(Element));
     \value TranslationById  The binding is a \l{Text ID based translations}{translation} by id
     \value Script           The binding is a regular script
     \value Object           The binging is an \l{QML Object Types}{Object}
-    \value Interceptor      The binding is an interceptor that can intercept writes to properties such as \l{Behavior QML Type}{Behavior}
+    \value Interceptor      The binding is an interceptor that can intercept writes to properties such as \l[Quick]{Behavior}
     \value ValueSource      The binging is a \l{Defining QML Types from C++#Property Value Sources}{property value source}
     \value AttachedProperty The binding is an \l{QML Object Attributes#Attached Properties and Attached Signal Handlers}{attached object}
     \value GroupProperty    The binding is a \l{QML Object Attributes#Grouped Properties}{grouped property}
@@ -1304,10 +1304,10 @@ Element GenericPass::resolveLiteralType(const QQmlSA::Binding &binding)
 Element GenericPass::resolveIdToElement(QAnyStringView id, const Element &context)
 {
     Q_D(const GenericPass);
-    const auto scope = PassManagerPrivate::visitor(*d->m_manager)
-                               ->addressableScopes()
-                               .scope(id.toString(), QQmlJSScope::scope(context));
-    return QQmlJSScope::createQQmlSAElement(scope);
+    QQmlJSScopesById::MostLikelyCallback<QQmlJSScope::ConstPtr> result;
+    PassManagerPrivate::visitor(*d->m_manager)->addressableScopes().possibleScopes(
+            id.toString(), QQmlJSScope::scope(context), Default, result);
+    return QQmlJSScope::createQQmlSAElement(result.result);
 }
 
 /*!
@@ -1316,9 +1316,10 @@ Element GenericPass::resolveIdToElement(QAnyStringView id, const Element &contex
 QString GenericPass::resolveElementToId(const Element &element, const Element &context)
 {
     Q_D(const GenericPass);
-    return PassManagerPrivate::visitor(*d->m_manager)
-            ->addressableScopes()
-            .id(QQmlJSScope::scope(element), QQmlJSScope::scope(context));
+    QQmlJSScopesById::MostLikelyCallback<QString> result;
+    PassManagerPrivate::visitor(*d->m_manager)->addressableScopes().possibleIds(
+            QQmlJSScope::scope(element), QQmlJSScope::scope(context), Default, result);
+    return result.result;
 }
 
 /*!
@@ -2110,6 +2111,11 @@ bool QQmlSA::FixSuggestion::isAutoApplicable() const
 bool FixSuggestion::operatorEqualsImpl(const FixSuggestion &lhs, const FixSuggestion &rhs)
 {
     return lhs.d_func()->m_fixSuggestion == rhs.d_func()->m_fixSuggestion;
+}
+
+bool isRegularBindingType(BindingType type)
+{
+    return type >= BindingType::BoolLiteral && type <= BindingType::Object;
 }
 
 } // namespace QQmlSA

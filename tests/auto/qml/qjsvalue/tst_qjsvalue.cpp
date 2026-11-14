@@ -2791,7 +2791,7 @@ void tst_QJSValue::jsvalueArrayToSequenceType()
 
 void tst_QJSValue::deleteFromDifferentThread()
 {
-#if !QT_CONFIG(thread) || !QT_CONFIG(cxx11_future)
+#if !QT_CONFIG(thread)
     QSKIP("Need thread support to destroy QJSValues from different threads");
 #elif !QT_CONFIG(cxx11_future)
     QSKIP("This test requires QThread::create");

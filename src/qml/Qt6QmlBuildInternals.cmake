@@ -33,7 +33,6 @@ macro(qt_internal_get_internal_add_qml_module_keywords
         TYPEINFO
         CLASS_NAME
         TYPE_COMPILER_NAMESPACE
-        OS2_SHORT_NAME
     )
     set(${multi_args}
         QML_FILES
@@ -238,22 +237,14 @@ function(qt_internal_add_qml_module target)
             string(APPEND plugin_basename "${QT_LIBINFIX}")
         endif()
 
-if (NOT OS2)
         # Add the "plugin" suffix after the infix.
         string(APPEND plugin_basename "plugin")
-endif()
 
         # Lowercase the whole thing and use it as the basename of the plugin library.
         string(TOLOWER "${plugin_basename}" plugin_basename)
         set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
             OUTPUT_NAME "${plugin_basename}"
         )
-
-        if(arg_OS2_SHORT_NAME)
-            set_target_properties(${arg_PLUGIN_TARGET} PROPERTIES
-                TARGET_SHORT ${arg_OS2_SHORT_NAME}
-            )
-        endif()
 
         get_target_property(export_name ${arg_PLUGIN_TARGET} EXPORT_NAME)
         if(export_name)
@@ -265,6 +256,10 @@ endif()
                 INSTALLED_PLUGIN_TARGET "${QT_CMAKE_EXPORT_NAMESPACE}::${arg_PLUGIN_TARGET}"
                 )
         endif()
+
+        list(APPEND add_qml_module_args
+            INSTALLED_BACKING_TARGET "${QT_CMAKE_EXPORT_NAMESPACE}::${target}"
+        )
 
         if(NOT arg_PLUGIN_TARGET STREQUAL target)
             get_target_property(lib_type ${arg_PLUGIN_TARGET} TYPE)
@@ -315,6 +310,12 @@ endif()
     if (arg_ENABLE_TYPE_COMPILER AND NOT arg_TYPE_COMPILER_NAMESPACE)
         # if qmltc namespace is not specified explicitly, use Qt's namespace
         list(APPEND add_qml_module_args TYPE_COMPILER_NAMESPACE ${qt_namespace})
+    endif()
+
+    if((NOT arg_NO_GENERATE_QMLDIR) OR arg_INSTALL_SOURCE_QMLDIR)
+        list(APPEND add_qml_module_args
+            INSTALLED_QMLDIR_PATH
+            "${arg_INSTALL_DIRECTORY}/qmldir")
     endif()
 
     # Update the backing and plugin targets with qml-specific things.

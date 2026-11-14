@@ -224,8 +224,8 @@ static bool isIntersecting(const TrianglePoints &t1, const TrianglePoints &t2, Q
     constexpr int maxIterations = 7; // Maximum iterations allowed for Newton
 
     // Convert to double to get better accuracy.
-    QPointF td1[3] = { t1[0].toPointF(), t1[1].toPointF(), t1[2].toPointF() };
-    QPointF td2[3] = { t2[0].toPointF(), t2[1].toPointF(), t2[2].toPointF() };
+    std::array<QPointF, 3> td1 = { t1[0].toPointF(), t1[1].toPointF(), t1[2].toPointF() };
+    std::array<QPointF, 3> td2 = { t2[0].toPointF(), t2[1].toPointF(), t2[2].toPointF() };
 
     // F = P1(t1) - P2(t2) where P1 and P2 are bezier curve functions.
     // F = (0, 0) at the intersection.

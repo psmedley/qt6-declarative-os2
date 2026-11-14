@@ -17,7 +17,6 @@ qt_internal_add_plugin(QQmlNativeDebugConnectorFactoryPlugin
         Qt::CorePrivate
         Qt::PacketProtocolPrivate
         Qt::QmlPrivate
-    OS2_SHORT_NAME qmldbgna
 )
 
 #### Keys ignored in scope 1:.:.:qmldbg_native.pro:<TRUE>:

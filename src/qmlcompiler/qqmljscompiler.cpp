@@ -582,7 +582,7 @@ bool qSaveQmlJSUnitAsCpp(const QString &inputFileName, const QString &outputFile
 
             const QString function = QString::fromUtf8(funcHeaderCode) + func.value().code + footer;
 
-            writeStr(QStringLiteral("{ %1, %2, [](QV4::ExecutableCompilationUnit *unit, "
+            writeStr(QStringLiteral("{ %1, %2, [](QV4::ExecutableCompilationUnit *contextUnit, "
                                     "QMetaType *argTypes) {\n%3}, %4 },")
                      .arg(func.key())
                      .arg(func->numArguments)

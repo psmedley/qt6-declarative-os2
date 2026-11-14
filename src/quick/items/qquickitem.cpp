@@ -5307,17 +5307,7 @@ void QQuickItem::setState(const QString &state)
     This property is specified as a list of \l {Transform}-derived objects.
     For example:
 
-    \qml
-    import QtQuick
-
-    Item {
-        width: 100; height: 100
-        transform: [
-            Scale { origin.x: 25; origin.y: 25; xScale: 3},
-            Rotation { origin.x: 25; origin.y: 25; angle: 45}
-        ]
-    }
-    \endqml
+    \snippet qml/two-transforms.qml entire
 
     For more information see \l Transform.
 */
@@ -5756,6 +5746,10 @@ bool QQuickItemPrivate::anyPointerHandlerWants(const QPointerEvent *event, const
     HoverHandlers if the event is a QMouseEvent or QWheelEvent (they are visited
     in QQuickDeliveryAgentPrivate::deliverHoverEventToItem()), and skip handlers
     that are in QQuickPointerHandlerPrivate::deviceDeliveryTargets().
+    However if the event is a QTabletEvent, we do NOT skip delivery here:
+    this is the means by which HoverHandler can change the cursor when the
+    tablet stylus hovers over its parent item.
+
     If \a avoidGrabbers is true, also skip delivery to any handler that
     is exclusively or passively grabbing any point within \a event
     (because delivery to grabbers is handled separately).
@@ -6439,7 +6433,7 @@ qreal QQuickItem::opacity() const
 void QQuickItem::setOpacity(qreal newOpacity)
 {
     Q_D(QQuickItem);
-    qreal o = qBound<qreal>(0, newOpacity, 1);
+    qreal o = std::clamp(newOpacity, qreal(0.0), qreal(1.0));
     if (d->opacity() == o)
         return;
 
@@ -6546,7 +6540,15 @@ void QQuickItem::setVisible(bool v)
     \qmlproperty bool QtQuick::Item::enabled
 
     This property holds whether the item receives mouse and keyboard events.
-    By default this is true.
+    By default, this is \c true.
+
+    When set to \c false, the item does not receive keyboard or pointing device
+    events, such as press, release, or click, but can still receive hover
+    events.
+
+    \note In Qt 5, setting \c enabled to \c false also blocked hover events.
+    This was changed in Qt 6 to allow \l {QtQuick.Controls::ToolTip}{tooltips}
+    and similar features to work on disabled items.
 
     Setting this property directly affects the \c enabled value of child
     items. When set to \c false, the \c enabled values of all child items also
@@ -9184,7 +9186,7 @@ QDebug operator<<(QDebug debug,
 
     // Deferred properties will cause recursion when calling nameForObject
     // before the component is completed, so guard against this situation.
-    if (item->isComponentComplete()) {
+    if (item->isComponentComplete() && !QQmlData::wasDeleted(item)) {
         if (QQmlContext *context = qmlContext(item)) {
             const auto objectId = context->nameForObject(item);
             if (!objectId.isEmpty())

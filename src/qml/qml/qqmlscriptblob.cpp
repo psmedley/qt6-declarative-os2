@@ -17,9 +17,9 @@ Q_LOGGING_CATEGORY(DBG_DISK_CACHE, "qt.qml.diskcache")
 
 QT_BEGIN_NAMESPACE
 
-QQmlScriptBlob::QQmlScriptBlob(const QUrl &url, QQmlTypeLoader *loader)
+QQmlScriptBlob::QQmlScriptBlob(const QUrl &url, QQmlTypeLoader *loader, IsESModule isESModule)
     : QQmlTypeLoader::Blob(url, JavaScriptFile, loader)
-      , m_isModule(url.path().endsWith(QLatin1String(".mjs")))
+    , m_isModule(isESModule == IsESModule::Yes)
 {
 }
 
@@ -155,7 +155,7 @@ void QQmlScriptBlob::done()
         for (int scriptIndex = 0; scriptIndex < m_scripts.size(); ++scriptIndex) {
             const ScriptReference &script = m_scripts.at(scriptIndex);
 
-            m_scriptData->scripts.append(script.script);
+            m_scriptData->scripts.append(script.script->scriptData());
 
             if (!script.nameSpace.isNull()) {
                 if (!ns.contains(script.nameSpace)) {

@@ -53,7 +53,7 @@ static inline bool isCaseSensitiveFileSystem(const QString &path) {
     Q_UNUSED(path);
 #if defined(Q_OS_DARWIN)
     return pathconf(path.toLatin1().constData(), _PC_CASE_SENSITIVE) == 1;
-#elif defined(Q_OS_DOSLIKE)
+#elif defined(Q_OS_WIN)
     return false;
 #else
     return true;
@@ -481,6 +481,15 @@ private slots:
     void asCastTypeResolutionImportOrderBA();
 
     void fromAsIdentifier();
+    void dontAccumulateComplationUnitsOnQJSEngineEvaluate();
+
+    void aliasOfBindableValueTypeProperty();
+
+    void urlWithFragment();
+
+    void enumTypeAnnotations();
+
+    void assignWrongTypeToObjectList();
 
 private:
     QQmlEngine engine;
@@ -669,6 +678,7 @@ void tst_qqmllanguage::errors_data()
     QTest::newRow("invalidGroupedProperty.8") << "invalidGroupedProperty.8.qml" << "invalidGroupedProperty.8.errors.txt" << false;
     QTest::newRow("invalidGroupedProperty.9") << "invalidGroupedProperty.9.qml" << "invalidGroupedProperty.9.errors.txt" << false;
     QTest::newRow("invalidGroupedProperty.10") << "invalidGroupedProperty.10.qml" << "invalidGroupedProperty.10.errors.txt" << false;
+    QTest::newRow("invalidGroupedProperty.11") << "invalidGroupedProperty.11.qml" << "invalidGroupedProperty.11.errors.txt" << false;
 
     QTest::newRow("importNamespaceConflict") << "importNamespaceConflict.qml" << "importNamespaceConflict.errors.txt" << false;
     QTest::newRow("importVersionMissing (builtin)") << "importVersionMissingBuiltIn.qml" << "importVersionMissingBuiltIn.errors.txt" << false;
@@ -3578,10 +3588,10 @@ void tst_qqmllanguage::importJs_data()
         << "importJs.5.errors.txt"
         << false;
 
-    QTest::newRow("repeatImportFails")
+    QTest::newRow("repeatImportSucceeds")
         << "importJs.6.qml"
         << "importJs.6.errors.txt"
-        << false;
+        << true;
 
     QTest::newRow("multipleVersionImportFails")
         << "importJs.7.qml"
@@ -7371,6 +7381,39 @@ void tst_qqmllanguage::valueTypeList()
         for (const BaseValueType &b : baseList)
             QCOMPARE(b.content(), 29);
     }
+
+    const CustomIdentifier customId1 = IdProvider::id1();
+    const CustomIdentifier customId2 = IdProvider::id2();
+
+    {
+        QObject *multi = o->property("multi").value<QObject *>();
+        QVERIFY(multi);
+
+        const QList<CustomIdentifier> typeIds
+                = multi->property("typeIds").value<QList<CustomIdentifier>>();
+        QCOMPARE(typeIds.length(), 2);
+        QCOMPARE(typeIds[0], customId1);
+        QCOMPARE(typeIds[1], customId2);
+
+        const QVariantList varIds = multi->property("varIds").value<QVariantList>();
+        QCOMPARE(varIds.length(), 2);
+        QCOMPARE(varIds[0].value<CustomIdentifier>(), customId1);
+        QCOMPARE(varIds[1].value<CustomIdentifier>(), customId2);
+    }
+
+    {
+        QObject *single = o->property("single").value<QObject *>();
+        QVERIFY(single);
+
+        const QList<CustomIdentifier> typeIds
+                = single->property("typeIds").value<QList<CustomIdentifier>>();
+        QCOMPARE(typeIds.length(), 1);
+        QCOMPARE(typeIds[0], customId1);
+
+        const QVariantList varIds = single->property("varIds").value<QVariantList>();
+        QCOMPARE(varIds.length(), 1);
+        QCOMPARE(varIds[0].value<CustomIdentifier>(), customId2);
+    }
 }
 
 void tst_qqmllanguage::componentMix()
@@ -8847,8 +8890,8 @@ void tst_qqmllanguage::overrideDefaultProperty()
 
     QQmlComponent c(&e, url);
     QVERIFY(c.isError());
-    QCOMPARE(c.errorString(),
-             url.toString() + QLatin1String(":5 Cannot assign object to list property \"data\"\n"));
+    QCOMPARE(c.errorString(), url.toString() + QLatin1String(
+        ":5 Cannot assign object of type \"QQuickItem\" to list property \"data\"; expected \"QVariant\"\n"));
 }
 
 void tst_qqmllanguage::enumScopes()
@@ -9136,6 +9179,143 @@ void tst_qqmllanguage::fromAsIdentifier()
     QScopedPointer<QObject> o(c.create());
     QVERIFY(o);
     QCOMPARE(o->children().first()->property("from").toInt(), 3);
+}
+
+void tst_qqmllanguage::dontAccumulateComplationUnitsOnQJSEngineEvaluate()
+{
+    {
+        QQmlEngine e;
+        auto *interpreter = e.handle()->jsEngine();
+
+        for (int i = 0; i < 10; i++)
+            interpreter->evaluate("2+2");
+
+        QCOMPARE(e.handle()->compilationUnits().size(), 1);
+    }
+    {
+        QQmlEngine e;
+        auto *interpreter = e.handle()->jsEngine();
+
+        for (int i = 0; i < 10; i++)
+            interpreter->evaluate("2+2", "aaaaaaaa");
+
+        QCOMPARE(e.handle()->compilationUnits().size(), 1);
+    }
+}
+
+void tst_qqmllanguage::aliasOfBindableValueTypeProperty()
+{
+    QQmlEngine e;
+    QQmlComponent c(&e, testFileUrl("aliasOfBindableValueTypeProperty.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->property("aa"), 101);
+    QCOMPARE(o->property("bb"), 14);
+    QCOMPARE(o->property("aaChanges"), 1);
+    QCOMPARE(o->property("bbChanges"), 1);
+
+    o->setObjectName("15");
+    QCOMPARE(o->property("aa"), 101);
+    QCOMPARE(o->property("bb"), 15);
+    QCOMPARE(o->property("aaChanges"), 2);
+    QCOMPARE(o->property("bbChanges"), 2);
+
+    o->setProperty("point", QPointF(17, 18));
+    QCOMPARE(o->property("aa"), 17);
+    QCOMPARE(o->property("bb"), 18);
+    QCOMPARE(o->property("aaChanges"), 3);
+    QCOMPARE(o->property("bbChanges"), 3);
+
+    BindablePoint *b = qobject_cast<BindablePoint *>(o.data());
+    QVERIFY(b);
+    b->bindablePoint().setValue(QPointF(19, 20));
+    QCOMPARE(o->property("aa"), 19);
+    QCOMPARE(o->property("bb"), 20);
+    QCOMPARE(o->property("aaChanges"), 4);
+    QCOMPARE(o->property("bbChanges"), 4);
+
+    QMetaObject::invokeMethod(o.data(), "reassign");
+    QCOMPARE(o->property("aa"), 19);
+    QCOMPARE(o->property("bb"), 16.5);
+    QCOMPARE(o->property("aaChanges"), 5);
+    QCOMPARE(o->property("bbChanges"), 5);
+
+    const QMetaObject *mo = o->metaObject();
+    const int aaIndex = mo->indexOfProperty("aa");
+    QVERIFY(aaIndex >= 0);
+
+    // Querying the bindable of a value type alias results in the bindable of the core property.
+    QUntypedBindable bindable;
+    void *args[] { &bindable };
+    QCOMPARE(o->metaObject()->metacall(o.data(), QMetaObject::BindableProperty, aaIndex, args), -1);
+    QVERIFY(bindable.isValid());
+    QCOMPARE(bindable.metaType(), QMetaType::fromType<QPointF>());
+}
+
+void tst_qqmllanguage::urlWithFragment()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("urlWithFragment.qml"));
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+
+    QCOMPARE(o->objectName(), "outer");
+}
+
+void tst_qqmllanguage::enumTypeAnnotations()
+{
+    QQmlEngine engine;
+    QUrl url(testFileUrl("EnumTypeAnnotations.qml"));
+    QQmlComponent c(&engine, url);
+
+    const auto msg = [&](int line, int function, int param) {
+        auto where = param == -1 ? QStringLiteral("return type")
+                                 : QStringLiteral("parameter ") + QString::number(param);
+        auto msg = QStringLiteral(" Type annotation for %1 of function %2: Enumerations are not "
+                                  "types. Use underlying type (int or double) instead.")
+                           .arg(where, "f"_L1 + QString::number(function));
+
+        return url.toString() + u':' + QString::number(line) + ":5:"_L1 + msg;
+    };
+
+    int ret = -1;
+
+    QTest::ignoreMessage(QtWarningMsg, msg(7, 1, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(8, 2, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(9, 3, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(9, 3, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(10, 4, 1).toStdString().c_str());
+
+    QTest::ignoreMessage(QtWarningMsg, msg(12, 5, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(13, 6, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(14, 7, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(14, 7, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(15, 8, 1).toStdString().c_str());
+
+    QTest::ignoreMessage(QtWarningMsg, msg(17, 9, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(18, 10, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(19, 11, ret).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(19, 11, 0).toStdString().c_str());
+    QTest::ignoreMessage(QtWarningMsg, msg(20, 12, 1).toStdString().c_str());
+
+    QTest::ignoreMessage(QtWarningMsg, msg(22, 13, 0).toStdString().c_str());
+
+    QVERIFY2(c.isReady(), qPrintable(c.errorString()));
+    QScopedPointer<QObject> o(c.create());
+    QVERIFY(!o.isNull());
+}
+
+void tst_qqmllanguage::assignWrongTypeToObjectList()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("assignWrongTypeToObjectList.qml"));
+    QVERIFY(!component.isReady());
+    QVERIFY(QRegularExpression(".*Cannot assign object of type \"QQuickFrameAnimation\""_L1
+        + " to list property \"animations\"; expected \"QQuickAbstractAnimation\""_L1).match(component.errorString()).hasMatch());
 }
 
 QTEST_MAIN(tst_qqmllanguage)

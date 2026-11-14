@@ -191,7 +191,8 @@ void QQuickQmlGenerator::generateGradient(const QGradient *grad)
         stream() << "x2: " << gradRect.right();
         stream() << "y2: " << gradRect.bottom();
         for (auto &stop : linGrad->stops())
-            stream() << "GradientStop { position: " << stop.first << "; color: \"" << stop.second.name(QColor::HexArgb) << "\" }";
+            stream() << "GradientStop { position: " << QString::number(stop.first, 'g', 7)
+                     << "; color: \"" << stop.second.name(QColor::HexArgb) << "\" }";
         m_indentLevel--;
         stream() << "}";
     } else if (grad->type() == QGradient::RadialGradient) {
@@ -205,7 +206,8 @@ void QQuickQmlGenerator::generateGradient(const QGradient *grad)
         stream() << "focalX:" << radGrad->focalPoint().x();
         stream() << "focalY:" << radGrad->focalPoint().y();
         for (auto &stop : radGrad->stops())
-            stream() << "GradientStop { position: " << stop.first << "; color: \"" << stop.second.name(QColor::HexArgb) << "\" }";
+            stream() << "GradientStop { position: " << QString::number(stop.first, 'g', 7)
+                     << "; color: \"" << stop.second.name(QColor::HexArgb) << "\" }";
         m_indentLevel--;
         stream() << "}";
     }

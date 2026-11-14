@@ -25,7 +25,6 @@ qt_internal_add_qml_module(QuickEffectsPrivate
         Qt::GuiPrivate
         Qt::QmlPrivate
         Qt::QuickPrivate
-    OS2_SHORT_NAME Qt6QuEff
     )
 
 qt_internal_add_resource(QuickEffectsPrivate "effects"

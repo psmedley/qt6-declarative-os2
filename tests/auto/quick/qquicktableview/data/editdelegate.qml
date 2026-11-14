@@ -9,6 +9,13 @@ Item {
     height: 450
 
     property alias tableView: tableView
+    property alias textInput: textInput
+
+    TextInput {
+        id: textInput
+        width: 100
+        height: 10
+    }
 
     TableView {
         id: tableView

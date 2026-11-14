@@ -19,5 +19,4 @@ qt_internal_add_qml_module(LabsFolderListModel
         Qt::CorePrivate
         Qt::QmlPrivate
         Qt::QmlModelsPrivate
-    OS2_SHORT_NAME qmlfolls
     )

@@ -78,8 +78,17 @@ V4_DEFINE_EXTENSION(QQmlComponentExtension, componentExtension);
     \code
     QQmlEngine *engine = new QQmlEngine;
     QQmlComponent component(engine, QUrl::fromLocalFile("main.qml"));
+    if (component.isError()) {
+        qWarning() << "Failed to load main.qml:" << component.errors();
+        return 1;
+    }
 
     QObject *myObject = component.create();
+    if (component.isError()) {
+        qWarning() << "Failed to create instance of main.qml:" << component.errors();
+        return 1;
+    }
+
     QQuickItem *item = qobject_cast<QQuickItem*>(myObject);
     int width = item->width();  // width = 200
     \endcode
@@ -362,7 +371,7 @@ static void removePendingQPropertyBinding(
     if (QQmlData *ddata = QQmlData::get(o)) {
         const QQmlPropertyData *propData = ddata->propertyCache->property(
             propertyName, o, ddata->outerContext);
-        if (propData && propData->isBindable())
+        if (propData && propData->acceptsQBinding())
             creator->removePendingBinding(o, propData->coreIndex());
         return;
     }
@@ -938,6 +947,11 @@ QObject *QQmlComponent::create(QQmlContext *context)
     there are unset required properties, the object creation fails and returns
     \c nullptr, in which case \l isError() will return \c true.
 
+    If \a context is \nullptr (the default), it will create the instance in the
+    \l {QQmlEngine::rootContext()}{root context} of the engine.
+
+    The ownership of the returned object instance is transferred to the caller.
+
     \sa QQmlComponent::create
     \since 5.14
 */
@@ -1130,13 +1144,19 @@ QObject *QQmlComponentPrivate::beginCreate(QQmlRefPointer<QQmlContextData> conte
             state.ensureRequiredPropertyStorage(rv);
         }
 
-        for (int i = 0, propertyCount = propertyCache->propertyCount(); i < propertyCount; ++i) {
-            if (const QQmlPropertyData *propertyData = propertyCache->property(i); propertyData->isRequired()) {
-                state.ensureRequiredPropertyStorage(rv);
-                RequiredPropertyInfo info;
-                info.propertyName = propertyData->name(rv);
-                state.addPendingRequiredProperty(rv, propertyData, info);
+        if (propertyCache) {
+            for (int i = 0, propertyCount = propertyCache->propertyCount(); i < propertyCount; ++i) {
+                if (const QQmlPropertyData *propertyData = propertyCache->property(i); propertyData->isRequired()) {
+                    state.ensureRequiredPropertyStorage(rv);
+                    RequiredPropertyInfo info;
+                    info.propertyName = propertyData->name(rv);
+                    state.addPendingRequiredProperty(rv, propertyData, info);
+                }
             }
+        } else {
+            // we couldn't get a propertyCache from ensurePropertyCache
+            // it is unclear what we can do in that case
+            // ### TOOD: QTBUG-136560
         }
     }
 
@@ -1469,8 +1489,8 @@ void QQmlComponentPrivate::completeLoadFromModule(QAnyStringView uri, QAnyString
     \a incubator. \a context specifies the context within which to create the object
     instance.
 
-    If \a context is \nullptr (by default), it will create the instance in the
-    engine's \l {QQmlEngine::rootContext()}{root context}.
+    If \a context is \nullptr (the default), it will create the instance in the
+    \l {QQmlEngine::rootContext()}{root context} of the engine.
 
     \a forContext specifies a context that this object creation depends upon.
     If the \a forContext is being created asynchronously, and the

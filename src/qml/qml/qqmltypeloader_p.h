@@ -103,6 +103,9 @@ public:
                 QQmlImports::ImportFlags flags, QList<QQmlError> *errors);
 
     protected:
+
+        bool registerPendingTypes(const PendingImportPtr &import);
+
         bool loadDependentImports(
                 const QList<QQmlDirParser::Import> &imports, const QString &qualifier,
                 QTypeRevision version, quint16 precedence, QQmlImports::ImportFlags flags,
@@ -149,7 +152,7 @@ public:
     QQmlRefPointer<QQmlTypeData> getType(const QUrl &unNormalizedUrl, Mode mode = PreferSynchronous);
     QQmlRefPointer<QQmlTypeData> getType(const QByteArray &, const QUrl &url, Mode mode = PreferSynchronous);
 
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> injectScript(
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> injectModule(
             const QUrl &relativeUrl, const QV4::CompiledData::Unit *unit);
 
     QQmlRefPointer<QQmlScriptBlob> getScript(const QUrl &unNormalizedUrl, const QUrl &relativeUrl);

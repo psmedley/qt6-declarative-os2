@@ -393,6 +393,31 @@ void tst_qmlls_modules::buildDir()
                                    QStringList({ u"QtQuick"_s, u"vector4d"_s })));
 }
 
+void tst_qmlls_modules::inMemoryEnumCompletion()
+{
+    ignoreDiagnostics();
+    const QString filePath = u"completions/SimpleItem.qml"_s;
+    const auto uri = openFile(filePath);
+    QVERIFY(uri);
+
+    // add in memory enum that does not exist on disk
+    TextDocumentContentChangeEvent change;
+    change.range = Range{ Position{ 3, 0 }, Position{ 3, 0 } };
+    change.text = "enum HelloEnum { Hello, World, Kitty, Qt }\nproperty var myP: SimpleItem.H";
+
+    DidChangeTextDocumentParams didChange;
+    didChange.textDocument.uri = *uri;
+    didChange.textDocument.version = 2;
+    didChange.contentChanges.append(change);
+    m_protocol->notifyDidChangeTextDocument(didChange);
+
+    QTEST_CHECKED(checkCompletions(*uri, 4, 29,
+                                   ExpectedCompletions({
+                                           { u"Hello"_s, CompletionItemKind::EnumMember },
+                                   }),
+                                   QStringList({ u"QtQuick"_s, u"vector4d"_s })));
+}
+
 void tst_qmlls_modules::automaticSemicolonInsertionForCompletions_data()
 {
     QTest::addColumn<QString>("filePath");
@@ -838,19 +863,10 @@ void tst_qmlls_modules::documentFormatting()
             QCOMPARE(textEdit.range.end.line, lineCount(originalFile));
             QCOMPARE(textEdit.range.end.character, 0);
 
-            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_enum.qml",
-                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
-                         Continue);
             QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_id.qml",
                          "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
                          Continue);
             QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_parameters.qml",
-                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
-                         Continue);
-            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_QtObject.qml",
-                         "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
-                         Continue);
-            QEXPECT_FAIL("noSuperfluousSpaceInsertions.fail_signal.qml",
                          "Not all cases have been covered yet (QTBUG-133315, QTBUG-123386)",
                          Continue);
 
@@ -1185,6 +1201,23 @@ static EditingRecorder propertyTypoScenario(const QByteArray &fileUri)
     return propertyTypo;
 }
 
+static EditingRecorder inMemoryEnumScenario(const QByteArray &fileUri)
+{
+    EditingRecorder scenario;
+    scenario.lastFileUri = fileUri;
+
+    const QString enumWithTypo =
+            u"enum Hello { World, Qt, Kitty }\nproperty var xxx: SimpleItem.Q"_s;
+    // expect an error because of the missing "t"
+    scenario.changeText(5, 1, 5, 1, enumWithTypo);
+    scenario.setCurrentExpectedDiagnostic("Member \"Q\" not found");
+
+    // fix the typo and expect no more error, despite the enum not existing on the file on disk
+    scenario.changeText(6, 31, 6, 31, u"t"_s);
+
+    return scenario;
+}
+
 void tst_qmlls_modules::linting_data()
 {
     QTest::addColumn<QString>("filePath");
@@ -1193,6 +1226,10 @@ void tst_qmlls_modules::linting_data()
     QTest::addRow("property-typo")
             << u"linting/SimpleItem.qml"_s
             << propertyTypoScenario(testFileUrl(u"linting/SimpleItem.qml"_s).toEncoded());
+
+    QTest::addRow("in-memory-enum")
+            << u"linting/SimpleItem.qml"_s
+            << inMemoryEnumScenario(testFileUrl(u"linting/SimpleItem.qml"_s).toEncoded());
 }
 
 void tst_qmlls_modules::linting()

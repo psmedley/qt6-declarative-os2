@@ -1,5 +1,6 @@
 // Copyright (C) 2021 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+// Qt-Security score:significant
 
 #ifndef QQMLDOMREFORMATTER_P
 #define QQMLDOMREFORMATTER_P
@@ -45,6 +46,21 @@ protected:
     {
         if (loc.length != 0)
             out(loc2Str(loc));
+    }
+    enum CommentOption { NoSpace, SpaceBeforePostComment, OnlyComments };
+    void outWithComments(const SourceLocation &loc, AST::Node *node, CommentOption option = NoSpace)
+    {
+        if (!loc.isValid())
+            return;
+        const CommentedElement *c = comments->commentForNode(node, CommentAnchor::from(loc));
+        if (c)
+            c->writePre(lw, nullptr);
+        if (option != OnlyComments)
+            out(loc);
+        if (option == SpaceBeforePostComment)
+            lw.ensureSpace();
+        if (c)
+            c->writePost(lw, nullptr);
     }
     inline void newLine(quint32 count = 1) { lw.ensureNewline(count); }
 
@@ -171,7 +187,7 @@ protected:
 
     bool visit(AST::SuperLiteral *) override;
     bool visit(AST::ComputedPropertyName *) override;
-    bool visit(AST::Expression *el) override;
+    bool visit(AST::CommaExpression *el) override;
     bool visit(AST::ExpressionStatement *el) override;
 
     bool visit(AST::ClassDeclaration *ast) override;

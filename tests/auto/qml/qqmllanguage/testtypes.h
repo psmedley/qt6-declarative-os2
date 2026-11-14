@@ -3114,4 +3114,102 @@ public:
 };
 } // namespace YepNamespaceA
 
+class BindablePoint : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(QPointF point BINDABLE bindablePoint READ default WRITE default)
+public:
+    BindablePoint(QObject *parent = nullptr) : QObject(parent), m_point(QPointF(101, 102)) {}
+
+    QBindable<QPointF> bindablePoint() { return QBindable<QPointF>(&m_point); }
+
+private:
+    QProperty<QPointF> m_point;
+};
+
+class CppEnum : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum class Scoped { S1, S2, S3 = 5, S4 = 5 };
+    Q_ENUM(Scoped)
+    enum Unscoped { U1, U2, U3 = 5, U4 = 5 };
+    Q_ENUM(Unscoped)
+};
+
+namespace EnumNamespace {
+Q_NAMESPACE
+QML_ELEMENT
+
+enum Unscoped { U1, U2, U3 = 5, U4 = 5 };
+Q_ENUM_NS(Unscoped)
+enum class Scoped { S1, S2, S3 = 5, S4 = 5 };
+Q_ENUM_NS(Scoped)
+} // namespace EnumNamespace
+
+class ConflictingEnums : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum class E1 { A = 1 };
+    Q_ENUM(E1);
+    enum E2 { A = 2 };
+    Q_ENUM(E2);
+};
+
+template <class T>
+class IdType
+{
+public:
+    IdType(T id) : value(id) {}
+    T get() const { return value; }
+
+private:
+    T value;
+};
+
+using CustomId = IdType<int32_t>;
+
+class CustomIdentifier
+{
+    Q_GADGET
+    QML_VALUE_TYPE(customIdentifier)
+    QML_STRUCTURED_VALUE
+
+    Q_PROPERTY(int customId READ getCustomId CONSTANT FINAL)
+public:
+    CustomIdentifier() = default;
+    CustomIdentifier(CustomId custom_id) : id(std::move(custom_id)) {}
+
+    int getCustomId() const { return id.get(); }
+    Q_INVOKABLE int toVisualId() const { return id.get() + 1; }
+
+    friend bool operator==(const CustomIdentifier &a, const CustomIdentifier &b)
+    {
+        return a.id.get() == b.id.get();
+    }
+
+    CustomId id {-1};
+};
+
+class IdProvider : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+public:
+    IdProvider() = default;
+
+    static CustomId id1() { return CustomId(20); }
+    static CustomId id2() { return CustomId(21); }
+
+    Q_INVOKABLE CustomIdentifier getId1() const { return CustomIdentifier(id1()); }
+    Q_INVOKABLE CustomIdentifier getId2() const { return CustomIdentifier(id2()); }
+};
+
 #endif // TESTTYPES_H

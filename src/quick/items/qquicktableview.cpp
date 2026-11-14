@@ -1478,8 +1478,7 @@
     \l QAbstractItemModel::flags(), and return \c Qt::ItemIsEditable.
 
     You can also open and close the edit delegate manually by calling \l edit()
-    and \l closeEditor(), respectively. The \c Qt::ItemIsEditable flag will
-    then be ignored.
+    and \l closeEditor(), respectively.
 
     Editing ends when the user presses \c Qt::Key_Enter or \c Qt::Key_Return
     (and also \c Qt::Key_Tab or \c Qt::Key_Backtab, if TableView has
@@ -1777,7 +1776,7 @@ bool QQuickTableViewPrivate::startSelection(const QPointF &pos, Qt::KeyboardModi
 
     selectionStartCell = QPoint(-1, -1);
     selectionEndCell = QPoint(-1, -1);
-    q->closeEditor();
+    closeEditorAndCommit();
     return true;
 }
 
@@ -5097,7 +5096,7 @@ void QQuickTableViewPrivate::handleTap(const QQuickHandlerPoint &point)
     // Since the tap didn't result in selecting or editing cells, we clear
     // the current selection and move the current index instead.
     if (pointerNavigationEnabled) {
-        q->closeEditor();
+        closeEditorAndCommit();
         if (selectionBehavior != QQuickTableView::SelectionDisabled) {
             clearSelection();
             cancelSelectionTracking();
@@ -5118,8 +5117,8 @@ bool QQuickTableViewPrivate::canEdit(const QModelIndex tappedIndex, bool warn)
         return false;
     }
 
-    if (auto const qaim = model->abstractItemModel()) {
-        if (!(qaim->flags(tappedIndex) & Qt::ItemIsEditable)) {
+    if (auto const sourceModel = qaim(modelImpl())) {
+        if (!(sourceModel->flags(tappedIndex) & Qt::ItemIsEditable)) {
             if (warn)
                 qmlWarning(q) << "cannot edit: QAbstractItemModel::flags(index) doesn't contain Qt::ItemIsEditable";
             return false;
@@ -5469,6 +5468,34 @@ bool QQuickTableViewPrivate::editFromKeyEvent(QKeyEvent *e)
     }
 
     return true;
+}
+
+QObject *QQuickTableViewPrivate::installEventFilterOnFocusObjectInsideEditItem()
+{
+    // If the current focus object is inside the edit item, install an event filter
+    // on it to handle Enter, Tab, and FocusOut. Note that the focusObject doesn't
+    // need to be the editItem itself, in case the editItem is a FocusScope.
+    // Return the focus object that we filter, or nullptr otherwise.
+    Q_Q(QQuickTableView);
+    if (QObject *focusObject = editItem->window()->focusObject()) {
+        QQuickItem *focusItem = qobject_cast<QQuickItem *>(focusObject);
+        if (focusItem == editItem || editItem->isAncestorOf(focusItem)) {
+            focusItem->installEventFilter(q);
+            return focusItem;
+        }
+    }
+    return nullptr;
+}
+
+void QQuickTableViewPrivate::closeEditorAndCommit()
+{
+    if (!editItem)
+        return;
+
+    if (auto attached = getAttachedObject(editItem))
+        emit attached->commit();
+
+    q_func()->closeEditor();
 }
 
 #if QT_CONFIG(cursor)
@@ -6680,8 +6707,8 @@ void QQuickTableView::edit(const QModelIndex &index)
     if (d->selectionModel)
         d->selectionModel->setCurrentIndex(index, QItemSelectionModel::NoUpdate);
 
-    if (d->editIndex.isValid())
-        closeEditor();
+    // If the user is already editing another cell, close that editor first
+    d->closeEditorAndCommit();
 
     const auto cellItem = itemAtCell(cellAtIndex(index));
     Q_ASSERT(cellItem);
@@ -6719,15 +6746,7 @@ void QQuickTableView::edit(const QModelIndex &index)
 
     // Transfer focus to the edit item
     d->editItem->forceActiveFocus(Qt::MouseFocusReason);
-
-    // Install an event filter on the focus object to handle Enter and Tab.
-    // Note that the focusObject doesn't need to be the editItem itself, in
-    // case the editItem is a FocusScope.
-    if (QObject *focusObject = d->editItem->window()->focusObject()) {
-        QQuickItem *focusItem = qobject_cast<QQuickItem *>(focusObject);
-        if (focusItem == d->editItem || d->editItem->isAncestorOf(focusItem))
-            focusItem->installEventFilter(this);
-    }
+    (void)d->installEventFilterOnFocusObjectInsideEditItem();
 }
 
 void QQuickTableView::closeEditor()
@@ -6845,22 +6864,24 @@ bool QQuickTableView::eventFilter(QObject *obj, QEvent *event)
 {
     Q_D(QQuickTableView);
 
-    if (event->type() == QEvent::KeyPress) {
+    if (obj != d->editItem && !d->editItem->isAncestorOf(qobject_cast<QQuickItem *>(obj))) {
+        // We might also receive events from old editItems that are about to be
+        // destroyed (such as DefferedDelete events). Just ignore those events.
+        return QQuickFlickable::eventFilter(obj, event);
+    }
+
+    switch (event->type()) {
+    case QEvent::KeyPress: {
         Q_ASSERT(d->editItem);
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
         switch (keyEvent->key()) {
         case Qt::Key_Enter:
         case Qt::Key_Return:
-            if (auto attached = d->getAttachedObject(d->editItem))
-                emit attached->commit();
-            closeEditor();
+            d->closeEditorAndCommit();
             return true;
         case Qt::Key_Tab:
         case Qt::Key_Backtab:
             if (activeFocusOnTab()) {
-                if (auto attached = d->getAttachedObject(d->editItem))
-                    emit attached->commit();
-                closeEditor();
                 if (d->setCurrentIndexFromKeyEvent(keyEvent)) {
                     const QModelIndex currentIndex = d->selectionModel->currentIndex();
                     if (d->canEdit(currentIndex, false))
@@ -6873,6 +6894,15 @@ bool QQuickTableView::eventFilter(QObject *obj, QEvent *event)
             closeEditor();
             return true;
         }
+        break; }
+    case QEvent::FocusOut:
+        // If focus was transferred within the edit delegate, we start to filter
+        // the new focus object. Otherwise we close the edit delegate.
+        if (!d->installEventFilterOnFocusObjectInsideEditItem())
+            d->closeEditorAndCommit();
+        break;
+    default:
+        break;
     }
 
     return QQuickFlickable::eventFilter(obj, event);

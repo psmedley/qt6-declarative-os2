@@ -7,8 +7,11 @@ add_subdirectory(WithSubDir)
 set(cpp_sources
     ambiguous.h
     birthdayparty.cpp birthdayparty.h
+    collector.h
     convertQJSPrimitiveValueToIntegral.h
     cppbaseclass.h
+    cppobj.h
+    detachedreferences.h
     druggeljug.h
     dummyobjekt.h
     dynamicmeta.h
@@ -19,6 +22,7 @@ set(cpp_sources
     invisible.h
     largeValueType.h
     listprovider.h
+    listsingleton.h
     multiforeign.h
     objectwithmethod.h
     person.cpp person.h
@@ -48,6 +52,7 @@ set(qml_files
     BaseConstraint.qml
     BaseMember.qml
     BindingExpression.qml
+    Categorizer.qml
     CxxTypeFromDir.qml
     CxxTypeFromImplicit.qml
     Cycle1.qml
@@ -59,9 +64,11 @@ set(qml_files
     EditConstraint.qml
     Enums.qml
     Foozle.qml
+    GetOptionalLookupNonVoidableBase.qml
     GetOptionalLookupOnQJSValueNonStrict.qml
     GetOptionalLookupShadowed.qml
     Loopy.qml
+    MyObject.qml
     NotificationItem.qml
     NotificationsUtils.js
     OkType.qml
@@ -106,8 +113,10 @@ set(qml_files
     boolPointerMerge.qml
     boundComponents.qml
     callContextPropertyLookupResult.qml
+    callFactory.qml
     callWithSpread.qml
     childobject.qml
+    collector.qml
     colorAsVariant.qml
     colorString.qml
     compareOriginals.qml
@@ -132,6 +141,7 @@ set(qml_files
     dateConversions.qml
     deadShoeSize.qml
     deadStoreLoop.qml
+    detachedreferences.qml
     dialog.qml
     dialogButtonBox.qml
     dynamicscene.qml
@@ -168,6 +178,7 @@ set(qml_files
     getOptionalLookup.qml
     globals.qml
     idAccess.qml
+    idVsMember.qml
     ignoredFunctionReturn.qml
     immediateQuit.qml
     imports/QmlBench/Globals.qml
@@ -187,6 +198,7 @@ set(qml_files
     invisibleListElementType.qml
     invisibleTypes.qml
     isnan.qml
+    iterateUnknownValue.qml
     iteration.qml
     javaScriptArgument.qml
     jsArrayMethods.qml
@@ -211,6 +223,7 @@ set(qml_files
     mathMinMax.qml
     mathOperations.qml
     mathStaticProperties.qml
+    mergeSideEffects.qml
     mergedObjectRead.qml
     mergedObjectWrite.qml
     methodOnListLookup.qml
@@ -236,6 +249,7 @@ set(qml_files
     objectInVar.qml
     objectLookupOnListElement.qml
     objectWithStringListMethod.qml
+    oldEnum.qml
     optionalComparison.qml
     outOfBounds.qml
     overriddenMember.qml
@@ -262,6 +276,7 @@ set(qml_files
     script.js
     script.mjs
     sequenceToIterable.qml
+    sequenceToIterable2.qml
     setLookupConversion.qml
     setLookupOriginalScope.qml
     shadowedAsCasts.qml
